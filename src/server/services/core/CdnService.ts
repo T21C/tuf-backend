@@ -786,12 +786,17 @@ class CdnService {
         }
     }
 
-    async getBulkLevelMetadata(levels: Level[]): Promise<{fileId: string, metadata: any}[]> {
+    async getBulkLevelMetadata(
+        levels: Level[],
+        opts?: { timeoutMs?: number }
+    ): Promise<{fileId: string, metadata: any}[]> {
         try {
             const fileIds = levels.map(level => level.fileId ?? null);
-            const response = await this.client.post('/levels/bulk-metadata', {
-                fileIds
-            });
+            const response = await this.client.post(
+                '/levels/bulk-metadata',
+                { fileIds },
+                opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined
+            );
 
             return response.data;
         } catch (error) {

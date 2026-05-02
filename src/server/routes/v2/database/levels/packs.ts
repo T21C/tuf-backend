@@ -44,6 +44,7 @@ const MAX_ITEMS_PER_PACK = 1000;
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
 const CDN_METADATA_BATCH_SIZE = 100; // Batch CDN metadata requests to prevent OOM
+const PACK_CDN_METADATA_BATCH_TIMEOUT_MS = 15_000;
 
 // Helper function to check if user can view pack
 const canViewPack = (pack: LevelPack, user: any): boolean => {
@@ -503,6 +504,131 @@ router.get(
   }
 );
 
+// GET /packs/:id/cdnData - CDN zip sizes/filenames for pack levels (detached from GET pack body)
+router.get(
+  '/:id/cdnData',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getPackCdnData',
+    summary: 'Get pack CDN metadata',
+    description: 'Returns per-level CDN zip size and original filename for download estimates. Cached separately from the pack tree.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'CDN metadata list' }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  Cache({
+    ttl: 60,
+    varyByUser: true,
+    tags: (req) => [`pack:${req.params.id}:cdn`]
+  }),
+  async (req: Request, res: Response) => {
+  try {
+    const param = req.params.id;
+    const resolvedPackId = await resolvePackId(param);
+    if (!resolvedPackId) {
+      return res.status(404).json({ error: 'Pack not found' });
+    }
+
+    const pack = await LevelPack.findByPk(resolvedPackId, {
+      include: [{
+        model: LevelPackItem,
+        as: 'packItems',
+        attributes: ['levelId', 'type'],
+        required: false
+      }]
+    });
+
+    if (!pack || !canViewPack(pack, req.user)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const levelIds = [...new Set(
+      (pack.packItems ?? [])
+        .filter(item => item.type === 'level' && item.levelId !== null)
+        .map(item => item.levelId!)
+    )];
+
+    if (levelIds.length === 0) {
+      return res.json({ items: [] });
+    }
+
+    const levels = await Level.findAll({
+      where: {
+        id: { [Op.in]: levelIds },
+        isDeleted: false,
+        isHidden: false
+      },
+      attributes: ['id', 'fileId']
+    });
+
+    const levelMetadataByFileId = new Map<string, {
+      fileId: string;
+      size?: number;
+      originalFilename?: string;
+    }>();
+
+    for (let i = 0; i < levels.length; i += CDN_METADATA_BATCH_SIZE) {
+      const batch = levels.slice(i, i + CDN_METADATA_BATCH_SIZE);
+      try {
+        const batchMetadata = await cdnService.getBulkLevelMetadata(batch, {
+          timeoutMs: PACK_CDN_METADATA_BATCH_TIMEOUT_MS
+        });
+        for (const metadataResponse of batchMetadata) {
+          if (metadataResponse?.fileId && metadataResponse?.metadata) {
+            levelMetadataByFileId.set(metadataResponse.fileId, {
+              fileId: metadataResponse.fileId,
+              size: metadataResponse.metadata.originalZip?.size,
+              originalFilename: metadataResponse.metadata.originalZip?.originalFilename
+                || metadataResponse.metadata.originalZip?.name
+            });
+          }
+        }
+      } catch (error) {
+        logger.warn('Pack cdnData batch failed, skipping batch', {
+          error: error instanceof Error ? error.message : String(error),
+          batchStart: i,
+          batchSize: batch.length,
+          packId: resolvedPackId
+        });
+      }
+    }
+
+    const items: Array<{
+      levelId: number;
+      fileId: string | null;
+      size: number | null;
+      originalFilename: string | null;
+    }> = [];
+
+    for (const level of levels) {
+      const fid = level.fileId;
+      if (!fid) {
+        items.push({
+          levelId: level.id,
+          fileId: null,
+          size: null,
+          originalFilename: null
+        });
+        continue;
+      }
+      const meta = levelMetadataByFileId.get(fid);
+      items.push({
+        levelId: level.id,
+        fileId: fid,
+        size: meta?.size ?? null,
+        originalFilename: meta?.originalFilename ?? null
+      });
+    }
+
+    return res.json({ items });
+  } catch (error) {
+    logger.error('Error fetching pack CDN data:', error);
+    return res.status(500).json({ error: 'Failed to fetch pack CDN data' });
+  }
+  }
+);
+
 // GET /packs/:id - Get specific pack with its content tree
 router.get(
   '/:id',
@@ -561,7 +687,7 @@ router.get(
     // Get unique level IDs
     const levelIds = [...new Set(levelItems.map(item => item.levelId!).filter(id => id !== null))];
 
-    // Fetch all related data concurrently (excluding CDN metadata which will be batched)
+    // Fetch all related data concurrently (CDN zip sizes: GET /packs/:id/cdnData)
     const [curations, levelCredits, fetchedTeams, tags, clearedLevelIds] = await Promise.all([
       // Fetch curations with their types
       levelIds.length > 0 ? Curation.findAll({
@@ -633,26 +759,6 @@ router.get(
       }).then(passes => passes.map(pass => pass.levelId)) : Promise.resolve([])
     ]);
 
-    // Batch CDN metadata requests to prevent OOM
-    // Process in chunks to avoid loading all metadata into memory at once
-    let metadataResponses: Array<{fileId: string, metadata: any}> = [];
-    if (fetchedLevels.length > 0) {
-      for (let i = 0; i < fetchedLevels.length; i += CDN_METADATA_BATCH_SIZE) {
-        const batch = fetchedLevels.slice(i, i + CDN_METADATA_BATCH_SIZE);
-        try {
-          const batchMetadata = await cdnService.getBulkLevelMetadata(batch);
-          metadataResponses.push(...batchMetadata);
-        } catch (error) {
-          logger.error('Error fetching CDN metadata batch:', {
-            error: error instanceof Error ? error.message : String(error),
-            batchStart: i,
-            batchSize: batch.length,
-            packId: pack?.id
-          });
-          // Continue with other batches even if one fails
-        }
-      }
-    }
     // Build maps for efficient lookup
     const levelsMap = new Map(fetchedLevels.map(level => [level.id, level]));
     const curationsByLevelId = new Map<number, Curation[]>();
@@ -719,76 +825,16 @@ router.get(
       };
     }).filter(item => item !== null);
 
-    // Build map of metadata by fileId for efficient lookup
-    const levelMetadataByFileId = new Map<string, {
-      fileId: string;
-      size?: number;
-      originalFilename?: string;
-    }>();
-
-    try {
-      // Map metadata responses by fileId since batching may not preserve order
-      for (const metadataResponse of metadataResponses) {
-        if (metadataResponse?.fileId && metadataResponse?.metadata) {
-          levelMetadataByFileId.set(metadataResponse.fileId, {
-            fileId: metadataResponse.fileId,
-            size: metadataResponse.metadata.originalZip?.size,
-            originalFilename: metadataResponse.metadata.originalZip?.originalFilename || metadataResponse.metadata.originalZip?.name
-          });
-        }
-      }
-    } catch (error) {
-      logger.error('Error processing CDN metadata for pack levels:', {
-        error: error instanceof Error ? error.message : String(error),
-        packId: pack?.id
-      });
-    }
-
-    // Create map by levelId for easier lookup
-    const levelMetadataByLevelId = new Map<number, {
-      fileId: string;
-      size?: number;
-      originalFilename?: string;
-    }>();
-
-    // Match metadata to levels by indexed fileId column
-    for (const level of fetchedLevels) {
-      if (level.id && level.fileId) {
-        const metadata = levelMetadataByFileId.get(level.fileId);
-        if (metadata) {
-          levelMetadataByLevelId.set(level.id, metadata);
-        }
-      }
-    }
-
     const packData: any = pack!.toJSON();
 
     // Convert folders to plain objects for consistency
     const foldersPlain = folders.map(folder => folder.toJSON());
     let items = [...foldersPlain, ...levels];
 
-    items = items.map((item: any) => {
-      const baseItem = {
-        ...item,
-        isCleared: clearedLevelIds.includes(item.levelId || 0)
-      };
-
-      if (baseItem.type === 'level' && baseItem.levelId) {
-        const metadata = levelMetadataByLevelId.get(baseItem.levelId);
-        if (metadata) {
-          baseItem.downloadSizeBytes = metadata.size ?? null;
-          baseItem.cdnDownload = {
-            fileId: metadata.fileId,
-            size: metadata.size ?? null,
-            originalFilename: metadata.originalFilename || null
-          };
-        } else {
-          baseItem.downloadSizeBytes = null;
-        }
-      }
-
-      return baseItem;
-    });
+    items = items.map((item: any) => ({
+      ...item,
+      isCleared: clearedLevelIds.includes(item.levelId || 0)
+    }));
 
 
 
@@ -2496,8 +2542,10 @@ const invalidatePackCacheById = async (packId: number): Promise<void> => {
 
     const tags: string[] = ['packs:all'];
     tags.push(`pack:${packId}`);
+    tags.push(`pack:${packId}:cdn`);
     if (pack.linkCode) {
       tags.push(`pack:${pack.linkCode}`);
+      tags.push(`pack:${pack.linkCode}:cdn`);
     }
 
     await CacheInvalidation.invalidateTags(tags);
