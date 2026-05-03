@@ -121,6 +121,34 @@ export function serializeCurationJson(curation: Curation): Record<string, unknow
   };
 }
 
+/**
+ * Same wire shape as {@link serializeCurationJson} for level documents loaded from Elasticsearch
+ * (curation rows omit `types` in the index; pass hydrated `CurationType` rows from DB).
+ */
+export function serializeCurationJsonFromEsShape(
+  curationPlain: Record<string, unknown>,
+  types: CurationType[]
+): Record<string, unknown> {
+  const curationForPick = { ...curationPlain, types } as unknown as Curation;
+  const typesSorted = sortCurationTypesByOrder(types);
+  const typesJson = typesSorted.map((t) => ({
+    ...t.toJSON(),
+    abilities: (t.abilities as bigint).toString(),
+  }));
+  const theme = pickThemeTypeForCuration(curationForPick);
+  const { typeIds: _tid, ...rest } = curationPlain;
+  return {
+    ...rest,
+    types: typesJson,
+    type: theme
+      ? {
+          ...theme.toJSON(),
+          abilities: (theme.abilities as bigint).toString(),
+        }
+      : null,
+  };
+}
+
 export function enrichLevelCurationAliases(level: Record<string, unknown> | null | undefined): void {
   if (!level) return;
   const curations = level.curations;

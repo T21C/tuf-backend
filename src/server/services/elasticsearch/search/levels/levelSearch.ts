@@ -473,7 +473,7 @@ async function searchLevelsWithRandomSort(
   }
 }
 
-function convertLevelSearchHit(source: Record<string, any>, diffs: Difficulty[]): any {
+export function convertLevelSearchHit(source: Record<string, any>, diffs: Difficulty[]): any {
   return {
     ...source,
 

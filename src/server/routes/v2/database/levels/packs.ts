@@ -4,7 +4,7 @@ import { Auth } from '@/server/middleware/auth.js';
 import { LevelPack, LevelPackItem, PackFavorite, LevelPackViewModes } from '@/models/packs/index.js';
 import Level from '@/models/levels/Level.js';
 import { User } from '@/models/index.js';
-import { Op, QueryTypes } from 'sequelize';
+import { Op } from 'sequelize';
 import sequelize from '@/config/db.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
@@ -20,7 +20,6 @@ import Pass from '@/models/passes/Pass.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
-import LevelTag from '@/models/levels/LevelTag.js';
 import Creator from '@/models/credits/Creator.js';
 import Team from '@/models/credits/Team.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
@@ -30,11 +29,8 @@ import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import { incrementLevelDownloadCountsForFileIds } from '@/misc/utils/data/levelDownloadCount.js';
 import { stringIdParamSpec } from '@/server/schemas/common.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
-import {
-  enrichLevelCurationAliases,
-  serializeCurationJson,
-  sortCurationsByTypeOrder,
-} from '@/misc/utils/data/curationOrdering.js';
+import { enrichLevelCurationAliases } from '@/misc/utils/data/curationOrdering.js';
+import { fetchPackLevelsFromElasticsearch } from '@/server/services/elasticsearch/search/levels/fetchPackLevelsFromElasticsearch.js';
 
 const router: Router = Router();
 
@@ -680,150 +676,32 @@ router.get(
     // Separate items by type
     const folders = allItems.filter(item => item.type === 'folder');
     const levelItems = allItems.filter(item => item.type === 'level' && item.levelId !== null);
-    const fetchedLevels = await Level.findAll({
-      where: { id: { [Op.in]: levelItems.map(item => item.levelId!) } }
-    });
+    const levelIds = [...new Set(levelItems.map((item) => item.levelId!).filter((id) => id !== null))];
 
-    // Get unique level IDs
-    const levelIds = [...new Set(levelItems.map(item => item.levelId!).filter(id => id !== null))];
-
-    // Fetch all related data concurrently (CDN zip sizes: GET /packs/:id/cdnData)
-    const [curations, levelCredits, fetchedTeams, tags, clearedLevelIds] = await Promise.all([
-      // Fetch curations with their types
-      levelIds.length > 0 ? Curation.findAll({
-        where: { levelId: { [Op.in]: levelIds } },
-        include: [{
-          model: CurationType,
-          as: 'types',
-          required: false,
-          through: { attributes: [] },
-        }]
-      }) : Promise.resolve([]),
-      // Fetch level credits with creators
-      levelIds.length > 0 ? LevelCredit.findAll({
-        where: { levelId: { [Op.in]: levelIds } },
-        include: [{
-          model: Creator,
-          as: 'creator',
-          required: false
-        }]
-      }) : Promise.resolve([]),
-      // Fetch teams if needed
-      fetchedLevels.length > 0 ? Team.findAll({
-        where: { id: { [Op.in]: fetchedLevels.map(level => level.teamId).filter(id => id !== null) } }
-      }) : Promise.resolve([]),
-      // Fetch tags for all levels - FIXED: Use parameterized query to prevent SQL injection
-      levelIds.length > 0 ? (async () => {
-        // Use parameterized query to prevent SQL injection
-        const placeholders = levelIds.map(() => '?').join(',');
-        const assignments = await sequelize.query(
-          `SELECT levelId, tagId FROM level_tag_assignments WHERE levelId IN (${placeholders})`,
-          {
-            replacements: levelIds,
-            type: QueryTypes.SELECT
-          }
-        ) as Array<{ levelId: number; tagId: number }>;
-
-        if (assignments.length === 0) {
-          return new Map<number, LevelTag[]>();
-        }
-
-        // Get unique tag IDs
-        const tagIds = [...new Set(assignments.map(a => a.tagId))];
-
-        // Fetch all tags
-        const allTags = await LevelTag.findAll({
-          where: { id: { [Op.in]: tagIds } },
-          order: [['name', 'ASC']]
-        });
-
-        // Map tags to levels
-        const tagsByLevelId = new Map<number, LevelTag[]>();
-        const tagsById = new Map(allTags.map((tag: LevelTag) => [tag.id, tag]));
-
-        assignments.forEach(assignment => {
-          const tag = tagsById.get(assignment.tagId);
-          if (tag) {
-            if (!tagsByLevelId.has(assignment.levelId)) {
-              tagsByLevelId.set(assignment.levelId, []);
-            }
-            tagsByLevelId.get(assignment.levelId)!.push(tag);
-          }
-        });
-
-        return tagsByLevelId;
-      })() : Promise.resolve(new Map<number, LevelTag[]>()),
-      req.user ? Pass.findAll({
-        where: { playerId: req.user.playerId, isDeleted: false },
-        attributes: ['levelId']
-      }).then(passes => passes.map(pass => pass.levelId)) : Promise.resolve([])
+    const [esLevelsById, clearedLevelIds] = await Promise.all([
+      levelIds.length > 0
+        ? fetchPackLevelsFromElasticsearch(levelIds)
+        : Promise.resolve(new Map<number, Record<string, unknown>>()),
+      req.user
+        ? Pass.findAll({
+            where: { playerId: req.user.playerId, isDeleted: false },
+            attributes: ['levelId'],
+          }).then((passes) => passes.map((pass) => pass.levelId))
+        : Promise.resolve([] as number[]),
     ]);
 
-    // Build maps for efficient lookup
-    const levelsMap = new Map(fetchedLevels.map(level => [level.id, level]));
-    const curationsByLevelId = new Map<number, Curation[]>();
-    for (const c of curations) {
-      if (!curationsByLevelId.has(c.levelId)) {
-        curationsByLevelId.set(c.levelId, []);
-      }
-      curationsByLevelId.get(c.levelId)!.push(c);
-    }
-    const levelCreditsMap = new Map<number, LevelCredit[]>();
-    const teamsMap = new Map(fetchedTeams.map(team => [team.id, team]));
-
-    // Group level credits by levelId
-    levelCredits.forEach(credit => {
-      if (!levelCreditsMap.has(credit.levelId)) {
-        levelCreditsMap.set(credit.levelId, []);
-      }
-      levelCreditsMap.get(credit.levelId)!.push(credit);
-    });
-
-    // Attach related data to level items
-    const levels = levelItems.map(item => {
-      const level = levelsMap.get(item.levelId!);
-      if (!level) {
-        return null; // Skip items with deleted/hidden levels
-      }
-
-      const levelData: any = level.toJSON();
-
-      const list = sortCurationsByTypeOrder(curationsByLevelId.get(level.id) || []);
-      if (list.length > 0) {
-        levelData.curations = list.map((c) => serializeCurationJson(c));
-        enrichLevelCurationAliases(levelData);
-      } else {
-        levelData.curations = [];
-        levelData.curation = null;
-      }
-
-      // Attach level credits if exist
-      const credits = levelCreditsMap.get(level.id);
-      if (credits) {
-        levelData.levelCredits = credits.map(credit => credit.toJSON());
-      }
-
-      // Attach team if exists
-      if (level.teamId) {
-        const team = teamsMap.get(level.teamId);
-        if (team) {
-          levelData.teamObject = team.toJSON();
+    const levels = levelItems
+      .map((item) => {
+        const levelData = esLevelsById.get(item.levelId!);
+        if (!levelData) {
+          return null;
         }
-      }
-
-      // Attach tags if exist
-      const levelTags = tags.get(level.id);
-      if (levelTags) {
-        levelData.tags = levelTags.map(tag => tag.toJSON());
-      } else {
-        levelData.tags = [];
-      }
-
-      return {
-        ...item.toJSON(),
-        referencedLevel: levelData
-      };
-    }).filter(item => item !== null);
+        return {
+          ...item.toJSON(),
+          referencedLevel: levelData,
+        };
+      })
+      .filter((item) => item !== null);
 
     const packData: any = pack!.toJSON();
 
