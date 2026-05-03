@@ -70,30 +70,58 @@ export function resolveSongFileForTransform(
     return fallback;
 }
 
+/** `songFiles` / legacy maps are records; `allLevelFiles` may be a record or a plain array. */
+function recordOrArrayValues<T>(v: unknown): T[] {
+    if (v == null) {
+        return [];
+    }
+    if (Array.isArray(v)) {
+        return v as T[];
+    }
+    if (typeof v === 'object') {
+        return Object.values(v as Record<string, T>);
+    }
+    return [];
+}
+
 export function extractLevelMetadata(metadata: any) {
+    const songFileRows = recordOrArrayValues<{
+        name?: string;
+        size?: number;
+        type?: string;
+    }>(metadata?.songFiles);
+
+    const levelFileRows = recordOrArrayValues<{
+        name?: string;
+        size?: number;
+        songFilename?: string;
+        hasYouTubeStream?: boolean;
+        oversizedUnparsed?: boolean;
+    }>(metadata?.allLevelFiles);
+
+    const oz = metadata?.originalZip;
+
     return {
-        songFiles: Object.values(metadata.songFiles).map((songFile: any) => {
-            return {
-                name: songFile.name,
-                size: songFile.size,
-                type: songFile.type
-            };
-        }),
-        allLevelFiles: Object.values(metadata.allLevelFiles).map((levelFile: any) => {
-            return {
-                name: levelFile.name,
-                size: levelFile.size,
-                songFilename: levelFile.songFilename,
-                hasYouTubeStream: levelFile.hasYouTubeStream,
-                oversizedUnparsed: !!levelFile.oversizedUnparsed
-            };
-        }),
-        originalZip: {
-            name: metadata.originalZip.name,
-            size: metadata.originalZip.size,
-            originalFilename: metadata.originalZip.originalFilename
-        },
-        transformUnavailable: !!metadata.targetLevelOversized
+        songFiles: songFileRows.map((songFile) => ({
+            name: songFile.name,
+            size: songFile.size,
+            type: songFile.type,
+        })),
+        allLevelFiles: levelFileRows.map((levelFile) => ({
+            name: levelFile.name,
+            size: levelFile.size,
+            songFilename: levelFile.songFilename,
+            hasYouTubeStream: levelFile.hasYouTubeStream,
+            oversizedUnparsed: !!levelFile.oversizedUnparsed,
+        })),
+        originalZip: oz
+            ? {
+                  name: oz.name,
+                  size: oz.size,
+                  originalFilename: oz.originalFilename,
+              }
+            : null,
+        transformUnavailable: !!metadata?.targetLevelOversized,
     };
 }
 
