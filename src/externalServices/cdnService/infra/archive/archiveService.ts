@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { spawn } from 'child_process';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { decodeMultipartFilename } from '@/misc/utils/multipartFilename.js';
+import { LEVEL_PACK_PAYLOAD_SEVEN_ZIP_INCLUDE_GLOBS } from '@/externalServices/cdnService/constants/levelPackAudio.js';
 
 /**
  * Archive service: a single chokepoint for read/list/extract/create operations
@@ -554,57 +555,6 @@ export async function extractAll(archivePath: string, destDir: string, signal?: 
     }
 }
 
-/**
- * 7-Zip `-i!` include filters for level-pack ingestion (`.adofai` + common audio).
- * Paired uppercase globs help on case-sensitive filesystems.
- */
-const LEVEL_PACK_INCLUDE_GLOBS: string[] = [
-    '-i!*.adofai',
-    '-i!*.ADOFAI',
-    '-i!*.mp3',
-    '-i!*.MP3',
-    '-i!*.wav',
-    '-i!*.WAV',
-    '-i!*.ogg',
-    '-i!*.OGG',
-    '-i!*.oga',
-    '-i!*.OGA',
-    '-i!*.opus',
-    '-i!*.OPUS',
-    '-i!*.flac',
-    '-i!*.FLAC',
-    '-i!*.m4a',
-    '-i!*.M4A',
-    '-i!*.aac',
-    '-i!*.AAC',
-    '-i!*.aiff',
-    '-i!*.AIFF',
-    '-i!*.aif',
-    '-i!*.AIF',
-    '-i!*.caf',
-    '-i!*.CAF',
-    '-i!*.wma',
-    '-i!*.WMA',
-    '-i!*.webm',
-    '-i!*.WEBM',
-    '-i!*.mka',
-    '-i!*.MKA',
-    '-i!*.ac3',
-    '-i!*.AC3',
-    '-i!*.eac3',
-    '-i!*.EAC3',
-    '-i!*.mp2',
-    '-i!*.MP2',
-    '-i!*.amr',
-    '-i!*.AMR',
-    '-i!*.ape',
-    '-i!*.APE',
-    '-i!*.wv',
-    '-i!*.WV',
-    '-i!*.tta',
-    '-i!*.TTA'
-];
-
 /** True if `dir` contains at least one regular file somewhere beneath it. */
 async function directoryHasAnyFile(dir: string): Promise<boolean> {
     const stack = [dir];
@@ -658,7 +608,7 @@ export async function extractLevelPackPayload(
         `-o${extractRoot}`,
         '-y',
         '-r',
-        ...LEVEL_PACK_INCLUDE_GLOBS,
+        ...LEVEL_PACK_PAYLOAD_SEVEN_ZIP_INCLUDE_GLOBS,
         ...utf8ZipNameArgsForExtract(archivePath),
         '-bd',
         '-bb0'

@@ -23,6 +23,7 @@ import {
 import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
 import { normalizeRelativePath, toCopyRelativePath } from '../domain/archive/ingestPaths.js';
 import { listArchiveEntriesForIngest } from '../domain/archive/ingestArchiveEntries.js';
+import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '../constants/levelPackAudio.js';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -281,13 +282,10 @@ async function processArchiveFileInWorkspace(
         // Second pass: collect all song files
         await sendProgress('processing', 40, 'Processing song files');
         let totalSongSize = 0;
-        const audioExtensions = [
-            '.mp3', '.wav', '.ogg', '.oga', '.opus', '.flac', '.m4a', '.aac',
-            '.aiff', '.aif', '.caf', '.wma', '.webm', '.mka', '.ac3', '.eac3',
-            '.mp2', '.amr', '.ape', '.wv', '.tta'
-        ];
-        const songEntries = archiveEntries.filter(entry =>
-            !entry.isDirectory && audioExtensions.includes(path.extname(entry.relativePath).toLowerCase())
+        const songEntries = archiveEntries.filter(
+            (entry) =>
+                !entry.isDirectory &&
+                LEVEL_SUPPORTED_AUDIO_EXTENSION_SET.has(path.extname(entry.relativePath).toLowerCase())
         );
         let processedSongs = 0;
         for (const entry of songEntries) {

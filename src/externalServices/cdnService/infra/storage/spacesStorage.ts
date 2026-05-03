@@ -1,6 +1,7 @@
 import AWS from 'aws-sdk';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { CDN_IMMUTABLE_CACHE_CONTROL } from '@/externalServices/cdnService/config.js';
+import { LEVEL_SUPPORTED_AUDIO_CONTENT_TYPE_BY_EXT } from '@/externalServices/cdnService/constants/levelPackAudio.js';
 import { requireCdnR2StorageConfig } from './r2Client.js';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -625,27 +626,7 @@ export class CdnSpacesStorage {
         const contentTypes: Record<string, string> = {
             '.adofai': 'application/json',
             '.zip': 'application/zip',
-            '.mp3': 'audio/mpeg',
-            '.wav': 'audio/wav',
-            '.ogg': 'audio/ogg',
-            '.oga': 'audio/ogg',
-            '.opus': 'audio/opus',
-            '.flac': 'audio/flac',
-            '.m4a': 'audio/mp4',
-            '.aac': 'audio/aac',
-            '.aiff': 'audio/aiff',
-            '.aif': 'audio/aiff',
-            '.caf': 'audio/x-caf',
-            '.wma': 'audio/x-ms-wma',
-            '.webm': 'audio/webm',
-            '.mka': 'audio/x-matroska',
-            '.ac3': 'audio/ac3',
-            '.eac3': 'audio/eac3',
-            '.mp2': 'audio/mpeg',
-            '.amr': 'audio/amr',
-            '.ape': 'audio/x-ape',
-            '.wv': 'audio/wavpack',
-            '.tta': 'audio/tta',
+            ...LEVEL_SUPPORTED_AUDIO_CONTENT_TYPE_BY_EXT,
             '.jpg': 'image/jpeg',
             '.jpeg': 'image/jpeg',
             '.png': 'image/png',

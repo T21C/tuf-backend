@@ -14,6 +14,7 @@ import {
 } from '@/externalServices/cdnService/infra/workspaces/cdnSpacesTemp.js';
 import LevelDict from 'adofai-lib';
 import { levelCacheService } from '@/externalServices/cdnService/services/levelCacheService.js';
+import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '@/externalServices/cdnService/constants/levelPackAudio.js';
 import { encodeContentDisposition, resolveSongFileForTransform } from './shared/routeUtils.js';
 
 const router = Router();
@@ -237,17 +238,16 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                         );
 
                         if (!selectedSongFile) {
-                            // If not found, search for any .ogg or .wav file
-                            logger.debug('Song file not found by name, searching for .ogg or .wav files', {
+                            // If not found, search for any file with a known level-pack audio extension
+                            logger.debug('Song file not found by name, searching for usable audio extensions', {
                                 fileId,
                                 requestedSongFilename: songFilename,
                                 availableSongFiles: Object.keys(metadata.songFiles)
                             });
 
-                            const audioExtensions = ['.ogg', '.wav'];
                             for (const [, songFile] of Object.entries(metadata.songFiles)) {
                                 const fileExtension = path.extname(songFile.name).toLowerCase();
-                                if (audioExtensions.includes(fileExtension)) {
+                                if (LEVEL_SUPPORTED_AUDIO_EXTENSION_SET.has(fileExtension)) {
                                     selectedSongFile = songFile;
                                     logger.debug('Found fallback song file', {
                                         fileId,
@@ -259,7 +259,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                             }
 
                             if (!selectedSongFile) {
-                                logger.debug('No song file found (neither specified nor .ogg/.wav fallback)', {
+                                logger.debug('No song file found (neither specified nor audio-extension fallback)', {
                                     fileId,
                                     requestedSongFilename: songFilename,
                                     availableSongFiles: Object.keys(metadata.songFiles)

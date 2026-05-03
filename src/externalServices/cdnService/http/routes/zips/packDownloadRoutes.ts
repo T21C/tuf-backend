@@ -8,6 +8,7 @@ import { Request, Response, Router } from 'express';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import crypto from 'crypto';
 import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
+import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '@/externalServices/cdnService/constants/levelPackAudio.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -27,11 +28,6 @@ const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 20 * 1024 * 1024 * 1024; // 20GB
 const MAX_PATH_LENGTH = 200;
 /** Minimum characters kept when trimming a folder name or file stem (avoids single-character segments). */
 const MIN_TRIMMED_SEGMENT_LEN = 7;
-/** Audio extensions eligible for path trimming (same set as zip payload extraction). */
-const TRIMMABLE_AUDIO_EXTENSIONS = new Set([
-    '.mp3', '.wav', '.ogg', '.oga', '.opus', '.flac', '.m4a', '.aac'
-]);
-
 type PackDownloadNode = {
     type: 'folder' | 'level';
     name: string;
@@ -990,7 +986,7 @@ async function collectTrimmablePayloadFiles(dir: string, root: string): Promise<
         }
         const extLower = path.extname(e.name).toLowerCase();
         const isAdofai = extLower === '.adofai';
-        const isAudio = TRIMMABLE_AUDIO_EXTENSIONS.has(extLower);
+        const isAudio = LEVEL_SUPPORTED_AUDIO_EXTENSION_SET.has(extLower);
         if (!isAdofai && !isAudio) {
             continue;
         }

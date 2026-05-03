@@ -11,6 +11,7 @@ import { scanOversizedLevelFile } from './oversizedLevelScan.js';
 import { resolveAudioRelativePath } from './oversizedSongPick.js';
 import { readAudioDurationMs } from './audioDuration.js';
 import { computeLevelCacheMetadataSignature } from '../levelCacheSignature.js';
+import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '../../../constants/levelPackAudio.js';
 import type { OversizedMinimalCache, OversizedZipMetadata } from './levelCacheOversizedTypes.js';
 
 export async function performOversizedCacheBackfill(params: {
@@ -63,13 +64,8 @@ export async function performOversizedCacheBackfill(params: {
         const basics = await scanOversizedLevelFile(extractedLevelPath);
 
         // Resolve audio entry from archive entries (don’t trust songFilename encoding).
-        const audioExts = new Set([
-            '.mp3', '.wav', '.ogg', '.oga', '.opus', '.flac', '.m4a', '.aac',
-            '.aiff', '.aif', '.caf', '.wma', '.webm', '.mka', '.ac3', '.eac3',
-            '.mp2', '.amr', '.ape', '.wv', '.tta'
-        ]);
         const audioCandidates = entries
-            .filter(e => !e.isDirectory && audioExts.has(path.extname(e.relativePath).toLowerCase()))
+            .filter(e => !e.isDirectory && LEVEL_SUPPORTED_AUDIO_EXTENSION_SET.has(path.extname(e.relativePath).toLowerCase()))
             .map(e => ({ relativePath: e.relativePath }));
 
         const chosenAudioRel = resolveAudioRelativePath({
