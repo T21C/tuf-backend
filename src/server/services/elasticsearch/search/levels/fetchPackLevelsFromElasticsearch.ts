@@ -1,20 +1,12 @@
 import client, { levelIndexName } from '@/config/elasticsearch.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import Difficulty from '@/models/levels/Difficulty.js';
-import CurationType from '@/models/curations/CurationType.js';
-import { Op } from 'sequelize';
-import {
-  enrichLevelCurationAliases,
-  serializeCurationJsonFromEsShape,
-  sortCurationsByTypeOrder,
-} from '@/misc/utils/data/curationOrdering.js';
-import { convertLevelSearchHit } from './levelSearch.js';
+import { buildPackReferencedLevelFromEsSource } from './packReferencedLevelSerialize.js';
 
 const MGET_CHUNK = 500;
 
 /**
  * Load many levels for pack tree/detail from Elasticsearch (denormalized doc) instead of
- * wide MySQL joins. Hydrates curation `types` from {@link CurationType} using `typeIds` stored in the index.
+ * wide MySQL joins. Returns a minimal per-level payload for pack UI (see {@link buildPackReferencedLevelFromEsSource}).
  */
 export async function fetchPackLevelsFromElasticsearch(
   levelIds: number[]
@@ -49,73 +41,8 @@ export async function fetchPackLevelsFromElasticsearch(
     }
   }
 
-  const diffIds = [
-    ...new Set(
-      [...sourcesById.values()]
-        .map((s) => s.diffId)
-        .filter((d): d is number => typeof d === 'number' && Number.isFinite(d))
-    ),
-  ];
-  const diffs =
-    diffIds.length === 0
-      ? []
-      : await Difficulty.findAll({
-          where: { id: { [Op.in]: diffIds } },
-        });
-
-  const allTypeIds = new Set<number>();
-  for (const src of sourcesById.values()) {
-    const curations = src.curations;
-    if (!Array.isArray(curations)) {
-      continue;
-    }
-    for (const c of curations as Record<string, unknown>[]) {
-      const tids = c.typeIds;
-      if (!Array.isArray(tids)) {
-        continue;
-      }
-      for (const tid of tids) {
-        if (typeof tid === 'number' && Number.isFinite(tid)) {
-          allTypeIds.add(tid);
-        }
-      }
-    }
-  }
-
-  const typesById = new Map<number, InstanceType<typeof CurationType>>();
-  if (allTypeIds.size > 0) {
-    const rows = await CurationType.findAll({
-      where: { id: { [Op.in]: [...allTypeIds] } },
-    });
-    for (const row of rows) {
-      typesById.set(row.id, row);
-    }
-  }
-
   for (const [id, source] of sourcesById) {
-    let hit = convertLevelSearchHit(source, diffs) as Record<string, unknown>;
-    const curationsRaw = hit.curations;
-    if (Array.isArray(curationsRaw) && curationsRaw.length > 0) {
-      const hydratedForSort = (curationsRaw as Record<string, unknown>[]).map((c) => {
-        const tids = (c.typeIds as number[] | undefined) || [];
-        const types = tids
-          .map((tid) => typesById.get(tid))
-          .filter((t): t is InstanceType<typeof CurationType> => t != null);
-        return { ...c, types };
-      });
-      const sortedHydrated = sortCurationsByTypeOrder(hydratedForSort as Parameters<typeof sortCurationsByTypeOrder>[0]);
-      const serializedCurations = sortedHydrated.map((row) => {
-        const r = row as Record<string, unknown> & { types: InstanceType<typeof CurationType>[] };
-        const { types, ...rest } = r;
-        return serializeCurationJsonFromEsShape(rest, types);
-      });
-      hit = { ...hit, curations: serializedCurations };
-      enrichLevelCurationAliases(hit);
-    } else {
-      hit = { ...hit, curations: [] };
-      enrichLevelCurationAliases(hit);
-    }
-    out.set(id, hit);
+    out.set(id, buildPackReferencedLevelFromEsSource(source));
   }
 
   if (out.size < unique.length) {

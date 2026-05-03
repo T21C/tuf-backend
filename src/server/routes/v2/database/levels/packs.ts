@@ -29,8 +29,8 @@ import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import { incrementLevelDownloadCountsForFileIds } from '@/misc/utils/data/levelDownloadCount.js';
 import { stringIdParamSpec } from '@/server/schemas/common.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
-import { enrichLevelCurationAliases } from '@/misc/utils/data/curationOrdering.js';
 import { fetchPackLevelsFromElasticsearch } from '@/server/services/elasticsearch/search/levels/fetchPackLevelsFromElasticsearch.js';
+import { pruneMysqlReferencedLevelForPack } from '@/server/services/elasticsearch/search/levels/packReferencedLevelSerialize.js';
 
 const router: Router = Router();
 
@@ -640,7 +640,7 @@ router.get(
     responses: { 200: { description: 'Pack details' }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   Cache({
-  ttl: 60*60*24,
+  ttl: process.env.NODE_ENV === 'production' ? 60*60*24 : 5,
   varyByUser: true,
   varyByQuery: ['tree'],
   tags: (req) => [`pack:${req.params.id}`, 'packs:all']
@@ -696,17 +696,39 @@ router.get(
         if (!levelData) {
           return null;
         }
+        const row = item.toJSON() as unknown as Record<string, unknown>;
         return {
-          ...item.toJSON(),
+          id: row.id,
+          type: row.type,
+          parentId: row.parentId,
+          levelId: row.levelId,
+          sortOrder: row.sortOrder,
           referencedLevel: levelData,
         };
       })
       .filter((item) => item !== null);
 
     const packData: any = pack!.toJSON();
+    delete packData.packItems;
+    if (packData.packOwner && typeof packData.packOwner === 'object') {
+      const po = packData.packOwner as Record<string, unknown>;
+      packData.packOwner = {
+        nickname: po.nickname ?? null,
+        username: po.username ?? null,
+        avatarUrl: po.avatarUrl ?? null,
+      };
+    }
 
-    // Convert folders to plain objects for consistency
-    const foldersPlain = folders.map(folder => folder.toJSON());
+    const foldersPlain = folders.map((folder) => {
+      const row = folder.toJSON() as unknown as Record<string, unknown>;
+      return {
+        id: row.id,
+        type: row.type,
+        parentId: row.parentId,
+        name: row.name,
+        sortOrder: row.sortOrder,
+      };
+    });
     let items = [...foldersPlain, ...levels];
 
     items = items.map((item: any) => ({
@@ -1933,9 +1955,10 @@ router.put(
     // Convert Sequelize models to plain objects to avoid circular references
     const plainItems = updatedItems.map(item => item.toJSON());
     for (const item of plainItems) {
-      const ref = (item as { referencedLevel?: Record<string, unknown> }).referencedLevel;
-      if (ref) {
-        enrichLevelCurationAliases(ref);
+      const typed = item as { referencedLevel?: Record<string, unknown> };
+      if (typed.referencedLevel) {
+        typed.referencedLevel =
+          pruneMysqlReferencedLevelForPack(typed.referencedLevel) ?? typed.referencedLevel;
       }
     }
 
