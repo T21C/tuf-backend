@@ -507,7 +507,7 @@ router.get(
   ApiDoc({
     operationId: 'getPackCdnData',
     summary: 'Get pack CDN metadata',
-    description: 'Returns per-level CDN zip size and original filename for download estimates. Cached separately from the pack tree.',
+    description: 'Returns per-level CDN zip size, original filename, and full normalized LEVELZIP metadata (same family as GET /levels/:id/cdnData) for download estimates and target-level selection. Cached separately from the pack tree.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
@@ -562,6 +562,7 @@ router.get(
       fileId: string;
       size?: number;
       originalFilename?: string;
+      metadata: Record<string, unknown>;
     }>();
 
     for (let i = 0; i < levels.length; i += CDN_METADATA_BATCH_SIZE) {
@@ -572,11 +573,14 @@ router.get(
         });
         for (const metadataResponse of batchMetadata) {
           if (metadataResponse?.fileId && metadataResponse?.metadata) {
+            const m = metadataResponse.metadata as {
+              originalZip?: { size?: number; originalFilename?: string; name?: string };
+            };
             levelMetadataByFileId.set(metadataResponse.fileId, {
               fileId: metadataResponse.fileId,
-              size: metadataResponse.metadata.originalZip?.size,
-              originalFilename: metadataResponse.metadata.originalZip?.originalFilename
-                || metadataResponse.metadata.originalZip?.name
+              size: m.originalZip?.size,
+              originalFilename: m.originalZip?.originalFilename || m.originalZip?.name,
+              metadata: metadataResponse.metadata as Record<string, unknown>
             });
           }
         }
@@ -595,6 +599,7 @@ router.get(
       fileId: string | null;
       size: number | null;
       originalFilename: string | null;
+      metadata: Record<string, unknown> | null;
     }> = [];
 
     for (const level of levels) {
@@ -604,7 +609,8 @@ router.get(
           levelId: level.id,
           fileId: null,
           size: null,
-          originalFilename: null
+          originalFilename: null,
+          metadata: null
         });
         continue;
       }
@@ -613,7 +619,8 @@ router.get(
         levelId: level.id,
         fileId: fid,
         size: meta?.size ?? null,
-        originalFilename: meta?.originalFilename ?? null
+        originalFilename: meta?.originalFilename ?? null,
+        metadata: meta?.metadata ?? null
       });
     }
 

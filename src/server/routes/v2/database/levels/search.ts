@@ -308,6 +308,44 @@ router.head(
   }
 });
 
+const CDN_ZIP_FILE_ID_PARAM = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Public-shape LEVELZIP metadata (same as GET /levels/:id/cdnData `metadata`) by CDN file UUID — authenticated proxy for upload tooling. */
+router.get(
+  '/cdn-zip-metadata/:fileId',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getLevelZipCdnMetadataByFileId',
+    summary: 'Get LEVELZIP CDN metadata by file ID',
+    description:
+      'Returns normalized LEVELZIP metadata for a CDN `fileId` (same shape as GET /levels/:id/cdnData metadata). Requires a logged-in user.',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: { fileId: { description: 'CDN LEVELZIP file UUID', schema: { type: 'string', format: 'uuid' } } },
+    responses: { 200: { description: 'Metadata' }, 400: { schema: errorResponseSchema }, 401: { description: 'Unauthorized' }, 404: { description: 'Not found' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const { fileId } = req.params;
+      if (!fileId || !CDN_ZIP_FILE_ID_PARAM.test(fileId)) {
+        return res.status(400).json({ error: 'Invalid file ID' });
+      }
+      const rows = await cdnService.getBulkLevelMetadataByFileIds([fileId], { timeoutMs: 30_000 });
+      const row = Array.isArray(rows) ? rows.find((r) => r?.fileId === fileId) ?? rows[0] : null;
+      if (!row?.metadata) {
+        return res.status(404).json({ error: 'CDN metadata not found' });
+      }
+      return res.json({ fileId: row.fileId, metadata: row.metadata });
+    } catch (error) {
+      logger.error('Error fetching CDN zip metadata by fileId:', error);
+      return res.status(500).json({ error: 'Failed to fetch CDN metadata' });
+    }
+  }
+);
+
 router.get(
   '/:id([0-9]{1,20})',
   Auth.addUserToRequest(),

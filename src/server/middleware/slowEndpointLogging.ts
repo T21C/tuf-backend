@@ -9,6 +9,7 @@ const SLOW_LOG_EXCLUDED_ROUTES = [
   '/v2/webhook/*',
   '/v2/database/levels',
   '/v2/database/levels/*/cdnData',
+  '/v2/database/levels/cdn-zip-metadata/*',
   '/v2/database/levels/packs/*/cdnData',
   '/v2/database/levels/*/upload',
   '/v3/levels/*/upload',

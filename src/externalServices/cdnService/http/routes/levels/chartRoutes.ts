@@ -4,7 +4,7 @@ import CdnFile from '@/models/cdn/CdnFile.js';
 import { levelCacheService } from '@/externalServices/cdnService/services/levelCacheService.js';
 import { parseChartStatsFromCache } from '@/misc/utils/data/chartCacheParse.js';
 import { Op } from 'sequelize';
-import { extractLevelMetadata } from './shared/routeUtils.js';
+import { buildPublicLevelzipCdnMetadata } from './shared/routeUtils.js';
 
 const router = Router();
 
@@ -23,7 +23,7 @@ router.post('/bulk-metadata', async (req: Request, res: Response) => {
             }
             return {
                 fileId: fileId,
-                metadata: extractLevelMetadata(metadata)
+                metadata: buildPublicLevelzipCdnMetadata(metadata)
             };
 
         });

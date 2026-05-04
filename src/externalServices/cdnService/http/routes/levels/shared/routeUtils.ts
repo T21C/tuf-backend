@@ -1,4 +1,5 @@
 import path from 'path';
+import { normalizeLevelzipMetadata } from '@/externalServices/cdnService/domain/metadata/normalizeLevelzipMetadata.js';
 
 export function sanitizeFilename(filename: string): string {
   return filename
@@ -84,44 +85,81 @@ function recordOrArrayValues<T>(v: unknown): T[] {
     return [];
 }
 
-export function extractLevelMetadata(metadata: any) {
-    const songFileRows = recordOrArrayValues<{
-        name?: string;
-        size?: number;
-        type?: string;
-    }>(metadata?.songFiles);
+type RawLevelFileish = {
+    path?: string;
+    size?: number;
+    relativePath?: string;
+};
 
-    const levelFileRows = recordOrArrayValues<{
-        name?: string;
-        size?: number;
-        songFilename?: string;
-        hasYouTubeStream?: boolean;
-        oversizedUnparsed?: boolean;
-    }>(metadata?.allLevelFiles);
+function collectRawLevelFileEntries(raw: Record<string, unknown>): RawLevelFileish[] {
+    const out: RawLevelFileish[] = [];
+    const alf = raw.allLevelFiles;
+    if (Array.isArray(alf)) {
+        for (const item of alf) {
+            if (item && typeof item === 'object') {
+                out.push(item as RawLevelFileish);
+            }
+        }
+    } else if (alf && typeof alf === 'object') {
+        out.push(...Object.values(alf as Record<string, RawLevelFileish>));
+    }
+    const lf = raw.levelFiles;
+    if (lf && typeof lf === 'object' && !Array.isArray(lf)) {
+        out.push(...Object.values(lf as Record<string, RawLevelFileish>));
+    }
+    return out;
+}
 
-    const oz = metadata?.originalZip;
+/** Pick largest level file by `size` when `targetLevel` is not set (matches transform route heuristic). */
+export function deriveLargestLevelFromRaw(raw: Record<string, unknown>): { path: string; relativePath?: string } | null {
+    const entries = collectRawLevelFileEntries(raw).filter(
+        (e) => typeof e.path === 'string' && e.path.length > 0 && typeof e.size === 'number' && !Number.isNaN(e.size)
+    );
+    if (entries.length === 0) {
+        return null;
+    }
+    const largest = entries.reduce((a, b) => (Number(b.size) > Number(a.size) ? b : a));
+    const rel =
+        typeof largest.relativePath === 'string' && largest.relativePath.length > 0
+            ? largest.relativePath
+            : undefined;
+    return { path: largest.path!, relativePath: rel };
+}
 
-    return {
-        songFiles: songFileRows.map((songFile) => ({
-            name: songFile.name,
-            size: songFile.size,
-            type: songFile.type,
-        })),
-        allLevelFiles: levelFileRows.map((levelFile) => ({
-            name: levelFile.name,
-            size: levelFile.size,
-            songFilename: levelFile.songFilename,
-            hasYouTubeStream: levelFile.hasYouTubeStream,
-            oversizedUnparsed: !!levelFile.oversizedUnparsed,
-        })),
-        originalZip: oz
-            ? {
-                  name: oz.name,
-                  size: oz.size,
-                  originalFilename: oz.originalFilename,
-              }
-            : null,
-        transformUnavailable: !!metadata?.targetLevelOversized,
-    };
+/**
+ * Full normalized LEVELZIP metadata for main-API `cdnData` and `POST /levels/bulk-metadata`:
+ * canonical keys from {@link normalizeLevelzipMetadata}, optional derived `targetLevel*`,
+ * and `transformUnavailable` for download UI parity with the legacy trimmed payload.
+ */
+export function buildPublicLevelzipCdnMetadata(metadata: unknown): Record<string, unknown> {
+    const raw =
+        metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+            ? (metadata as Record<string, unknown>)
+            : {};
+
+    const { normalized } = normalizeLevelzipMetadata(metadata);
+    const out: Record<string, unknown> = { ...normalized };
+
+    const hasTarget =
+        (typeof out.targetLevel === 'string' && out.targetLevel.length > 0) ||
+        (typeof out.targetLevelRelativePath === 'string' && out.targetLevelRelativePath.length > 0);
+
+    if (!hasTarget) {
+        const derived = deriveLargestLevelFromRaw(raw);
+        if (derived?.path) {
+            out.targetLevel = derived.path;
+            if (derived.relativePath) {
+                out.targetLevelRelativePath = derived.relativePath;
+            }
+        }
+    }
+
+    out.transformUnavailable = !!raw.targetLevelOversized;
+    return out;
+}
+
+/** @deprecated Use {@link buildPublicLevelzipCdnMetadata}; kept as an alias for the same shape. */
+export function extractLevelMetadata(metadata: any): Record<string, unknown> {
+    return buildPublicLevelzipCdnMetadata(metadata);
 }
 

@@ -790,11 +790,23 @@ class CdnService {
         levels: Level[],
         opts?: { timeoutMs?: number }
     ): Promise<{fileId: string, metadata: any}[]> {
+        const fileIds = levels.map((level) => level.fileId ?? null).filter((id): id is string => !!id);
+        return this.getBulkLevelMetadataByFileIds(fileIds, opts);
+    }
+
+    /** Same payload as {@link getBulkLevelMetadata} without requiring `Level` rows (e.g. upload flows). */
+    async getBulkLevelMetadataByFileIds(
+        fileIds: string[],
+        opts?: { timeoutMs?: number }
+    ): Promise<{ fileId: string; metadata: any }[]> {
         try {
-            const fileIds = levels.map(level => level.fileId ?? null);
+            const filtered = fileIds.filter((id) => typeof id === 'string' && id.length > 0);
+            if (filtered.length === 0) {
+                return [];
+            }
             const response = await this.client.post(
                 '/levels/bulk-metadata',
-                { fileIds },
+                { fileIds: filtered },
                 opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined
             );
 
@@ -802,11 +814,11 @@ class CdnService {
         } catch (error) {
             this.handleCdnError(
                 error,
-                'get bulk level metadata from CDN, levels: ' + levels.map(level => level.id).join(',') + ' ',
+                'get bulk level metadata from CDN, fileIds: ' + fileIds.join(',') + ' ',
                 'Failed to get bulk level metadata',
                 'GET_BULK_LEVEL_METADATA_ERROR',
                 [],
-                { levels: levels.map(level => level.id).join(',') }
+                { fileIds: fileIds.join(',') }
             );
         }
     }
