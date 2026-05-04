@@ -7,6 +7,6 @@ import type { ProbeResult } from './types.js';
  * `{ ok: true, service: 'cdc' }` synchronously.
  */
 export function makeCdcProbe(baseUrl: string): (timeoutMs: number) => Promise<ProbeResult> {
-  const url = `${baseUrl.replace(/\/$/, '')}/health`;
+  const url = baseUrl.replace(/\/$/, '');
   return (timeoutMs: number) => httpProbe(url, timeoutMs);
 }

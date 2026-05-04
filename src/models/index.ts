@@ -45,6 +45,7 @@ import LevelSubmissionArtistRequest from './submissions/LevelSubmissionArtistReq
 import LevelSubmissionEvidence from './submissions/LevelSubmissionEvidence.js';
 import { DiscordGuild, DiscordSyncRole } from './discord/index.js';
 import UploadSession from './upload/UploadSession.js';
+import HealthLatencySample from './health/HealthLatencySample.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -96,6 +97,7 @@ export const db = {
     DiscordGuild,
     DiscordSyncRole,
     UploadSession,
+    HealthLatencySample,
   },
 };
 

@@ -3,9 +3,11 @@ import dotenv from 'dotenv';
 import { registerGlobalProcessHandlers } from '@/server/bootstrap/processHandlers.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { startBinlogTailer } from './binlogTailer.js';
+import { setTerminalServiceTitle } from '@/misc/utils/terminalTitle.js';
 
 dotenv.config();
 
+setTerminalServiceTitle('TUF CDC');
 registerGlobalProcessHandlers();
 
 const PORT = Number(process.env.CDC_HEALTH_PORT ?? 3990);

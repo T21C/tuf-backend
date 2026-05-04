@@ -4,8 +4,30 @@ import { getIO } from '@/misc/utils/server/socket.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { healthCheckResponseSchema, healthErrorResponseSchema } from '@/server/schemas/health.js';
+import {
+  getHealthLatencyHistory,
+  parseLatencyWindow,
+} from '@/server/services/health/healthLatencyHistoryService.js';
 
 const router: Router = express.Router();
+
+router.get('/latency', async (req: Request, res: Response) => {
+  const window = parseLatencyWindow(req.query.window);
+  if (!window) {
+    return res.status(400).json({
+      error: 'Invalid or missing window',
+      valid: ['1h', '3h', '6h', '12h', '24h', '3d', '7d', '14d'],
+    });
+  }
+
+  try {
+    const payload = await getHealthLatencyHistory(window);
+    return res.status(200).json(payload);
+  } catch (error) {
+    logger.error('GET /v2/health/latency failed:', error);
+    return res.status(500).json({ error: 'Failed to load latency history' });
+  }
+});
 
 /**
  * Health check endpoint

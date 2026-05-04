@@ -75,6 +75,8 @@ export class PoolManager {
 
     const sequelize = new Sequelize({
       ...this.baseConfig,
+      /** Matches mysql2 dialectOptions.timezone; ensures JS Date in Op.gte/between maps to UTC for DATETIME (admin statistics, health latency, etc.). */
+      timezone: '+00:00',
       logging: createSlowQueryLogging(poolName),
       dialectOptions,
       database: process.env.DB_DATABASE,

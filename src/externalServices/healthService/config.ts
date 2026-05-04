@@ -21,7 +21,7 @@ function envString(name: string, fallback: string): string {
 function defaultMainServerUrl(): string {
   if (process.env.HEALTH_MAIN_SERVER_URL) return process.env.HEALTH_MAIN_SERVER_URL;
   const port = process.env.NODE_ENV === 'production' ? 3000 : 3002;
-  return `http://localhost:${port}`;
+  return `http://localhost:${port}/v2/health`;
 }
 
 /** Resolve the CDN URL, preferring `HEALTH_CDN_URL` over the shared `LOCAL_CDN_URL`. */
@@ -29,7 +29,7 @@ function defaultCdnUrl(): string {
   return (
     process.env.HEALTH_CDN_URL ||
     process.env.LOCAL_CDN_URL ||
-    'http://localhost:3001'
+    'http://localhost:3001/health'
   );
 }
 
@@ -37,7 +37,7 @@ function defaultCdnUrl(): string {
 function defaultCdcUrl(): string {
   if (process.env.HEALTH_CDC_URL) return process.env.HEALTH_CDC_URL;
   const port = envInt('CDC_HEALTH_PORT', 3990);
-  return `http://localhost:${port}`;
+  return `http://localhost:${port}/health`;
 }
 
 /** Centralized, env-driven config for the standalone health service. */

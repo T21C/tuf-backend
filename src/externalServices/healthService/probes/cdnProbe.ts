@@ -7,6 +7,6 @@ import type { ProbeResult } from './types.js';
  * upload pipeline can't block the probe.
  */
 export function makeCdnProbe(baseUrl: string): (timeoutMs: number) => Promise<ProbeResult> {
-  const url = `${baseUrl.replace(/\/$/, '')}/health`;
+  const url = baseUrl.replace(/\/$/, '');
   return (timeoutMs: number) => httpProbe(url, timeoutMs);
 }

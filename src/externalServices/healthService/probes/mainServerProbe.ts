@@ -10,7 +10,7 @@ import type { ProbeResult } from './types.js';
  * `mainServerInfo.system.*` and `mainServerInfo.checks.socket.*`).
  */
 export function makeMainServerProbe(baseUrl: string): (timeoutMs: number) => Promise<ProbeResult> {
-  const url = `${baseUrl.replace(/\/$/, '')}/v2/health`;
+  const url = baseUrl.replace(/\/$/, '');
   return async (timeoutMs: number) => {
     const result = await httpProbe(url, timeoutMs, { captureBody: true });
 

@@ -13,13 +13,13 @@ const files = fs.readdirSync(migrationsDir)
   });
 
 // Generate SQL query
-let sql = `-- Run this query to insert missing migrations into SequelizeMeta\n`;
+let sql = `-- Run this query to insert missing migrations into sequelizemeta\n`;
 
 sql += "USE tuf_website;\n";
 sql += "SET SQL_SAFE_UPDATES = 0;\n";
-sql += "DELETE FROM `SequelizeMeta`;\n";
+sql += "DELETE FROM `sequelizemeta`;\n";
 sql += "SET SQL_SAFE_UPDATES = 1;\n";
-sql += `INSERT INTO \`SequelizeMeta\` (\`name\`)\n`;
+sql += `INSERT INTO \`sequelizemeta\` (\`name\`)\n`;
 sql += `SELECT t.name FROM (\n`;
 
 // Generate values for each migration file
@@ -27,7 +27,7 @@ const values = files.map(file => `  SELECT '${file}' as name`).join('\nUNION ALL
 sql += values;
 
 sql += `\n) t\n`;
-sql += `WHERE t.name NOT IN (SELECT name FROM \`SequelizeMeta\`);\n\n`;
+sql += `WHERE t.name NOT IN (SELECT name FROM \`sequelizemeta\`);\n\n`;
 
 // Write to output file
 const outputPath = path.join(__dirname, 'meta_inserts.sql');

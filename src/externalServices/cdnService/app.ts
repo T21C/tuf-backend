@@ -8,8 +8,11 @@ import dotenv from 'dotenv';
 import { registerGlobalProcessHandlers } from '@/server/bootstrap/processHandlers.js';
 import { sweepWorkspaceRootOnBoot } from '@/server/services/core/WorkspaceService.js';
 import { cdnLocalTemp } from './infra/workspaces/cdnLocalTempManager.js';
+import { setTerminalServiceTitle } from '@/misc/utils/terminalTitle.js';
+
 dotenv.config();
 
+setTerminalServiceTitle('TUF CDN');
 registerGlobalProcessHandlers();
 
 // Boot-time stale workspace sweep for the CDN process (separate PID, same root).

@@ -1,7 +1,9 @@
+import { setTerminalServiceTitle } from '@/misc/utils/terminalTitle.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { HealthService } from './HealthService.js';
 import { HEALTH_CONFIG } from './config.js';
 
+setTerminalServiceTitle('TUF Health');
 logger.info(`[health] starting standalone health service on port ${HEALTH_CONFIG.port}`);
 
 const healthService = HealthService.getInstance();
