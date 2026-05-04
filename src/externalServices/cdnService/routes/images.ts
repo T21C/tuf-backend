@@ -8,6 +8,13 @@ import path from 'path';
 import { cdnLocalTemp } from '@/externalServices/cdnService/infra/workspaces/cdnLocalTempManager.js';
 import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
 
+/**
+ * Image routes: sync processing today. If you add async / 202 + `X-Upload-Id` (or another job id),
+ * report every state change with the same helper as other CDN workers:
+ * `emitCdnJobProgress` from `@/externalServices/cdnService/jobs/jobProgressIngest.js`
+ * using `variant: 'pipeline'`, `kind: CDN_JOB_KIND.IMAGE_UPLOAD` (or a new agreed `kind`),
+ * and the same `status` / `error` fields as level zip ingest.
+ */
 const router = Router();
 
 // Get image endpoint

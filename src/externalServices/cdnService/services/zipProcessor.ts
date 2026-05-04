@@ -27,6 +27,21 @@ import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '../constants/levelPackAudio
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import { CdnIngestUserError } from '@/externalServices/cdnService/jobs/cdnIngestErrors.js';
+import { classifyZipIngestError } from '@/externalServices/cdnService/jobs/zipIngestErrorClassification.js';
+
+export {CdnIngestUserError};
+
+/** Set on the thrown error after a `failed` job-progress update was emitted (avoids duplicate posts in the route). */
+export function markZipIngestFailureProgressSent(err: unknown): void {
+    if (err instanceof Error) {
+        (err as Error & {cdnZipIngestProgressSent?: boolean}).cdnZipIngestProgressSent = true;
+    }
+}
+
+export function zipIngestFailureProgressWasSent(err: unknown): boolean {
+    return err instanceof Error && Boolean((err as Error & {cdnZipIngestProgressSent?: boolean}).cdnZipIngestProgressSent);
+}
 
 // Limit to prevent oveloading CDN with large level files
 const MAX_LEVEL_FILE_SIZE_FOR_PARSE = 50 * 1024 * 1024;
@@ -37,7 +52,13 @@ async function extractArchiveEntries(archiveFilePath: string, signal?: AbortSign
     return listArchiveEntriesForIngest(archiveFilePath, signal);
 }
 
-type ProgressCallback = (status: 'uploading' | 'processing' | 'caching' | 'failed', progressPercent: number, currentStep?: string) => void | Promise<void>;
+type ProgressCallback = (
+    status: 'uploading' | 'processing' | 'caching' | 'failed',
+    progressPercent: number,
+    currentStep?: string,
+    /** When `status === 'failed'`, user-visible text for the main API job `error` field (CDN progress ingest). */
+    failureUserMessage?: string
+) => void | Promise<void>;
 
 export async function processArchiveFile(
     archiveFilePath: string,
@@ -87,9 +108,14 @@ async function processArchiveFileInWorkspace(
         fileSize: (await fs.promises.stat(archiveFilePath)).size
     });
 
-    const sendProgress = async (status: 'uploading' | 'processing' | 'caching' | 'failed', progressPercent: number, currentStep?: string) => {
+    const sendProgress = async (
+        status: 'uploading' | 'processing' | 'caching' | 'failed',
+        progressPercent: number,
+        currentStep?: string,
+        failureUserMessage?: string
+    ) => {
         if (onProgress) {
-            await onProgress(status, progressPercent, currentStep);
+            await onProgress(status, progressPercent, currentStep, failureUserMessage);
         }
     };
 
@@ -273,7 +299,7 @@ async function processArchiveFileInWorkspace(
         }
 
         if (allLevelFiles.length === 0) {
-            throw new Error(
+            throw new CdnIngestUserError(
                 'No usable .adofai files found after extraction (all missing or failed to parse). ' +
                     'The archive may be corrupt, use unsupported paths, or contain no valid levels.'
             );
@@ -639,39 +665,37 @@ async function processArchiveFileInWorkspace(
             clientFacing?: boolean;
             archiveErrorKind?: string;
             userMessage?: string;
+            skipLogging?: boolean;
         }) | null;
 
-        // User-supplied archive is bad (corrupt / encrypted / wrong format) — not a server bug.
-        // Log at `info` with a concise payload and forward the short userMessage to progress.
-        if (anyErr?.clientFacing) {
+        const classified = classifyZipIngestError(error);
+        const rawUserMsg = classified.userMessage;
+        const capped =
+            rawUserMsg.length > 1600 ? `${rawUserMsg.slice(0, 1600)}… [truncated]` : rawUserMsg;
+
+        if (classified.serverLog === 'info' && anyErr?.clientFacing) {
             logger.info('Archive rejected (user error):', {
                 archiveFileId,
                 archiveFilePath,
                 archiveErrorKind: anyErr.archiveErrorKind,
                 userMessage: anyErr.userMessage,
-                ...(typeof anyErr.exitCode === 'number' ? { sevenZExitCode: anyErr.exitCode } : {})
+                ...(typeof anyErr.exitCode === 'number' ? {sevenZExitCode: anyErr.exitCode} : {}),
             });
-            await sendProgress('failed', 0, anyErr.userMessage ?? 'Archive could not be processed');
-            throw error;
+        } else if (classified.serverLog === 'error') {
+            logger.error('Error processing archive file:', {
+                error: errObj?.message ?? String(error),
+                stack: errObj?.stack,
+                ...(typeof anyErr?.exitCode === 'number' ? {sevenZExitCode: anyErr.exitCode} : {}),
+                ...(typeof anyErr?.sevenZBinary === 'string' ? {sevenZBinary: anyErr.sevenZBinary} : {}),
+                ...(typeof anyErr?.sevenZSummary === 'string' ? {sevenZSummary: anyErr.sevenZSummary} : {}),
+                archiveFilePath,
+                archiveFileId,
+                timestamp: new Date().toISOString(),
+            });
         }
 
-        logger.error('Error processing archive file:', {
-            error: errObj?.message ?? String(error),
-            stack: errObj?.stack,
-            ...(typeof anyErr?.exitCode === 'number' ? { sevenZExitCode: anyErr.exitCode } : {}),
-            ...(typeof anyErr?.sevenZBinary === 'string' ? { sevenZBinary: anyErr.sevenZBinary } : {}),
-            ...(typeof anyErr?.sevenZSummary === 'string' ? { sevenZSummary: anyErr.sevenZSummary } : {}),
-            archiveFilePath,
-            archiveFileId,
-            timestamp: new Date().toISOString()
-        });
-
-        // Send failure progress update (cap length — full report is already in logs above)
-        {
-            const msg = errObj?.message ?? String(error);
-            const capped = msg.length > 1600 ? `${msg.slice(0, 1600)}… [truncated]` : msg;
-            await sendProgress('failed', 0, capped);
-        }
+        await sendProgress('failed', 0, capped, capped);
+        markZipIngestFailureProgressSent(error);
         throw error;
     }
 }

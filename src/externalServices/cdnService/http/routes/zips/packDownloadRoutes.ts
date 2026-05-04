@@ -2,8 +2,9 @@ import path from 'path';
 import fs from 'fs';
 import AdmZip from 'adm-zip';
 import axios from 'axios';
+import { emitCdnJobProgress } from '@/externalServices/cdnService/jobs/jobProgressIngest.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
+import { CDN_CONFIG, CDN_IMMUTABLE_CACHE_CONTROL } from '@/externalServices/cdnService/config.js';
 import { Request, Response, Router } from 'express';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import crypto from 'crypto';
@@ -21,6 +22,8 @@ const PACK_DOWNLOAD_DIR = path.join(CDN_CONFIG.pack_root, 'pack-downloads');
 const PACK_DOWNLOAD_TEMP_DIR = path.join(PACK_DOWNLOAD_DIR, 'temp');
 const PACK_DOWNLOAD_TTL_MS = 60 * 60 * 1000; // 1 hour
 const PACK_DOWNLOAD_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+/** Min interval between pack upload progress broadcasts (R2 multipart fires often). */
+const PACK_UPLOAD_PROGRESS_THROTTLE_MS = 400;
 const PACK_DOWNLOAD_SPACES_PREFIX = process.env.NODE_ENV === 'development' ? 'pack-downloads-dev' : 'pack-downloads';
 const PACK_DOWNLOAD_MAX_SIZE_BYTES = 15 * 1024 * 1024 * 1024; // 15GB hard limit
 const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 20 * 1024 * 1024 * 1024; // 20GB total concurrent limit
@@ -70,6 +73,9 @@ interface PackDownloadProgress {
     totalLevels: number;
     processedLevels: number;
     currentLevel?: string;
+    /** Populated during R2 upload for percent + meta.uploadBytes* */
+    uploadLoaded?: number;
+    uploadTotal?: number;
     startedAt: number;
     lastUpdated: number;
     error?: string;
@@ -202,15 +208,20 @@ function unregisterGeneration(cacheKey: string): void {
     }
 }
 
-// Get main server URL for progress callbacks
-function getMainServerUrl(): string {
-    if (process.env.NODE_ENV === 'production') {
-        return process.env.PROD_API_URL || 'http://localhost:3000';
-    } else if (process.env.NODE_ENV === 'staging') {
-        return process.env.STAGING_API_URL || 'http://localhost:3000';
-    } else {
-        return process.env.DEV_URL || 'http://localhost:3002';
+function formatPackUploadBytes(loaded: number, total: number): string {
+    const fmt = (n: number) =>
+        n >= 1_000_000_000
+            ? `${(n / 1_000_000_000).toFixed(2)} GB`
+            : n >= 1_000_000
+              ? `${(n / 1_000_000).toFixed(2)} MB`
+              : n >= 1_000
+                ? `${(n / 1_000).toFixed(1)} KB`
+                : `${Math.round(n)} B`;
+    if (!total || total <= 0) {
+        return fmt(loaded);
     }
+    const pct = Math.min(100, Math.round((loaded / total) * 100));
+    return `${fmt(loaded)} / ${fmt(total)} (${pct}%)`;
 }
 
 // Update progress and send to main server
@@ -235,94 +246,12 @@ async function updateProgress(
     await broadcastPackJobProgress(updated);
 }
 
-/** Maps CDN pack worker state → main API {@link JobProgressRecord.phase} (SSE / jobs UI). */
-function packProgressToPhase(status: PackDownloadProgress['status']): string {
-    switch (status) {
-        case 'completed':
-            return 'completed';
-        case 'failed':
-            return 'failed';
-        default:
-            return status;
-    }
-}
-
-function packProgressToPercent(progress: PackDownloadProgress): number | null {
-    if (progress.status === 'failed') {
-        return null;
-    }
-    if (progress.status === 'completed') {
-        return 100;
-    }
-    if (progress.totalLevels > 0) {
-        return Math.round((progress.processedLevels / progress.totalLevels) * 100);
-    }
-    return 0;
-}
-
 /**
  * Single job ingest: POST /v2/cdn/job-progress with a specific `jobId` (may differ from `progress.downloadId`,
  * which is always the primary worker id used in `packDownloadProgress`).
  */
 async function sendJobProgressIngest(targetJobId: string, progress: PackDownloadProgress): Promise<void> {
-    const secret = process.env.JOB_PROGRESS_INGEST_SECRET;
-    if (!secret) {
-        logger.debug('JOB_PROGRESS_INGEST_SECRET not set; skipping pack job progress ingest', {
-            downloadId: targetJobId,
-        });
-        return;
-    }
-
-    const mainServerUrl = getMainServerUrl();
-    const phase = packProgressToPhase(progress.status);
-    const percent = packProgressToPercent(progress);
-
-    const meta: Record<string, unknown> = {
-        cacheKey: progress.cacheKey,
-        totalLevels: progress.totalLevels,
-        processedLevels: progress.processedLevels,
-        ingestStatus: progress.status,
-    };
-    if (progress.currentLevel) {
-        meta.currentLevel = progress.currentLevel;
-    }
-    if (progress.packUrl) {
-        meta.url = progress.packUrl;
-    }
-    if (progress.packZipName) {
-        meta.zipName = progress.packZipName;
-    }
-    if (progress.packExpiresAt) {
-        meta.expiresAt = progress.packExpiresAt;
-    }
-
-    const payload = {
-        jobId: targetJobId,
-        kind: 'pack_download',
-        phase,
-        percent,
-        message:
-            progress.currentLevel ??
-            (progress.status === 'completed'
-                ? 'Pack ready'
-                : progress.status === 'failed'
-                  ? 'Pack generation failed'
-                  : undefined),
-        error: progress.status === 'failed' ? (progress.error ?? 'Pack generation failed') : null,
-        meta,
-    };
-
-    try {
-        await axios.post(`${mainServerUrl}/v2/cdn/job-progress`, payload, {
-            headers: { 'X-Job-Ingest-Key': secret },
-            timeout: 8000,
-        });
-    } catch (error) {
-        logger.debug('Failed to send pack job progress to main server', {
-            downloadId: targetJobId,
-            error: error instanceof Error ? error.message : String(error),
-        });
-    }
+    await emitCdnJobProgress({variant: 'pack', targetJobId, progress});
 }
 
 /**
@@ -1297,9 +1226,12 @@ async function generatePackDownloadZip(
             await trimRootFoldersForPathLimit(extractRoot, zipName);
         }
 
-        // Update progress: processing complete, now zipping
+        // Update progress: processing complete, now zipping (explicit line so SSE/message never goes blank)
         await updateProgress(downloadId, cacheKey, {
-            status: 'zipping'
+            status: 'zipping',
+            currentLevel: 'Creating pack archive…',
+            uploadLoaded: undefined,
+            uploadTotal: undefined,
         });
         // Use UUID for local file to avoid conflicts
         const localZipFilename = `${downloadId}.zip`;
@@ -1345,20 +1277,55 @@ async function generatePackDownloadZip(
         let spacesKey: string | null = null;
         let responseUrl: string;
 
-        // Update progress: uploading if using Spaces
+        let uploadStats: {size: number};
+        try {
+            uploadStats = await fs.promises.stat(targetPath);
+        } catch {
+            uploadStats = {size: 0};
+        }
+
+        // Update progress: uploading if using Spaces (initial line before byte callbacks)
         if (spacesKeyFilename) {
             await updateProgress(downloadId, cacheKey, {
-                status: 'uploading'
+                status: 'uploading',
+                currentLevel:
+                    uploadStats.size > 0
+                        ? `Uploading pack to storage — ${formatPackUploadBytes(0, uploadStats.size)}`
+                        : 'Uploading pack to storage…',
+                uploadLoaded: 0,
+                uploadTotal: uploadStats.size > 0 ? uploadStats.size : undefined,
             });
         }
 
+        let uploadProgressLastBroadcast = 0;
         try {
-            await spacesStorage.uploadFile(targetPath, spacesKeyFilename, 'application/zip', {
-                cacheKey,
-                generatedAt: new Date().toISOString(),
-                successLevels: context.successCount.toString(),
-                totalLevels: context.totalLevels.toString()
-            });
+            await spacesStorage.uploadFile(
+                targetPath,
+                spacesKeyFilename,
+                'application/zip',
+                {
+                    cacheKey,
+                    generatedAt: new Date().toISOString(),
+                    successLevels: context.successCount.toString(),
+                    totalLevels: context.totalLevels.toString(),
+                },
+                CDN_IMMUTABLE_CACHE_CONTROL,
+                (loaded, total) => {
+                    const now = Date.now();
+                    const effectiveTotal = total > 0 ? total : uploadStats.size;
+                    const done = effectiveTotal > 0 && loaded >= effectiveTotal;
+                    if (!done && now - uploadProgressLastBroadcast < PACK_UPLOAD_PROGRESS_THROTTLE_MS) {
+                        return;
+                    }
+                    uploadProgressLastBroadcast = now;
+                    void updateProgress(downloadId, cacheKey, {
+                        status: 'uploading',
+                        currentLevel: `Uploading pack to storage — ${formatPackUploadBytes(loaded, effectiveTotal)}`,
+                        uploadLoaded: loaded,
+                        uploadTotal: effectiveTotal > 0 ? effectiveTotal : undefined,
+                    });
+                }
+            );
             spacesKey = spacesKeyFilename;
         } catch (error) {
             logger.error('Failed to upload pack download to Spaces', {
@@ -1413,6 +1380,8 @@ async function generatePackDownloadZip(
             packUrl: responseUrl,
             packZipName: zipName,
             packExpiresAt: response.expiresAt,
+            uploadLoaded: undefined,
+            uploadTotal: undefined,
         });
 
         logger.debug('Generated pack download zip', {
@@ -1432,7 +1401,9 @@ async function generatePackDownloadZip(
         if (downloadId) {
             await updateProgress(downloadId, cacheKey, {
                 status: 'failed',
-                error: error instanceof Error ? error.message : String(error)
+                error: error instanceof Error ? error.message : String(error),
+                uploadLoaded: undefined,
+                uploadTotal: undefined,
             });
         }
 

@@ -37,6 +37,39 @@ export type JobProgressPatch = Partial<
   >
 >;
 
+/**
+ * CDN POST /v2/cdn/job-progress merges partials; omitted `error` would otherwise leave a stale
+ * failure string in Redis. This normalizes patches from {@link jobProgressService.patchFromIngest}
+ * so non-failed phases clear `error`, and failed phases always get a non-empty `error` for clients
+ * that only read `error` (e.g. waitForJobCompletion).
+ */
+export function normalizeJobProgressIngestPatch(partial: JobProgressPatch): JobProgressPatch {
+  const next: JobProgressPatch = {...partial};
+
+  if (partial.phase !== undefined && partial.phase !== 'failed') {
+    if (partial.error === undefined) {
+      next.error = null;
+    }
+  }
+
+  if (partial.phase === 'failed') {
+    const err = partial.error;
+    const missingOrBlank =
+      err === undefined ||
+      err === null ||
+      (typeof err === 'string' && err.trim() === '');
+    if (missingOrBlank) {
+      const fromMsg =
+        typeof partial.message === 'string' && partial.message.trim() !== ''
+          ? partial.message.trim()
+          : undefined;
+      next.error = fromMsg ?? 'Processing failed';
+    }
+  }
+
+  return next;
+}
+
 function jobKey(jobId: string): string {
   return `${KEY_PREFIX}${jobId}`;
 }
@@ -84,7 +117,8 @@ export const jobProgressService = {
    */
   async patchFromIngest(jobId: string, partial: JobProgressPatch, ttlSeconds?: number): Promise<JobProgressRecord | null> {
     const {ownerUserId: _ignored, ...rest} = partial;
-    return mergeAndSave(jobId, rest, {allowOwner: false}, ttlSeconds);
+    const normalized = normalizeJobProgressIngestPatch(rest);
+    return mergeAndSave(jobId, normalized, {allowOwner: false}, ttlSeconds);
   },
 
   canUserRead(record: JobProgressRecord, userId: string | undefined): boolean {
