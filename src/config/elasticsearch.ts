@@ -821,7 +821,7 @@ const creatorMappingHashPayload = {
 
 // Store mapping hash files next to the `server/` package, not `process.cwd()`.
 // Dev servers can be launched from repo root or `server/`, so `cwd` is not stable.
-const serverPackageRoot = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
+const serverPackageRoot = path.resolve(fileURLToPath(new URL('../../mapping-hashes', import.meta.url)));
 const levelMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-levels.json');
 const passMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-passes.json');
 const playerMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-players.json');

@@ -141,7 +141,7 @@ playerlist.json
 package-lock.json
 pfpList.json
 rankList.json
-mapping-hash*.json
+mapping-hashes/
 uploads/
 temp/
 cache/
