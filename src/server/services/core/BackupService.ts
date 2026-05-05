@@ -239,7 +239,7 @@ export class BackupService {
     await fs.mkdir(path.dirname(filePath), {recursive: true});
 
     let cmd: string;
-    const dumpFlags = '--single-transaction --quick';
+    const dumpFlags = '--single-transaction --quick --ignore-table=tuf_website.player_leaderboard_rank_events';
     if (this.isWindows) {
       const mysqlDumpPath = path.join(
         process.env.MYSQL_PATH || '',

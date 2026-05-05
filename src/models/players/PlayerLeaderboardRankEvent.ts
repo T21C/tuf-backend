@@ -10,10 +10,9 @@ export interface PlayerLeaderboardRankEventAttrs {
   effectiveDay: string;
   rankedScoreRank: number;
   generalScoreRank: number;
-  createdAt: Date;
 }
 
-type CreationAttrs = Optional<PlayerLeaderboardRankEventAttrs, 'id' | 'createdAt'>;
+type CreationAttrs = Optional<PlayerLeaderboardRankEventAttrs, 'id'>;
 
 class PlayerLeaderboardRankEvent
   extends Model<PlayerLeaderboardRankEventAttrs, CreationAttrs>
@@ -25,7 +24,6 @@ class PlayerLeaderboardRankEvent
   declare effectiveDay: string;
   declare rankedScoreRank: number;
   declare generalScoreRank: number;
-  declare createdAt: Date;
 }
 
 PlayerLeaderboardRankEvent.init(
@@ -57,17 +55,12 @@ PlayerLeaderboardRankEvent.init(
     generalScoreRank: {
       type: DataTypes.INTEGER,
       allowNull: false,
-    },
-    createdAt: {
-      type: DataTypes.DATE,
-      allowNull: false,
-      defaultValue: DataTypes.NOW,
-    },
+    }
   },
   {
     sequelize,
     tableName: 'player_leaderboard_rank_events',
-    updatedAt: false,
+    timestamps: false,
   },
 );
 

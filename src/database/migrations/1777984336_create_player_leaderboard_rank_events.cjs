@@ -41,12 +41,7 @@ module.exports = {
             generalScoreRank: {
               type: Sequelize.INTEGER,
               allowNull: false,
-            },
-            createdAt: {
-              type: Sequelize.DATE,
-              allowNull: false,
-              defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
-            },
+            }
           },
           { transaction },
         );
