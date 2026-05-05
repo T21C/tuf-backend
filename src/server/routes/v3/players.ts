@@ -230,7 +230,7 @@ router.get(
     operationId: 'v3GetPlayerRankHistory',
     summary: 'Get player rank history (v3)',
     description:
-      'Returns up to `maxPoints` daily samples (UTC) of `rankedScoreRank` and `generalScoreRank` from append-only `player_leaderboard_rank_events`, forward-filled between change rows. Query: `from`, `to` (DATEONLY), optional `scoringVersion`.',
+      'Returns forward-filled rank history from append-only `player_leaderboard_rank_events`. With `from`+`to` it returns daily samples (UTC, capped by maxPoints). Without range params it returns full-history weekly samples.',
     tags: ['Database', 'Players', 'v3'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
@@ -253,11 +253,17 @@ router.get(
 
       const fromRaw = String(req.query.from ?? '').trim();
       const toRaw = String(req.query.to ?? '').trim();
-      if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(fromRaw) || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(toRaw)) {
-        return res.status(400).json({ error: 'from and to must be YYYY-MM-DD (UTC)' });
-      }
-      if (fromRaw > toRaw) {
-        return res.status(400).json({ error: 'from must be <= to' });
+      const hasRange = fromRaw.length > 0 || toRaw.length > 0;
+      if (hasRange) {
+        if (
+          !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(fromRaw) ||
+          !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(toRaw)
+        ) {
+          return res.status(400).json({ error: 'from and to must be YYYY-MM-DD (UTC)' });
+        }
+        if (fromRaw > toRaw) {
+          return res.status(400).json({ error: 'from must be <= to' });
+        }
       }
 
       const scoringVersion =
@@ -269,15 +275,16 @@ router.get(
       const series = await buildRankHistorySeries({
         playerId: id,
         scoringVersion,
-        from: fromRaw,
-        to: toRaw,
+        ...(hasRange ? { from: fromRaw, to: toRaw } : {}),
+        stepDays: hasRange ? 1 : 7,
       });
 
       return res.json({
         playerId: id,
         scoringVersion,
-        from: fromRaw,
-        to: toRaw,
+        from: hasRange ? fromRaw : null,
+        to: hasRange ? toRaw : null,
+        sampleStepDays: hasRange ? 1 : 7,
         maxPoints: RANK_HISTORY_MAX_POINTS,
         series,
       });
