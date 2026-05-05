@@ -21,6 +21,8 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import Player from '@/models/players/Player.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { DEFAULT_LEADERBOARD_RANK_SCORING_VERSION, RANK_HISTORY_MAX_POINTS } from '@/config/leaderboardRankHistory.js';
+import { buildRankHistorySeries } from '@/server/services/leaderboard/rankHistorySeries.js';
 
 /**
  * v3 players routes — Elasticsearch-backed.
@@ -212,6 +214,77 @@ router.get(
       logger.error('[v3 /players/leaderboard] failure', error);
       return res.status(500).json({
         error: 'Failed to fetch leaderboard',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+/**
+ * Daily forward-filled rank history (stored deltas expanded server-side).
+ */
+router.get(
+  '/:id([0-9]{1,20})/rank-history',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'v3GetPlayerRankHistory',
+    summary: 'Get player rank history (v3)',
+    description:
+      'Returns up to `maxPoints` daily samples (UTC) of `rankedScoreRank` and `generalScoreRank` from append-only `player_leaderboard_rank_events`, forward-filled between change rows. Query: `from`, `to` (DATEONLY), optional `scoringVersion`.',
+    tags: ['Database', 'Players', 'v3'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    query: {
+      from: { schema: { type: 'string' } },
+      to: { schema: { type: 'string' } },
+      scoringVersion: { schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: 'Rank history points' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid player id' });
+      }
+
+      const fromRaw = String(req.query.from ?? '').trim();
+      const toRaw = String(req.query.to ?? '').trim();
+      if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(fromRaw) || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(toRaw)) {
+        return res.status(400).json({ error: 'from and to must be YYYY-MM-DD (UTC)' });
+      }
+      if (fromRaw > toRaw) {
+        return res.status(400).json({ error: 'from must be <= to' });
+      }
+
+      const scoringVersion =
+        String(req.query.scoringVersion ?? '').trim() || DEFAULT_LEADERBOARD_RANK_SCORING_VERSION;
+
+      const doc = await elasticsearchService.getPlayerDocumentById(id);
+      if (!doc) return res.status(404).json({ error: 'Player not found' });
+
+      const series = await buildRankHistorySeries({
+        playerId: id,
+        scoringVersion,
+        from: fromRaw,
+        to: toRaw,
+      });
+
+      return res.json({
+        playerId: id,
+        scoringVersion,
+        from: fromRaw,
+        to: toRaw,
+        maxPoints: RANK_HISTORY_MAX_POINTS,
+        series,
+      });
+    } catch (error) {
+      logger.error('[v3 /players/:id/rank-history] failure', error);
+      return res.status(500).json({
+        error: 'Failed to fetch rank history',
         details: error instanceof Error ? error.message : String(error),
       });
     }

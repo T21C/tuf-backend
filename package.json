@@ -34,9 +34,11 @@
     "cdc": "cross-env tsx src/externalServices/cdcService/app.ts",
     "cdc:prod": "cross-env NODE_ENV=production tsx src/externalServices/cdcService/app.ts",
     "reconcile:es": "cross-env tsx src/misc/scripts/reconcileElasticsearch.ts",
+    "backfill:leaderboard-ranks": "cross-env tsx src/misc/scripts/backfillLeaderboardRankHistory.ts",
     "test:facet": "tsx src/misc/utils/search/facetQuery.selftest.ts",
     "test:duration": "tsx src/misc/utils/data/searchHelpers.duration.selftest.ts",
-    "test:oversized-cache": "tsx src/externalServices/cdnService/domain/level/oversizedCache.selftest.ts"
+    "test:oversized-cache": "tsx src/externalServices/cdnService/domain/level/oversizedCache.selftest.ts",
+    "test:rank-history": "cross-env tsx src/server/services/leaderboard/rankHistoryTieParity.selftest.ts"
   },
   "keywords": [],
   "author": "",

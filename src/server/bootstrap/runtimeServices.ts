@@ -66,6 +66,11 @@ export async function initializeRuntimeServices(): Promise<void> {
   const { AuditLogService } = await import('@/server/services/core/AuditLogService.js');
   AuditLogService.startScheduledRetention();
 
+  const { LeaderboardRankSnapshotCronService } = await import(
+    '@/server/services/leaderboard/LeaderboardRankSnapshotCronService.js'
+  );
+  LeaderboardRankSnapshotCronService.startScheduledSnapshots();
+
   const { initUploadKinds } = await import('@/server/services/upload/registerKinds.js');
   initUploadKinds();
 }

@@ -21,6 +21,7 @@ import LevelCredit from './levels/LevelCredit.js';
 import Team from './credits/Team.js';
 import TeamMember from './credits/TeamMember.js';
 import PlayerStats from './players/PlayerStats.js';
+import PlayerLeaderboardRankEvent from './players/PlayerLeaderboardRankEvent.js';
 import UsernameChange from './auth/UsernameChange.js';
 import AnnouncementChannel from './announcements/AnnouncementChannel.js';
 import AnnouncementRole from './announcements/AnnouncementRole.js';
@@ -69,6 +70,7 @@ export const db = {
     Team,
     TeamMember,
     PlayerStats,
+    PlayerLeaderboardRankEvent,
     UsernameChange,
     AnnouncementChannel,
     AnnouncementRole,

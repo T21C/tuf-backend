@@ -1,6 +1,7 @@
 import Player from './Player.js';
 import PlayerStats from './PlayerStats.js';
 import PlayerModifier from './PlayerModifier.js';
+import PlayerLeaderboardRankEvent from './PlayerLeaderboardRankEvent.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 
 export function initializePlayersAssociations() {
@@ -29,5 +30,14 @@ export function initializePlayersAssociations() {
   PlayerModifier.belongsTo(Player, {
     foreignKey: 'playerId',
     as: 'modifierPlayer'
+  });
+
+  Player.hasMany(PlayerLeaderboardRankEvent, {
+    foreignKey: 'playerId',
+    as: 'leaderboardRankEvents',
+  });
+  PlayerLeaderboardRankEvent.belongsTo(Player, {
+    foreignKey: 'playerId',
+    as: 'player',
   });
 }
