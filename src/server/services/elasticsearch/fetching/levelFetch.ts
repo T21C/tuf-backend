@@ -217,8 +217,11 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
         }
       ],
     }),
-    sequelize.query<{ levelId: number; cnt: string }>(
-      `SELECT p.levelId, COUNT(*) AS cnt FROM passes AS p
+    sequelize.query<{ levelId: number; cnt: string; uniqueCnt: string }>(
+      `SELECT p.levelId,
+              COUNT(*) AS cnt,
+              COUNT(DISTINCT p.playerId) AS uniqueCnt
+       FROM passes AS p
        INNER JOIN players AS pl ON p.playerId = pl.id AND pl.isBanned = 0
        WHERE p.levelId IN (:ids) AND p.isDeleted = 0 AND p.isHidden = 0
        GROUP BY p.levelId`,
@@ -239,8 +242,10 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
   }
 
   const clearsByLevel = new Map<number, number>();
+  const uniqueClearsByLevel = new Map<number, number>();
   for (const row of clearsRows) {
     clearsByLevel.set(row.levelId, Number(row.cnt));
+    uniqueClearsByLevel.set(row.levelId, Number(row.uniqueCnt));
   }
 
   const lv = levels as unknown as Array<
@@ -262,6 +267,7 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
       level.songId != null ? esSongCache.get(level.songId) ?? undefined : undefined
     );
     level.setDataValue('clears', clearsByLevel.get(level.id) ?? 0);
+    level.setDataValue('uniqueClears', uniqueClearsByLevel.get(level.id) ?? 0);
   }
 
   return levels;

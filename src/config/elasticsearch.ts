@@ -262,6 +262,8 @@ export const levelMapping = {
       createdAt: { type: 'date' as const },
       updatedAt: { type: 'date' as const },
       clears: { type: 'integer' as const },
+      /** Distinct non-banned players with at least one visible pass (same filters as `clears`). */
+      uniqueClears: { type: 'integer' as const },
       likes: { type: 'integer' as const },
       rating: {
         properties: {

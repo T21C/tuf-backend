@@ -521,6 +521,8 @@ router.get(
     // Prefer ES clears (computed with the correct `isDeleted/isHidden/isBanned`
     // filters) over the DB column so the detail view matches the list view.
     const esClears = typeof esLevelDoc?.clears === 'number' ? esLevelDoc.clears : null;
+    const esUniqueClears =
+      typeof esLevelDoc?.uniqueClears === 'number' ? esLevelDoc.uniqueClears : null;
 
     // Assemble the level object with all related data
     const assembledLevel = {
@@ -535,7 +537,8 @@ router.get(
       tags: tags || [],
       song: getSongDisplayName(level),
       artist: getArtistDisplayName(level) || null,
-      clears: esClears ?? level.clears
+      clears: esClears ?? level.clears,
+      uniqueClears: esUniqueClears,
     };
     return res.json({
       level: assembledLevel,

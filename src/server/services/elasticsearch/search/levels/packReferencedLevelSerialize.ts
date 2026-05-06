@@ -107,6 +107,7 @@ export function buildPackReferencedLevelFromEsSource(src: Record<string, unknown
     workshopLink: src.workshopLink != null ? decodeText(src.workshopLink as string) : null,
     ws: src.ws != null ? decodeText(src.ws as string) : null,
     clears: src.clears,
+    uniqueClears: src.uniqueClears,
     isDeleted: src.isDeleted,
     isHidden: src.isHidden,
   };
@@ -214,6 +215,7 @@ export function pruneMysqlReferencedLevelForPack(
     workshopLink: level.workshopLink,
     ws: level.ws,
     clears: level.clears,
+    uniqueClears: level.uniqueClears,
     isDeleted: level.isDeleted,
     isHidden: level.isHidden,
   };

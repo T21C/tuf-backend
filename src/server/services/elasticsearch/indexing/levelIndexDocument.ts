@@ -40,6 +40,19 @@ function plainRow<T extends object>(row: T): Record<string, unknown> {
   return { ...(row as Record<string, unknown>) };
 }
 
+function intFromLevelData(level: Level, json: any, key: 'uniqueClears'): number {
+  const getter = level as unknown as { getDataValue?: (k: string) => unknown };
+  const fromData = getter.getDataValue?.(key);
+  if (typeof fromData === 'number' && Number.isFinite(fromData)) {
+    return Math.max(0, Math.floor(fromData));
+  }
+  const fromJson = json[key];
+  if (typeof fromJson === 'number' && Number.isFinite(fromJson)) {
+    return Math.max(0, Math.floor(fromJson));
+  }
+  return 0;
+}
+
 export function buildLevelIndexDocument(level: Level): any {
   // toJSON() recursively serializes nested associations; plain snapshots can still hold
   // Sequelize instances when relations were injected via setDataValue (bulk index).
@@ -195,5 +208,6 @@ export function buildLevelIndexDocument(level: Level): any {
         group: t.group,
       };
     }),
+    uniqueClears: intFromLevelData(level, l, 'uniqueClears'),
   };
 }
