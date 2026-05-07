@@ -20,7 +20,7 @@ const isWindows = process.platform === 'win32';
 
 const PACK_DOWNLOAD_DIR = path.join(CDN_CONFIG.pack_root, 'pack-downloads');
 const PACK_DOWNLOAD_TEMP_DIR = path.join(PACK_DOWNLOAD_DIR, 'temp');
-const PACK_DOWNLOAD_TTL_MS = 60 * 60 * 1000; // 1 hour
+const PACK_DOWNLOAD_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const PACK_DOWNLOAD_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 /** Min interval between pack upload progress broadcasts (R2 multipart fires often). */
 const PACK_UPLOAD_PROGRESS_THROTTLE_MS = 400;
