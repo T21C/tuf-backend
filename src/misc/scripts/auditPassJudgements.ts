@@ -57,13 +57,11 @@ interface MismatchPassRow {
   playerId: number;
   passAccuracy: number | null;
   tilecount: number;
-  earlyDouble: string | number;
   earlySingle: string | number;
   ePerfect: string | number;
   perfect: string | number;
   lPerfect: string | number;
   lateSingle: string | number;
-  lateDouble: string | number;
   judgementAccuracy: number | null;
   totalHits: string | number;
 }
@@ -136,16 +134,14 @@ async function fetchMismatchBatch(
     /* Cast BIGINT UNSIGNED columns to DECIMAL to avoid overflow when summing. */
     SELECT p.id, p.levelId, p.playerId, p.accuracy AS passAccuracy,
            l.tilecount,
-           j.earlyDouble, j.earlySingle, j.ePerfect, j.perfect, j.lPerfect,
-           j.lateSingle, j.lateDouble, j.accuracy AS judgementAccuracy,
+           j.earlySingle, j.ePerfect, j.perfect, j.lPerfect,
+           j.lateSingle, j.accuracy AS judgementAccuracy,
            (
-             CAST(j.earlyDouble AS DECIMAL(65,0)) +
              CAST(j.earlySingle AS DECIMAL(65,0)) +
              CAST(j.ePerfect AS DECIMAL(65,0)) +
              CAST(j.perfect AS DECIMAL(65,0)) +
              CAST(j.lPerfect AS DECIMAL(65,0)) +
-             CAST(j.lateSingle AS DECIMAL(65,0)) +
-             CAST(j.lateDouble AS DECIMAL(65,0))
+             CAST(j.lateSingle AS DECIMAL(65,0))
            ) AS totalHits
     FROM passes p
     INNER JOIN judgements j ON j.id = p.id
@@ -155,13 +151,11 @@ async function fetchMismatchBatch(
       AND l.tilecount IS NOT NULL AND l.tilecount > 0
       AND ABS(
         (
-          CAST(j.earlyDouble AS DECIMAL(65,0)) +
           CAST(j.earlySingle AS DECIMAL(65,0)) +
           CAST(j.ePerfect AS DECIMAL(65,0)) +
           CAST(j.perfect AS DECIMAL(65,0)) +
           CAST(j.lPerfect AS DECIMAL(65,0)) +
-          CAST(j.lateSingle AS DECIMAL(65,0)) +
-          CAST(j.lateDouble AS DECIMAL(65,0))
+          CAST(j.lateSingle AS DECIMAL(65,0))
         ) - CAST(l.tilecount AS DECIMAL(65,0))
       ) > :margin
       AND ${passFilters}
@@ -525,7 +519,7 @@ The script operates on:
 - levels (l) (tilecount)
 
 Judgement buckets:
-  earlyDouble, earlySingle, ePerfect, perfect, lPerfect, lateSingle, lateDouble
+  earlySingle, ePerfect, perfect, lPerfect, lateSingle
 
 totalHits = sum(all 7 buckets)
 tilecount = levels.tilecount
@@ -550,7 +544,7 @@ MODES (--mode, default: scan)
   --mode clamp
     Repairs ONLY perfects-only mismatched passes.
     For each candidate pass it sets:
-      earlyDouble=0, earlySingle=0, ePerfect=0, lPerfect=0, lateSingle=0, lateDouble=0
+      earlySingle=0, ePerfect=0, lPerfect=0, lateSingle=0
       perfect = levels.tilecount
     Then recalculates and persists:
       passes.accuracy, passes.scoreV2
