@@ -27,6 +27,27 @@ const accountDeletionService = AccountDeletionService.getInstance();
 
 const usernameChangeCooldown = 1 * 24 * 60 * 60 * 1000; // 1 day
 
+const GIF_ENABLED = process.env.CUSTOM_PROFILE_BANNERS_ENABLED === 'true' ? true : false;
+
+/** Multipart field `avatarMode`: cropped JPEG pipeline vs raw GIF (CDN PROFILE + gif-resize, same as difficulty icons). */
+type ProfileAvatarUploadMode = 'static' | 'animated';
+
+function parseProfileAvatarMode(body: unknown): ProfileAvatarUploadMode {
+  const raw =
+    typeof body === 'object' &&
+    body !== null &&
+    'avatarMode' in body &&
+    (body as Record<string, unknown>).avatarMode != null
+      ? String((body as Record<string, unknown>).avatarMode).trim().toLowerCase()
+      : '';
+  if (raw === 'animated') return 'animated';
+  return 'static';
+}
+
+function isGifAvatarFile(file: Express.Multer.File): boolean {
+  return file.mimetype === 'image/gif' || /\.gif$/i.test(file.originalname || '');
+}
+
 // Get current user profile
 router.get(
   '/me',
@@ -410,10 +431,11 @@ router.post(
   ApiDoc({
     operationId: 'postProfileAvatar',
     summary: 'Upload avatar',
-    description: 'Upload profile avatar image (JPEG, PNG, WebP; max 10MB)',
+    description:
+      'Multipart: field `avatar` (image). Optional `avatarMode`: `static` (default) = cropped/processed upload (JPEG or GIF, e.g. client-cropped animated GIF); `animated` = raw GIF only, no client-side crop.',
     tags: ['Profile'],
     security: ['bearerAuth'],
-    requestBody: { description: 'Multipart form with avatar file', required: true },
+    requestBody: { description: 'Multipart form: avatar (file), avatarMode (optional: static | animated)', required: true },
     responses: {
       200: { description: 'Avatar URL updated', schema: { type: 'object', properties: { avatarUrl: { type: 'string' } } } },
       400: { description: 'No file or invalid type', schema: errorResponseSchema },
@@ -433,6 +455,22 @@ router.post(
             return res.status(400).json({
                 error: 'No file uploaded',
                 code: 'NO_FILE'
+            });
+        }
+
+        const avatarMode = parseProfileAvatarMode(req.body);
+        // TODO(role): when restricting animated avatars, require the appropriate permission before honoring avatarMode === 'animated'
+        const gif = isGifAvatarFile(req.file);
+        if (!GIF_ENABLED && gif) {
+            return res.status(400).json({
+                error: 'Animated avatars are disabled',
+                code: 'AVATAR_ANIMATED_MODE_DISABLED',
+            });
+        }
+        if (avatarMode === 'animated' && !gif) {
+            return res.status(400).json({
+                error: 'avatarMode=animated accepts GIF files only.',
+                code: 'AVATAR_ANIMATED_MODE_GIF_ONLY',
             });
         }
 

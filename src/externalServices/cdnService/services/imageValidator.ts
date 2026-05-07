@@ -272,7 +272,6 @@ export function getValidationOptionsForType(imageType: ImageType): ValidationOpt
             maxHeight: sizes.height * 8,
             maxSize: typeConfig.maxSize,
             allowedFormats: [...typeConfig.formats],
-            requireSquare: true, // Profile images should still be square
             maxAspectRatio: 1.1, // Allow slight deviation from square
             minAspectRatio: 0.9
         };
