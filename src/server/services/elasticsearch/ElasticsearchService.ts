@@ -25,6 +25,26 @@ import { fetchPlayersForBulkIndex } from './fetching/playerFetch.js';
 import { fetchCreatorsForBulkIndex } from './fetching/creatorFetch.js';
 import { buildLevelIndexDocument } from './indexing/levelIndexDocument.js';
 import { buildPassIndexDocument } from './indexing/passIndexDocument.js';
+import { convertFromPUA } from '@/misc/utils/data/searchHelpers.js';
+
+function decodePuaDeep<T>(value: T): T {
+  if (value == null) return value;
+  if (typeof value === 'string') {
+    return convertFromPUA(value) as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => decodePuaDeep(v)) as unknown as T;
+  }
+  if (typeof value === 'object') {
+    const obj = value as unknown as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      out[k] = decodePuaDeep(v);
+    }
+    return out as unknown as T;
+  }
+  return value;
+}
 
 class ElasticsearchService {
   private static instance: ElasticsearchService;
@@ -614,7 +634,10 @@ class ElasticsearchService {
         index: levelIndexName,
         id: levelId.toString(),
       });
-      return (response as any)._source ?? null;
+      const src = (response as any)._source ?? null;
+      // ES level docs are stored with certain text fields encoded into PUA for search;
+      // decode for API consumers so they see original characters.
+      return src ? decodePuaDeep(src) : null;
     } catch (error: unknown) {
       const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
       if (status === 404) return null;

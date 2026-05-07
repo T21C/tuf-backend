@@ -204,62 +204,19 @@ router.get(
     return res.status(400).json({error: 'Invalid level ID'});
   }
 
-  const level = await Level.findOne({
-    where: { id: levelId },
-    include: [
-      {
-        model: Difficulty,
-        as: 'difficulty',
-        required: false,
-      },
-      {
-        model: Pass,
-        as: 'passes',
-        required: false,
-        attributes: ['id'],
-      },
-      {
-        model: LevelCredit,
-        as: 'levelCredits',
-        required: false,
-        include: [
-          {
-            model: Creator,
-            as: 'creator',
-          },
-        ],
-      },
-      {
-        model: LevelAlias,
-        as: 'aliases',
-        required: false,
-      },
-      {
-        model: Team,
-        as: 'teamObject',
-        required: false,
-      },
-      {
-        model: LevelTag,
-        as: 'tags',
-        required: false,
-        through: {
-          attributes: []
-        }
-      }
-    ],
-  });
+  // Fetch via Elasticsearch (same backing as list search)
+  const levelDoc = await elasticsearchService.getLevelDocumentById(levelId);
 
-  if (!level) {
+  if (!levelDoc) {
     return res.status(404).json({ error: 'Level not found' });
   }
 
   // If level is deleted and user is not super admin, return 404
-  if (level.isDeleted && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
+  if (levelDoc.isDeleted && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
     return res.status(404).json({ error: 'Level not found' });
   }
 
-    return res.json(level);
+    return res.json(levelDoc);
   } catch (error) {
     logger.error(`Error fetching level by ID ${req.params.id}:`, (error instanceof Error ? error.toString() : String(error)).slice(0, 1000));
     return res.status(500).json({ error: 'Failed to fetch level by ID' });
@@ -287,17 +244,13 @@ router.head(
       return res.status(400).end();
     }
 
-    const level = await Level.findOne({
-      where: { id: levelId },
-      attributes: ['isDeleted']
-    });
-
-    if (!level) {
+    const levelDoc = await elasticsearchService.getLevelDocumentById(levelId);
+    if (!levelDoc) {
       return res.status(404).end();
     }
 
     // If level is deleted and user is not super admin, return 403
-    if (level.isDeleted && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
+    if (levelDoc.isDeleted && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
       return res.status(404).end();
     }
 
