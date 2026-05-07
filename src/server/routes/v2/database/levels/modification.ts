@@ -49,6 +49,76 @@ import {
 
 export { checkLevelOwnership, type OwnershipCheckResult };
 
+const CHART_STATS_FIELDS = ['bpm', 'tilecount', 'levelLengthInMs'] as const;
+type ChartStatKey = (typeof CHART_STATS_FIELDS)[number];
+
+function parseChartStatPayload(body: Record<string, unknown>): {
+  ok: true;
+  update: Partial<Record<ChartStatKey, number | null>>;
+} | { ok: false; error: string; code: number } {
+  const keysPresent = CHART_STATS_FIELDS.filter((k) =>
+    Object.prototype.hasOwnProperty.call(body, k),
+  );
+  if (keysPresent.length === 0) {
+    return {
+      ok: false,
+      code: 400,
+      error:
+        'Request must include at least one of: bpm, tilecount, levelLengthInMs',
+    };
+  }
+
+  const update: Partial<Record<ChartStatKey, number | null>> = {};
+
+  for (const key of keysPresent) {
+    const raw = body[key];
+    if (raw === null) {
+      update[key] = null;
+      continue;
+    }
+    if (raw === '') {
+      update[key] = null;
+      continue;
+    }
+    if (typeof raw === 'string' && raw.trim() === '') {
+      update[key] = null;
+      continue;
+    }
+
+    const num = Number(raw);
+    if (!Number.isFinite(num)) {
+      return {
+        ok: false,
+        code: 400,
+        error: `Invalid value for ${key}: must be a finite number or null`,
+      };
+    }
+
+    if (key === 'bpm') {
+      if (num <= 0) {
+        return {
+          ok: false,
+          code: 400,
+          error: 'bpm must be greater than 0 when set',
+        };
+      }
+      update[key] = num;
+      continue;
+    }
+
+    if (!Number.isInteger(num) || num < 0) {
+      return {
+        ok: false,
+        code: 400,
+        error: `${key} must be a non-negative integer when set`,
+      };
+    }
+    update[key] = num;
+  }
+
+  return { ok: true, update };
+}
+
 const router = Router();
 
 // Helper functions for level updates
@@ -1026,6 +1096,104 @@ router.patch(
       });
     }
   }
+);
+
+router.patch(
+  '/:id([0-9]{1,20})/chart-stats',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'patchLevelChartStats',
+    summary: 'Update level chart stats (non-CDN)',
+    description:
+      'Super admin only. Sets bpm, tilecount, and/or levelLengthInMs for levels whose download is not CDN-managed. CDN levels must use chart sync from the uploaded file.',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: {
+      description: 'At least one of bpm, tilecount, levelLengthInMs (null clears)',
+      schema: {
+        type: 'object',
+        properties: {
+          bpm: { oneOf: [{ type: 'number' }, { type: 'null' }] },
+          tilecount: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
+          levelLengthInMs: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
+        },
+      },
+      required: true,
+    },
+    responses: {
+      200: { description: 'Chart stats updated' },
+      400: { description: 'Invalid body or CDN-managed level', schema: errorResponseSchema },
+      ...standardErrorResponses403404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const levelId = parseInt(req.params.id, 10);
+      const body = req.body as Record<string, unknown>;
+      const parsed = parseChartStatPayload(body);
+      if (!parsed.ok) {
+        return res.status(parsed.code).json({ error: parsed.error });
+      }
+
+      const level = await Level.findByPk(levelId, {
+        attributes: ['id', 'dlLink'],
+      });
+      if (!level) {
+        return res.status(404).json({ error: 'Level not found' });
+      }
+
+      const dl = level.dlLink ?? '';
+      if (dl && isCdnUrl(dl)) {
+        return res.status(400).json({
+          error:
+            'Chart stats for CDN-managed levels are derived from the uploaded file. Use upload management to change the file.',
+        });
+      }
+
+      await Level.update(
+        {...parsed.update, updatedAt: new Date()},
+        {where: {id: levelId}},
+      );
+
+      const updated = await Level.findByPk(levelId, {
+        attributes: ['id', 'bpm', 'tilecount', 'levelLengthInMs'],
+      });
+
+      await elasticsearchService.indexLevel(levelId);
+      try {
+        await CacheInvalidation.invalidateTags([
+          `level:${levelId}`,
+          'levels:all',
+        ]);
+      } catch (cacheErr) {
+        logger.error(
+          `Cache invalidation after chart-stats patch failed for level ${levelId}:`,
+          cacheErr,
+        );
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      (async () => {
+        try {
+          sseManager.broadcast({type: 'levelUpdate'});
+        } catch (error) {
+          logger.error(
+            'Error broadcasting after chart-stats patch:',
+            error,
+          );
+        }
+      })();
+
+      return res.json({
+        message: 'Chart stats updated',
+        level: updated,
+      });
+    } catch (error) {
+      logger.error('Error patching level chart stats:', error);
+      return res.status(500).json({error: 'Failed to update chart stats'});
+    }
+  },
 );
 
 router.put(

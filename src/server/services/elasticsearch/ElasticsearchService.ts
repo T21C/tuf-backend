@@ -163,7 +163,6 @@ class ElasticsearchService {
     const level = await fetchLevelWithRelations(id);
     if (!level) return null;
     const processedLevel = buildLevelIndexDocument(level);
-    logger.debug(`Processed level ${id} videoLink: ${processedLevel.videoLink}`);
     return processedLevel as ILevel;
   }
 
