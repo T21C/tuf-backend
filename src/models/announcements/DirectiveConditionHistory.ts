@@ -26,6 +26,8 @@ DirectiveConditionHistory.init(
         model: 'levels',
         key: 'id',
       },
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
     },
     conditionHash: {
       type: DataTypes.STRING,

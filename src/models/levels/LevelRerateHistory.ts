@@ -26,7 +26,9 @@ LevelRerateHistory.init(
     levelId: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        references: { model: 'levels', key: 'id' }
+        references: { model: 'levels', key: 'id' },
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
     },
     previousDiffId: {
         type: DataTypes.INTEGER,
