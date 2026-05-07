@@ -403,13 +403,11 @@ async function runFlagLevels(opts: CliOptions): Promise<void> {
       SELECT
         p.levelId,
         (
-          CAST(j.earlyDouble AS DECIMAL(65,0)) +
           CAST(j.earlySingle AS DECIMAL(65,0)) +
           CAST(j.ePerfect AS DECIMAL(65,0)) +
           CAST(j.perfect AS DECIMAL(65,0)) +
           CAST(j.lPerfect AS DECIMAL(65,0)) +
-          CAST(j.lateSingle AS DECIMAL(65,0)) +
-          CAST(j.lateDouble AS DECIMAL(65,0))
+          CAST(j.lateSingle AS DECIMAL(65,0))
         ) AS totalHits,
         j.accuracy AS judgementAccuracy
       FROM passes p
