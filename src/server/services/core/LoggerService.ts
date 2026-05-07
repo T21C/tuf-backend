@@ -58,6 +58,7 @@ const extractMetadata = (info: any): string => {
   // Check all Symbol properties to find the splat array
   const symbols = Object.getOwnPropertySymbols(info);
   let splat: any[] | undefined;
+  let sawNonInternalObjectInSplat = false;
 
   for (const sym of symbols) {
     const value = info[sym];
@@ -98,6 +99,7 @@ const extractMetadata = (info: any): string => {
       if (item === null || item === undefined) {
         parts.push(String(item));
       } else if (typeof item === 'object') {
+        sawNonInternalObjectInSplat = true;
         parts.push(safeStringify(item));
       } else {
         parts.push(String(item));
@@ -106,6 +108,13 @@ const extractMetadata = (info: any): string => {
   }
 
   // Extract regular metadata (excluding known Winston properties and Symbol keys)
+  // NOTE: When logging objects, Winston can expose them both via the splat Symbol
+  // AND as merged enumerable keys on `info`. If we already printed object splat,
+  // skip regularMeta to prevent duplicated meta objects in output.
+  if (sawNonInternalObjectInSplat) {
+    return parts.length > 0 ? parts.join(' ') : '';
+  }
+
   const knownKeys = ['level', 'message', 'timestamp', 'splat'];
   const regularMeta: Record<string, any> = {};
   for (const key in info) {
