@@ -24,7 +24,6 @@ import {logger} from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
 import {
-  getFileIdFromCdnUrl,
   isCdnUrl,
   safeTransactionRollback,
   sanitizeTextInput,
@@ -40,8 +39,7 @@ import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import { getSongDisplayName, getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
-import Curation from '@/models/curations/Curation.js';
-import DirectiveConditionHistory from '@/models/announcements/DirectiveConditionHistory.js';
+import {executePermanentLevelDeleteWithSideEffects} from '@/server/domain/levels/levelPermanentDelete.js';
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 
@@ -934,136 +932,47 @@ router.delete(
     },
   }),
   async (req: Request, res: Response) => {
-    let transaction: Transaction | undefined;
     const levelId = parseInt(req.params.id, 10);
 
     try {
-      const affectedPasses = await Pass.findAll({
-        where: { levelId },
-        attributes: ['playerId'],
-      });
-      const affectedPlayerIds = Array.from(
-        new Set(
-          affectedPasses.map(p => p.playerId).filter((x): x is number => typeof x === 'number'),
-        ),
-      );
-
-      transaction = await sequelize.transaction();
-
-      const level = await Level.findOne({
-        where: { id: levelId },
-        include: [
-          {
-            model: Curation,
-            as: 'curations',
-            required: false,
+      await executePermanentLevelDeleteWithSideEffects(
+        levelId,
+        { requireSoftDeleted: true },
+        {
+          elasticsearchDeleteLevel: async (id) => {
+            await elasticsearchService.deleteLevel({ id } as Level);
           },
-        ],
-        transaction,
-      });
-
-      if (!level) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({ error: 'Level not found' });
-      }
-
-      if (!level.isDeleted) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({
-          error: 'Level must be soft-deleted before permanent removal',
-        });
-      }
-
-      await DirectiveConditionHistory.destroy({
-        where: { levelId },
-      });
-
-      const curations = Array.isArray(level.curations) ? level.curations : [];
-
-      if (
-        level.fileId &&
-        level.dlLink &&
-        level.dlLink !== 'removed' &&
-        isCdnUrl(level.dlLink)
-      ) {
-        try {
-          logger.debug(`Permanent delete: removing level zip from CDN: ${level.fileId}`);
-          await cdnService.deleteFile(level.fileId);
-        } catch (cdnErr) {
-          logger.error(`Permanent delete: CDN level zip delete failed for ${level.fileId}:`, cdnErr);
-        }
-      }
-
-      for (const curation of curations) {
-        if (curation.previewLink && isCdnUrl(curation.previewLink)) {
-          const thumbId = getFileIdFromCdnUrl(curation.previewLink);
-          if (thumbId) {
-            try {
-              logger.debug(`Permanent delete: removing curation preview from CDN: ${thumbId}`);
-              await cdnService.deleteFile(thumbId);
-            } catch (cdnErr) {
-              logger.error(
-                `Permanent delete: CDN curation preview delete failed for ${thumbId}:`,
-                cdnErr,
-              );
+          broadcastAndInvalidate: async ({ levelId: lid, affectedPlayerIds }) => {
+            sseManager.broadcast({ type: 'levelUpdate' });
+            sseManager.broadcast({ type: 'ratingUpdate' });
+            await CacheInvalidation.invalidateTags([
+              `level:${lid}`,
+              'levels:all',
+              'Passes',
+            ]);
+            if (affectedPlayerIds.length > 0) {
+              await elasticsearchService.reindexPlayers(affectedPlayerIds);
             }
-          }
-        }
-      }
-
-      await LevelRerateHistory.destroy({
-        where: { levelId },
-        transaction,
-      });
-
-      const deletedCount = await Level.destroy({
-        where: { id: levelId },
-        transaction,
-      });
-
-      if (deletedCount === 0) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({ error: 'Level not found' });
-      }
-
-      await transaction.commit();
-      transaction = undefined;
-
-      try {
-        await elasticsearchService.deleteLevel({ id: levelId } as Level);
-      } catch (esErr) {
-        logger.error(`Permanent delete: Elasticsearch level doc delete failed for ${levelId}:`, esErr);
-      }
+          },
+        },
+      );
 
       res.json({
         success: true,
         deleted: { id: levelId },
       });
 
-      (async () => {
-        try {
-          sseManager.broadcast({ type: 'levelUpdate' });
-          sseManager.broadcast({ type: 'ratingUpdate' });
-          await CacheInvalidation.invalidateTags([
-            `level:${levelId}`,
-            'levels:all',
-            'Passes',
-          ]);
-          if (affectedPlayerIds.length > 0) {
-            await elasticsearchService.reindexPlayers(affectedPlayerIds);
-          }
-        } catch (asyncErr) {
-          logger.error('Error in async operations after permanent level delete:', asyncErr);
-        }
-      })()
-        .then(() => undefined)
-        .catch(err => {
-          logger.error('Error in async operations after permanent level delete:', err);
-        });
-
       return;
-    } catch (error) {
-      await safeTransactionRollback(transaction);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg === 'LEVEL_NOT_FOUND') {
+        return res.status(404).json({ error: 'Level not found' });
+      }
+      if (msg === 'LEVEL_NOT_SOFT_DELETED') {
+        return res.status(400).json({
+          error: 'Level must be soft-deleted before permanent removal',
+        });
+      }
       logger.error('Error permanently deleting level:', error);
       return res.status(500).json({ error: 'Failed to permanently delete level' });
     }

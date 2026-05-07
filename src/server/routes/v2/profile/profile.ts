@@ -122,6 +122,7 @@ router.get(
         previousUsername: user.previousUsername,
         deletionScheduledAt: user.deletionScheduledAt ?? null,
         deletionExecuteAt: user.deletionExecuteAt ?? null,
+        deletionIncludeCreator: Boolean(user.deletionIncludeCreator),
         providers: providers.map((p: OAuthProvider) => ({
           name: p.provider,
           providerId: p.providerId,
@@ -842,8 +843,11 @@ router.post(
       const user = req.user;
       if (!user) return res.status(401).json({ error: 'User not authenticated' });
 
+      const body = (req.body || {}) as { deletionIncludeCreator?: boolean };
+      const deletionIncludeCreator = Boolean(body.deletionIncludeCreator);
+
       const { deletionScheduledAt, deletionExecuteAt } =
-        await accountDeletionService.scheduleDeletion(user.id);
+        await accountDeletionService.scheduleDeletion(user.id, { deletionIncludeCreator });
 
       await CacheInvalidation.invalidateUser(user.id);
 
@@ -852,7 +856,11 @@ router.post(
         deletionScheduledAt: deletionScheduledAt.toISOString(),
         deletionExecuteAt: deletionExecuteAt.toISOString(),
       });
-    } catch (error) {
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg === 'No linked creator profile to include in deletion') {
+        return res.status(400).json({ error: msg });
+      }
       logger.error('Error scheduling account deletion:', error);
       return res.status(500).json({ error: 'Failed to schedule account deletion' });
     }

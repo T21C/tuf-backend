@@ -11,6 +11,7 @@ import { hasFlag, setUserPermissionAndSave } from '@/misc/utils/auth/permissionU
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { CreatorProfileDeletionService } from '@/server/services/accounts/CreatorProfileDeletionService.js';
 
 const GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
 
@@ -130,7 +131,10 @@ export class AccountDeletionService {
    * - Snapshots permission flags once (for safe restore)
    * - Bans player (leaderboard hidden) and sets BANNED permission flag
    */
-  public async scheduleDeletion(userId: string): Promise<{
+  public async scheduleDeletion(
+    userId: string,
+    options?: { deletionIncludeCreator?: boolean },
+  ): Promise<{
     deletionScheduledAt: Date;
     deletionExecuteAt: Date;
   }> {
@@ -141,6 +145,11 @@ export class AccountDeletionService {
       const user = await User.findByPk(userId, { transaction });
       if (!user) {
         throw new Error('User not found');
+      }
+
+      const wantCreator = Boolean(options?.deletionIncludeCreator);
+      if (wantCreator && (user.creatorId == null || user.creatorId <= 0)) {
+        throw new Error('No linked creator profile to include in deletion');
       }
 
       const now = new Date();
@@ -155,6 +164,7 @@ export class AccountDeletionService {
           deletionScheduledAt: user.deletionScheduledAt ?? now,
           deletionExecuteAt: executeAt,
           deletionSnapshotPermissionFlags: snapshot,
+          deletionIncludeCreator: wantCreator,
         },
         { transaction },
       );
@@ -224,6 +234,7 @@ export class AccountDeletionService {
           deletionScheduledAt: null,
           deletionExecuteAt: null,
           deletionSnapshotPermissionFlags: null,
+          deletionIncludeCreator: false,
           permissionFlags: snapshotFlags as any,
         },
         { transaction },
@@ -287,6 +298,8 @@ export class AccountDeletionService {
     let transaction: any;
     let avatarIdToDelete: string | null = null;
     let playerIdToDelete: number | null = null;
+    let creatorIdToPurge: number | null = null;
+    let includeCreatorPurge = false;
 
     try {
       transaction = await sequelize.transaction();
@@ -311,6 +324,9 @@ export class AccountDeletionService {
 
       avatarIdToDelete = lockedUser.avatarId ?? null;
       playerIdToDelete = lockedUser.playerId ?? null;
+      creatorIdToPurge =
+        lockedUser.creatorId != null && lockedUser.creatorId > 0 ? lockedUser.creatorId : null;
+      includeCreatorPurge = Boolean(lockedUser.deletionIncludeCreator);
 
       let passIdsForSearchIndex: number[] = [];
       let levelIdsAffected: number[] = [];
@@ -326,14 +342,39 @@ export class AccountDeletionService {
         ];
       }
 
-      // Ensure creator persists but is unlinked.
+      await transaction.commit();
+      transaction = undefined;
+
+      if (includeCreatorPurge && creatorIdToPurge != null) {
+        await CreatorProfileDeletionService.getInstance().purgeCreatorProfile(creatorIdToPurge);
+      }
+
+      transaction = await sequelize.transaction();
+      const lockedAgain = await User.findByPk(userId, {
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!lockedAgain) {
+        await transaction.commit();
+        return false;
+      }
+      if (!lockedAgain.deletionExecuteAt || !lockedAgain.deletionScheduledAt) {
+        await transaction.commit();
+        return false;
+      }
+      if (lockedAgain.deletionExecuteAt.getTime() > Date.now()) {
+        await transaction.commit();
+        return false;
+      }
+
+      // Ensure creators are unlinked from this user (creator row may already be gone).
       await Creator.update(
         { userId: null },
-        { where: { userId: lockedUser.id }, transaction },
+        { where: { userId: lockedAgain.id }, transaction },
       );
 
       // Delete user first (users->players FK blocks deleting player while user exists).
-      await User.destroy({ where: { id: lockedUser.id }, transaction });
+      await User.destroy({ where: { id: lockedAgain.id }, transaction });
 
       // Delete player after user is gone so passes cascade away.
       if (playerIdToDelete) {

@@ -27,6 +27,8 @@ export interface UserAttributes {
   permissionVersion: number;
   deletionScheduledAt?: Date | null;
   deletionExecuteAt?: Date | null;
+  /** When true, scheduled hard-delete also purges the linked creator profile (solo levels removed). */
+  deletionIncludeCreator?: boolean;
   deletionSnapshotPermissionFlags?: bigint | number | null;
   lastUsernameChange?: Date | null;
   previousUsername?: string | null;
@@ -59,6 +61,7 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare permissionVersion: number;
   declare deletionScheduledAt?: Date | null;
   declare deletionExecuteAt?: Date | null;
+  declare deletionIncludeCreator?: boolean;
   declare deletionSnapshotPermissionFlags?: bigint | number | null;
   declare lastUsernameChange?: Date | null;
   declare previousUsername?: string | null;
@@ -184,6 +187,11 @@ User.init(
       type: DataTypes.BIGINT,
       allowNull: true,
       defaultValue: null,
+    },
+    deletionIncludeCreator: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
     lastUsernameChange: {
       type: DataTypes.DATE,
