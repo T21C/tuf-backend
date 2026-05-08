@@ -3,7 +3,6 @@ import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import User from '@/models/auth/User.js';
 import type { CreatorStatsRow } from '@/server/services/elasticsearch/misc/creatorStatsQuery.js';
 import { validCreatorVerificationStatuses, type CreatorVerificationStatus } from '@/config/constants.js';
-import { effectiveAvatarForUserRow } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 
 export interface CreatorIndexDocumentInput {
   creator: Creator;
@@ -80,7 +79,8 @@ function serializeUser(user: User | null | undefined): any | null {
     id: u.id ?? null,
     username: u.username ?? null,
     nickname: u.nickname ?? null,
-    avatarUrl: effectiveAvatarForUserRow(user),
+    avatarUrl: u.avatarUrl ?? null,
+    avatarIsGif: Boolean(u.avatarIsGif),
     playerId: coerceNumber(u.playerId, 0),
     tufStellarSubscriptionExpiresAt: u.tufStellarSubscriptionExpiresAt ?? null,
     permissionFlags: permissionFlagsToLong(u.permissionFlags),

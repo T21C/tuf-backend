@@ -55,9 +55,9 @@ export async function syncTufStellarPermissionFromExpiry(user: User): Promise<vo
 }
 
 /**
- * For GIF profile images, the CDN stores animated variants under `/original`, … and
- * still JPEGs under `/original_static`, … When the subscription is inactive, point
- * clients at the static JPEG route (same path shape, `_static` suffix).
+ * PROFILE GIF CDN layout: `…/original_animated`, `…/large_animated`, … plus `…/original_static` (JPEG).
+ * When the subscription is inactive, swap `_animated` → `_static` on the path. Legacy GIFs used `…/original`
+ * with `…/original_static` only — still supported here for media redirects.
  */
 export function getEffectiveAvatarDisplayUrl(
   avatarUrl: string | null | undefined,
@@ -66,6 +66,9 @@ export function getEffectiveAvatarDisplayUrl(
 ): string | null {
   if (avatarUrl == null || avatarUrl === '') return null;
   if (!avatarIsGif || subscriptionActive) return avatarUrl;
+  if (avatarUrl.includes('_animated')) {
+    return avatarUrl.replace(/_animated/g, '_static');
+  }
   return avatarUrl.replace(/\/original(?=$|[?#])/, '/original_static');
 }
 

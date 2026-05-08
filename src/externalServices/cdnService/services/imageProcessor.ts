@@ -28,6 +28,69 @@ function metaForVariant(
     };
 }
 
+/** PROFILE GIF: variant keys use `original_animated`, `large_animated`, … and `original_static`, … (no extension in URL segment). */
+async function processProfileGifAnimatedAndStatic(
+    filePath: string,
+    fileId: string,
+    outputDirectory: string,
+    imageConfig: (typeof IMAGE_TYPES)['PROFILE'],
+): Promise<Record<string, { path: string; mimeType: string }>> {
+    const processedFiles: Record<string, { path: string; mimeType: string }> = {};
+    const gifBuffer = await fs.promises.readFile(filePath);
+    const meta = await sharp(filePath).metadata();
+    const innerW = meta.width ?? 0;
+    const innerH = meta.height ?? 0;
+    const gifExt = path.extname(filePath) || '.gif';
+
+    for (const [size, dimensions] of Object.entries(imageConfig.sizes)) {
+        const animKey = size === 'original' ? 'original_animated' : `${size}_animated`;
+        if (size === 'original') {
+            const outputPath = path.join(outputDirectory, `${animKey}${gifExt}`);
+            await fs.promises.copyFile(filePath, outputPath);
+            processedFiles[animKey] = metaForVariant(imageConfig.name, fileId, filePath, animKey);
+            continue;
+        }
+
+        const outputPath = path.join(outputDirectory, `${animKey}${gifExt}`);
+        const dw = dimensions.width;
+        const dh = dimensions.height;
+
+        if (innerW > 0 && innerH > 0 && innerW <= dw && innerH <= dh) {
+            await fs.promises.copyFile(filePath, outputPath);
+        } else {
+            const resized = await gifResize({
+                width: dw,
+                height: dh,
+                stretch: false
+            })(gifBuffer);
+            await fs.promises.writeFile(outputPath, resized);
+        }
+
+        processedFiles[animKey] = metaForVariant(imageConfig.name, fileId, filePath, animKey);
+    }
+
+    for (const [size, dimensions] of Object.entries(imageConfig.sizes)) {
+        const staticKey = size === 'original' ? 'original_static' : `${size}_static`;
+        const outBasename = size === 'original' ? 'original_static.jpg' : `${size}_static.jpg`;
+        const outputPath = path.join(outputDirectory, outBasename);
+        const dw = dimensions.width;
+        const dh = dimensions.height;
+        await sharp(filePath, { animated: true, pages: 1 })
+            .resize(dw, dh, {
+                fit: 'inside',
+                withoutEnlargement: true,
+            })
+            .jpeg({ quality: 88 })
+            .toFile(outputPath);
+        processedFiles[staticKey] = {
+            path: `images/${imageConfig.name}/${fileId}/${outBasename}`,
+            mimeType: 'image/jpeg',
+        };
+    }
+
+    return processedFiles;
+}
+
 export async function processImage(
     filePath: string,
     imageType: ImageType,
@@ -52,6 +115,17 @@ export async function processImage(
             await fs.promises.writeFile(outputPath, svgBuf);
             processedFiles[size] = metaForVariant(imageConfig.name, fileId, filePath, size);
         }
+        return processedFiles;
+    }
+
+    if (isGif && imageType === 'PROFILE') {
+        const profileGif = await processProfileGifAnimatedAndStatic(
+            filePath,
+            fileId,
+            outputDirectory,
+            imageConfig as (typeof IMAGE_TYPES)['PROFILE'],
+        );
+        Object.assign(processedFiles, profileGif);
         return processedFiles;
     }
 
@@ -83,29 +157,6 @@ export async function processImage(
             }
 
             processedFiles[size] = metaForVariant(imageConfig.name, fileId, filePath, size);
-        }
-
-        // PROFILE GIF: also persist first-frame JPEGs (same logical sizes) so an expired
-        // TUFStellar subscription can fall back to stills without deleting the animated assets.
-        if (imageType === 'PROFILE') {
-            for (const [size, dimensions] of Object.entries(imageConfig.sizes)) {
-                const staticKey = size === 'original' ? 'original_static' : `${size}_static`;
-                const outBasename = size === 'original' ? 'original_static.jpg' : `${size}_static.jpg`;
-                const outputPath = path.join(outputDirectory, outBasename);
-                const dw = dimensions.width;
-                const dh = dimensions.height;
-                await sharp(filePath, { animated: true, pages: 1 })
-                    .resize(dw, dh, {
-                        fit: 'inside',
-                        withoutEnlargement: true,
-                    })
-                    .jpeg({ quality: 88 })
-                    .toFile(outputPath);
-                processedFiles[staticKey] = {
-                    path: `images/${imageConfig.name}/${fileId}/${outBasename}`,
-                    mimeType: 'image/jpeg',
-                };
-            }
         }
 
         return processedFiles;

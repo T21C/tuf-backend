@@ -22,7 +22,6 @@ import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { AccountDeletionService } from '@/server/services/accounts/AccountDeletionService.js';
 import {
   canUseStellarProfileCustomization,
-  effectiveAvatarForUserRow,
   syncTufStellarPermissionFromExpiry,
   type UserRow,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
@@ -123,7 +122,8 @@ router.get(
         username: user.username,
         nickname: user.nickname || user.username,
         email: user.email,
-        avatarUrl: effectiveAvatarForUserRow(user),
+        avatarUrl: user.avatarUrl ?? null,
+        avatarIsGif: Boolean(user.avatarIsGif),
         tufStellarSubscriptionExpiresAt: user.tufStellarSubscriptionExpiresAt ?? null,
         isRater: hasFlag(user, permissionFlags.RATER),
         isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
@@ -476,7 +476,7 @@ router.post(
 
         const avatarMode = parseProfileAvatarMode(req.body);
         const gif = isGifAvatarFile(req.file);
-        if (gif && !canUseStellarProfileCustomization(user)) {
+        if (gif && !canUseStellarProfileCustomization(user as UserRow)) {
             return res.status(403).json({
                 error: 'GIF profile pictures require an active TUFStellar subscription or custom profile access',
                 code: 'AVATAR_GIF_FORBIDDEN',
@@ -511,10 +511,14 @@ router.post(
             logger.error('Error deleting old avatar from CDN:', error);
         }
 
+        const primaryAvatarUrl = gif
+            ? (result.urls.original_animated ?? result.urls.original)
+            : result.urls.original;
+
         // Update user's avatar information
         await User.update(
             {
-                avatarUrl: result.urls.original,
+                avatarUrl: primaryAvatarUrl,
                 avatarId: result.fileId,
                 avatarIsGif: gif,
             },
@@ -526,6 +530,7 @@ router.post(
 
         return res.json({
             message: 'Avatar uploaded successfully',
+            avatarIsGif: gif,
             avatar: {
                 id: result.fileId,
                 urls: result.urls,
