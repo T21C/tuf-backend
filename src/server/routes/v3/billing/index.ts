@@ -52,6 +52,92 @@ function summarizeRawBody(rawBody: string): PaymentSummary {
   }
 }
 
+type BillingEventReferenceKind =
+  | 'invoice_id'
+  | 'foreign_invoice'
+  | 'order_id'
+  | 'transaction_id'
+  | 'subscription_id'
+  | 'checkout_external_id';
+
+interface BillingEventReference {
+  kind: BillingEventReferenceKind;
+  value: string;
+}
+
+function trimmedString(v: unknown): string | null {
+  if (v == null || v === '') return null;
+  const s = String(v).trim();
+  return s.length > 0 ? s : null;
+}
+
+const REFERENCE_KIND_ORDER: BillingEventReferenceKind[] = [
+  'invoice_id',
+  'foreign_invoice',
+  'order_id',
+  'transaction_id',
+  'subscription_id',
+  'checkout_external_id',
+];
+
+/**
+ * Invoice / order identifiers from Xsolla webhook JSON plus indexed columns on BillingEvent.
+ * Used for support and disputes; raw IPN body is never exposed to the client.
+ */
+function extractBillingEventReferences(
+  rawBody: string,
+  row: { xsollaTransactionId: number | null; xsollaSubscriptionId: number | null; externalId: string | null },
+): BillingEventReference[] {
+  const byKind = new Map<BillingEventReferenceKind, string>();
+
+  const setIfEmpty = (kind: BillingEventReferenceKind, value: string | null) => {
+    if (!value || byKind.has(kind)) return;
+    byKind.set(kind, value);
+  };
+
+  try {
+    const p = JSON.parse(rawBody) as Record<string, any>;
+    const notif = (p?.notification as Record<string, any> | undefined) ?? p;
+    const sub = p?.purchase as Record<string, any> | undefined;
+    const purchaseSub = sub?.subscription as Record<string, any> | undefined;
+    const order = sub?.order as Record<string, any> | undefined;
+    const tx = p?.transaction as Record<string, any> | undefined;
+    const settings = p?.settings as Record<string, any> | undefined;
+
+    setIfEmpty('invoice_id', trimmedString(
+      p?.invoice_id ?? p?.invoiceId ?? notif?.invoice_id ?? notif?.invoiceId ?? tx?.invoice_id,
+    ));
+    setIfEmpty('foreign_invoice', trimmedString(
+      p?.foreign_invoice ?? p?.foreignInvoice ?? notif?.foreign_invoice ?? notif?.foreignInvoice,
+    ));
+    setIfEmpty('order_id', trimmedString(order?.id ?? order?.order_id));
+    setIfEmpty('transaction_id', trimmedString(tx?.id ?? tx?.transaction_id));
+    setIfEmpty('subscription_id', trimmedString(
+      purchaseSub?.subscription_id ?? purchaseSub?.subscriptionId,
+    ));
+    setIfEmpty('checkout_external_id', trimmedString(
+      tx?.external_id ?? tx?.externalId ?? settings?.external_id ?? settings?.externalId,
+    ));
+  } catch {
+    /* ignore */
+  }
+
+  if (row.xsollaTransactionId != null && Number.isFinite(row.xsollaTransactionId)) {
+    setIfEmpty('transaction_id', String(row.xsollaTransactionId));
+  }
+  if (row.xsollaSubscriptionId != null && Number.isFinite(row.xsollaSubscriptionId)) {
+    setIfEmpty('subscription_id', String(row.xsollaSubscriptionId));
+  }
+  setIfEmpty('checkout_external_id', trimmedString(row.externalId));
+
+  const out: BillingEventReference[] = [];
+  for (const kind of REFERENCE_KIND_ORDER) {
+    const v = byKind.get(kind);
+    if (v) out.push({ kind, value: v });
+  }
+  return out;
+}
+
 function isSubscriptionActive(expiresAt: Date | null | undefined): boolean {
   if (!expiresAt) return false;
   const t = new Date(expiresAt).getTime();
@@ -69,7 +155,7 @@ router.get(
     operationId: 'getBillingMe',
     summary: 'Get current TUFStellar subscription state',
     description:
-      'Returns active flag, expiry, cancellation timestamp, external subscription id, persisted billing lifecycle, and allowed actions for checkout/cancel/resubscribe.',
+      'Returns active flag, expiry, cancellation timestamp, persisted billing lifecycle, and allowed actions. Invoice and transaction identifiers appear on GET /me/events only.',
     tags: ['Billing'],
     security: ['bearerAuth'],
     responses: {
@@ -79,10 +165,8 @@ router.get(
           type: 'object',
           properties: {
             active: { type: 'boolean' },
-            plan: { type: 'string', nullable: true },
             expiresAt: { type: 'string', format: 'date-time', nullable: true },
             cancelledAt: { type: 'string', format: 'date-time', nullable: true },
-            externalSubscriptionId: { type: 'string', nullable: true },
             lifecycle: {
               type: 'string',
               enum: ['inactive', 'active_renewing', 'active_cancelling', 'active_checkout_pending'],
@@ -121,10 +205,8 @@ router.get(
 
       return res.json({
         active: isSubscriptionActive(user.tufStellarSubscriptionExpiresAt ?? null),
-        plan: xsollaConfig.subscriptionPlanId || null,
         expiresAt: user.tufStellarSubscriptionExpiresAt ?? null,
         cancelledAt: user.tufStellarSubscriptionCancelledAt ?? null,
-        externalSubscriptionId: user.tufStellarSubscriptionExternalId ?? null,
         lifecycle,
         allowedActions,
       });
@@ -141,7 +223,8 @@ router.get(
   ApiDoc({
     operationId: 'getBillingMeEvents',
     summary: 'Recent billing events for the current user',
-    description: 'Returns the most recent BillingEvent rows for the authenticated user (sanitized; no raw body).',
+    description:
+      'Returns recent BillingEvent rows (sanitized): event type, status, amount, and structured invoice / reference ids parsed from the webhook payload for disputes.',
     tags: ['Billing'],
     security: ['bearerAuth'],
     responses: {
@@ -173,17 +256,21 @@ router.get(
 
       const events = rows.map((r) => {
         const summary = summarizeRawBody(r.rawBody);
+        const references = extractBillingEventReferences(r.rawBody, {
+          xsollaTransactionId: r.xsollaTransactionId,
+          xsollaSubscriptionId: r.xsollaSubscriptionId,
+          externalId: r.externalId,
+        });
         return {
           id: r.id,
           provider: r.provider,
           eventType: r.eventType,
           status: r.status,
-          xsollaTransactionId: r.xsollaTransactionId,
-          xsollaSubscriptionId: r.xsollaSubscriptionId,
           createdAt: r.createdAt,
           processedAt: r.processedAt,
           amount: summary.amount,
           currency: summary.currency,
+          references,
         };
       });
 
