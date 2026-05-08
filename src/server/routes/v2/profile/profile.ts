@@ -125,6 +125,8 @@ router.get(
         avatarUrl: user.avatarUrl ?? null,
         avatarIsGif: Boolean(user.avatarIsGif),
         tufStellarSubscriptionExpiresAt: user.tufStellarSubscriptionExpiresAt ?? null,
+        tufStellarSubscriptionExternalId: user.tufStellarSubscriptionExternalId ?? null,
+        tufStellarSubscriptionCancelledAt: user.tufStellarSubscriptionCancelledAt ?? null,
         isRater: hasFlag(user, permissionFlags.RATER),
         isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
         isRatingBanned: hasFlag(user, permissionFlags.RATING_BANNED),

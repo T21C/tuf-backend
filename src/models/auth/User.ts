@@ -34,6 +34,8 @@ export interface UserAttributes {
   tufStellarSubscriptionExpiresAt?: Date | null;
   /** Provider-side subscription / user reference (e.g. Xsolla) for support and webhooks. */
   tufStellarSubscriptionExternalId?: string | null;
+  /** Set when the user (or a webhook) cancelled the recurring subscription; benefits keep until expiresAt. */
+  tufStellarSubscriptionCancelledAt?: Date | null;
   /** True when the uploaded profile image is an animated GIF (CDN also stores JPEG stills for expiry fallback). */
   avatarIsGif?: boolean;
   lastUsernameChange?: Date | null;
@@ -71,6 +73,7 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare deletionSnapshotPermissionFlags?: bigint | number | null;
   declare tufStellarSubscriptionExpiresAt?: Date | null;
   declare tufStellarSubscriptionExternalId?: string | null;
+  declare tufStellarSubscriptionCancelledAt?: Date | null;
   declare avatarIsGif?: boolean;
   declare lastUsernameChange?: Date | null;
   declare previousUsername?: string | null;
@@ -209,6 +212,11 @@ User.init(
     },
     tufStellarSubscriptionExternalId: {
       type: DataTypes.STRING(191),
+      allowNull: true,
+      defaultValue: null,
+    },
+    tufStellarSubscriptionCancelledAt: {
+      type: DataTypes.DATE,
       allowNull: true,
       defaultValue: null,
     },

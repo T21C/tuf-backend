@@ -1,7 +1,12 @@
 import crypto from 'crypto';
 import type { CreationAttributes } from 'sequelize';
 import BillingEvent from '@/models/billing/BillingEvent.js';
+import User from '@/models/auth/User.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { permissionFlags } from '@/config/constants.js';
+import { setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
+import { syncTufStellarPermissionFromExpiry } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 export type XsollaNotificationType =
   | 'user_validation'
@@ -155,16 +160,150 @@ export class XsollaWebhookService {
   }
 
   /**
-   * Minimal processing stub. For now, this just marks the event processed.
-   * Next step will be mapping subscription webhooks -> `users.tufStellarSubscriptionExpiresAt`.
+   * Maps an Xsolla webhook into User-side state changes:
+   * - payment / order_paid / create_subscription / update_subscription -> extend expiry, grant TUF_STELLAR
+   * - cancel_subscription / non_renewal_subscription -> mark cancelledAt (period still served until expiresAt)
+   * - refund / partial_refund / order_canceled -> revoke immediately if it matches the active sub/tx
    */
   static async processEvent(event: BillingEvent): Promise<void> {
     try {
+      const payload = parseRawBody(event.rawBody);
+      const userId = event.userId ?? (payload?.user?.id != null ? String(payload.user.id) : null);
+
+      switch (event.eventType) {
+        case 'payment':
+        case 'order_paid':
+        case 'create_subscription':
+        case 'update_subscription': {
+          if (userId) await applySubscriptionExtension(userId, event, payload);
+          break;
+        }
+        case 'cancel_subscription':
+        case 'non_renewal_subscription': {
+          if (userId) await applySubscriptionCancelled(userId, event, payload);
+          break;
+        }
+        case 'refund':
+        case 'partial_refund':
+        case 'order_canceled': {
+          if (userId) await applySubscriptionRevoke(userId, event);
+          break;
+        }
+        default:
+          break;
+      }
+
       await this.markProcessed(event.id);
     } catch (e) {
       logger.error('[Xsolla] Failed to process billing event', { eventId: event.id, err: e });
-      await this.markFailed(event.id, 'PROCESSING_ERROR', 'Failed to process billing event');
+      await this.markFailed(event.id, 'PROCESSING_ERROR', e instanceof Error ? e.message : 'Failed to process billing event');
       throw e;
     }
+  }
+}
+
+// ---------- helpers ----------
+
+function parseRawBody(rawBody: string): any {
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    return {};
+  }
+}
+
+function parseDate(input: unknown): Date | null {
+  if (input == null || input === '') return null;
+  const s = typeof input === 'string' || typeof input === 'number' ? input : String(input);
+  const d = new Date(s);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+/** Resolve the period end (next charge) from the payload, falling back to a +30 day window. */
+function resolveNextExpiry(payload: any): Date {
+  const sub = payload?.purchase?.subscription;
+  const next =
+    parseDate(sub?.date_next_charge) ??
+    parseDate(sub?.dateNextCharge) ??
+    parseDate(sub?.expires_at) ??
+    parseDate(sub?.expiresAt) ??
+    parseDate(payload?.transaction?.payment_date);
+  if (next && next.getTime() > Date.now()) return next;
+  const fallback = new Date();
+  fallback.setUTCDate(fallback.getUTCDate() + 30);
+  return fallback;
+}
+
+function resolveExternalSubscriptionId(payload: any, event: BillingEvent): string | null {
+  if (event.xsollaSubscriptionId != null) return String(event.xsollaSubscriptionId);
+  const subId = payload?.purchase?.subscription?.subscription_id ?? payload?.purchase?.subscription?.subscriptionId;
+  if (subId != null && subId !== '') return String(subId);
+  if (event.externalId) return event.externalId;
+  if (event.xsollaTransactionId != null) return `tx:${event.xsollaTransactionId}`;
+  return null;
+}
+
+async function applySubscriptionExtension(userId: string, event: BillingEvent, payload: any): Promise<void> {
+  const user = await User.findByPk(userId);
+  if (!user) return;
+
+  const nextExpiry = resolveNextExpiry(payload);
+  const externalId = resolveExternalSubscriptionId(payload, event);
+
+  await user.update({
+    tufStellarSubscriptionExpiresAt: nextExpiry,
+    tufStellarSubscriptionExternalId: externalId ?? user.tufStellarSubscriptionExternalId ?? null,
+    tufStellarSubscriptionCancelledAt: null,
+  });
+
+  await setUserPermissionAndSave(user, permissionFlags.TUF_STELLAR, true);
+
+  try {
+    await CacheInvalidation.invalidateUser(user.id);
+  } catch {
+    /* best-effort */
+  }
+}
+
+async function applySubscriptionCancelled(userId: string, event: BillingEvent, payload: any): Promise<void> {
+  const user = await User.findByPk(userId);
+  if (!user) return;
+
+  const externalId = resolveExternalSubscriptionId(payload, event);
+  await user.update({
+    tufStellarSubscriptionCancelledAt: new Date(),
+    tufStellarSubscriptionExternalId: externalId ?? user.tufStellarSubscriptionExternalId ?? null,
+  });
+
+  try {
+    await CacheInvalidation.invalidateUser(user.id);
+  } catch {
+    /* best-effort */
+  }
+}
+
+async function applySubscriptionRevoke(userId: string, event: BillingEvent): Promise<void> {
+  const user = await User.findByPk(userId);
+  if (!user) return;
+
+  const matchesSubscription =
+    event.xsollaSubscriptionId != null &&
+    user.tufStellarSubscriptionExternalId === String(event.xsollaSubscriptionId);
+  const matchesTransaction =
+    event.xsollaTransactionId != null &&
+    user.tufStellarSubscriptionExternalId === `tx:${event.xsollaTransactionId}`;
+
+  if (!matchesSubscription && !matchesTransaction) return;
+
+  await user.update({
+    tufStellarSubscriptionExpiresAt: new Date(),
+    tufStellarSubscriptionCancelledAt: new Date(),
+  });
+  await syncTufStellarPermissionFromExpiry(user);
+
+  try {
+    await CacheInvalidation.invalidateUser(user.id);
+  } catch {
+    /* best-effort */
   }
 }
