@@ -37,6 +37,7 @@ import {
 } from '@/server/services/creators/creatorSelfAliases.js';
 import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
 import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
+import { canUseStellarProfileCustomization } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { multerMemoryCdnImage10Mb as bannerUpload } from '@/config/multerMemoryUploads.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError } from '@/server/services/core/CdnService.js';
@@ -896,11 +897,9 @@ function isCreatorBannerActor(user: PermissionInput, creatorId: number): boolean
 }
 
 function canUploadCreatorCustomBanner(user: PermissionInput): boolean {
-  return (
-    hasFlag(user, permissionFlags.CUSTOM_PROFILE_BANNER) ||
-    hasFlag(user, permissionFlags.SUPER_ADMIN) ||
-    hasFlag(user, permissionFlags.HEAD_CURATOR)
-  );
+  if (hasFlag(user, permissionFlags.SUPER_ADMIN)) return true;
+  if (hasFlag(user, permissionFlags.HEAD_CURATOR)) return true;
+  return canUseStellarProfileCustomization(user as User);
 }
 
 async function invalidateLinkedUserForCreator(creatorId: number): Promise<void> {

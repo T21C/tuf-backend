@@ -374,6 +374,7 @@ router.put('/:userId/discord', Auth.superAdmin(), async (req: Request, res: Resp
           await player.user.update(
             {
               avatarUrl,
+              avatarIsGif: false,
             },
             {transaction},
           );

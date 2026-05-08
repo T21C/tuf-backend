@@ -72,7 +72,7 @@ export class ImageFactory {
 
             const processedFiles = await processImage(originalPath, imageType, fileId, imageDir);
 
-            const variantNames = Object.keys(imageConfig.sizes);
+            const variantNames = Object.keys(processedFiles);
             const variantStorage: Record<string, {
                 path: string;
                 url?: string;
@@ -123,14 +123,9 @@ export class ImageFactory {
             });
 
             const urlBase = `${CDN_CONFIG.baseUrl}/images/${imageConfig.name}/${fileId}`;
-            const urls: Record<string, string> = {
-                original: `${urlBase}/original`,
-                large: `${urlBase}/large`,
-                medium: `${urlBase}/medium`,
-                small: `${urlBase}/small`,
-            };
-            if ('thumbnail' in IMAGE_TYPES[imageType].sizes) {
-                urls.thumbnail = `${urlBase}/thumbnail`;
+            const urls: Record<string, string> = {};
+            for (const key of variantNames) {
+                urls[key] = `${urlBase}/${key}`;
             }
 
             return {

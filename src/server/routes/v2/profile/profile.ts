@@ -20,6 +20,12 @@ import { permissionFlags } from '@/config/constants.js';
 import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { AccountDeletionService } from '@/server/services/accounts/AccountDeletionService.js';
+import {
+  canUseStellarProfileCustomization,
+  effectiveAvatarForUserRow,
+  syncTufStellarPermissionFromExpiry,
+  type UserRow,
+} from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -90,10 +96,18 @@ router.get(
   }),
   async (req: Request, res: Response) => {
   try {
-    const user = req.user;
+    const tokenUser = req.user;
+    if (!tokenUser) {
+      return res.status(401).json({error: 'User not authenticated'});
+    }
+
+    const user = await User.findByPk(tokenUser.id);
     if (!user) {
       return res.status(401).json({error: 'User not authenticated'});
     }
+
+    await syncTufStellarPermissionFromExpiry(user);
+    await user.reload();
 
     const providers = await OAuthProvider.findAll({
       where: {userId: user.id},
@@ -109,7 +123,8 @@ router.get(
         username: user.username,
         nickname: user.nickname || user.username,
         email: user.email,
-        avatarUrl: user.avatarUrl,
+        avatarUrl: effectiveAvatarForUserRow(user),
+        tufStellarSubscriptionExpiresAt: user.tufStellarSubscriptionExpiresAt ?? null,
         isRater: hasFlag(user, permissionFlags.RATER),
         isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
         isRatingBanned: hasFlag(user, permissionFlags.RATING_BANNED),
@@ -460,8 +475,13 @@ router.post(
         }
 
         const avatarMode = parseProfileAvatarMode(req.body);
-        // TODO(role): when restricting animated avatars, require the appropriate permission before honoring avatarMode === 'animated'
         const gif = isGifAvatarFile(req.file);
+        if (gif && !canUseStellarProfileCustomization(user)) {
+            return res.status(403).json({
+                error: 'GIF profile pictures require an active TUFStellar subscription or custom profile access',
+                code: 'AVATAR_GIF_FORBIDDEN',
+            });
+        }
         if (!GIF_ENABLED && gif) {
             return res.status(400).json({
                 error: 'Animated avatars are disabled',
@@ -495,7 +515,8 @@ router.post(
         await User.update(
             {
                 avatarUrl: result.urls.original,
-                avatarId: result.fileId
+                avatarId: result.fileId,
+                avatarIsGif: gif,
             },
             {where: {id: user.id}}
         );
@@ -563,7 +584,8 @@ router.delete(
         await User.update(
             {
                 avatarUrl: null,
-                avatarId: null
+                avatarId: null,
+                avatarIsGif: false,
             },
             {where: {id: user.id}}
         );
@@ -588,10 +610,8 @@ router.delete(
 );
 
 function canUsePlayerCustomBanner(user: PermissionInput): boolean {
-  return (
-    hasFlag(user, permissionFlags.CUSTOM_PROFILE_BANNER) ||
-    hasFlag(user, permissionFlags.SUPER_ADMIN)
-  );
+  if (!user || typeof user === 'bigint' || typeof user === 'number') return false;
+  return canUseStellarProfileCustomization(user as UserRow);
 }
 
 // --- Profile banner (preset + custom CDN) ---

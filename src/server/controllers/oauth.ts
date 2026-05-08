@@ -19,6 +19,10 @@ import { clientUrlEnv, ownUrl } from '@/config/app.config.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
+import User from '@/models/auth/User.js';
+import {
+  syncTufStellarPermissionFromExpiry,
+} from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 
 
 interface ProfileResponse {
@@ -28,6 +32,7 @@ interface ProfileResponse {
     nickname: string | null;
     email?: string;
     avatarUrl: string | null;
+    tufStellarSubscriptionExpiresAt: Date | null;
     isRater: boolean;
     isSuperAdmin: boolean;
     isEmailVerified: boolean;
@@ -230,23 +235,32 @@ export const OAuthController = {
     try {
       const providers = await OAuthService.getUserProviders(req.user!.id);
 
-      const avatarUrl = req.user!.avatarUrl
-        ? req.user!.playerId
-          ? `${ownUrl}/v2/media/player-avatar/${req.user!.playerId}`
-          : `${ownUrl}/v2/media/avatar/${req.user!.id}`
+      let userRow = await User.findByPk(req.user!.id);
+      if (userRow) {
+        await syncTufStellarPermissionFromExpiry(userRow);
+        await userRow.reload();
+      } else {
+        userRow = req.user as User;
+      }
+
+      const avatarUrl = userRow.avatarUrl
+        ? userRow.playerId
+          ? `${ownUrl}/v2/media/player-avatar/${userRow.playerId}`
+          : `${ownUrl}/v2/media/avatar/${userRow.id}`
         : null;
 
       const response: ProfileResponse = {
         user: {
-          id: req.user!.id,
-          username: req.user!.username,
-          nickname: req.user!.nickname || null,
-          email: req.user!.email,
+          id: userRow.id,
+          username: userRow.username,
+          nickname: userRow.nickname || null,
+          email: userRow.email,
           avatarUrl,
-          isRater: hasFlag(req.user!, permissionFlags.RATER),
-          isSuperAdmin: hasFlag(req.user!, permissionFlags.SUPER_ADMIN),
-          isEmailVerified: hasFlag(req.user!, permissionFlags.EMAIL_VERIFIED),
-          permissionFlags: req.user!.permissionFlags.toString(),
+          tufStellarSubscriptionExpiresAt: userRow.tufStellarSubscriptionExpiresAt ?? null,
+          isRater: hasFlag(userRow, permissionFlags.RATER),
+          isSuperAdmin: hasFlag(userRow, permissionFlags.SUPER_ADMIN),
+          isEmailVerified: hasFlag(userRow, permissionFlags.EMAIL_VERIFIED),
+          permissionFlags: userRow.permissionFlags.toString(),
         },
         providers: providers.map((p: OAuthProvider) => ({
           provider: p.provider,

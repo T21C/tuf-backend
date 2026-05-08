@@ -578,6 +578,7 @@ export const playerMapping = {
             },
           },
           avatarUrl: { type: 'keyword' as const },
+          tufStellarSubscriptionExpiresAt: { type: 'date' as const },
           permissionFlags: { type: 'long' as const },
           permissionVersion: { type: 'integer' as const },
           isEmailVerified: { type: 'boolean' as const },
@@ -717,6 +718,7 @@ export const creatorMapping = {
           },
           avatarUrl: { type: 'keyword' as const },
           playerId: { type: 'integer' as const },
+          tufStellarSubscriptionExpiresAt: { type: 'date' as const },
           permissionFlags: { type: 'long' as const },
         },
       },
@@ -795,12 +797,12 @@ const passMappingHashPayload = {
  *       and produced wrong top diffs on denormalized docs).
  *   3 — 2026-04-19: denormalize `user.creator` when `users.creatorId` is set
  *       (mapping + indexer; clients read `playerData.user.creator`).
- *   4 — 2026-04-25: profile banner preset + custom CDN fields on player documents.
+ *   5 — 2026-05-08: `user.tufStellarSubscriptionExpiresAt` for client banner / subscription UI.
  */
 const playerMappingHashPayload = {
   settings: playerMapping.settings,
   mappings: playerMapping.mappings,
-  indexerVersion: 4,
+  indexerVersion: 5,
 };
 
 /**
@@ -813,12 +815,12 @@ const playerMappingHashPayload = {
  * History:
  *   1 — initial release
  *   2 — creator index mapping / document field set
- *   3 — 2026-04-25: profile banners + `user.permissionFlags` for custom-banner gating on clients.
+ *   4 — 2026-05-08: `user.tufStellarSubscriptionExpiresAt` on creator-linked user for banner gating.
  */
 const creatorMappingHashPayload = {
   settings: creatorMapping.settings,
   mappings: creatorMapping.mappings,
-  indexerVersion: 3,
+  indexerVersion: 4,
 };
 
 // Store mapping hash files next to the `server/` package, not `process.cwd()`.

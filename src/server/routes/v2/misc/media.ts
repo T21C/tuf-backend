@@ -11,6 +11,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import {getVideoDetails,} from '@/misc/utils/data/videoDetailParser.js';
 import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
+import { effectiveAvatarForUserRow } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import {Buffer} from 'buffer';
 import { Op } from 'sequelize';
 import { seededShuffle } from '@/misc/utils/server/random.js';
@@ -682,12 +683,25 @@ router.get(
     try {
       const player = await Player.findByPk(playerId, {
         attributes: ['id', 'pfp'],
-        include: [{ model: User, as: 'user', attributes: ['avatarUrl'] }],
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: [
+              'avatarUrl',
+              'avatarIsGif',
+              'tufStellarSubscriptionExpiresAt',
+              'permissionFlags',
+            ],
+          },
+        ],
       });
       if (!player) {
         return res.status(404).send('Player not found');
       }
-      const targetUrl = player.user?.avatarUrl || player.getDataValue('pfp') || null;
+      const targetUrl = player.user
+        ? effectiveAvatarForUserRow(player.user as User)
+        : player.getDataValue('pfp') || null;
       if (!targetUrl || !isSafeHttpRedirectUrl(targetUrl)) {
         return res.status(404).send('Avatar not found');
       }
@@ -723,16 +737,24 @@ router.get(
   async (req: Request, res: Response) => {
   const {userId} = req.params;
   try {
-    const user = await User.findByPk(userId);
-    if (!user || !user.avatarUrl) {
+    const user = await User.findByPk(userId, {
+      attributes: [
+        'avatarUrl',
+        'avatarIsGif',
+        'tufStellarSubscriptionExpiresAt',
+        'permissionFlags',
+      ],
+    });
+    const displayUrl = user ? effectiveAvatarForUserRow(user) : null;
+    if (!user || !displayUrl) {
       return res.status(404).send('Avatar not found');
     }
-    if (!isSafeHttpRedirectUrl(user.avatarUrl)) {
+    if (!isSafeHttpRedirectUrl(displayUrl)) {
       return res.status(404).send('Avatar not found');
     }
     // See note in /player-avatar/:playerId — follow the chain server-side so
     // we never hand the browser a URL that bounces back to this server.
-    const resolved = await resolveFinalRedirectUrl(user.avatarUrl);
+    const resolved = await resolveFinalRedirectUrl(displayUrl);
     if (!resolved) {
       return res.status(404).send('Avatar not resolvable');
     }

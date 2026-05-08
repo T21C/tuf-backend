@@ -24,7 +24,7 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
         const imageType = type.toUpperCase() as ImageType;
         const imageSize = size as ImageSize;
 
-        if (!IMAGE_TYPES[imageType] || !(imageSize in IMAGE_TYPES[imageType].sizes)) {
+        if (!IMAGE_TYPES[imageType]) {
             return res.status(400).json({ error: 'Invalid image type or size' });
         }
 
@@ -41,7 +41,12 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
         }
 
         const metadata = (file.metadata || {}) as any;
-        const variantRef = metadata?.variants?.[imageSize];
+        const variantRef = metadata?.variants?.[size];
+
+        const sizeInConfig = imageSize in IMAGE_TYPES[imageType].sizes;
+        if (!variantRef && !sizeInConfig) {
+            return res.status(400).json({ error: 'Invalid image type or size' });
+        }
 
         if (variantRef?.path) {
             const fileExists = await spacesStorage.fileExists(variantRef.path);

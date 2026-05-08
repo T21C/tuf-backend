@@ -85,6 +85,29 @@ export async function processImage(
             processedFiles[size] = metaForVariant(imageConfig.name, fileId, filePath, size);
         }
 
+        // PROFILE GIF: also persist first-frame JPEGs (same logical sizes) so an expired
+        // TUFStellar subscription can fall back to stills without deleting the animated assets.
+        if (imageType === 'PROFILE') {
+            for (const [size, dimensions] of Object.entries(imageConfig.sizes)) {
+                const staticKey = size === 'original' ? 'original_static' : `${size}_static`;
+                const outBasename = size === 'original' ? 'original_static.jpg' : `${size}_static.jpg`;
+                const outputPath = path.join(outputDirectory, outBasename);
+                const dw = dimensions.width;
+                const dh = dimensions.height;
+                await sharp(filePath, { animated: true, pages: 1 })
+                    .resize(dw, dh, {
+                        fit: 'inside',
+                        withoutEnlargement: true,
+                    })
+                    .jpeg({ quality: 88 })
+                    .toFile(outputPath);
+                processedFiles[staticKey] = {
+                    path: `images/${imageConfig.name}/${fileId}/${outBasename}`,
+                    mimeType: 'image/jpeg',
+                };
+            }
+        }
+
         return processedFiles;
     }
 

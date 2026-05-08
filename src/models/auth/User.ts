@@ -30,6 +30,12 @@ export interface UserAttributes {
   /** When true, scheduled hard-delete also purges the linked creator profile (solo levels removed). */
   deletionIncludeCreator?: boolean;
   deletionSnapshotPermissionFlags?: bigint | number | null;
+  /** When set and in the future, TUFStellar subscription benefits apply (see permissionFlags.TUF_STELLAR). */
+  tufStellarSubscriptionExpiresAt?: Date | null;
+  /** Provider-side subscription / user reference (e.g. Xsolla) for support and webhooks. */
+  tufStellarSubscriptionExternalId?: string | null;
+  /** True when the uploaded profile image is an animated GIF (CDN also stores JPEG stills for expiry fallback). */
+  avatarIsGif?: boolean;
   lastUsernameChange?: Date | null;
   previousUsername?: string | null;
   createdAt: Date;
@@ -63,6 +69,9 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare deletionExecuteAt?: Date | null;
   declare deletionIncludeCreator?: boolean;
   declare deletionSnapshotPermissionFlags?: bigint | number | null;
+  declare tufStellarSubscriptionExpiresAt?: Date | null;
+  declare tufStellarSubscriptionExternalId?: string | null;
+  declare avatarIsGif?: boolean;
   declare lastUsernameChange?: Date | null;
   declare previousUsername?: string | null;
   declare createdAt: Date;
@@ -189,6 +198,21 @@ User.init(
       defaultValue: null,
     },
     deletionIncludeCreator: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    tufStellarSubscriptionExpiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    tufStellarSubscriptionExternalId: {
+      type: DataTypes.STRING(191),
+      allowNull: true,
+      defaultValue: null,
+    },
+    avatarIsGif: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,

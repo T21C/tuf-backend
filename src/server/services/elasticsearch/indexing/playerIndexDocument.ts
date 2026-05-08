@@ -4,6 +4,7 @@ import Creator from '@/models/credits/Creator.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import type { PlayerStatsRow } from '@/server/services/elasticsearch/misc/playerStatsQuery.js';
+import { effectiveAvatarForUserRow } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 
 export interface PlayerIndexDocumentInput {
   player: Player;
@@ -90,7 +91,8 @@ function serializeUser(user: User | null | undefined): any | null {
     id: u.id ?? null,
     username: u.username ?? null,
     nickname: u.nickname ?? null,
-    avatarUrl: u.avatarUrl ?? null,
+    avatarUrl: effectiveAvatarForUserRow(user),
+    tufStellarSubscriptionExpiresAt: u.tufStellarSubscriptionExpiresAt ?? null,
     permissionFlags: permissionFlagsToLong(u.permissionFlags),
     permissionVersion: coerceNumber(u.permissionVersion, 0),
     isEmailVerified: Boolean(u.isEmailVerified),
@@ -110,8 +112,10 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
   const stats = input.stats ?? null;
 
   const pfp = (() => {
-    const userAvatar = input.user?.avatarUrl;
-    if (typeof userAvatar === 'string' && userAvatar.length > 0) return userAvatar;
+    if (input.user) {
+      const shown = effectiveAvatarForUserRow(input.user);
+      if (typeof shown === 'string' && shown.length > 0) return shown;
+    }
     if (typeof p.pfp === 'string' && p.pfp.length > 0) return p.pfp;
     return null;
   })();
