@@ -10,6 +10,15 @@ import {
 import { User } from '@/models/index.js';
 import BillingEvent from '@/models/billing/BillingEvent.js';
 import { syncTufStellarPermissionFromExpiry } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import {
+  checkCancelTransition,
+  checkCheckoutTransition,
+  checkResubscribeTransition,
+  getBillingAllowedActions,
+  getBillingLifecycleState,
+  reconcileBillingLifecycleIfExpired,
+  transitionBillingLifecycle,
+} from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
 import { XsollaApiClient, XsollaApiError } from '@/server/services/billing/XsollaApiClient.js';
 import { xsollaConfig } from '@/config/app.config.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
@@ -49,13 +58,18 @@ function isSubscriptionActive(expiresAt: Date | null | undefined): boolean {
   return Number.isFinite(t) && t > Date.now();
 }
 
+function billingDeny(res: Response, deny: { status: number; code: string; message: string }): Response {
+  return res.status(deny.status).json({ error: { code: deny.code, message: deny.message } });
+}
+
 router.get(
   '/me',
   Auth.user(),
   ApiDoc({
     operationId: 'getBillingMe',
     summary: 'Get current TUFStellar subscription state',
-    description: 'Returns the active/cancelled state, expiry, and external subscription id for the current user.',
+    description:
+      'Returns active flag, expiry, cancellation timestamp, external subscription id, persisted billing lifecycle, and allowed actions for checkout/cancel/resubscribe.',
     tags: ['Billing'],
     security: ['bearerAuth'],
     responses: {
@@ -69,6 +83,18 @@ router.get(
             expiresAt: { type: 'string', format: 'date-time', nullable: true },
             cancelledAt: { type: 'string', format: 'date-time', nullable: true },
             externalSubscriptionId: { type: 'string', nullable: true },
+            lifecycle: {
+              type: 'string',
+              enum: ['inactive', 'active_renewing', 'active_cancelling', 'active_checkout_pending'],
+            },
+            allowedActions: {
+              type: 'object',
+              properties: {
+                checkout: { type: 'boolean' },
+                cancel: { type: 'boolean' },
+                resubscribe: { type: 'boolean' },
+              },
+            },
           },
         },
       },
@@ -86,12 +112,21 @@ router.get(
       await syncTufStellarPermissionFromExpiry(user);
       await user.reload();
 
+      if (await reconcileBillingLifecycleIfExpired(user)) {
+        await user.reload();
+      }
+
+      const lifecycle = getBillingLifecycleState(user);
+      const allowedActions = getBillingAllowedActions(user);
+
       return res.json({
         active: isSubscriptionActive(user.tufStellarSubscriptionExpiresAt ?? null),
         plan: xsollaConfig.subscriptionPlanId || null,
         expiresAt: user.tufStellarSubscriptionExpiresAt ?? null,
         cancelledAt: user.tufStellarSubscriptionCancelledAt ?? null,
         externalSubscriptionId: user.tufStellarSubscriptionExternalId ?? null,
+        lifecycle,
+        allowedActions,
       });
     } catch (e) {
       logger.error('GET /v3/billing/me failed', e);
@@ -183,6 +218,7 @@ router.post(
       },
       400: { description: 'Misconfigured', schema: errorResponseSchema },
       401: { description: 'Unauthorized', schema: errorResponseSchema },
+      409: { description: 'Invalid transition (e.g. already subscribed)', schema: errorResponseSchema },
       502: { description: 'Xsolla error', schema: errorResponseSchema },
       ...standardErrorResponses500,
     },
@@ -194,6 +230,18 @@ router.post(
 
       const user = await User.findByPk(tokenUser.id);
       if (!user) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
+
+      await syncTufStellarPermissionFromExpiry(user);
+      await user.reload();
+
+      if (await reconcileBillingLifecycleIfExpired(user)) {
+        await user.reload();
+      }
+
+      const checkoutGate = checkCheckoutTransition(user);
+      if (!checkoutGate.ok) {
+        return billingDeny(res, checkoutGate);
+      }
 
       const returnUrl = `${xsollaConfig.redirectUrl}`;
 
@@ -235,7 +283,7 @@ router.post(
     security: ['bearerAuth'],
     responses: {
       200: { description: 'Cancellation requested', schema: { type: 'object', properties: { ok: { type: 'boolean' } } } },
-      400: { description: 'No active subscription to cancel', schema: errorResponseSchema },
+      400: { description: 'No active subscription or not ready to cancel', schema: errorResponseSchema },
       401: { description: 'Unauthorized', schema: errorResponseSchema },
       502: { description: 'Xsolla error', schema: errorResponseSchema },
       ...standardErrorResponses500,
@@ -249,6 +297,22 @@ router.post(
       const user = await User.findByPk(tokenUser.id);
       if (!user) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
 
+      await syncTufStellarPermissionFromExpiry(user);
+      await user.reload();
+
+      if (await reconcileBillingLifecycleIfExpired(user)) {
+        await user.reload();
+      }
+
+      const cancelGate = checkCancelTransition(user);
+      if (!cancelGate.ok) {
+        return billingDeny(res, cancelGate);
+      }
+      if ('idempotent' in cancelGate && cancelGate.idempotent) {
+        logger.info('[Xsolla] cancel idempotent (already pending)', { userId: user.id });
+        return res.json({ ok: true });
+      }
+
       const subId = user.tufStellarSubscriptionExternalId;
       if (!subId || subId.startsWith('tx:')) {
         return res.status(400).json({ error: { code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No active recurring subscription found' } });
@@ -256,7 +320,12 @@ router.post(
 
       await XsollaApiClient.cancelUserSubscription(user.id, subId);
 
-      await user.update({ tufStellarSubscriptionCancelledAt: user.tufStellarSubscriptionCancelledAt ?? new Date() });
+      const prevLifecycle = getBillingLifecycleState(user);
+      const nextLifecycle = transitionBillingLifecycle(prevLifecycle, { type: 'user_cancel_committed' });
+      await user.update({
+        tufStellarSubscriptionCancelledAt: user.tufStellarSubscriptionCancelledAt ?? new Date(),
+        tufStellarBillingLifecycleState: nextLifecycle,
+      });
       try {
         await CacheInvalidation.invalidateUser(user.id);
       } catch {
@@ -274,6 +343,80 @@ router.post(
       }
       logger.error('POST /v3/billing/xsolla/cancel failed', e);
       return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to cancel subscription' } });
+    }
+  },
+);
+
+router.post(
+  '/xsolla/resubscribe',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postBillingXsollaResubscribe',
+    summary: 'Resume a subscription marked non-renewing',
+    description:
+      'Calls the Xsolla subscriptions API with status active to undo a pending cancellation. Requires an existing recurring subscription id and a prior user cancel (cancelledAt set).',
+    tags: ['Billing'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Subscription resumed', schema: { type: 'object', properties: { ok: { type: 'boolean' } } } },
+      400: { description: 'Not in resubscribe-eligible state', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      502: { description: 'Xsolla error', schema: errorResponseSchema },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const tokenUser = req.user;
+      if (!tokenUser) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
+
+      const user = await User.findByPk(tokenUser.id);
+      if (!user) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
+
+      await syncTufStellarPermissionFromExpiry(user);
+      await user.reload();
+
+      if (await reconcileBillingLifecycleIfExpired(user)) {
+        await user.reload();
+      }
+
+      const resubGate = checkResubscribeTransition(user);
+      if (!resubGate.ok) {
+        return billingDeny(res, resubGate);
+      }
+
+      const subId = user.tufStellarSubscriptionExternalId;
+      if (!subId || subId.startsWith('tx:')) {
+        return res.status(400).json({
+          error: { code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No recurring subscription found to resume' },
+        });
+      }
+
+      await XsollaApiClient.reactivateUserSubscription(user.id, subId);
+
+      const prevLifecycle = getBillingLifecycleState(user);
+      const nextLifecycle = transitionBillingLifecycle(prevLifecycle, { type: 'user_resubscribe_committed' });
+      await user.update({
+        tufStellarSubscriptionCancelledAt: null,
+        tufStellarBillingLifecycleState: nextLifecycle,
+      });
+      try {
+        await CacheInvalidation.invalidateUser(user.id);
+      } catch {
+        /* best-effort */
+      }
+
+      logger.info('[Xsolla] resubscribe', { userId: user.id, subId });
+      return res.json({ ok: true });
+    } catch (e) {
+      if (e instanceof XsollaApiError) {
+        logger.error('[Xsolla] resubscribe failed', { status: e.status, message: e.message });
+        const status = e.status === 0 ? 400 : 502;
+        const code = e.status === 0 ? 'MISCONFIGURED' : 'XSOLLA_ERROR';
+        return res.status(status).json({ error: { code, message: e.message } });
+      }
+      logger.error('POST /v3/billing/xsolla/resubscribe failed', e);
+      return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to resume subscription' } });
     }
   },
 );

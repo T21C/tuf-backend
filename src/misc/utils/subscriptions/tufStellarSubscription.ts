@@ -3,6 +3,10 @@ import type { UserAttributes } from '@/models/auth/User.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasFlag, setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import {
+  getBillingLifecycleState,
+  transitionBillingLifecycle,
+} from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
@@ -45,6 +49,11 @@ export async function syncTufStellarPermissionFromExpiry(user: User): Promise<vo
   if (ms > Date.now()) return;
   if (!hasFlag(user, permissionFlags.TUF_STELLAR)) return;
   await setUserPermissionAndSave(user, permissionFlags.TUF_STELLAR, false);
+  const lifecycleFrom = getBillingLifecycleState(user);
+  const lifecycleNext = transitionBillingLifecycle(lifecycleFrom, { type: 'facts_subscription_lapsed' });
+  if (lifecycleNext !== lifecycleFrom) {
+    await user.update({ tufStellarBillingLifecycleState: lifecycleNext });
+  }
   if (user.playerId != null) {
     try {
       await elasticsearchService.reindexPlayers([user.playerId]);

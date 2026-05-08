@@ -103,36 +103,45 @@ export class XsollaApiClient {
     return { token, url: paystationUrl(token) };
   }
 
+  /** Same merchant PUT as cancel; Xsolla accepts `status`: active | non_renewing | canceled. */
+  private static async putUserSubscriptionStatus(
+    userId: string,
+    subscriptionId: string | number,
+    status: 'active' | 'non_renewing' | 'canceled',
+  ): Promise<void> {
+    if (!xsollaConfig.merchantId || !xsollaConfig.apiKey || !xsollaConfig.projectId) {
+      throw new XsollaApiError('Xsolla configuration missing', 0, null);
+    }
+
+    const url = `${MERCHANT_TOKEN_HOST}/merchant/v2` +
+      `/projects/${encodeURIComponent(xsollaConfig.projectId)}` +
+      `/users/${encodeURIComponent(userId)}` +
+      `/subscriptions/${encodeURIComponent(String(subscriptionId))}`;
+
+    const res = await axios.put(url, { status }, {
+      headers: {
+        'Authorization': basicAuth(),
+        'Content-Type': 'application/json',
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 200) return;
+    throw new XsollaApiError(`Xsolla subscription update failed (${res.status})`, res.status, res.data);
+  }
+
   /**
    * Cancels a recurring subscription via Xsolla's subscriptions partner API.
    * Xsolla still serves benefits until the current period ends; the subsequent
    * `cancel_subscription` webhook will mark our `tufStellarSubscriptionCancelledAt`.
    */
   static async cancelUserSubscription(userId: string, subscriptionId: string | number): Promise<void> {
-    if (!xsollaConfig.merchantId || !xsollaConfig.apiKey || !xsollaConfig.projectId) {
-      throw new XsollaApiError('Xsolla configuration missing', 0, null);
-    }
-    // https://subscriptions.xsolla.com/api/user/v1/projects/{project_id}/subscriptions/{subscription_id}/cancel
-    
-    const url = `${MERCHANT_TOKEN_HOST}/merchant/v2` +
-    `/projects/${encodeURIComponent(xsollaConfig.projectId)}` +
-    `/users/${encodeURIComponent(userId)}` +
-    `/subscriptions/${encodeURIComponent(String(subscriptionId))}`;
+    return XsollaApiClient.putUserSubscriptionStatus(userId, subscriptionId, 'non_renewing');
+  }
 
-    const body = {
-      status: 'canceled',
-    };
-    const res = await axios.put(url, body, {
-      headers: {
-        'Authorization': basicAuth(),
-        'Content-Type': 'application/json',
-      },
-    });
-
-    logger.debug("Cancelling user subscription", { url, res });
-
-    if (res.status === 200) return;
-    throw new XsollaApiError(`Xsolla cancel failed (${res.status})`, res.status, res.data);
+  /** Sets subscription back to renewing (`active`) after a user-initiated non-renewing cancel. */
+  static async reactivateUserSubscription(userId: string, subscriptionId: string | number): Promise<void> {
+    return XsollaApiClient.putUserSubscriptionStatus(userId, subscriptionId, 'active');
   }
 }
 

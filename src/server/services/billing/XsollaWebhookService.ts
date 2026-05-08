@@ -6,6 +6,11 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { permissionFlags } from '@/config/constants.js';
 import { setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
 import { syncTufStellarPermissionFromExpiry } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import {
+  classifyExternalKind,
+  getBillingLifecycleState,
+  transitionBillingLifecycle,
+} from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 export type XsollaNotificationType =
@@ -249,11 +254,19 @@ async function applySubscriptionExtension(userId: string, event: BillingEvent, p
 
   const nextExpiry = resolveNextExpiry(payload);
   const externalId = resolveExternalSubscriptionId(payload, event);
+  const mergedExternal = externalId ?? user.tufStellarSubscriptionExternalId ?? null;
+  const prevLifecycle = getBillingLifecycleState(user);
+  const kind = classifyExternalKind(mergedExternal);
+  const nextLifecycle = transitionBillingLifecycle(prevLifecycle, {
+    type: 'webhook_subscription_extended',
+    externalKind: kind,
+  });
 
   await user.update({
     tufStellarSubscriptionExpiresAt: nextExpiry,
-    tufStellarSubscriptionExternalId: externalId ?? user.tufStellarSubscriptionExternalId ?? null,
+    tufStellarSubscriptionExternalId: mergedExternal,
     tufStellarSubscriptionCancelledAt: null,
+    tufStellarBillingLifecycleState: nextLifecycle,
   });
 
   await setUserPermissionAndSave(user, permissionFlags.TUF_STELLAR, true);
@@ -270,9 +283,13 @@ async function applySubscriptionCancelled(userId: string, event: BillingEvent, p
   if (!user) return;
 
   const externalId = resolveExternalSubscriptionId(payload, event);
+  const prevLifecycle = getBillingLifecycleState(user);
+  const nextLifecycle = transitionBillingLifecycle(prevLifecycle, { type: 'webhook_subscription_cancelled' });
+
   await user.update({
     tufStellarSubscriptionCancelledAt: new Date(),
     tufStellarSubscriptionExternalId: externalId ?? user.tufStellarSubscriptionExternalId ?? null,
+    tufStellarBillingLifecycleState: nextLifecycle,
   });
 
   try {
@@ -295,9 +312,13 @@ async function applySubscriptionRevoke(userId: string, event: BillingEvent): Pro
 
   if (!matchesSubscription && !matchesTransaction) return;
 
+  const prevLifecycle = getBillingLifecycleState(user);
+  const nextLifecycle = transitionBillingLifecycle(prevLifecycle, { type: 'webhook_subscription_revoked' });
+
   await user.update({
     tufStellarSubscriptionExpiresAt: new Date(),
     tufStellarSubscriptionCancelledAt: new Date(),
+    tufStellarBillingLifecycleState: nextLifecycle,
   });
   await syncTufStellarPermissionFromExpiry(user);
 

@@ -36,6 +36,12 @@ export interface UserAttributes {
   tufStellarSubscriptionExternalId?: string | null;
   /** Set when the user (or a webhook) cancelled the recurring subscription; benefits keep until expiresAt. */
   tufStellarSubscriptionCancelledAt?: Date | null;
+  /** Persisted billing lifecycle (`billingLifecycleTransition.ts`). */
+  tufStellarBillingLifecycleState?:
+    | 'inactive'
+    | 'active_checkout_pending'
+    | 'active_renewing'
+    | 'active_cancelling';
   /** True when the uploaded profile image is an animated GIF (CDN also stores JPEG stills for expiry fallback). */
   avatarIsGif?: boolean;
   lastUsernameChange?: Date | null;
@@ -74,6 +80,11 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare tufStellarSubscriptionExpiresAt?: Date | null;
   declare tufStellarSubscriptionExternalId?: string | null;
   declare tufStellarSubscriptionCancelledAt?: Date | null;
+  declare tufStellarBillingLifecycleState?:
+    | 'inactive'
+    | 'active_checkout_pending'
+    | 'active_renewing'
+    | 'active_cancelling';
   declare avatarIsGif?: boolean;
   declare lastUsernameChange?: Date | null;
   declare previousUsername?: string | null;
@@ -219,6 +230,11 @@ User.init(
       type: DataTypes.DATE,
       allowNull: true,
       defaultValue: null,
+    },
+    tufStellarBillingLifecycleState: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      defaultValue: 'inactive',
     },
     avatarIsGif: {
       type: DataTypes.BOOLEAN,
