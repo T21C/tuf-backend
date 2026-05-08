@@ -84,7 +84,13 @@ export async function startServer() {
     // Apply CORS middleware to all routes
     app.use(cors(corsOptions));
 
-    app.use(express.json());
+    app.use(
+      express.json({
+        verify: (req, _res, buf) => {
+          (req as Request & { rawBody?: Buffer }).rawBody = buf;
+        },
+      }),
+    );
     app.use(express.urlencoded({extended: true}));
     app.use(cookieParser());
     app.use(queryValidator);
