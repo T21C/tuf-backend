@@ -30,7 +30,7 @@ export interface UserAttributes {
   /** When true, scheduled hard-delete also purges the linked creator profile (solo levels removed). */
   deletionIncludeCreator?: boolean;
   deletionSnapshotPermissionFlags?: bigint | number | null;
-  /** When set and in the future, TUFStellar subscription benefits apply (see permissionFlags.TUF_STELLAR). */
+  /** When set and strictly in the future, TUFStellar subscription benefits apply (entitlement is from this date only). */
   tufStellarSubscriptionExpiresAt?: Date | null;
   /** Provider-side subscription / user reference (e.g. Xsolla) for support and webhooks. */
   tufStellarSubscriptionExternalId?: string | null;

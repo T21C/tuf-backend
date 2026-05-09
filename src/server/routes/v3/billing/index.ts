@@ -9,14 +9,13 @@ import {
 } from '@/server/schemas/common.js';
 import { User } from '@/models/index.js';
 import BillingEvent from '@/models/billing/BillingEvent.js';
-import { syncTufStellarPermissionFromExpiry } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { reconcileExpiredTufStellarSubscription } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import {
   checkCancelTransition,
   checkCheckoutTransition,
   checkResubscribeTransition,
   getBillingAllowedActions,
   getBillingLifecycleState,
-  reconcileBillingLifecycleIfExpired,
   transitionBillingLifecycle,
 } from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
 import { XsollaApiClient, XsollaApiError } from '@/server/services/billing/XsollaApiClient.js';
@@ -193,12 +192,8 @@ router.get(
       const user = await User.findByPk(tokenUser.id);
       if (!user) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
 
-      await syncTufStellarPermissionFromExpiry(user);
+      await reconcileExpiredTufStellarSubscription(user);
       await user.reload();
-
-      if (await reconcileBillingLifecycleIfExpired(user)) {
-        await user.reload();
-      }
 
       const lifecycle = getBillingLifecycleState(user);
       const allowedActions = getBillingAllowedActions(user);
@@ -318,12 +313,8 @@ router.post(
       const user = await User.findByPk(tokenUser.id);
       if (!user) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
 
-      await syncTufStellarPermissionFromExpiry(user);
+      await reconcileExpiredTufStellarSubscription(user);
       await user.reload();
-
-      if (await reconcileBillingLifecycleIfExpired(user)) {
-        await user.reload();
-      }
 
       const checkoutGate = checkCheckoutTransition(user);
       if (!checkoutGate.ok) {
@@ -384,12 +375,8 @@ router.post(
       const user = await User.findByPk(tokenUser.id);
       if (!user) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
 
-      await syncTufStellarPermissionFromExpiry(user);
+      await reconcileExpiredTufStellarSubscription(user);
       await user.reload();
-
-      if (await reconcileBillingLifecycleIfExpired(user)) {
-        await user.reload();
-      }
 
       const cancelGate = checkCancelTransition(user);
       if (!cancelGate.ok) {
@@ -460,12 +447,8 @@ router.post(
       const user = await User.findByPk(tokenUser.id);
       if (!user) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
 
-      await syncTufStellarPermissionFromExpiry(user);
+      await reconcileExpiredTufStellarSubscription(user);
       await user.reload();
-
-      if (await reconcileBillingLifecycleIfExpired(user)) {
-        await user.reload();
-      }
 
       const resubGate = checkResubscribeTransition(user);
       if (!resubGate.ok) {

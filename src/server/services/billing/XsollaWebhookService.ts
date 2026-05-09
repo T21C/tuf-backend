@@ -3,9 +3,8 @@ import type { CreationAttributes } from 'sequelize';
 import BillingEvent from '@/models/billing/BillingEvent.js';
 import User from '@/models/auth/User.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { permissionFlags } from '@/config/constants.js';
-import { setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
-import { syncTufStellarPermissionFromExpiry } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { isTufStellarSubscriptionActive } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import {
   classifyExternalKind,
   getBillingLifecycleState,
@@ -166,7 +165,7 @@ export class XsollaWebhookService {
 
   /**
    * Maps an Xsolla webhook into User-side state changes:
-   * - payment / order_paid / create_subscription / update_subscription -> extend expiry, grant TUF_STELLAR
+   * - payment / order_paid / create_subscription / update_subscription -> extend expiry (entitlement from date)
    * - cancel_subscription / non_renewal_subscription -> mark cancelledAt (period still served until expiresAt)
    * - refund / partial_refund / order_canceled -> revoke immediately if it matches the active sub/tx
    */
@@ -269,8 +268,6 @@ async function applySubscriptionExtension(userId: string, event: BillingEvent, p
     tufStellarBillingLifecycleState: nextLifecycle,
   });
 
-  await setUserPermissionAndSave(user, permissionFlags.TUF_STELLAR, true);
-
   try {
     await CacheInvalidation.invalidateUser(user.id);
   } catch {
@@ -312,6 +309,7 @@ async function applySubscriptionRevoke(userId: string, event: BillingEvent): Pro
 
   if (!matchesSubscription && !matchesTransaction) return;
 
+  const wasActive = isTufStellarSubscriptionActive(user);
   const prevLifecycle = getBillingLifecycleState(user);
   const nextLifecycle = transitionBillingLifecycle(prevLifecycle, { type: 'webhook_subscription_revoked' });
 
@@ -320,7 +318,14 @@ async function applySubscriptionRevoke(userId: string, event: BillingEvent): Pro
     tufStellarSubscriptionCancelledAt: new Date(),
     tufStellarBillingLifecycleState: nextLifecycle,
   });
-  await syncTufStellarPermissionFromExpiry(user);
+
+  if (wasActive && user.playerId != null) {
+    try {
+      await ElasticsearchService.getInstance().reindexPlayers([user.playerId]);
+    } catch {
+      /* best-effort; DB state is authoritative */
+    }
+  }
 
   try {
     await CacheInvalidation.invalidateUser(user.id);

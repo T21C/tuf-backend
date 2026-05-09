@@ -22,7 +22,7 @@ import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { AccountDeletionService } from '@/server/services/accounts/AccountDeletionService.js';
 import {
   canUseStellarProfileCustomization,
-  syncTufStellarPermissionFromExpiry,
+  reconcileExpiredTufStellarSubscription,
   type UserRow,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 
@@ -105,7 +105,7 @@ router.get(
       return res.status(401).json({error: 'User not authenticated'});
     }
 
-    await syncTufStellarPermissionFromExpiry(user);
+    await reconcileExpiredTufStellarSubscription(user);
     await user.reload();
 
     const providers = await OAuthProvider.findAll({
@@ -480,7 +480,7 @@ router.post(
         const gif = isGifAvatarFile(req.file);
         if (gif && !canUseStellarProfileCustomization(user as UserRow)) {
             return res.status(403).json({
-                error: 'GIF profile pictures require an active TUFStellar subscription or custom profile access',
+                error: 'GIF profile pictures require a TUFStellar subscription',
                 code: 'AVATAR_GIF_FORBIDDEN',
             });
         }

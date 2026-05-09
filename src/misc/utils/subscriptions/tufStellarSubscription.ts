@@ -1,12 +1,9 @@
 import type User from '@/models/auth/User.js';
 import type { UserAttributes } from '@/models/auth/User.js';
 import { permissionFlags } from '@/config/constants.js';
-import { hasFlag, setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
+import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
-import {
-  getBillingLifecycleState,
-  transitionBillingLifecycle,
-} from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
+import { reconcileBillingLifecycleIfExpired } from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
@@ -19,9 +16,7 @@ function parseExpiryMs(raw: Date | string | null | undefined): number | null {
 }
 
 /**
- * TUFStellar is active when the stored expiry is strictly in the future.
- * (Webhook / admin flows should keep permissionFlags.TUF_STELLAR in sync via
- * {@link syncTufStellarPermissionFromExpiry}.)
+ * TUFStellar benefits apply when `tufStellarSubscriptionExpiresAt` is set and strictly in the future.
  */
 export function isTufStellarSubscriptionActive(user: UserRow): boolean {
   const ms = parseExpiryMs(user.tufStellarSubscriptionExpiresAt ?? null);
@@ -40,24 +35,17 @@ export function canUseStellarProfileCustomization(user: UserRow | null | undefin
 }
 
 /**
- * If subscription has lapsed, clear TUF_STELLAR and bump permission version.
- * Reindexes the linked player when the flag changes so public `pfp` matches presentation.
+ * When the paid period has ended (or is missing), align `tufStellarBillingLifecycleState` to `inactive`
+ * if needed and reindex the linked player so public search/docs match subscription facts.
  */
-export async function syncTufStellarPermissionFromExpiry(user: User): Promise<void> {
-  const ms = parseExpiryMs(user.tufStellarSubscriptionExpiresAt ?? null);
-  if (ms == null) return;
-  if (ms > Date.now()) return;
-  if (!hasFlag(user, permissionFlags.TUF_STELLAR)) return;
-  await setUserPermissionAndSave(user, permissionFlags.TUF_STELLAR, false);
-  const lifecycleFrom = getBillingLifecycleState(user);
-  const lifecycleNext = transitionBillingLifecycle(lifecycleFrom, { type: 'facts_subscription_lapsed' });
-  if (lifecycleNext !== lifecycleFrom) {
-    await user.update({ tufStellarBillingLifecycleState: lifecycleNext });
-  }
-  if (user.playerId != null) {
+export async function reconcileExpiredTufStellarSubscription(user: User): Promise<void> {
+  if (isTufStellarSubscriptionActive(user)) return;
+
+  const changed = await reconcileBillingLifecycleIfExpired(user);
+  if (changed && user.playerId != null) {
     try {
       await elasticsearchService.reindexPlayers([user.playerId]);
-    } catch (e) {
+    } catch {
       // Best-effort; DB state is authoritative.
     }
   }
