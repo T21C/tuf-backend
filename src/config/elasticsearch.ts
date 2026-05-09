@@ -557,6 +557,7 @@ export const playerMapping = {
       bannerPreset: { type: 'keyword' as const },
       customBannerId: { type: 'keyword' as const },
       customBannerUrl: { type: 'text' as const },
+      tufStellarIconVariant: { type: 'keyword' as const },
       createdAt: { type: 'date' as const },
       updatedAt: { type: 'date' as const },
       user: {
@@ -685,6 +686,7 @@ export const creatorMapping = {
       bannerPreset: { type: 'keyword' as const },
       customBannerId: { type: 'keyword' as const },
       customBannerUrl: { type: 'text' as const },
+      tufStellarIconVariant: { type: 'keyword' as const },
       aliases: {
         type: 'nested' as const,
         properties: {
@@ -800,11 +802,12 @@ const passMappingHashPayload = {
  *   3 — 2026-04-19: denormalize `user.creator` when `users.creatorId` is set
  *       (mapping + indexer; clients read `playerData.user.creator`).
  *   6 — 2026-05-08: `user.avatarIsGif` + canonical profile GIF URLs (`*_animated` / `*_static`).
+ *   7 — 2026-05-09: `tufStellarIconVariant` on player documents (keyword mapping).
  */
 const playerMappingHashPayload = {
   settings: playerMapping.settings,
   mappings: playerMapping.mappings,
-  indexerVersion: 6,
+  indexerVersion: 7,
 };
 
 /**
@@ -818,11 +821,12 @@ const playerMappingHashPayload = {
  *   1 — initial release
  *   2 — creator index mapping / document field set
  *   5 — 2026-05-08: `user.avatarIsGif` for creator-linked user avatar presentation.
+ *   6 — 2026-05-09: `tufStellarIconVariant` on creator documents (keyword mapping).
  */
 const creatorMappingHashPayload = {
   settings: creatorMapping.settings,
   mappings: creatorMapping.mappings,
-  indexerVersion: 5,
+  indexerVersion: 6,
 };
 
 // Store mapping hash files next to the `server/` package, not `process.cwd()`.

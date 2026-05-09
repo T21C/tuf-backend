@@ -41,6 +41,8 @@ export interface ICreator extends IBaseModel {
   customBannerUrl?: string | null;
   /** Free-text policy for chart uploads (shown to visitors when set). */
   uploadConditions?: string | null;
+  /** TUFStellar icon variant on creator cards/profile: `1` | `2` | `3`. */
+  tufStellarIconVariant?: string;
   creatorAliases: CreatorAlias[];
   creatorTeams?: ITeam[];
   teamMemberships?: any[];
@@ -140,6 +142,8 @@ export interface IPlayer extends IBaseModel {
   bannerPreset?: string | null;
   customBannerId?: string | null;
   customBannerUrl?: string | null;
+  /** TUFStellar icon variant on player cards/profile: `1` | `2` | `3`. */
+  tufStellarIconVariant?: string;
 
   // Associations
   passes?: IPass[];

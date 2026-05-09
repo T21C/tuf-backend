@@ -21,6 +21,10 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import Player from '@/models/players/Player.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
+import {
+  isTufStellarSubscriptionActive,
+  normalizeTufStellarIconVariant,
+} from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { DEFAULT_LEADERBOARD_RANK_SCORING_VERSION, RANK_HISTORY_MAX_POINTS } from '@/config/leaderboardRankHistory.js';
 import { buildRankHistorySeries } from '@/server/services/leaderboard/rankHistorySeries.js';
 
@@ -380,7 +384,9 @@ router.get(
         getPlayerRanks(doc),
         playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
         computePlayerFunFacts(id, {includeHidden: includeHiddenInFunFacts}),
-        Player.findByPk(id, { attributes: ['bio', 'bannerPreset', 'customBannerId', 'customBannerUrl'] }),
+        Player.findByPk(id, {
+          attributes: ['bio', 'bannerPreset', 'customBannerId', 'customBannerUrl', 'tufStellarIconVariant'],
+        }),
       ]);
 
       // `passes` is intentionally not forwarded here — the list is huge
@@ -401,6 +407,7 @@ router.get(
             bannerPreset: playerRow.bannerPreset ?? null,
             customBannerId: playerRow.customBannerId ?? null,
             customBannerUrl: playerRow.customBannerUrl ?? null,
+            tufStellarIconVariant: normalizeTufStellarIconVariant(playerRow.tufStellarIconVariant),
           }
         : {};
 
@@ -482,6 +489,67 @@ router.patch(
       logger.error('[v3 PATCH /players/me/bio] failure', error);
       return res.status(500).json({
         error: 'Failed to update player bio',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.patch(
+  '/me/tuf-stellar-icon-variant',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'v3PatchPlayerMeTufStellarIconVariant',
+    summary: 'Update my player TUFStellar icon variant (v3)',
+    description:
+      'Requires an authenticated user with `playerId` set and an active TUFStellar subscription. Body: `{ variant: "1" | "2" | "3" }`.',
+    tags: ['Database', 'Players', 'v3'],
+    security: ['bearerAuth'],
+    requestBody: {
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {
+          variant: { type: 'string', enum: ['1', '2', '3'] },
+        },
+        required: ['variant'],
+      },
+    },
+    responses: {
+      200: { description: 'Updated variant' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      if (!user.playerId) {
+        return res.status(400).json({ error: 'No player profile linked to this account' });
+      }
+      if (!isTufStellarSubscriptionActive(user)) {
+        return res.status(403).json({ error: 'TUFStellar subscription required' });
+      }
+
+      const body = req.body as { variant?: unknown };
+      if (!Object.prototype.hasOwnProperty.call(body, 'variant')) {
+        return res.status(400).json({ error: 'Request body must include variant' });
+      }
+      const rawVariant = body.variant;
+      if (typeof rawVariant !== 'string' || !['1', '2', '3'].includes(rawVariant.trim())) {
+        return res.status(400).json({ error: 'variant must be "1", "2", or "3"' });
+      }
+      const next = normalizeTufStellarIconVariant(rawVariant);
+
+      await Player.update({ tufStellarIconVariant: next }, { where: { id: user.playerId } });
+      await elasticsearchService.reindexPlayers([user.playerId]);
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({ tufStellarIconVariant: next });
+    } catch (error) {
+      logger.error('[v3 PATCH /players/me/tuf-stellar-icon-variant] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update TUFStellar icon variant',
         details: error instanceof Error ? error.message : String(error),
       });
     }

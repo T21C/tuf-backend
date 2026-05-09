@@ -37,7 +37,11 @@ import {
 } from '@/server/services/creators/creatorSelfAliases.js';
 import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
 import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
-import { canUseStellarProfileCustomization } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import {
+  canUseStellarProfileCustomization,
+  isTufStellarSubscriptionActive,
+  normalizeTufStellarIconVariant,
+} from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { multerMemoryCdnImage10Mb as bannerUpload } from '@/config/multerMemoryUploads.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError } from '@/server/services/core/CdnService.js';
@@ -675,6 +679,7 @@ router.get(
             'bannerPreset',
             'customBannerId',
             'customBannerUrl',
+            'tufStellarIconVariant',
           ],
         }),
       ]);
@@ -700,11 +705,16 @@ router.get(
                     avatarUrl: enriched.user.avatarUrl ?? null,
                     playerId: enriched.user.playerId ?? null,
                     permissionFlags: enriched.user.permissionFlags ?? 0,
+                    tufStellarSubscriptionExpiresAt:
+                      enriched.user.tufStellarSubscriptionExpiresAt ?? null,
                   }
                 : null,
               bannerPreset: enriched.creator?.bannerPreset ?? null,
               customBannerId: enriched.creator?.customBannerId ?? null,
               customBannerUrl: enriched.creator?.customBannerUrl ?? null,
+              tufStellarIconVariant: normalizeTufStellarIconVariant(
+                enriched.creator?.tufStellarIconVariant,
+              ),
               chartsCharted: enriched.stats.chartsCharted,
               chartsVfxed: enriched.stats.chartsVfxed,
               chartsTeamed: enriched.stats.chartsTeamed,
@@ -737,6 +747,8 @@ router.get(
                 avatarUrl: enriched.user.avatarUrl ?? null,
                 playerId: enriched.user.playerId ?? null,
                 permissionFlags: enriched.user.permissionFlags ?? 0,
+                tufStellarSubscriptionExpiresAt:
+                  enriched.user.tufStellarSubscriptionExpiresAt ?? null,
               }
             : ((doc as { user?: unknown }).user ?? null),
         };
@@ -776,6 +788,7 @@ router.get(
             bannerPreset: creatorRow.bannerPreset ?? null,
             customBannerId: creatorRow.customBannerId ?? null,
             customBannerUrl: creatorRow.customBannerUrl ?? null,
+            tufStellarIconVariant: normalizeTufStellarIconVariant(creatorRow.tufStellarIconVariant),
           }
         : {};
 
@@ -1209,6 +1222,85 @@ router.delete(
       logger.error('[v3 DELETE /creators/:id/banner-preset] failure', error);
       return res.status(500).json({
         error: 'Failed to clear creator banner preset',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.patch(
+  '/:id([0-9]{1,20})/tuf-stellar-icon-variant',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorTufStellarIconVariant',
+    summary: 'Update creator TUFStellar icon variant (v3)',
+    description:
+      'Owner, SUPER_ADMIN, or HEAD_CURATOR. The linked creator account must have an active TUFStellar subscription. Body: `{ variant: "1" | "2" | "3" }`.',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: {
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {
+          variant: { type: 'string', enum: ['1', '2', '3'] },
+        },
+        required: ['variant'],
+      },
+    },
+    responses: {
+      200: { description: 'Updated variant' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      const permUser = user as PermissionInput;
+
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid creator id' });
+      }
+      if (!isCreatorBannerActor(permUser, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const linkedUser = await User.findOne({
+        where: { creatorId: id },
+        attributes: ['id', 'tufStellarSubscriptionExpiresAt'],
+      });
+      if (!linkedUser) {
+        return res.status(400).json({ error: 'Creator has no linked user account' });
+      }
+      if (!isTufStellarSubscriptionActive(linkedUser)) {
+        return res.status(403).json({ error: 'TUFStellar subscription required' });
+      }
+
+      const body = req.body as { variant?: unknown };
+      if (!Object.prototype.hasOwnProperty.call(body, 'variant')) {
+        return res.status(400).json({ error: 'Request body must include variant' });
+      }
+      const rawVariant = body.variant;
+      if (typeof rawVariant !== 'string' || !['1', '2', '3'].includes(rawVariant.trim())) {
+        return res.status(400).json({ error: 'variant must be "1", "2", or "3"' });
+      }
+      const next = normalizeTufStellarIconVariant(rawVariant);
+
+      const exists = await Creator.findByPk(id, { attributes: ['id'] });
+      if (!exists) return res.status(404).json({ error: 'Creator not found' });
+
+      await Creator.update({ tufStellarIconVariant: next }, { where: { id } });
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json({ tufStellarIconVariant: next });
+    } catch (error) {
+      logger.error('[v3 PATCH /creators/:id/tuf-stellar-icon-variant] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update TUFStellar icon variant',
         details: error instanceof Error ? error.message : String(error),
       });
     }

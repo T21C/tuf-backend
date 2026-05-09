@@ -22,6 +22,8 @@ class Creator extends Model implements ICreator {
   declare customBannerUrl: string | null;
   /** Free-text policy for when/how charts may be uploaded for this creator. */
   declare uploadConditions: string | null;
+  /** TUFStellar subscriber icon art on creator profile/cards: `1` | `2` | `3`. */
+  declare tufStellarIconVariant: string;
 
   declare user: User;
   declare credits?: LevelCredit[];
@@ -86,6 +88,11 @@ Creator.init(
     uploadConditions: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    tufStellarIconVariant: {
+      type: DataTypes.STRING(1),
+      allowNull: false,
+      defaultValue: '1',
     },
   },
   {

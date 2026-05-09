@@ -3,6 +3,7 @@ import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import User from '@/models/auth/User.js';
 import type { CreatorStatsRow } from '@/server/services/elasticsearch/misc/creatorStatsQuery.js';
 import { validCreatorVerificationStatuses, type CreatorVerificationStatus } from '@/config/constants.js';
+import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 
 export interface CreatorIndexDocumentInput {
   creator: Creator;
@@ -118,6 +119,7 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
     bannerPreset: typeof c.bannerPreset === 'string' && c.bannerPreset.length ? c.bannerPreset : null,
     customBannerId: typeof c.customBannerId === 'string' && c.customBannerId.length ? c.customBannerId : null,
     customBannerUrl: typeof c.customBannerUrl === 'string' && c.customBannerUrl.length ? c.customBannerUrl : null,
+    tufStellarIconVariant: normalizeTufStellarIconVariant(c.tufStellarIconVariant),
     aliases: serializeAliases(input.aliases ?? creator.creatorAliases ?? null),
     user: serializeUser(input.user ?? null),
 

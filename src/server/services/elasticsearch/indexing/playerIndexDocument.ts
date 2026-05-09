@@ -4,6 +4,7 @@ import Creator from '@/models/credits/Creator.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import type { PlayerStatsRow } from '@/server/services/elasticsearch/misc/playerStatsQuery.js';
+import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 
 export interface PlayerIndexDocumentInput {
   player: Player;
@@ -131,6 +132,7 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
     bannerPreset: typeof p.bannerPreset === 'string' && p.bannerPreset.length ? p.bannerPreset : null,
     customBannerId: typeof p.customBannerId === 'string' && p.customBannerId.length ? p.customBannerId : null,
     customBannerUrl: typeof p.customBannerUrl === 'string' && p.customBannerUrl.length ? p.customBannerUrl : null,
+    tufStellarIconVariant: normalizeTufStellarIconVariant(p.tufStellarIconVariant),
     createdAt: p.createdAt ?? null,
     updatedAt: p.updatedAt ?? null,
 

@@ -24,6 +24,17 @@ export function isTufStellarSubscriptionActive(user: UserRow): boolean {
   return ms > Date.now();
 }
 
+export type TufStellarIconVariantId = '1' | '2' | '3';
+
+/**
+ * Normalize stored/API variant to `1`, `2`, or `3`.
+ */
+export function normalizeTufStellarIconVariant(raw: unknown): TufStellarIconVariantId {
+  const s = raw == null ? '' : String(raw).trim();
+  if (s === '2' || s === '3') return s;
+  return '1';
+}
+
 /**
  * Custom profile banner uploads and animated GIF avatars (when globally enabled).
  */

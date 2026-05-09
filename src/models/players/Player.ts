@@ -31,6 +31,8 @@ class Player
   declare bannerPreset: string | null;
   declare customBannerId: string | null;
   declare customBannerUrl: string | null;
+  /** TUFStellar subscriber icon art: `1` | `2` | `3`. */
+  declare tufStellarIconVariant: string;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -89,6 +91,11 @@ Player.init(
     customBannerUrl: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    tufStellarIconVariant: {
+      type: DataTypes.STRING(1),
+      allowNull: false,
+      defaultValue: '1',
     },
     createdAt: {
       type: DataTypes.DATE,

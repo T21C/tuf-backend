@@ -23,7 +23,14 @@ export interface EnrichedCreator {
   creator: Creator | null;
   user: Pick<
     User,
-    'id' | 'username' | 'nickname' | 'avatarUrl' | 'playerId' | 'creatorId' | 'permissionFlags'
+    | 'id'
+    | 'username'
+    | 'nickname'
+    | 'avatarUrl'
+    | 'playerId'
+    | 'creatorId'
+    | 'permissionFlags'
+    | 'tufStellarSubscriptionExpiresAt'
   > | null;
   aliases: Array<Pick<CreatorAlias, 'id' | 'name' | 'creatorId'>>;
   stats: Omit<CreatorStatsRow, 'id'>;
@@ -129,6 +136,7 @@ export class CreatorStatsService {
                 : typeof user.permissionFlags === 'bigint'
                   ? Number(user.permissionFlags)
                   : Number(user.permissionFlags),
+            tufStellarSubscriptionExpiresAt: user.tufStellarSubscriptionExpiresAt ?? null,
           }
         : null;
 
