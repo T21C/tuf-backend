@@ -80,7 +80,7 @@ interface SubmissionRowIds {
 }
 
 /**
- * Runs the full validate → CDN upload → DB rows → evidence → hooks pipeline.
+ * Runs the full validate ➔ CDN upload ➔ DB rows ➔ evidence ➔ hooks pipeline.
  *
  * Design notes:
  * - The slow CDN upload happens *outside* the database transaction so the tx

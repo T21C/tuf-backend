@@ -167,7 +167,7 @@ function emit(line = "") {
 
 function printTree(node, indent = "", depth = maxDepth) {
   if (depth <= 0) return;
-  const ms = Math.round(node.duration / 1000); // µs → ms
+  const ms = Math.round(node.duration / 1000); // µs ➔ ms
   emit(`${indent}├─ ${formatName(node)} (${ms}ms)`);
   const children = [...node.children].sort((a, b) => b.duration - a.duration);
   for (const child of children.slice(0, childN)) {

@@ -314,9 +314,9 @@ router.post(
       }
 
       // Icon resolution priority (applies independently to primary + legacy):
-      //   1. Attached file → upload to CDN
-      //   2. Explicit null → no icon
-      //   3. String URL → store verbatim
+      //   1. Attached file ➔ upload to CDN
+      //   2. Explicit null ➔ no icon
+      //   3. String URL ➔ store verbatim
       let finalIcon: string | null = null;
       let finalLegacyIcon: string | null = null;
       const iconFile = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['icon']?.[0];
@@ -426,10 +426,10 @@ router.put(
       }
 
       // Icon update priority (same as on tags):
-      //   1. Attached file → upload and mark old for post-commit cleanup
-      //   2. Explicit null → clear the field and mark old for cleanup
-      //   3. String URL (different from current) → store verbatim
-      //   4. Anything else → don't touch the field (leave finalIcon undefined)
+      //   1. Attached file ➔ upload and mark old for post-commit cleanup
+      //   2. Explicit null ➔ clear the field and mark old for cleanup
+      //   3. String URL (different from current) ➔ store verbatim
+      //   4. Anything else ➔ don't touch the field (leave finalIcon undefined)
       const iconFile = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['icon']?.[0];
       const legacyIconFile = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['legacyIcon']?.[0];
 

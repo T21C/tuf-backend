@@ -285,7 +285,7 @@ router.patch(
       }
 
       await Creator.update({name: rawName}, {where: {id}});
-      // Elasticsearch: CDC projectors (`creators` → indexCreator + level fanout on name change).
+      // Elasticsearch: CDC projectors (`creators` ➔ indexCreator + level fanout on name change).
 
       return res.json({name: rawName});
     } catch (error) {
@@ -355,7 +355,7 @@ router.patch(
 
       await replaceCreatorAliasesForCreator(id, validated.names, transaction);
       await transaction.commit();
-      // Elasticsearch: CDC projectors (`creator_aliases` → indexCreator).
+      // Elasticsearch: CDC projectors (`creator_aliases` ➔ indexCreator).
 
       const aliases = await CreatorAlias.findAll({
         where: {creatorId: id},

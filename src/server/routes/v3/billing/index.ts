@@ -113,7 +113,7 @@ function trimmedString(v: unknown): string | null {
 
 const BILLING_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Empty/absent → null (self). Invalid format → `'invalid'`. */
+/** Empty/absent ➔ null (self). Invalid format ➔ `'invalid'`. */
 function parseOptionalRecipientUserId(v: unknown): string | null | 'invalid' {
   const s = trimmedString(v);
   if (!s) return null;

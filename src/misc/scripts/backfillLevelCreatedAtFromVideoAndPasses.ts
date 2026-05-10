@@ -16,7 +16,7 @@
  *   npx tsx src/misc/scripts/backfillLevelCreatedAtFromVideoAndPasses.ts --match-created-date 2025-01-15 --ytdlp-path "C:\\path\\yt-dlp.exe" --concurrency 4
  *
  * YouTube cookies (Netscape `cookies.txt`): optional `--ytdlp-cookies` or env `YTDLP_COOKIES`.
- * If omitted and `<dirname(ytdlp-binary)>/cookies.txt` exists, that file is used (e.g. ~/ytdlp/yt-dlp_linux → ~/ytdlp/cookies.txt). Do not commit cookie files.
+ * If omitted and `<dirname(ytdlp-binary)>/cookies.txt` exists, that file is used (e.g. ~/ytdlp/yt-dlp_linux ➔ ~/ytdlp/cookies.txt). Do not commit cookie files.
  */
 
 import {parseArgs} from 'node:util';

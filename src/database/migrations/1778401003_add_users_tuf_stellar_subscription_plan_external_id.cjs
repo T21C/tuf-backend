@@ -1,6 +1,6 @@
 'use strict';
 
-/** Xsolla recurring `plan_id` for the user's active subscription (display → term months via catalog). */
+/** Xsolla recurring `plan_id` for the user's active subscription (display ➔ term months via catalog). */
 
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {

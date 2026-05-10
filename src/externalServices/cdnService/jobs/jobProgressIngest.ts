@@ -17,7 +17,7 @@ export type CdnPipelineStatus = 'uploading' | 'processing' | 'caching' | 'comple
 
 export type EmitCdnJobProgressInput = EmitCdnPipelineJobProgressInput | EmitCdnPackDownloadJobProgressInput;
 
-/** Long-running CDN asset work (level zip, images, future workers) → main API job document. */
+/** Long-running CDN asset work (level zip, images, future workers) ➔ main API job document. */
 export interface EmitCdnPipelineJobProgressInput {
     variant: 'pipeline';
     jobId: string | undefined;

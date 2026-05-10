@@ -262,7 +262,7 @@ export function rankPairKey(p: RankPair): string {
 
 /**
  * Compare consecutive daily snapshots; emit rows only when the vector changes or
- * eligibility flips (including falling off the board → (-1,-1)).
+ * eligibility flips (including falling off the board ➔ (-1,-1)).
  */
 export function diffRankSnapshots(
   prev: Map<number, RankPair>,

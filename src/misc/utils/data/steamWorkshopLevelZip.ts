@@ -8,7 +8,7 @@ import {
 } from '@/misc/utils/data/levelZipFromUrl.js';
 
 /**
- * Steam Workshop → level zip import for upload-from-url.
+ * Steam Workshop ➔ level zip import for upload-from-url.
  *
  * Main API delegates SteamCMD + packing to `steam-workshop-agent` over HTTP (e.g. Tailscale).
  * Configure `STEAM_WORKSHOP_AGENT_URL`, `STEAM_WORKSHOP_AGENT_SECRET`, optional

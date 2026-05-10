@@ -43,7 +43,7 @@ export function initializeAuthAssociations() {
     foreignKey: 'id',
     as: 'creator',
   });
-  // `creators.userId` → `users.id` (not `users.creatorId` / `creators.id`).
+  // `creators.userId` ➔ `users.id` (not `users.creatorId` / `creators.id`).
   Creator.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',

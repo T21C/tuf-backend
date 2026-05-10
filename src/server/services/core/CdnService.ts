@@ -19,13 +19,13 @@ function envTimeoutMs(name: string, fallback: number): number {
 }
 
 /**
- * Main → CDN POST /zips: time to stream the multipart body + receive 202 ack only.
+ * Main ➔ CDN POST /zips: time to stream the multipart body + receive 202 ack only.
  * CDN processing runs after 202; completion is observed via {@link waitForCdnZipIngestDone}.
  */
 const CDN_LEVEL_ZIP_POST_TIMEOUT_MS = envTimeoutMs('CDN_LEVEL_ZIP_POST_TIMEOUT_MS', 15 * 60 * 1000);
 /** Poll main-API job progress for `cdn_ingest_done` after CDN returns 202. */
 const CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS = envTimeoutMs('CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS', 45 * 60 * 1000);
-/** Main → CDN POST /zips/packs/generate: ack only (202 or cache-hit 200); must survive queue waits. */
+/** Main ➔ CDN POST /zips/packs/generate: ack only (202 or cache-hit 200); must survive queue waits. */
 const CDN_PACK_GENERATE_ACK_TIMEOUT_MS = envTimeoutMs('CDN_PACK_GENERATE_ACK_TIMEOUT_MS', 120 * 1000);
 
 async function waitForCdnZipIngestDone(jobId: string, expectedFileId: string): Promise<void> {

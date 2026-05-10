@@ -837,16 +837,16 @@ router.get(
               <p>Extract the archive and locate the JSON files. For each translation entry, replace the text while keeping the keys unchanged.</p>
               <div class="example-box">
                 <p>Basic Translation Example:</p>
-                <pre>"noLevels": "No new levels to announce" → "noLevels": "Your translated text here"</pre>
+                <pre>"noLevels": "No new levels to announce" ➔ "noLevels": "Your translated text here"</pre>
               </div>
               <div class="example-box">
                 <p>Dynamic Values (Important!):</p>
                 <p>Some translations contain <code>{{value}}</code> placeholders. These must be kept but can be repositioned:</p>
                 <pre>"welcome": "Welcome back, {{username}}!"
-→ "welcome": "{{username}}, willkommen zurück!"
+➔ "welcome": "{{username}}, willkommen zurück!"
 
 "progress": "{{count}} of {{total}} levels completed"
-→ "progress": "{{count}} von {{total}} Level abgeschlossen"</pre>
+➔ "progress": "{{count}} von {{total}} Level abgeschlossen"</pre>
                 <p class="note">⚠️ Never translate the placeholders themselves (e.g., {{username}}, {{count}}, etc.)</p>
               </div>
             </div>

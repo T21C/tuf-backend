@@ -1,4 +1,4 @@
-/** Add whole calendar months in UTC (day clamped to month length, e.g. Jan 31 + 1 → Feb 28/29). */
+/** Add whole calendar months in UTC (day clamped to month length, e.g. Jan 31 + 1 ➔ Feb 28/29). */
 export function addCalendarMonthsUtc(from: Date, months: number): Date {
   if (!Number.isFinite(months) || months <= 0) return new Date(from);
   const y = from.getUTCFullYear();

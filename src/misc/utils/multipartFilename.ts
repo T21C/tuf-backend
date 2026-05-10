@@ -5,9 +5,9 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express';
  * latin-1 by default, and multer does not forward the `defParamCharset: 'utf8'`
  * option. Node's `form-data` library (and modern browsers) write filename bytes
  * as UTF-8, so non-ASCII names (e.g. Japanese, Cyrillic, accented Latin) come
- * out as classic mojibake — "かめりあ" → "ã__ã__ã__ã__".
+ * out as classic mojibake — "かめりあ" ➔ "ã__ã__ã__ã__".
  *
- * Because latin-1 is a 1:1 byte→codepoint mapping, we can recover the original
+ * Because latin-1 is a 1:1 byte➔codepoint mapping, we can recover the original
  * UTF-8 bytes by re-encoding the string as latin-1 and decoding as UTF-8.
  * Pure-ASCII names round-trip unchanged, so the fix is safe to apply
  * unconditionally to every multer-produced filename in this codebase.
@@ -78,7 +78,7 @@ export function fixMulterFileEncodings(req: Request): void {
  * so the resulting `req.file` / `req.files` always expose UTF-8 NFC filenames,
  * regardless of busboy's latin-1 default.
  *
- * Usage: `cdnLocalTemp.upload` → `withUtf8Filenames(cdnLocalTemp.upload)`.
+ * Usage: `cdnLocalTemp.upload` ➔ `withUtf8Filenames(cdnLocalTemp.upload)`.
  */
 export function withUtf8Filenames(middleware: RequestHandler): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {

@@ -26,17 +26,17 @@
  * Example pathway to "auth" route definitions (nested routers):
  *
  *   app._router.stack
- *     → layer where handle is main router (app.use('/', routes))
- *   → handle.stack  (routes/index: router.use('/v2', v2Router))
- *     → layer where path /v2, handle = v2Router
- *   → handle.stack  (v2/index: router.use('/auth', authRoutes))
- *     → layer where path /auth, handle = authRoutes
- *   → handle.stack  (v2/auth/index: router.post('/refresh', ...), etc.)
- *     → layer.route.path === '/refresh' (and others), layer.route.stack = [post handler, ...]
- *   → for each routeLayer in route.stack: getSpecFromHandler(routeLayer.handle)
- *     → if handler has API_DOC_SPEC, collect { path: '/v2/auth/refresh', method: 'post', spec }
+ *     ➔ layer where handle is main router (app.use('/', routes))
+ *   ➔ handle.stack  (routes/index: router.use('/v2', v2Router))
+ *     ➔ layer where path /v2, handle = v2Router
+ *   ➔ handle.stack  (v2/index: router.use('/auth', authRoutes))
+ *     ➔ layer where path /auth, handle = authRoutes
+ *   ➔ handle.stack  (v2/auth/index: router.post('/refresh', ...), etc.)
+ *     ➔ layer.route.path === '/refresh' (and others), layer.route.stack = [post handler, ...]
+ *   ➔ for each routeLayer in route.stack: getSpecFromHandler(routeLayer.handle)
+ *     ➔ if handler has API_DOC_SPEC, collect { path: '/v2/auth/refresh', method: 'post', spec }
  *
- * So "auth" definitions are found by recursing: app → routes → v2 → auth → route layers → handlers.
+ * So "auth" definitions are found by recursing: app ➔ routes ➔ v2 ➔ auth ➔ route layers ➔ handlers.
  */
 import type { Express, IRouter } from 'express';
 import fs from 'fs/promises';

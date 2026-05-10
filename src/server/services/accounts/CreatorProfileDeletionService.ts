@@ -16,7 +16,7 @@ const elasticsearchService = ElasticsearchService.getInstance();
  * Purges a creator profile: removes team memberships and aliases, strips or hard-deletes
  * levels per credit rules, deletes CDN banner, then destroys the `creators` row.
  *
- * Solo level: only this creator appears on `level_credits` for the level → permanent DB delete.
+ * Solo level: only this creator appears on `level_credits` for the level ➔ permanent DB delete.
  * Collab: remove this creator's `LevelCredit` rows only; reindex the level.
  */
 export class CreatorProfileDeletionService {

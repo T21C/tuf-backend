@@ -43,7 +43,7 @@ export async function resolveDifficultyRange(minDiff?: string, maxDiff?: string)
   }
 }
 
-/** Canonical difficulty order from DB (id → sortOrder) for Elasticsearch script sorts. LEGACY is omitted so those ids sort as missing. */
+/** Canonical difficulty order from DB (id ➔ sortOrder) for Elasticsearch script sorts. LEGACY is omitted so those ids sort as missing. */
 export async function getDifficultySortOrderByDiffId(): Promise<Record<string, number>> {
   try {
     const rows = await Difficulty.findAll({
@@ -64,7 +64,7 @@ export async function getDifficultySortOrderByDiffId(): Promise<Record<string, n
 }
 
 /**
- * Difficulties with non-zero baseScore only (id → baseScore) for Elasticsearch script sorts.
+ * Difficulties with non-zero baseScore only (id ➔ baseScore) for Elasticsearch script sorts.
  * Omitted ids are treated as 0 fallback, matching DB-backed resolution without denormalizing every difficulty field.
  */
 export async function getDifficultyBaseScoreByDiffId(): Promise<Record<string, number>> {

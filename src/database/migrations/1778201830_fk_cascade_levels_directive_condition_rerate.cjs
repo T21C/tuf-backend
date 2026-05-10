@@ -32,7 +32,7 @@ module.exports = {
   async up(queryInterface) {
     const transaction = await queryInterface.sequelize.transaction();
     try {
-      // directive_condition_history: drop any existing levelId → levels FKs, then single CASCADE
+      // directive_condition_history: drop any existing levelId ➔ levels FKs, then single CASCADE
       await removeForeignKeyIfExists(
         queryInterface,
         'directive_condition_history',

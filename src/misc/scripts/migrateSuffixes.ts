@@ -37,7 +37,7 @@ interface ParsedSuffix {
  * Returns the LAST matching suffix found, or null if none found
  * Handles cases like "Song (nerfed) (nerfed)" or "Song [nerfed] [nerfed]" by extracting only the last instance
  * Supports both parentheses (nerfed) and square brackets [nerfed]
- * This ensures data consistency: "Song (nerfed) (nerfed)" → "Song (nerfed)" + suffix "(nerfed)"
+ * This ensures data consistency: "Song (nerfed) (nerfed)" ➔ "Song (nerfed)" + suffix "(nerfed)"
  */
 function extractSuffix(songName: string, targetSuffix: string): ParsedSuffix | null {
   if (!songName || !targetSuffix) {

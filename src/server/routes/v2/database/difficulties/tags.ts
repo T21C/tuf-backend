@@ -21,7 +21,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { sendCdnErrorResponse, tagIconUpload, updateDifficultiesHash } from './shared.js';
 
 /**
- * Level tag CRUD + sort-order management + level→tag assignments.
+ * Level tag CRUD + sort-order management + level➔tag assignments.
  *
  * The tag tree is two-tiered: tags are grouped under a named `group`, and both
  * the tags within a group and the groups themselves have their own sort order
@@ -234,9 +234,9 @@ router.post(
       }
 
       // Icon resolution priority:
-      //   1. Attached file → upload to CDN, return its canonical URL
-      //   2. Explicit null (string "null" or literal null) → no icon
-      //   3. String URL provided → store verbatim (external or pre-uploaded)
+      //   1. Attached file ➔ upload to CDN, return its canonical URL
+      //   2. Explicit null (string "null" or literal null) ➔ no icon
+      //   3. String URL provided ➔ store verbatim (external or pre-uploaded)
       let finalIconUrl: string | null = null;
       if (iconFile) {
         try {
@@ -350,9 +350,9 @@ router.put(
       }
 
       // Icon update priority:
-      //   1. Attached file → upload new and mark old for cleanup
-      //   2. Explicit null → remove icon and mark old for cleanup
-      //   3. Anything else → keep current icon (finalIconUrl stays undefined)
+      //   1. Attached file ➔ upload new and mark old for cleanup
+      //   2. Explicit null ➔ remove icon and mark old for cleanup
+      //   3. Anything else ➔ keep current icon (finalIconUrl stays undefined)
       let finalIconUrl: string | null | undefined = undefined;
       let oldFileId: string | null = null;
 

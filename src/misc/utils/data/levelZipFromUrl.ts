@@ -25,7 +25,7 @@ function isGoogleDriveHost(hostname: string): boolean {
   return h === 'drive.google.com' || h.endsWith('.drive.google.com') || h === 'drive.usercontent.google.com';
 }
 
-/** Google Drive view links → first-step download URL (may return HTML virus-scan interstitial). */
+/** Google Drive view links ➔ first-step download URL (may return HTML virus-scan interstitial). */
 export function resolveDirectDownloadUrl(url: string): string {
   const trimmed = url.trim();
   if (trimmed.includes('drive.google.com')) {

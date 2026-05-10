@@ -94,7 +94,7 @@ export function parseLatencyWindow(raw: unknown): HealthLatencyWindow | null {
 
 /**
  * Short windows: same pattern as admin statistics ratings-per-user — Sequelize model +
- * Op.between so Date → MySQL conversion follows the pool dialect (see PoolManager timezone).
+ * Op.between so Date ➔ MySQL conversion follows the pool dialect (see PoolManager timezone).
  */
 async function fetchRawPoints(from: Date, to: Date): Promise<HealthLatencyPoint[]> {
   const rows = await HealthLatencySample.findAll({
