@@ -1,4 +1,5 @@
 import type User from '@/models/auth/User.js';
+import type UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import {
   getBillingLifecycleState,
@@ -25,28 +26,31 @@ function parseExpiryMs(expiresAt: Date | null | undefined): number | null {
  */
 export async function syncXsollaNextChargeToAccessExpiry(
   user: User,
+  billing: UserTufStellarBilling | null,
   throttle: XsollaBillingSyncThrottle = 'webhook',
 ): Promise<void> {
-  const accessMs = parseExpiryMs(user.tufStellarSubscriptionExpiresAt ?? null);
+  if (!billing) return;
+
+  const accessMs = parseExpiryMs(billing.tufStellarSubscriptionExpiresAt ?? null);
   if (accessMs == null || accessMs <= Date.now()) return;
 
-  const ext = user.tufStellarSubscriptionExternalId;
+  const ext = billing.tufStellarSubscriptionExternalId;
   if (ext == null || ext === '' || String(ext).startsWith('tx:')) return;
 
   try {
-    if (getBillingLifecycleState(user) === 'inactive') return;
+    if (getBillingLifecycleState(billing) === 'inactive') return;
   } catch {
     return;
   }
 
-  if (!hasRecurringSubscriptionId(user)) return;
+  if (!hasRecurringSubscriptionId(billing)) return;
 
-  const recurringStoredMs = parseExpiryMs(user.tufStellarRecurringPeriodEndAt ?? null);
+  const recurringStoredMs = parseExpiryMs(billing.tufStellarRecurringPeriodEndAt ?? null);
   /** Gift / one-time time stacked after the paid period: DB recurring end lags total access — must not debounce away. */
   const stackedAccessBeyondRecurring =
     recurringStoredMs == null || accessMs - recurringStoredMs > ALIGN_TOLERANCE_MS;
 
-  const lastSync = user.tufStellarXsollaBillingSyncAt;
+  const lastSync = billing.tufStellarXsollaBillingSyncAt;
   const lastMs = lastSync ? new Date(lastSync).getTime() : 0;
   const interval = throttle === 'lazy' ? LAZY_RECONCILE_MIN_INTERVAL_MS : WEBHOOK_SYNC_DEBOUNCE_MS;
   if (!stackedAccessBeyondRecurring && lastMs > 0 && Date.now() - lastMs < interval) return;
@@ -62,7 +66,7 @@ export async function syncXsollaNextChargeToAccessExpiry(
     const deltaMs = accessMs - nextMs;
 
     if (deltaMs <= ALIGN_TOLERANCE_MS) {
-      await user.update({
+      await billing.update({
         tufStellarXsollaBillingSyncAt: new Date(),
         tufStellarRecurringPeriodEndAt: nextCharge,
       });
@@ -75,9 +79,9 @@ export async function syncXsollaNextChargeToAccessExpiry(
     nextCharge = await XsollaApiClient.getSubscriptionDateNextCharge(user.id, ext);
     nextMs = nextCharge?.getTime() ?? nextMs;
 
-    await user.update({
+    await billing.update({
       tufStellarXsollaBillingSyncAt: new Date(),
-      tufStellarRecurringPeriodEndAt: nextCharge ?? user.tufStellarRecurringPeriodEndAt ?? null,
+      tufStellarRecurringPeriodEndAt: nextCharge ?? billing.tufStellarRecurringPeriodEndAt ?? null,
     });
 
     logger.info('[Xsolla] Billing aligned via timeshift', {

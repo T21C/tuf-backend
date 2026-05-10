@@ -7,6 +7,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import { runPlayerStatsQuery, PlayerStatsRow } from '@/server/services/elasticsearch/misc/playerStatsQuery.js';
 import { buildPlayerIndexDocument } from '@/server/services/elasticsearch/indexing/playerIndexDocument.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 
 export interface PreparedPlayerDocument {
   id: number;
@@ -53,6 +54,18 @@ export async function fetchPlayersForBulkIndex(playerIds: number[]): Promise<Pre
     discordByUserId.set(prov.userId, prov);
   }
 
+  const billingRows =
+    userIds.length > 0
+      ? await UserTufStellarBilling.findAll({
+          where: { userId: { [Op.in]: userIds } },
+          attributes: ['userId', 'tufStellarSubscriptionExpiresAt'],
+        })
+      : [];
+  const expiresByUserId = new Map<string, Date | null>();
+  for (const b of billingRows) {
+    expiresByUserId.set(b.userId, b.tufStellarSubscriptionExpiresAt ?? null);
+  }
+
   const statsById = new Map<number, PlayerStatsRow>();
   for (const row of statsRows) {
     statsById.set(Number(row.id), row);
@@ -83,6 +96,7 @@ export async function fetchPlayersForBulkIndex(playerIds: number[]): Promise<Pre
       const doc = buildPlayerIndexDocument({
         player,
         user,
+        userSubscriptionExpiresAt: user ? expiresByUserId.get(user.id) ?? null : null,
         discordProvider: discord,
         topDiff,
         top12kDiff,

@@ -25,6 +25,7 @@ import {
   reconcileExpiredTufStellarSubscription,
   type UserRow,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -108,6 +109,8 @@ router.get(
     await reconcileExpiredTufStellarSubscription(user);
     await user.reload();
 
+    const billing = await loadUserTufStellarBilling(user.id);
+
     const providers = await OAuthProvider.findAll({
       where: {userId: user.id},
       attributes: ['provider', 'providerId'],
@@ -124,9 +127,9 @@ router.get(
         email: user.email,
         avatarUrl: user.avatarUrl ?? null,
         avatarIsGif: Boolean(user.avatarIsGif),
-        tufStellarSubscriptionExpiresAt: user.tufStellarSubscriptionExpiresAt ?? null,
-        tufStellarSubscriptionExternalId: user.tufStellarSubscriptionExternalId ?? null,
-        tufStellarSubscriptionCancelledAt: user.tufStellarSubscriptionCancelledAt ?? null,
+        tufStellarSubscriptionExpiresAt: billing?.tufStellarSubscriptionExpiresAt ?? null,
+        tufStellarSubscriptionExternalId: billing?.tufStellarSubscriptionExternalId ?? null,
+        tufStellarSubscriptionCancelledAt: billing?.tufStellarSubscriptionCancelledAt ?? null,
         isRater: hasFlag(user, permissionFlags.RATER),
         isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
         isRatingBanned: hasFlag(user, permissionFlags.RATING_BANNED),
@@ -478,7 +481,8 @@ router.post(
 
         const avatarMode = parseProfileAvatarMode(req.body);
         const gif = isGifAvatarFile(req.file);
-        if (gif && !canUseStellarProfileCustomization(user as UserRow)) {
+        const billing = await loadUserTufStellarBilling(user.id);
+        if (gif && !canUseStellarProfileCustomization(user as UserRow, billing)) {
             return res.status(403).json({
                 error: 'GIF profile pictures require a TUFStellar subscription',
                 code: 'AVATAR_GIF_FORBIDDEN',
@@ -616,9 +620,12 @@ router.delete(
   }
 );
 
-function canUsePlayerCustomBanner(user: PermissionInput): boolean {
+async function canUsePlayerCustomBanner(user: PermissionInput): Promise<boolean> {
   if (!user || typeof user === 'bigint' || typeof user === 'number') return false;
-  return canUseStellarProfileCustomization(user as UserRow);
+  const uid = (user as { id?: string }).id;
+  if (!uid) return false;
+  const billing = await loadUserTufStellarBilling(uid);
+  return canUseStellarProfileCustomization(user as UserRow, billing);
 }
 
 // --- Profile banner (preset + custom CDN) ---
@@ -726,7 +733,7 @@ router.post(
       if (!user?.playerId) {
         return res.status(400).json({ error: 'No player profile linked to this account' });
       }
-      if (!canUsePlayerCustomBanner(user as PermissionInput)) {
+      if (!(await canUsePlayerCustomBanner(user as PermissionInput))) {
         return res.status(403).json({ error: 'Custom profile banners are not enabled for this account' });
       }
       if (!req.file) {
@@ -805,7 +812,7 @@ router.delete(
       if (!user?.playerId) {
         return res.status(400).json({ error: 'No player profile linked to this account' });
       }
-      if (!canUsePlayerCustomBanner(user as PermissionInput)) {
+      if (!(await canUsePlayerCustomBanner(user as PermissionInput))) {
         return res.status(403).json({ error: 'Custom profile banners are not enabled for this account' });
       }
 

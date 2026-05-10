@@ -12,6 +12,7 @@ import {getVideoDetails,} from '@/misc/utils/data/videoDetailParser.js';
 import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
 import { effectiveAvatarForUserRow } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 import {Buffer} from 'buffer';
 import { Op } from 'sequelize';
 import { seededShuffle } from '@/misc/utils/server/random.js';
@@ -687,21 +688,19 @@ router.get(
           {
             model: User,
             as: 'user',
-            attributes: [
-              'avatarUrl',
-              'avatarIsGif',
-              'tufStellarSubscriptionExpiresAt',
-              'permissionFlags',
-            ],
+            attributes: ['avatarUrl', 'avatarIsGif', 'permissionFlags'],
           },
         ],
       });
       if (!player) {
         return res.status(404).send('Player not found');
       }
-      const targetUrl = player.user
-        ? effectiveAvatarForUserRow(player.user as User)
-        : player.getDataValue('pfp') || null;
+      let targetUrl: string | null = player.getDataValue('pfp') || null;
+      if (player.user) {
+        const u = player.user as User;
+        const billing = await loadUserTufStellarBilling(u.id);
+        targetUrl = effectiveAvatarForUserRow(u, billing?.tufStellarSubscriptionExpiresAt ?? null);
+      }
       if (!targetUrl || !isSafeHttpRedirectUrl(targetUrl)) {
         return res.status(404).send('Avatar not found');
       }
@@ -738,14 +737,10 @@ router.get(
   const {userId} = req.params;
   try {
     const user = await User.findByPk(userId, {
-      attributes: [
-        'avatarUrl',
-        'avatarIsGif',
-        'tufStellarSubscriptionExpiresAt',
-        'permissionFlags',
-      ],
+      attributes: ['avatarUrl', 'avatarIsGif', 'permissionFlags'],
     });
-    const displayUrl = user ? effectiveAvatarForUserRow(user) : null;
+    const billing = user ? await loadUserTufStellarBilling(user.id) : null;
+    const displayUrl = user ? effectiveAvatarForUserRow(user, billing?.tufStellarSubscriptionExpiresAt ?? null) : null;
     if (!user || !displayUrl) {
       return res.status(404).send('Avatar not found');
     }

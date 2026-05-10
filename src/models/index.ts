@@ -48,6 +48,8 @@ import { DiscordGuild, DiscordSyncRole } from './discord/index.js';
 import UploadSession from './upload/UploadSession.js';
 import HealthLatencySample from './health/HealthLatencySample.js';
 import BillingEvent from './billing/BillingEvent.js';
+import UserTufStellarBilling from './billing/UserTufStellarBilling.js';
+import UserTufStellarEntitlementSegment from './billing/UserTufStellarEntitlementSegment.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -102,6 +104,8 @@ export const db = {
     UploadSession,
     HealthLatencySample,
     BillingEvent,
+    UserTufStellarBilling,
+    UserTufStellarEntitlementSegment,
   },
 };
 
@@ -113,7 +117,16 @@ initializeAssociations();
 export default db;
 
 // Also export User, OAuthProvider, RefreshToken, etc. directly for convenience
-export {User, OAuthProvider, RefreshToken, RateLimit, AuditLog, BillingEvent};
+export {
+  User,
+  OAuthProvider,
+  RefreshToken,
+  RateLimit,
+  AuditLog,
+  BillingEvent,
+  UserTufStellarBilling,
+  UserTufStellarEntitlementSegment,
+};
 
 // Export Discord models
 export {DiscordGuild, DiscordSyncRole};

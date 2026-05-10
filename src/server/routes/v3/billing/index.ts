@@ -28,11 +28,17 @@ import {
   resolveTufStellarGiftProductId,
   resolveTufStellarProductId,
 } from '@/server/services/billing/tufStellarProductCatalog.js';
+import { describeProductFromXsollaWebhookRawBody } from '@/server/services/billing/tufStellarBillingEventProduct.js';
 import { xsollaConfig } from '@/config/app.config.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { deriveBillingAccessParts } from '@/misc/utils/subscriptions/billingAccessDerivation.js';
 import { syncXsollaNextChargeToAccessExpiry } from '@/server/services/billing/tufStellarXsollaBillingSync.js';
+import {
+  loadOrCreateUserTufStellarBilling,
+  loadUserTufStellarBilling,
+} from '@/server/services/billing/userTufStellarBillingSupport.js';
+import { loadSegmentsForUser } from '@/server/services/billing/tufStellarEntitlementSegments.js';
 
 const router: Router = Router();
 
@@ -74,12 +80,19 @@ interface PaymentSummary {
 function summarizeRawBody(rawBody: string): PaymentSummary {
   try {
     const payload = JSON.parse(rawBody);
-    const amountRaw = payload?.transaction?.payment_method_sum ??
-      payload?.transaction?.payment_gross ??
+    const tx = payload?.transaction ?? payload?.billing?.transaction;
+    const amountRaw =
+      tx?.payment_method_sum ??
+      tx?.payment_gross ??
+      payload?.order?.amount ??
+      payload?.billing?.purchase?.total?.amount ??
       payload?.purchase?.total?.amount ??
       payload?.purchase?.checkout?.amount ??
       null;
-    const currency = payload?.transaction?.payment_method_currency ??
+    const currency =
+      tx?.payment_method_currency ??
+      payload?.order?.currency ??
+      payload?.billing?.purchase?.total?.currency ??
       payload?.purchase?.total?.currency ??
       payload?.purchase?.checkout?.currency ??
       null;
@@ -151,8 +164,8 @@ function extractBillingEventReferences(
     const notif = (p?.notification as Record<string, any> | undefined) ?? p;
     const sub = p?.purchase as Record<string, any> | undefined;
     const purchaseSub = sub?.subscription as Record<string, any> | undefined;
-    const order = sub?.order as Record<string, any> | undefined;
-    const tx = p?.transaction as Record<string, any> | undefined;
+    const order = (p?.order ?? sub?.order) as Record<string, any> | undefined;
+    const tx = (p?.transaction ?? p?.billing?.transaction) as Record<string, any> | undefined;
     const settings = p?.settings as Record<string, any> | undefined;
 
     setIfEmpty('invoice_id', trimmedString(
@@ -237,8 +250,27 @@ router.get(
               properties: {
                 active: { type: 'boolean' },
                 expiresAt: { type: 'string', format: 'date-time', nullable: true },
-                oneTimeRemainingMs: { type: 'integer' },
+                oneTimeRemainingMs: {
+                  type: 'integer',
+                  description: 'Deprecated: same as giftFundedRemainingMs',
+                },
+                giftFundedRemainingMs: { type: 'integer' },
+                subscriptionPaidPeriodRemainingMs: { type: 'integer' },
+                subscriptionFundedCoverageEndsAt: {
+                  type: 'string',
+                  format: 'date-time',
+                  nullable: true,
+                  description:
+                    'When entitlement segments exist: end of subscription-funded coverage overlapping now; UI “through” date for subscription-paid remaining.',
+                },
                 recurringPeriodEndsAt: { type: 'string', format: 'date-time', nullable: true },
+                nominalPeriodEndsAt: {
+                  type: 'string',
+                  format: 'date-time',
+                  nullable: true,
+                  description:
+                    'Subscription cycle end from webhook before next-charge postponing; used to split gift vs paid period in UI',
+                },
               },
             },
             subscription: {
@@ -252,6 +284,12 @@ router.get(
                 hasRecurringSubscription: { type: 'boolean' },
                 termMonths: { type: 'integer', nullable: true },
                 recurringPeriodEndsAt: { type: 'string', format: 'date-time', nullable: true },
+                nominalPeriodEndsAt: {
+                  type: 'string',
+                  format: 'date-time',
+                  nullable: true,
+                  description: 'Webhook subscription period end (actual next charge may be postponed)',
+                },
                 allowedActions: {
                   type: 'object',
                   properties: {
@@ -278,35 +316,49 @@ router.get(
       await reconcileExpiredTufStellarSubscription(user);
       await user.reload();
 
-      await syncXsollaNextChargeToAccessExpiry(user, 'lazy');
-      await user.reload();
+      let billing = await loadUserTufStellarBilling(user.id);
+      await syncXsollaNextChargeToAccessExpiry(user, billing, 'lazy');
+      billing = await loadUserTufStellarBilling(user.id);
 
-      const lifecycle = getBillingLifecycleState(user);
-      const allowedActions = getBillingAllowedActions(user);
+      const segments = await loadSegmentsForUser(user.id);
+      const segmentInputs = segments.map((s) => ({
+        kind: s.kind as 'gift' | 'subscription',
+        startsAt: s.startsAt,
+        endsAt: s.endsAt,
+      }));
 
-      const accessActive = isSubscriptionActive(user.tufStellarSubscriptionExpiresAt ?? null);
-      const termMonths = monthsFromTufStellarPlanExternalId(user.tufStellarSubscriptionPlanExternalId ?? null);
-      const derived = deriveBillingAccessParts(user);
-      const recurringEnds = user.tufStellarRecurringPeriodEndAt ?? null;
+      const lifecycle = getBillingLifecycleState(billing);
+      const allowedActions = getBillingAllowedActions(user, billing);
+
+      const accessActive = isSubscriptionActive(billing?.tufStellarSubscriptionExpiresAt ?? null);
+      const termMonths = monthsFromTufStellarPlanExternalId(billing?.tufStellarSubscriptionPlanExternalId ?? null);
+      const derived = deriveBillingAccessParts(user, billing, segmentInputs);
+      const recurringEnds = billing?.tufStellarRecurringPeriodEndAt ?? null;
+      const nominalEnds = billing?.tufStellarSubscriptionNominalPeriodEndAt ?? null;
 
       return res.json({
         active: accessActive,
-        expiresAt: user.tufStellarSubscriptionExpiresAt ?? null,
-        cancelledAt: user.tufStellarSubscriptionCancelledAt ?? null,
+        expiresAt: billing?.tufStellarSubscriptionExpiresAt ?? null,
+        cancelledAt: billing?.tufStellarSubscriptionCancelledAt ?? null,
         lifecycle,
         allowedActions,
         access: {
           active: accessActive,
-          expiresAt: user.tufStellarSubscriptionExpiresAt ?? null,
+          expiresAt: billing?.tufStellarSubscriptionExpiresAt ?? null,
           oneTimeRemainingMs: derived.oneTimeRemainingMs,
+          giftFundedRemainingMs: derived.giftFundedRemainingMs,
+          subscriptionPaidPeriodRemainingMs: derived.subscriptionPaidPeriodRemainingMs,
+          subscriptionFundedCoverageEndsAt: derived.subscriptionFundedCoverageEndsAt,
           recurringPeriodEndsAt: recurringEnds,
+          nominalPeriodEndsAt: nominalEnds,
         },
         subscription: {
           lifecycle,
-          cancelledAt: user.tufStellarSubscriptionCancelledAt ?? null,
-          hasRecurringSubscription: hasRecurringSubscriptionId(user),
+          cancelledAt: billing?.tufStellarSubscriptionCancelledAt ?? null,
+          hasRecurringSubscription: hasRecurringSubscriptionId(billing),
           termMonths,
           recurringPeriodEndsAt: recurringEnds,
+          nominalPeriodEndsAt: nominalEnds,
           allowedActions: {
             cancel: allowedActions.cancel,
             resubscribe: allowedActions.resubscribe,
@@ -327,7 +379,7 @@ router.get(
     operationId: 'getBillingMeEvents',
     summary: 'Recent billing events for the current user',
     description:
-      'Returns recent BillingEvent rows (sanitized): event type, status, amount, and structured invoice / reference ids parsed from the webhook payload for disputes.',
+      'Returns recent BillingEvent rows (sanitized): event type, status, amount, references, optional `product` (SKU/plan/item id + catalog-resolved months for Xsolla), for disputes and clearer activity.',
     tags: ['Billing'],
     security: ['bearerAuth'],
     responses: {
@@ -394,6 +446,8 @@ router.get(
           externalId: r.externalId,
         });
         const activityKind = classifyBillingActivityKind(r, viewerId);
+        const product =
+          r.provider === 'xsolla' ? describeProductFromXsollaWebhookRawBody(r.rawBody) : null;
 
         let counterpartyUsername: string | null = null;
         let counterpartyNickname: string | null = null;
@@ -424,6 +478,7 @@ router.get(
           activityKind,
           counterpartyUsername,
           counterpartyNickname,
+          product,
         };
       });
 
@@ -546,20 +601,20 @@ router.post(
     operationId: 'postBillingXsollaCheckout',
     summary: 'Start an Xsolla Pay Station checkout',
     description:
-      'Mints a Pay Station token: default `gift` mode uses gift SKUs (adds access time); `subscription` mode uses recurring plans. Omitted `mode` + `autoRenew` true implies subscription; otherwise gift. `recipientUserId` optional UUID for gifts (default yourself).',
+      'Mints a Pay Station token. Default `subscription` = recurring plan with auto-renew unless `autoRenew` is explicitly false. `gift` / one-time SKUs add fixed access time without renewal. `recipientUserId` optional UUID for gifts (default yourself).',
     tags: ['Billing'],
     security: ['bearerAuth'],
     requestBody: {
       required: true,
       description:
-        '`mode`: `gift` (default) = one-time gift time; `subscription` = recurring. `recipientUserId` optional UUID for gift beneficiary (default self). `autoRenew` only for `subscription` (self).',
+        '`mode`: `subscription` (default) = recurring with renewal; `gift` = one-time access (gift SKU). `recipientUserId` optional UUID for gift beneficiary (default self). For `subscription`, omit `autoRenew` or true for renewal; `autoRenew` false = single term then stop (API-only).',
       schema: {
         type: 'object',
         properties: {
           mode: { type: 'string', enum: ['gift', 'subscription'] },
           months: { type: 'integer', enum: [1, 2, 3, 6, 9, 12] },
           recipientUserId: { type: 'string', format: 'uuid' },
-          autoRenew: { type: 'boolean', default: false },
+          autoRenew: { type: 'boolean', default: true },
         },
         required: ['months'],
       },
@@ -593,6 +648,8 @@ router.post(
       await reconcileExpiredTufStellarSubscription(user);
       await user.reload();
 
+      const billing = await loadOrCreateUserTufStellarBilling(user.id);
+
       const body = req.body as {
         mode?: unknown;
         months?: unknown;
@@ -613,12 +670,12 @@ router.post(
       if (modeRaw === 'gift' || modeRaw === 'subscription') {
         mode = modeRaw as 'gift' | 'subscription';
       } else {
-        const arEarly = body?.autoRenew === true || String(body?.autoRenew).toLowerCase() === 'true';
-        mode = arEarly ? 'subscription' : 'gift';
+        mode = 'subscription';
       }
 
       const arRaw = body?.autoRenew;
-      const autoRenew = arRaw === true || String(arRaw).toLowerCase() === 'true';
+      const autoRenewExplicitFalse = arRaw === false || String(arRaw).toLowerCase() === 'false';
+      const autoRenew = mode === 'subscription' ? !autoRenewExplicitFalse : false;
 
       const recipientParsed = parseOptionalRecipientUserId(body?.recipientUserId);
       if (recipientParsed === 'invalid') {
@@ -669,7 +726,7 @@ router.post(
           });
         }
 
-        await user.update({
+        await billing.update({
           tufStellarPendingGiftBeneficiaryUserId: beneficiary.id,
           tufStellarPendingGiftMonths: months,
           tufStellarPendingAutoRenew: null,
@@ -697,7 +754,7 @@ router.post(
         return res.json(result);
       }
 
-      const subGate = checkSubscriptionCheckoutTransition(user);
+      const subGate = checkSubscriptionCheckoutTransition(user, billing);
       if (!subGate.ok) {
         return billingDeny(res, subGate);
       }
@@ -721,7 +778,7 @@ router.post(
         });
       }
 
-      await user.update({
+      await billing.update({
         tufStellarPendingAutoRenew: autoRenew,
         tufStellarPendingGiftBeneficiaryUserId: null,
         tufStellarPendingGiftMonths: null,
@@ -805,7 +862,9 @@ router.post(
       await reconcileExpiredTufStellarSubscription(user);
       await user.reload();
 
-      const cancelGate = checkCancelTransition(user);
+      const billing = await loadUserTufStellarBilling(user.id);
+
+      const cancelGate = checkCancelTransition(user, billing);
       if (!cancelGate.ok) {
         return billingDeny(res, cancelGate);
       }
@@ -814,8 +873,11 @@ router.post(
         return res.json({ ok: true });
       }
 
-      const subId = user.tufStellarSubscriptionExternalId;
+      const subId = billing?.tufStellarSubscriptionExternalId;
       if (!subId || subId.startsWith('tx:')) {
+        return res.status(400).json({ error: { code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No active recurring subscription found' } });
+      }
+      if (!billing) {
         return res.status(400).json({ error: { code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No active recurring subscription found' } });
       }
 
@@ -837,10 +899,10 @@ router.post(
       } else {
         await XsollaApiClient.cancelUserSubscription(user.id, subId);
 
-        const prevLifecycle = getBillingLifecycleState(user);
+        const prevLifecycle = getBillingLifecycleState(billing);
         const nextLifecycle = transitionBillingLifecycle(prevLifecycle, { type: 'user_cancel_committed' });
-        await user.update({
-          tufStellarSubscriptionCancelledAt: user.tufStellarSubscriptionCancelledAt ?? new Date(),
+        await billing.update({
+          tufStellarSubscriptionCancelledAt: billing.tufStellarSubscriptionCancelledAt ?? new Date(),
           tufStellarBillingLifecycleState: nextLifecycle,
         });
         try {
@@ -899,13 +961,20 @@ router.post(
       await reconcileExpiredTufStellarSubscription(user);
       await user.reload();
 
-      const resubGate = checkResubscribeTransition(user);
+      const billing = await loadUserTufStellarBilling(user.id);
+
+      const resubGate = checkResubscribeTransition(user, billing);
       if (!resubGate.ok) {
         return billingDeny(res, resubGate);
       }
 
-      const subId = user.tufStellarSubscriptionExternalId;
+      const subId = billing?.tufStellarSubscriptionExternalId;
       if (!subId || subId.startsWith('tx:')) {
+        return res.status(400).json({
+          error: { code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No recurring subscription found to resume' },
+        });
+      }
+      if (!billing) {
         return res.status(400).json({
           error: { code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No recurring subscription found to resume' },
         });
@@ -913,9 +982,9 @@ router.post(
 
       await XsollaApiClient.reactivateUserSubscription(user.id, subId);
 
-      const prevLifecycle = getBillingLifecycleState(user);
+      const prevLifecycle = getBillingLifecycleState(billing);
       const nextLifecycle = transitionBillingLifecycle(prevLifecycle, { type: 'user_resubscribe_committed' });
-      await user.update({
+      await billing.update({
         tufStellarSubscriptionCancelledAt: null,
         tufStellarBillingLifecycleState: nextLifecycle,
       });

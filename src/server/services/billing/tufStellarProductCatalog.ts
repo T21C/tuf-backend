@@ -81,9 +81,27 @@ export function extractTufStellarPlanExternalIdFromXsollaPayload(payload: unknow
   return null;
 }
 
+function giftMonthsFromXsollaCustomParameters(payload: any): TufStellarMonths | null {
+  const cp =
+    payload?.custom_parameters ??
+    payload?.customParameters ??
+    payload?.settings?.custom_parameters ??
+    payload?.notification?.custom_parameters;
+  if (!cp || typeof cp !== 'object') return null;
+  const raw = (cp as Record<string, unknown>).tuf_gift_months ?? (cp as Record<string, unknown>).tufGiftMonths;
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  return isTufStellarMonths(n) ? n : null;
+}
+
 /** Deep-ish scan for a known gift SKU string inside Xsolla payload fragments. */
 export function inferGiftMonthsFromXsollaPayload(payload: any): TufStellarMonths | null {
+  const fromCp = giftMonthsFromXsollaCustomParameters(payload);
+  if (fromCp != null) return fromCp;
+
   const candidates: unknown[] = [
+    payload?.items?.[0]?.sku,
+    payload?.items?.[0]?.product_id,
     payload?.purchase?.subscription?.product_id,
     payload?.purchase?.subscription?.productId,
     payload?.purchase?.subscription?.sku,

@@ -8,6 +8,8 @@ import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufSt
 export interface CreatorIndexDocumentInput {
   creator: Creator;
   user?: User | null;
+  /** From `user_tuf_stellar_billing.tufStellarSubscriptionExpiresAt` (not on `users`). */
+  userSubscriptionExpiresAt?: Date | null;
   aliases?: CreatorAlias[] | null;
   stats?: Partial<CreatorStatsRow> | null;
   /** Distinct credited levels per curation type id (string keys), same shape as profile `curationTypeCounts`. */
@@ -73,7 +75,7 @@ function curationCountsToPairs(counts: Record<string, number> | null | undefined
     .sort((a, b) => a.typeId - b.typeId);
 }
 
-function serializeUser(user: User | null | undefined): any | null {
+function serializeUser(user: User | null | undefined, subscriptionExpiresAt: Date | null | undefined): any | null {
   if (!user) return null;
   const u = plain(user) as any;
   return {
@@ -83,7 +85,7 @@ function serializeUser(user: User | null | undefined): any | null {
     avatarUrl: u.avatarUrl ?? null,
     avatarIsGif: Boolean(u.avatarIsGif),
     playerId: coerceNumber(u.playerId, 0),
-    tufStellarSubscriptionExpiresAt: u.tufStellarSubscriptionExpiresAt ?? null,
+    tufStellarSubscriptionExpiresAt: subscriptionExpiresAt ?? null,
     permissionFlags: permissionFlagsToLong(u.permissionFlags),
   };
 }
@@ -121,7 +123,7 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
     customBannerUrl: typeof c.customBannerUrl === 'string' && c.customBannerUrl.length ? c.customBannerUrl : null,
     tufStellarIconVariant: normalizeTufStellarIconVariant(c.tufStellarIconVariant),
     aliases: serializeAliases(input.aliases ?? creator.creatorAliases ?? null),
-    user: serializeUser(input.user ?? null),
+    user: serializeUser(input.user ?? null, input.userSubscriptionExpiresAt ?? null),
 
     chartsCharted: coerceNumber(stats?.chartsCharted, 0),
     chartsVfxed: coerceNumber(stats?.chartsVfxed, 0),

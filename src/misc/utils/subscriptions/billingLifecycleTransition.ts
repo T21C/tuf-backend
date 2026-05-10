@@ -1,14 +1,17 @@
 import type User from '@/models/auth/User.js';
+import type UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 
-function subscriptionPeriodActive(user: User): boolean {
-  const raw = user.tufStellarSubscriptionExpiresAt;
+export type BillingRow = UserTufStellarBilling | null;
+
+function subscriptionPeriodActive(billing: BillingRow): boolean {
+  const raw = billing?.tufStellarSubscriptionExpiresAt;
   if (raw == null) return false;
   const t = raw instanceof Date ? raw.getTime() : new Date(raw).getTime();
   return Number.isFinite(t) && t > Date.now();
 }
 
 /**
- * Persisted billing lifecycle (`users.tufStellarBillingLifecycleState`).
+ * Persisted billing lifecycle (`user_tuf_stellar_billing.tufStellarBillingLifecycleState`).
  * Updates go through {@link transitionBillingLifecycle} together with subscription facts; guards use {@link getBillingLifecycleState}.
  */
 export type BillingLifecycleState =
@@ -83,9 +86,10 @@ export function transitionBillingLifecycle(
   }
 }
 
-/** Read persisted lifecycle; invalid DB values are treated as bugs. */
-export function getBillingLifecycleState(user: User): BillingLifecycleState {
-  const raw = user.tufStellarBillingLifecycleState;
+/** Read persisted lifecycle; missing row or invalid DB values: treat as `inactive` / throw respectively. */
+export function getBillingLifecycleState(billing: BillingRow): BillingLifecycleState {
+  if (!billing) return 'inactive';
+  const raw = billing.tufStellarBillingLifecycleState;
   if (VALID_LIFECYCLE.has(String(raw))) {
     return raw as BillingLifecycleState;
   }
@@ -96,22 +100,22 @@ export function getBillingLifecycleState(user: User): BillingLifecycleState {
  * When the paid period has ended but lifecycle was not yet moved to `inactive` (e.g. missed webhook),
  * align the column. Does not infer state from facts while the period is still active.
  */
-export async function reconcileBillingLifecycleIfExpired(user: User): Promise<boolean> {
-  if (subscriptionPeriodActive(user)) return false;
-  if (user.tufStellarBillingLifecycleState === 'inactive') return false;
-  await user.update({ tufStellarBillingLifecycleState: 'inactive' });
+export async function reconcileBillingLifecycleIfExpired(billing: UserTufStellarBilling): Promise<boolean> {
+  if (subscriptionPeriodActive(billing)) return false;
+  if (billing.tufStellarBillingLifecycleState === 'inactive') return false;
+  await billing.update({ tufStellarBillingLifecycleState: 'inactive' });
   return true;
 }
 
-function externalId(user: User): string | null {
-  const v = user.tufStellarSubscriptionExternalId;
+function externalIdFromBilling(billing: BillingRow): string | null {
+  const v = billing?.tufStellarSubscriptionExternalId;
   if (v == null || v === '') return null;
   return String(v);
 }
 
 /** Xsolla recurring subscription id (not a transient `tx:` marker). */
-export function hasRecurringSubscriptionId(user: User): boolean {
-  const ext = externalId(user);
+export function hasRecurringSubscriptionId(billing: BillingRow): boolean {
+  const ext = externalIdFromBilling(billing);
   return ext != null && !ext.startsWith('tx:');
 }
 
@@ -137,8 +141,8 @@ export function checkGiftCheckoutTransition(user: User): BillingGuardResult {
 }
 
 /** Recurring subscription Pay Station checkout (distinct from one-time gift time). */
-export function checkSubscriptionCheckoutTransition(user: User): BillingGuardResult {
-  const lifecycle = getBillingLifecycleState(user);
+export function checkSubscriptionCheckoutTransition(user: User, billing: BillingRow): BillingGuardResult {
+  const lifecycle = getBillingLifecycleState(billing);
   if (lifecycle === 'inactive') return { ok: true };
   if (lifecycle === 'active_cancelling') {
     return {
@@ -156,16 +160,16 @@ export function checkSubscriptionCheckoutTransition(user: User): BillingGuardRes
   };
 }
 
-export function getBillingAllowedActions(user: User): BillingAllowedActions {
-  const lifecycle = getBillingLifecycleState(user);
+export function getBillingAllowedActions(user: User, billing: BillingRow): BillingAllowedActions {
+  const lifecycle = getBillingLifecycleState(billing);
   const giftOk = checkGiftCheckoutTransition(user).ok;
-  const subOk = checkSubscriptionCheckoutTransition(user).ok;
+  const subOk = checkSubscriptionCheckoutTransition(user, billing).ok;
   return {
     checkout: subOk,
     purchaseGift: giftOk,
     purchaseSubscription: subOk,
-    cancel: lifecycle === 'active_renewing' && hasRecurringSubscriptionId(user),
-    resubscribe: lifecycle === 'active_cancelling' && hasRecurringSubscriptionId(user),
+    cancel: lifecycle === 'active_renewing' && hasRecurringSubscriptionId(billing),
+    resubscribe: lifecycle === 'active_cancelling' && hasRecurringSubscriptionId(billing),
   };
 }
 
@@ -174,12 +178,15 @@ export type BillingGuardAllow = { ok: true };
 export type BillingGuardResult = BillingGuardAllow | BillingGuardDeny;
 
 /** @alias {@link checkSubscriptionCheckoutTransition} */
-export function checkCheckoutTransition(user: User): BillingGuardResult {
-  return checkSubscriptionCheckoutTransition(user);
+export function checkCheckoutTransition(user: User, billing: BillingRow): BillingGuardResult {
+  return checkSubscriptionCheckoutTransition(user, billing);
 }
 
-export function checkCancelTransition(user: User): BillingGuardResult | { ok: true; idempotent: true } {
-  const lifecycle = getBillingLifecycleState(user);
+export function checkCancelTransition(
+  user: User,
+  billing: BillingRow,
+): BillingGuardResult | { ok: true; idempotent: true } {
+  const lifecycle = getBillingLifecycleState(billing);
   if (lifecycle === 'inactive') {
     return { ok: false, status: 400, code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No active subscription to cancel' };
   }
@@ -194,7 +201,7 @@ export function checkCancelTransition(user: User): BillingGuardResult | { ok: tr
   if (lifecycle === 'active_cancelling') {
     return { ok: true, idempotent: true };
   }
-  if (!hasRecurringSubscriptionId(user)) {
+  if (!hasRecurringSubscriptionId(billing)) {
     return {
       ok: false,
       status: 400,
@@ -205,10 +212,10 @@ export function checkCancelTransition(user: User): BillingGuardResult | { ok: tr
   return { ok: true };
 }
 
-export function checkResubscribeTransition(user: User): BillingGuardResult {
-  const lifecycle = getBillingLifecycleState(user);
+export function checkResubscribeTransition(user: User, billing: BillingRow): BillingGuardResult {
+  const lifecycle = getBillingLifecycleState(billing);
   if (lifecycle === 'active_cancelling') {
-    if (!hasRecurringSubscriptionId(user)) {
+    if (!hasRecurringSubscriptionId(billing)) {
       return {
         ok: false,
         status: 400,

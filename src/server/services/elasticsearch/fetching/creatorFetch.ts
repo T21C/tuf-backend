@@ -9,6 +9,7 @@ import {
 import { buildCreatorIndexDocument } from '@/server/services/elasticsearch/indexing/creatorIndexDocument.js';
 import { fetchCreatorCurationTypeCountsBulk } from '@/server/services/stats/creatorFunFacts.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 
 export interface PreparedCreatorDocument {
   id: number;
@@ -49,6 +50,19 @@ export async function fetchCreatorsForBulkIndex(creatorIds: number[]): Promise<P
     if (u.creatorId != null) userByCreatorId.set(u.creatorId, u);
   }
 
+  const creatorUserIds = users.map((u) => u.id).filter(Boolean);
+  const billingRows =
+    creatorUserIds.length > 0
+      ? await UserTufStellarBilling.findAll({
+          where: { userId: { [Op.in]: creatorUserIds } },
+          attributes: ['userId', 'tufStellarSubscriptionExpiresAt'],
+        })
+      : [];
+  const expiresByUserId = new Map<string, Date | null>();
+  for (const b of billingRows) {
+    expiresByUserId.set(b.userId, b.tufStellarSubscriptionExpiresAt ?? null);
+  }
+
   const statsById = new Map<number, CreatorStatsRow>();
   for (const row of statsRows) {
     statsById.set(Number(row.id), row);
@@ -67,6 +81,7 @@ export async function fetchCreatorsForBulkIndex(creatorIds: number[]): Promise<P
       const doc = buildCreatorIndexDocument({
         creator,
         user,
+        userSubscriptionExpiresAt: user ? expiresByUserId.get(user.id) ?? null : null,
         aliases: creatorAliases,
         stats,
         curationTypeCounts,

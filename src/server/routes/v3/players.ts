@@ -25,6 +25,7 @@ import {
   isTufStellarSubscriptionActive,
   normalizeTufStellarIconVariant,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 import { DEFAULT_LEADERBOARD_RANK_SCORING_VERSION, RANK_HISTORY_MAX_POINTS } from '@/config/leaderboardRankHistory.js';
 import { buildRankHistorySeries } from '@/server/services/leaderboard/rankHistorySeries.js';
 
@@ -527,7 +528,8 @@ router.patch(
       if (!user.playerId) {
         return res.status(400).json({ error: 'No player profile linked to this account' });
       }
-      if (!isTufStellarSubscriptionActive(user)) {
+      const billing = await loadUserTufStellarBilling(user.id);
+      if (!isTufStellarSubscriptionActive(user, billing)) {
         return res.status(403).json({ error: 'TUFStellar subscription required' });
       }
 

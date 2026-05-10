@@ -2,6 +2,7 @@ import Creator from '@/models/credits/Creator.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import User from '@/models/auth/User.js';
+import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 import {
   runCreatorStatsQuery,
   CreatorStatsRow,
@@ -21,17 +22,18 @@ const ZERO_STATS: Omit<CreatorStatsRow, 'id'> = {
 
 export interface EnrichedCreator {
   creator: Creator | null;
-  user: Pick<
-    User,
-    | 'id'
-    | 'username'
-    | 'nickname'
-    | 'avatarUrl'
-    | 'playerId'
-    | 'creatorId'
-    | 'permissionFlags'
-    | 'tufStellarSubscriptionExpiresAt'
-  > | null;
+  user:
+    | (Pick<
+        User,
+        | 'id'
+        | 'username'
+        | 'nickname'
+        | 'avatarUrl'
+        | 'playerId'
+        | 'creatorId'
+        | 'permissionFlags'
+      > & { tufStellarSubscriptionExpiresAt: Date | null })
+    | null;
   aliases: Array<Pick<CreatorAlias, 'id' | 'name' | 'creatorId'>>;
   stats: Omit<CreatorStatsRow, 'id'>;
   recentLevelIds: number[];
@@ -122,6 +124,8 @@ export class CreatorStatsService {
         creatorId: a.creatorId,
       }));
 
+      const billing = user ? await UserTufStellarBilling.findByPk(user.id) : null;
+
       const userPlain = user
         ? {
             id: user.id,
@@ -136,7 +140,7 @@ export class CreatorStatsService {
                 : typeof user.permissionFlags === 'bigint'
                   ? Number(user.permissionFlags)
                   : Number(user.permissionFlags),
-            tufStellarSubscriptionExpiresAt: user.tufStellarSubscriptionExpiresAt ?? null,
+            tufStellarSubscriptionExpiresAt: billing?.tufStellarSubscriptionExpiresAt ?? null,
           }
         : null;
 

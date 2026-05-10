@@ -48,6 +48,7 @@ import { CdnError } from '@/server/services/core/CdnService.js';
 import { parseBannerPresetForStorage } from '@/misc/utils/profileBannerPreset.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import User from '@/models/auth/User.js';
+import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 
 /**
  * v3 creators routes — Elasticsearch-backed.
@@ -909,10 +910,14 @@ function isCreatorBannerActor(user: PermissionInput, creatorId: number): boolean
   );
 }
 
-function canUploadCreatorCustomBanner(user: PermissionInput): boolean {
+async function canUploadCreatorCustomBanner(user: PermissionInput): Promise<boolean> {
   if (hasFlag(user, permissionFlags.SUPER_ADMIN)) return true;
   if (hasFlag(user, permissionFlags.HEAD_CURATOR)) return true;
-  return canUseStellarProfileCustomization(user as User);
+  const uid = (user as { id?: string }).id;
+  if (!uid) return false;
+  const billing = await loadUserTufStellarBilling(uid);
+  const dbUser = await User.findByPk(uid, { attributes: ['id', 'permissionFlags'] });
+  return canUseStellarProfileCustomization(dbUser as User | null, billing);
 }
 
 async function invalidateLinkedUserForCreator(creatorId: number): Promise<void> {
@@ -1270,12 +1275,13 @@ router.patch(
 
       const linkedUser = await User.findOne({
         where: { creatorId: id },
-        attributes: ['id', 'tufStellarSubscriptionExpiresAt'],
+        attributes: ['id', 'permissionFlags'],
       });
       if (!linkedUser) {
         return res.status(400).json({ error: 'Creator has no linked user account' });
       }
-      if (!isTufStellarSubscriptionActive(linkedUser)) {
+      const linkedBilling = await loadUserTufStellarBilling(linkedUser.id);
+      if (!isTufStellarSubscriptionActive(linkedUser, linkedBilling)) {
         return res.status(403).json({ error: 'TUFStellar subscription required' });
       }
 
@@ -1337,7 +1343,7 @@ router.post(
       if (!isCreatorBannerActor(permUser, id)) {
         return res.status(403).json({ error: 'Forbidden' });
       }
-      if (!canUploadCreatorCustomBanner(permUser)) {
+      if (!(await canUploadCreatorCustomBanner(permUser))) {
         return res.status(403).json({ error: 'Custom profile banners are not enabled for this account' });
       }
 
@@ -1423,7 +1429,7 @@ router.delete(
       if (!isCreatorBannerActor(permUser, id)) {
         return res.status(403).json({ error: 'Forbidden' });
       }
-      if (!canUploadCreatorCustomBanner(permUser)) {
+      if (!(await canUploadCreatorCustomBanner(permUser))) {
         return res.status(403).json({ error: 'Custom profile banners are not enabled for this account' });
       }
 

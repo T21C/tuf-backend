@@ -9,6 +9,8 @@ import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufSt
 export interface PlayerIndexDocumentInput {
   player: Player;
   user?: User | null;
+  /** From `user_tuf_stellar_billing.tufStellarSubscriptionExpiresAt` (not on `users`). */
+  userSubscriptionExpiresAt?: Date | null;
   discordProvider?: OAuthProvider | null;
   topDiff?: Difficulty | null;
   top12kDiff?: Difficulty | null;
@@ -84,7 +86,7 @@ function serializeCreator(creator: Creator | null | undefined): Record<string, u
   };
 }
 
-function serializeUser(user: User | null | undefined): any | null {
+function serializeUser(user: User | null | undefined, subscriptionExpiresAt: Date | null | undefined): any | null {
   if (!user) return null;
   const u = plain(user) as any;
   return {
@@ -93,7 +95,7 @@ function serializeUser(user: User | null | undefined): any | null {
     nickname: u.nickname ?? null,
     avatarUrl: u.avatarUrl ?? null,
     avatarIsGif: Boolean(u.avatarIsGif),
-    tufStellarSubscriptionExpiresAt: u.tufStellarSubscriptionExpiresAt ?? null,
+    tufStellarSubscriptionExpiresAt: subscriptionExpiresAt ?? null,
     permissionFlags: permissionFlagsToLong(u.permissionFlags),
     permissionVersion: coerceNumber(u.permissionVersion, 0),
     isEmailVerified: Boolean(u.isEmailVerified),
@@ -136,7 +138,7 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
     createdAt: p.createdAt ?? null,
     updatedAt: p.updatedAt ?? null,
 
-    user: serializeUser(input.user ?? null),
+    user: serializeUser(input.user ?? null, input.userSubscriptionExpiresAt ?? null),
     discord: serializeDiscord(input.discordProvider ?? null, input.user ?? null),
 
     rankedScore: coerceNumber(stats?.rankedScore, 0),

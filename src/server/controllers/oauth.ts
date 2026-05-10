@@ -23,6 +23,7 @@ import User from '@/models/auth/User.js';
 import {
   reconcileExpiredTufStellarSubscription,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 
 
 interface ProfileResponse {
@@ -243,6 +244,8 @@ export const OAuthController = {
         userRow = req.user as User;
       }
 
+      const billingRow = await loadUserTufStellarBilling(userRow.id);
+
       const avatarUrl = userRow.avatarUrl
         ? userRow.playerId
           ? `${ownUrl}/v2/media/player-avatar/${userRow.playerId}`
@@ -256,7 +259,7 @@ export const OAuthController = {
           nickname: userRow.nickname || null,
           email: userRow.email,
           avatarUrl,
-          tufStellarSubscriptionExpiresAt: userRow.tufStellarSubscriptionExpiresAt ?? null,
+          tufStellarSubscriptionExpiresAt: billingRow?.tufStellarSubscriptionExpiresAt ?? null,
           isRater: hasFlag(userRow, permissionFlags.RATER),
           isSuperAdmin: hasFlag(userRow, permissionFlags.SUPER_ADMIN),
           isEmailVerified: hasFlag(userRow, permissionFlags.EMAIL_VERIFIED),

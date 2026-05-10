@@ -3,6 +3,8 @@ import OAuthProvider from './OAuthProvider.js';
 import RefreshToken from './RefreshToken.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
+import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
+import UserTufStellarEntitlementSegment from '@/models/billing/UserTufStellarEntitlementSegment.js';
 
 export function initializeAuthAssociations() {
   // User <-> RefreshToken associations
@@ -43,6 +45,24 @@ export function initializeAuthAssociations() {
   });
   // `creators.userId` → `users.id` (not `users.creatorId` / `creators.id`).
   Creator.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  User.hasOne(UserTufStellarBilling, {
+    foreignKey: 'userId',
+    as: 'tufStellarBilling',
+  });
+  UserTufStellarBilling.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  User.hasMany(UserTufStellarEntitlementSegment, {
+    foreignKey: 'userId',
+    as: 'tufStellarEntitlementSegments',
+  });
+  UserTufStellarEntitlementSegment.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
   });
