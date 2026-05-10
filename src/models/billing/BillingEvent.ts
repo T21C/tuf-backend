@@ -12,6 +12,8 @@ export interface BillingEventAttributes {
   idempotencyKey: string;
   status: BillingEventStatus;
   userId: string | null;
+  /** Gift beneficiary internal UUID (custom_parameters); indexed for recipient activity queries. */
+  beneficiaryUserId: string | null;
   xsollaTransactionId: number | null;
   xsollaSubscriptionId: number | null;
   externalId: string | null;
@@ -29,6 +31,7 @@ type BillingEventCreation = Optional<
   | 'id'
   | 'status'
   | 'userId'
+  | 'beneficiaryUserId'
   | 'xsollaTransactionId'
   | 'xsollaSubscriptionId'
   | 'externalId'
@@ -47,6 +50,7 @@ class BillingEvent extends Model<BillingEventAttributes, BillingEventCreation> i
   declare idempotencyKey: string;
   declare status: BillingEventStatus;
   declare userId: string | null;
+  declare beneficiaryUserId: string | null;
   declare xsollaTransactionId: number | null;
   declare xsollaSubscriptionId: number | null;
   declare externalId: string | null;
@@ -85,6 +89,10 @@ BillingEvent.init(
     },
     userId: {
       type: DataTypes.STRING(64),
+      allowNull: true,
+    },
+    beneficiaryUserId: {
+      type: DataTypes.STRING(36),
       allowNull: true,
     },
     xsollaTransactionId: {

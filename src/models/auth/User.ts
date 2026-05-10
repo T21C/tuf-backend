@@ -34,6 +34,8 @@ export interface UserAttributes {
   tufStellarSubscriptionExpiresAt?: Date | null;
   /** Provider-side subscription / user reference (e.g. Xsolla) for support and webhooks. */
   tufStellarSubscriptionExternalId?: string | null;
+  /** Xsolla recurring plan external id (`plan_id`); maps to billing period via `tufStellarProductCatalog`. */
+  tufStellarSubscriptionPlanExternalId?: string | null;
   /** Set when the user (or a webhook) cancelled the recurring subscription; benefits keep until expiresAt. */
   tufStellarSubscriptionCancelledAt?: Date | null;
   /** Persisted billing lifecycle (`billingLifecycleTransition.ts`). */
@@ -42,6 +44,19 @@ export interface UserAttributes {
     | 'active_checkout_pending'
     | 'active_renewing'
     | 'active_cancelling';
+  /**
+   * Set when starting Pay Station checkout: whether the user opted into auto-renewal for the purchase.
+   * Cleared when a subscription extension webhook is processed; if `false`, server calls Xsolla to set non_renewing once a subscription id exists.
+   */
+  tufStellarPendingAutoRenew?: boolean | null;
+  /** Gift checkout: internal UUID of user who should receive the entitlement extension after payment. */
+  tufStellarPendingGiftBeneficiaryUserId?: string | null;
+  /** Gift checkout: months to extend (`tufStellarProductCatalog`). */
+  tufStellarPendingGiftMonths?: number | null;
+  /** Xsolla `date_next_charge` for the recurring subscription (paid period end before gift cushion). */
+  tufStellarRecurringPeriodEndAt?: Date | null;
+  /** Last successful align of Xsolla next charge to total access expiry (throttle lazy reconcile). */
+  tufStellarXsollaBillingSyncAt?: Date | null;
   /** True when the uploaded profile image is an animated GIF (CDN also stores JPEG stills for expiry fallback). */
   avatarIsGif?: boolean;
   lastUsernameChange?: Date | null;
@@ -79,12 +94,18 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare deletionSnapshotPermissionFlags?: bigint | number | null;
   declare tufStellarSubscriptionExpiresAt?: Date | null;
   declare tufStellarSubscriptionExternalId?: string | null;
+  declare tufStellarSubscriptionPlanExternalId?: string | null;
   declare tufStellarSubscriptionCancelledAt?: Date | null;
   declare tufStellarBillingLifecycleState?:
     | 'inactive'
     | 'active_checkout_pending'
     | 'active_renewing'
     | 'active_cancelling';
+  declare tufStellarPendingAutoRenew?: boolean | null;
+  declare tufStellarPendingGiftBeneficiaryUserId?: string | null;
+  declare tufStellarPendingGiftMonths?: number | null;
+  declare tufStellarRecurringPeriodEndAt?: Date | null;
+  declare tufStellarXsollaBillingSyncAt?: Date | null;
   declare avatarIsGif?: boolean;
   declare lastUsernameChange?: Date | null;
   declare previousUsername?: string | null;
@@ -226,6 +247,11 @@ User.init(
       allowNull: true,
       defaultValue: null,
     },
+    tufStellarSubscriptionPlanExternalId: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      defaultValue: null,
+    },
     tufStellarSubscriptionCancelledAt: {
       type: DataTypes.DATE,
       allowNull: true,
@@ -235,6 +261,31 @@ User.init(
       type: DataTypes.STRING(32),
       allowNull: false,
       defaultValue: 'inactive',
+    },
+    tufStellarPendingAutoRenew: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      defaultValue: null,
+    },
+    tufStellarPendingGiftBeneficiaryUserId: {
+      type: DataTypes.STRING(36),
+      allowNull: true,
+      defaultValue: null,
+    },
+    tufStellarPendingGiftMonths: {
+      type: DataTypes.TINYINT.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
+    },
+    tufStellarRecurringPeriodEndAt: {
+      type: DataTypes.DATE(6),
+      allowNull: true,
+      defaultValue: null,
+    },
+    tufStellarXsollaBillingSyncAt: {
+      type: DataTypes.DATE(6),
+      allowNull: true,
+      defaultValue: null,
     },
     avatarIsGif: {
       type: DataTypes.BOOLEAN,

@@ -29,6 +29,17 @@ export const ownUrl =
         ? process.env.DEV_URL
         : 'http://localhost:3002';
 
+/** Pay Station `return_url`: after checkout the browser must hit the SPA route that reads `invoice_id` / `status`. */
+function resolveXsollaRedirectUrl(): string {
+  const explicit = (process.env.XSOLLA_REDIRECT_URL ?? '').trim();
+  const env = process.env.NODE_ENV;
+  if (env === 'production' || env === 'staging') {
+    return explicit;
+  }
+  const base = String(clientUrlEnv || 'http://localhost:5173').replace(/\/$/, '');
+  return `${base}/callback`;
+}
+
 export interface XsollaConfig {
   merchantId: string;
   projectId: string;
@@ -39,6 +50,11 @@ export interface XsollaConfig {
   webhookSecret: string;
   redirectUrl: string;
   sandbox: boolean;
+  /**
+   * ISO 3166-1 alpha-2 country for Pay Station item tokens when `X-User-Ip` is not sent.
+   * Xsolla requires country or IP for currency selection on Catalog POST .../admin/payment/token.
+   */
+  paymentDefaultCountry: string;
 }
 
 export const xsollaConfig: XsollaConfig = {
@@ -49,7 +65,8 @@ export const xsollaConfig: XsollaConfig = {
   subscriptionProductId: process.env.XSOLLA_SUBSCRIPTION_PRODUCT_ID ?? '',
   webhookSecret: process.env.XSOLLA_WEBHOOK_SECRET ?? '',
   sandbox: String(process.env.XSOLLA_SANDBOX ?? '').toLowerCase() === 'true',
-  redirectUrl: process.env.XSOLLA_REDIRECT_URL ?? '',
+  redirectUrl: resolveXsollaRedirectUrl(),
+  paymentDefaultCountry: (process.env.XSOLLA_PAYMENT_DEFAULT_COUNTRY ?? 'US').trim().toUpperCase().slice(0, 2) || 'US',
 };
 
 export const corsOptions = {

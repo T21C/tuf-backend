@@ -11,6 +11,44 @@ import {
   transitionBillingLifecycle,
 } from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { XsollaApiClient, XsollaApiError } from '@/server/services/billing/XsollaApiClient.js';
+import {
+  extractTufStellarPlanExternalIdFromXsollaPayload,
+  inferGiftMonthsFromXsollaPayload,
+  isTufStellarMonths,
+} from '@/server/services/billing/tufStellarProductCatalog.js';
+import { addCalendarMonthsUtc } from '@/misc/utils/time/addCalendarMonthsUtc.js';
+import { syncXsollaNextChargeToAccessExpiry } from '@/server/services/billing/tufStellarXsollaBillingSync.js';
+
+const BENEFICIARY_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Persisted on `billing_events.beneficiary_user_id` for gift IPNs (custom_parameters). */
+function beneficiaryUserIdFromWebhookBody(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as Record<string, unknown>;
+  const settings = b.settings as Record<string, unknown> | undefined;
+  const cp =
+    (b.custom_parameters as Record<string, unknown> | undefined) ??
+    (b.customParameters as Record<string, unknown> | undefined) ??
+    (settings?.custom_parameters as Record<string, unknown> | undefined);
+  if (!cp || typeof cp !== 'object') return null;
+  const bid = cp.tuf_beneficiary_user_id ?? cp.tufBeneficiaryUserId;
+  if (bid == null || bid === '') return null;
+  const s = String(bid).trim().toLowerCase();
+  return BENEFICIARY_UUID_RE.test(s) ? s : null;
+}
+
+/**
+ * Subscription payload on payment IPNs uses `purchase.subscription`; dedicated subscription webhooks use top-level
+ * `subscription` (see Xsolla `create_subscription` / `update_subscription`).
+ */
+function xsollaSubscriptionSlice(payload: any): Record<string, unknown> | null {
+  const s =
+    payload?.purchase?.subscription ??
+    payload?.subscription ??
+    payload?.notification?.subscription;
+  return s != null && typeof s === 'object' && !Array.isArray(s) ? (s as Record<string, unknown>) : null;
+}
 
 export type XsollaNotificationType =
   | 'user_validation'
@@ -54,22 +92,15 @@ export class XsollaWebhookService {
     return crypto.createHash('sha256').update(rawBody).digest('hex').toLowerCase();
   }
 
-  /**
-   * Derive a stable idempotency key from the payload fields Xsolla reliably repeats.
-   * Preference order:
-   * - transaction.id (payment/refund)
-   * - purchase.subscription.subscription_id + eventType + date_next_charge/date_create
-   * - purchase.order.id (combined store webhooks)
-   * - fallback to raw-body sha256 (last resort; still dedupes exact duplicates)
-   */
   static deriveIdempotencyKey(notificationType: XsollaNotificationType, payload: any, rawBodySha256: string): string {
     const txId = payload?.transaction?.id;
     if (txId != null && txId !== '') return `tx:${String(txId)}`;
 
-    const subId = payload?.purchase?.subscription?.subscription_id ?? payload?.purchase?.subscription?.subscriptionId;
-    if (subId != null && subId !== '') {
-      const nextCharge = payload?.purchase?.subscription?.date_next_charge ?? payload?.purchase?.subscription?.dateNextCharge;
-      const created = payload?.purchase?.subscription?.date_create ?? payload?.purchase?.subscription?.dateCreate;
+    const subSlice = xsollaSubscriptionSlice(payload);
+    const subId = subSlice?.subscription_id ?? subSlice?.subscriptionId;
+    if (subSlice != null && subId != null && subId !== '') {
+      const nextCharge = subSlice.date_next_charge ?? subSlice.dateNextCharge;
+      const created = subSlice.date_create ?? subSlice.dateCreate;
       const t = nextCharge || created || '';
       return `sub:${String(subId)}:${notificationType}:${String(t)}`;
     }
@@ -86,15 +117,15 @@ export class XsollaWebhookService {
     xsollaSubscriptionId: number | null;
     externalId: string | null;
   } {
-    const userId = payload?.user?.id != null ? String(payload.user.id) : null;
+    const userId = normalizeXsollaUserIdFromPayload(payload);
     const xsollaTransactionId =
       payload?.transaction?.id != null && payload.transaction.id !== ''
         ? Number(payload.transaction.id)
         : null;
-    const xsollaSubscriptionId =
-      payload?.purchase?.subscription?.subscription_id != null && payload.purchase.subscription.subscription_id !== ''
-        ? Number(payload.purchase.subscription.subscription_id)
-        : null;
+    const subSlice = xsollaSubscriptionSlice(payload);
+    const rawSubId = subSlice?.subscription_id ?? subSlice?.subscriptionId;
+    const subNum =
+      rawSubId != null && String(rawSubId).trim() !== '' ? Number(rawSubId) : Number.NaN;
     const externalId =
       payload?.transaction?.external_id != null && payload.transaction.external_id !== ''
         ? String(payload.transaction.external_id)
@@ -102,14 +133,11 @@ export class XsollaWebhookService {
     return {
       userId,
       xsollaTransactionId: Number.isFinite(xsollaTransactionId) ? xsollaTransactionId : null,
-      xsollaSubscriptionId: Number.isFinite(xsollaSubscriptionId) ? xsollaSubscriptionId : null,
+      xsollaSubscriptionId: Number.isFinite(subNum) ? subNum : null,
       externalId,
     };
   }
 
-  /**
-   * Insert the event if it is new; returns null if already seen.
-   */
   static async recordIfNew(params: {
     notificationType: XsollaNotificationType;
     body: any;
@@ -118,6 +146,7 @@ export class XsollaWebhookService {
     const rawBodySha256 = this.sha256Hex(normalized);
     const idempotencyKey = this.deriveIdempotencyKey(params.notificationType, params.body, rawBodySha256);
     const extracted = this.extractXsollaFields(params.body);
+    const beneficiaryUserId = beneficiaryUserIdFromWebhookBody(params.body);
 
     const createAttrs: CreationAttributes<BillingEvent> = {
       provider: this.PROVIDER,
@@ -127,6 +156,7 @@ export class XsollaWebhookService {
       rawBody: normalized.toString('utf8'),
       rawBodySha256,
       userId: extracted.userId,
+      beneficiaryUserId,
       xsollaTransactionId: extracted.xsollaTransactionId,
       xsollaSubscriptionId: extracted.xsollaSubscriptionId,
       externalId: extracted.externalId,
@@ -163,28 +193,48 @@ export class XsollaWebhookService {
     );
   }
 
-  /**
-   * Maps an Xsolla webhook into User-side state changes:
-   * - payment / order_paid / create_subscription / update_subscription -> extend expiry (entitlement from date)
-   * - cancel_subscription / non_renewal_subscription -> mark cancelledAt (period still served until expiresAt)
-   * - refund / partial_refund / order_canceled -> revoke immediately if it matches the active sub/tx
-   */
   static async processEvent(event: BillingEvent): Promise<void> {
     try {
       const payload = parseRawBody(event.rawBody);
-      const userId = event.userId ?? (payload?.user?.id != null ? String(payload.user.id) : null);
+      const userId =
+        normalizeXsollaUserIdFromPayload(payload) ??
+        coerceWebhookUserUuid(event.userId);
 
       switch (event.eventType) {
         case 'payment':
-        case 'order_paid':
-        case 'create_subscription':
-        case 'update_subscription': {
-          if (userId) await applySubscriptionExtension(userId, event, payload);
+        case 'order_paid': {
+          if (userId) {
+            await handlePaymentLikeEvent(userId, event, payload);
+          } else {
+            logger.warn('[Xsolla] payment/order_paid skipped — could not resolve purchaser user id', {
+              eventId: event.id,
+              storedUserId: event.userId,
+            });
+          }
           break;
         }
-        case 'cancel_subscription':
+        case 'create_subscription': {
+          if (userId) await applyRecurringSubscriptionPatch(userId, event, payload);
+          break;
+        }
+        case 'update_subscription': {
+          if (!userId) break;
+          const st = extractSubscriptionStatus(payload);
+          if (st === 'canceled') {
+            await applySubscriptionFullyTerminated(userId, event, payload);
+          } else if (st === 'non_renewing') {
+            await applySubscriptionNonRenewing(userId, event, payload);
+          } else {
+            await applyRecurringSubscriptionPatch(userId, event, payload);
+          }
+          break;
+        }
         case 'non_renewal_subscription': {
-          if (userId) await applySubscriptionCancelled(userId, event, payload);
+          if (userId) await applySubscriptionNonRenewing(userId, event, payload);
+          break;
+        }
+        case 'cancel_subscription': {
+          if (userId) await applySubscriptionFullyTerminated(userId, event, payload);
           break;
         }
         case 'refund':
@@ -208,12 +258,72 @@ export class XsollaWebhookService {
 
 // ---------- helpers ----------
 
+/** Pay Station / Catalog tokens often send `user.id` as `{ value: "uuid" }`; webhooks must not use String(object). */
+function unwrapXsollaUserIdValue(raw: unknown): string | null {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'object' && raw !== null && 'value' in raw) {
+    return unwrapXsollaUserIdValue((raw as { value: unknown }).value);
+  }
+  const s = String(raw).trim().toLowerCase();
+  return BENEFICIARY_UUID_RE.test(s) ? s : null;
+}
+
+function normalizeXsollaUserIdFromPayload(payload: any): string | null {
+  /** Catalog `order_paid` often sends payer UUID as `user.external_id` (no `user.id`). */
+  const candidates = [
+    payload?.user?.id,
+    payload?.user?.external_id,
+    payload?.user?.externalId,
+    payload?.notification?.user?.id,
+    payload?.notification?.user?.external_id,
+    payload?.notification?.user?.externalId,
+    payload?.notification?.user_id,
+    payload?.user_id,
+  ];
+  for (const c of candidates) {
+    const id = unwrapXsollaUserIdValue(c);
+    if (id) return id;
+  }
+  return null;
+}
+
+function coerceWebhookUserUuid(raw: string | null | undefined): string | null {
+  return unwrapXsollaUserIdValue(raw);
+}
+
 function parseRawBody(rawBody: string): any {
   try {
     return JSON.parse(rawBody);
   } catch {
     return {};
   }
+}
+
+function trimmedString(v: unknown): string | null {
+  if (v == null || v === '') return null;
+  const s = String(v).trim();
+  return s.length > 0 ? s : null;
+}
+
+function extractCustomParameters(payload: any): Record<string, unknown> {
+  const cp =
+    payload?.custom_parameters ??
+    payload?.customParameters ??
+    payload?.settings?.custom_parameters ??
+    payload?.notification?.custom_parameters;
+  if (cp && typeof cp === 'object' && !Array.isArray(cp)) return cp as Record<string, unknown>;
+  return {};
+}
+
+function extractTufGiftMeta(payload: any): { beneficiaryId: string | null; months: number | null } {
+  const cp = extractCustomParameters(payload);
+  const bid = trimmedString(cp.tuf_beneficiary_user_id ?? cp.tufBeneficiaryUserId);
+  const mRaw = cp.tuf_gift_months ?? cp.tufGiftMonths;
+  const m = mRaw != null && mRaw !== '' ? Number(mRaw) : NaN;
+  return {
+    beneficiaryId: bid,
+    months: Number.isFinite(m) && isTufStellarMonths(m) ? m : null,
+  };
 }
 
 function parseDate(input: unknown): Date | null {
@@ -223,9 +333,24 @@ function parseDate(input: unknown): Date | null {
   return Number.isFinite(d.getTime()) ? d : null;
 }
 
-/** Resolve the period end (next charge) from the payload, falling back to a +30 day window. */
+/** End of paid access for the recurring subscription when Xsolla sends full cancellation (optional clamp). */
+function extractSubscriptionDateEnd(payload: any): Date | null {
+  const sub = xsollaSubscriptionSlice(payload);
+  return parseDate(sub?.date_end ?? sub?.dateEnd);
+}
+
+/** Xsolla subscription status on API/webhook payloads: `new` | `active` | `canceled` | `non_renewing` | `freeze`. */
+function extractSubscriptionStatus(payload: any): string | null {
+  const sub = xsollaSubscriptionSlice(payload);
+  const raw = sub?.status;
+  if (raw == null || raw === '') return null;
+  let s = String(raw).trim().toLowerCase();
+  if (s === 'cancelled') s = 'canceled';
+  return s;
+}
+
 function resolveNextExpiry(payload: any): Date {
-  const sub = payload?.purchase?.subscription;
+  const sub = xsollaSubscriptionSlice(payload);
   const next =
     parseDate(sub?.date_next_charge) ??
     parseDate(sub?.dateNextCharge) ??
@@ -240,20 +365,129 @@ function resolveNextExpiry(payload: any): Date {
 
 function resolveExternalSubscriptionId(payload: any, event: BillingEvent): string | null {
   if (event.xsollaSubscriptionId != null) return String(event.xsollaSubscriptionId);
-  const subId = payload?.purchase?.subscription?.subscription_id ?? payload?.purchase?.subscription?.subscriptionId;
+  const subSlice = xsollaSubscriptionSlice(payload);
+  const subId = subSlice?.subscription_id ?? subSlice?.subscriptionId;
   if (subId != null && subId !== '') return String(subId);
   if (event.externalId) return event.externalId;
   if (event.xsollaTransactionId != null) return `tx:${event.xsollaTransactionId}`;
   return null;
 }
 
-async function applySubscriptionExtension(userId: string, event: BillingEvent, payload: any): Promise<void> {
+async function clearPurchaserPendingCheckout(purchaser: User): Promise<void> {
+  await purchaser.update({
+    tufStellarPendingGiftBeneficiaryUserId: null,
+    tufStellarPendingGiftMonths: null,
+    tufStellarPendingAutoRenew: null,
+  });
+}
+
+async function applyGiftEntitlement(beneficiaryUserId: string, months: number, purchaser: User): Promise<void> {
+  const beneficiary = await User.findByPk(beneficiaryUserId);
+  if (!beneficiary) {
+    logger.warn('[Xsolla] Gift entitlement skipped — beneficiary missing', { beneficiaryUserId });
+    return;
+  }
+
+  const nowMs = Date.now();
+  const rawExp = beneficiary.tufStellarSubscriptionExpiresAt;
+  const curMs = rawExp ? new Date(rawExp).getTime() : NaN;
+  const baseMs = Math.max(nowMs, Number.isFinite(curMs) ? curMs : 0);
+  const base = new Date(baseMs);
+  const newExpiry = addCalendarMonthsUtc(base, months);
+
+  await beneficiary.update({
+    tufStellarSubscriptionExpiresAt: newExpiry,
+  });
+
+  await clearPurchaserPendingCheckout(purchaser);
+
+  try {
+    await CacheInvalidation.invalidateUser(beneficiary.id);
+  } catch {
+    /* best-effort */
+  }
+
+  if (beneficiary.playerId != null) {
+    try {
+      await ElasticsearchService.getInstance().reindexPlayers([beneficiary.playerId]);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  await beneficiary.reload();
+  await syncXsollaNextChargeToAccessExpiry(beneficiary, 'webhook');
+
+  logger.info('[Xsolla] Gift entitlement applied', {
+    beneficiaryUserId,
+    months,
+    newExpiry,
+    purchaserId: purchaser.id,
+  });
+}
+
+async function handlePaymentLikeEvent(purchaserUserId: string, event: BillingEvent, payload: any): Promise<void> {
+  const purchaser = await User.findByPk(purchaserUserId);
+  if (!purchaser) return;
+
+  const pendingBen = purchaser.tufStellarPendingGiftBeneficiaryUserId;
+  const pendingMoRaw = purchaser.tufStellarPendingGiftMonths;
+  const pendingMo = pendingMoRaw != null ? Number(pendingMoRaw) : NaN;
+
+  if (
+    pendingBen != null &&
+    trimmedString(pendingBen) &&
+    Number.isFinite(pendingMo) &&
+    isTufStellarMonths(pendingMo)
+  ) {
+    await applyGiftEntitlement(trimmedString(pendingBen)!, pendingMo, purchaser);
+    return;
+  }
+
+  const meta = extractTufGiftMeta(payload);
+  if (meta.beneficiaryId && meta.months != null) {
+    const ben = await User.findByPk(meta.beneficiaryId);
+    if (ben) {
+      await applyGiftEntitlement(meta.beneficiaryId, meta.months, purchaser);
+      return;
+    }
+  }
+
+  const cpMode = String(extractCustomParameters(payload).tuf_checkout_mode ?? '').toLowerCase();
+  const inferred = inferGiftMonthsFromXsollaPayload(payload);
+  if (inferred != null && cpMode === 'gift') {
+    await applyGiftEntitlement(purchaserUserId, inferred, purchaser);
+    return;
+  }
+
+  await applyRecurringSubscriptionPatch(purchaserUserId, event, payload);
+}
+
+async function applyRecurringSubscriptionPatch(userId: string, event: BillingEvent, payload: any): Promise<void> {
+  const cp = extractCustomParameters(payload);
+  if (String(cp.tuf_checkout_mode ?? '').toLowerCase() === 'gift') {
+    return;
+  }
+
   const user = await User.findByPk(userId);
   if (!user) return;
 
+  const pendingAutoRenew = user.tufStellarPendingAutoRenew;
+
   const nextExpiry = resolveNextExpiry(payload);
-  const externalId = resolveExternalSubscriptionId(payload, event);
-  const mergedExternal = externalId ?? user.tufStellarSubscriptionExternalId ?? null;
+  let externalId = resolveExternalSubscriptionId(payload, event);
+  let mergedExternal = externalId ?? user.tufStellarSubscriptionExternalId ?? null;
+  const existingExt = user.tufStellarSubscriptionExternalId;
+  if (
+    mergedExternal != null &&
+    String(mergedExternal).startsWith('tx:') &&
+    existingExt != null &&
+    String(existingExt) !== '' &&
+    !String(existingExt).startsWith('tx:')
+  ) {
+    mergedExternal = String(existingExt);
+  }
+
   const prevLifecycle = getBillingLifecycleState(user);
   const kind = classifyExternalKind(mergedExternal);
   const nextLifecycle = transitionBillingLifecycle(prevLifecycle, {
@@ -261,11 +495,23 @@ async function applySubscriptionExtension(userId: string, event: BillingEvent, p
     externalKind: kind,
   });
 
+  const extractedPlanId = extractTufStellarPlanExternalIdFromXsollaPayload(payload);
+  const nextPlanExternalId = extractedPlanId ?? user.tufStellarSubscriptionPlanExternalId ?? null;
+
+  const existingRaw = user.tufStellarSubscriptionExpiresAt;
+  const existingMs = existingRaw ? new Date(existingRaw).getTime() : NaN;
+  const recurringMs = nextExpiry.getTime();
+  const mergedTotalMs = Math.max(Number.isFinite(existingMs) ? existingMs : 0, recurringMs);
+  const mergedTotalAccess = new Date(mergedTotalMs);
+
   await user.update({
-    tufStellarSubscriptionExpiresAt: nextExpiry,
+    tufStellarSubscriptionExpiresAt: mergedTotalAccess,
+    tufStellarRecurringPeriodEndAt: nextExpiry,
     tufStellarSubscriptionExternalId: mergedExternal,
+    tufStellarSubscriptionPlanExternalId: nextPlanExternalId,
     tufStellarSubscriptionCancelledAt: null,
     tufStellarBillingLifecycleState: nextLifecycle,
+    tufStellarPendingAutoRenew: null,
   });
 
   try {
@@ -273,9 +519,108 @@ async function applySubscriptionExtension(userId: string, event: BillingEvent, p
   } catch {
     /* best-effort */
   }
+
+  const wantsNonRenewingCheckout = pendingAutoRenew === false;
+  const subIdForXsolla =
+    mergedExternal != null && typeof mergedExternal === 'string' && !mergedExternal.startsWith('tx:')
+      ? mergedExternal
+      : null;
+  if (wantsNonRenewingCheckout && subIdForXsolla) {
+    try {
+      await XsollaApiClient.cancelUserSubscription(userId, subIdForXsolla);
+      logger.info('[Xsolla] Applied subscription non-renew preference via partner API', { userId, subId: subIdForXsolla });
+    } catch (e) {
+      const msg = e instanceof XsollaApiError ? e.message : e instanceof Error ? e.message : String(e);
+      logger.error('[Xsolla] Failed to set non_renewing after subscription checkout', { userId, subId: subIdForXsolla, message: msg });
+    }
+  }
+
+  await user.reload();
+  await syncXsollaNextChargeToAccessExpiry(user, 'webhook');
 }
 
-async function applySubscriptionCancelled(userId: string, event: BillingEvent, payload: any): Promise<void> {
+/**
+ * Clears recurring subscription linkage after Xsolla fully cancels a subscription (`cancel_subscription` webhook,
+ * Publisher Account hard cancel, or API status `canceled`). Safe to call from routes when Xsolla rejects resume (422).
+ */
+export async function applyXsollaSubscriptionTerminatedState(
+  userId: string,
+  opts?: { subscriptionDateEnd?: Date | null },
+): Promise<void> {
+  const user = await User.findByPk(userId);
+  if (!user) return;
+
+  const prevLifecycle = getBillingLifecycleState(user);
+  const nextLifecycle = transitionBillingLifecycle(prevLifecycle, { type: 'webhook_subscription_terminated' });
+
+  const dateEnd = opts?.subscriptionDateEnd ?? null;
+  const patch: Parameters<User['update']>[0] = {
+    tufStellarSubscriptionCancelledAt: user.tufStellarSubscriptionCancelledAt ?? new Date(),
+    tufStellarSubscriptionExternalId: null,
+    tufStellarSubscriptionPlanExternalId: null,
+    tufStellarRecurringPeriodEndAt: null,
+    tufStellarXsollaBillingSyncAt: null,
+    tufStellarBillingLifecycleState: nextLifecycle,
+  };
+
+  if (dateEnd && Number.isFinite(dateEnd.getTime())) {
+    const existing = user.tufStellarSubscriptionExpiresAt;
+    const curMs = existing ? new Date(existing).getTime() : Infinity;
+    patch.tufStellarSubscriptionExpiresAt = new Date(Math.min(curMs, dateEnd.getTime()));
+  }
+
+  const wasActive = isTufStellarSubscriptionActive(user);
+
+  await user.update(patch);
+
+  try {
+    await CacheInvalidation.invalidateUser(user.id);
+  } catch {
+    /* best-effort */
+  }
+
+  await user.reload();
+  if (wasActive && !isTufStellarSubscriptionActive(user) && user.playerId != null) {
+    try {
+      await ElasticsearchService.getInstance().reindexPlayers([user.playerId]);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  logger.info('[Xsolla] Subscription fully terminated (DB)', {
+    userId,
+    dateEndIso: dateEnd && Number.isFinite(dateEnd.getTime()) ? dateEnd.toISOString() : null,
+  });
+}
+
+async function applySubscriptionFullyTerminated(userId: string, event: BillingEvent, payload: any): Promise<void> {
+  const user = await User.findByPk(userId);
+  if (!user) return;
+
+  const payloadSubId = resolveExternalSubscriptionId(payload, event);
+  const stored = user.tufStellarSubscriptionExternalId;
+  if (
+    stored &&
+    !String(stored).startsWith('tx:') &&
+    payloadSubId &&
+    !String(payloadSubId).startsWith('tx:') &&
+    String(stored) !== String(payloadSubId)
+  ) {
+    logger.warn('[Xsolla] cancel_subscription skipped — subscription id mismatch', {
+      userId,
+      stored,
+      payloadSubId,
+    });
+    return;
+  }
+
+  const dateEnd = extractSubscriptionDateEnd(payload);
+  await applyXsollaSubscriptionTerminatedState(userId, { subscriptionDateEnd: dateEnd });
+}
+
+/** `non_renewal_subscription` — renewal off; subscription id stays valid until period ends (resubscribe still possible). */
+async function applySubscriptionNonRenewing(userId: string, event: BillingEvent, payload: any): Promise<void> {
   const user = await User.findByPk(userId);
   if (!user) return;
 
@@ -316,6 +661,10 @@ async function applySubscriptionRevoke(userId: string, event: BillingEvent): Pro
   await user.update({
     tufStellarSubscriptionExpiresAt: new Date(),
     tufStellarSubscriptionCancelledAt: new Date(),
+    tufStellarSubscriptionExternalId: null,
+    tufStellarSubscriptionPlanExternalId: null,
+    tufStellarRecurringPeriodEndAt: null,
+    tufStellarXsollaBillingSyncAt: null,
     tufStellarBillingLifecycleState: nextLifecycle,
   });
 

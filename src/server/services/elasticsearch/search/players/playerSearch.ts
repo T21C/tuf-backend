@@ -7,6 +7,8 @@ export interface PlayerSearchOptions {
   text?: string;
   /** Raw query string; if it starts with `#` treated as discord provider id, `@` as discord username. */
   rawQuery?: string;
+  /** When true, only players with an indexed auth user (`user.id`). */
+  requireLinkedUser?: boolean;
   /** `show` keeps banned, `hide` removes them, `only` returns only banned. */
   showBanned?: 'show' | 'hide' | 'only';
   /** Range filters (numeric metrics + `country` exact match). */
@@ -139,6 +141,10 @@ function buildPlayerQuery(options: PlayerSearchOptions): any {
 
   if (options.requireHasPasses) {
     filter.push({ range: { totalPasses: { gt: 0 } } });
+  }
+
+  if (options.requireLinkedUser) {
+    filter.push({ exists: { field: 'user.id' } });
   }
 
   if (options.filters) {

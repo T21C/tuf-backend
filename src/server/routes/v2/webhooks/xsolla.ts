@@ -67,7 +67,13 @@ router.post(
       // Xsolla "universal" tests expect specific status codes for validation/search webhooks.
       // Use our auth users table as the source of truth: `user.id` / `user.public_id` is a UUID in our system.
       if (notificationType === 'user_validation') {
-        const targetUserId = body?.user?.id != null ? String(body.user.id) : '';
+        const rawId = body?.user?.id ?? body?.user?.external_id ?? body?.user?.externalId;
+        const targetUserId =
+          rawId != null && typeof rawId === 'object' && rawId !== null && 'value' in rawId
+            ? String((rawId as { value: unknown }).value ?? '').trim()
+            : rawId != null && rawId !== ''
+              ? String(rawId).trim()
+              : '';
         const user = targetUserId ? await User.findByPk(targetUserId) : null;
         if (!user) {
           logXsollaOutcome({ type: notificationType, httpStatus: 400 });

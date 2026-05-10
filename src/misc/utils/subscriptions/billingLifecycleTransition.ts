@@ -29,6 +29,8 @@ export type BillingLifecycleExternalKind = 'recurring' | 'tx' | 'none';
 export type BillingLifecycleTransitionEvent =
   | { type: 'webhook_subscription_extended'; externalKind: BillingLifecycleExternalKind }
   | { type: 'webhook_subscription_cancelled' }
+  /** Xsolla `cancel_subscription` / API status `canceled` — recurring subscription ended, not merely non-renewing. */
+  | { type: 'webhook_subscription_terminated' }
   | { type: 'webhook_subscription_revoked' }
   | { type: 'user_cancel_committed' }
   | { type: 'user_resubscribe_committed' }
@@ -51,6 +53,7 @@ export function transitionBillingLifecycle(
   switch (event.type) {
     case 'facts_subscription_lapsed':
     case 'webhook_subscription_revoked':
+    case 'webhook_subscription_terminated':
       return 'inactive';
 
     case 'webhook_subscription_cancelled':
@@ -113,25 +116,28 @@ export function hasRecurringSubscriptionId(user: User): boolean {
 }
 
 export interface BillingAllowedActions {
+  /** @deprecated Use purchaseSubscription — kept for older clients */
   checkout: boolean;
+  purchaseGift: boolean;
+  purchaseSubscription: boolean;
   cancel: boolean;
   resubscribe: boolean;
 }
 
-export function getBillingAllowedActions(user: User): BillingAllowedActions {
-  const lifecycle = getBillingLifecycleState(user);
-  return {
-    checkout: lifecycle === 'inactive',
-    cancel: lifecycle === 'active_renewing' && hasRecurringSubscriptionId(user),
-    resubscribe: lifecycle === 'active_cancelling' && hasRecurringSubscriptionId(user),
-  };
+export function checkGiftCheckoutTransition(user: User): BillingGuardResult {
+  if (user.status === 'banned' || user.status === 'suspended') {
+    return {
+      ok: false,
+      status: 403,
+      code: 'BILLING_ACCOUNT_BLOCKED',
+      message: 'Billing actions are not available for this account status.',
+    };
+  }
+  return { ok: true };
 }
 
-export type BillingGuardDeny = { ok: false; status: number; code: string; message: string };
-export type BillingGuardAllow = { ok: true };
-export type BillingGuardResult = BillingGuardAllow | BillingGuardDeny;
-
-export function checkCheckoutTransition(user: User): BillingGuardResult {
+/** Recurring subscription Pay Station checkout (distinct from one-time gift time). */
+export function checkSubscriptionCheckoutTransition(user: User): BillingGuardResult {
   const lifecycle = getBillingLifecycleState(user);
   if (lifecycle === 'inactive') return { ok: true };
   if (lifecycle === 'active_cancelling') {
@@ -148,6 +154,28 @@ export function checkCheckoutTransition(user: User): BillingGuardResult {
     code: 'SUBSCRIPTION_ALREADY_ACTIVE',
     message: 'You already have an active subscription. Refresh the billing page.',
   };
+}
+
+export function getBillingAllowedActions(user: User): BillingAllowedActions {
+  const lifecycle = getBillingLifecycleState(user);
+  const giftOk = checkGiftCheckoutTransition(user).ok;
+  const subOk = checkSubscriptionCheckoutTransition(user).ok;
+  return {
+    checkout: subOk,
+    purchaseGift: giftOk,
+    purchaseSubscription: subOk,
+    cancel: lifecycle === 'active_renewing' && hasRecurringSubscriptionId(user),
+    resubscribe: lifecycle === 'active_cancelling' && hasRecurringSubscriptionId(user),
+  };
+}
+
+export type BillingGuardDeny = { ok: false; status: number; code: string; message: string };
+export type BillingGuardAllow = { ok: true };
+export type BillingGuardResult = BillingGuardAllow | BillingGuardDeny;
+
+/** @alias {@link checkSubscriptionCheckoutTransition} */
+export function checkCheckoutTransition(user: User): BillingGuardResult {
+  return checkSubscriptionCheckoutTransition(user);
 }
 
 export function checkCancelTransition(user: User): BillingGuardResult | { ok: true; idempotent: true } {
