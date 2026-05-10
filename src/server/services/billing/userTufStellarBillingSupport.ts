@@ -11,7 +11,6 @@ export async function loadOrCreateUserTufStellarBilling(userId: string): Promise
     where: { userId },
     defaults: {
       userId,
-      tufStellarBillingLifecycleState: 'inactive',
     },
   });
   return row;

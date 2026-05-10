@@ -1,35 +1,19 @@
 import type User from '@/models/auth/User.js';
-import type { BillingRow } from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
-import { hasRecurringSubscriptionId } from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
+import type UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 
 export interface BillingAccessSegmentInput {
-  kind: 'gift' | 'subscription';
+  kind: 'purchase';
   startsAt: Date;
   endsAt: Date;
 }
 
 export interface DerivedBillingAccessParts {
-  /**
-   * Access from gifts / one-time purchases: wall-clock overlap of gift segments with remaining total access.
-   */
-  giftFundedRemainingMs: number;
-  /**
-   * Subscription-funded access remaining: overlap of `subscription` segments with `[now, totalExpiry]` when segments
-   * exist; otherwise legacy nominal/recurring boundary minus `now` when recurring.
-   */
-  subscriptionPaidPeriodRemainingMs: number;
-  /** @deprecated Use {@link giftFundedRemainingMs}; kept equal for older clients. */
-  oneTimeRemainingMs: number;
-  recurringPeriodEndsAt: Date | null;
+  /** Access window from stacked purchase segments overlapping remaining total access (ms until expiry wall clock). */
+  purchaseFundedRemainingMs: number;
   totalExpiresAt: Date | null;
-  /**
-   * Latest `endsAt` among subscription segments that still overlap total access after `now`; for UI “through” date
-   * when splitting by segments. Null when using legacy nominal split or no subscription overlap.
-   */
-  subscriptionFundedCoverageEndsAt: Date | null;
 }
 
-/** Merge overlapping intervals on the timeline and sum overlap length with [windowStartMs, windowEndMs). */
+/** Merge overlapping intervals and sum overlap length with [windowStartMs, windowEndMs). */
 function intervalUnionOverlapMs(
   intervalsMs: { start: number; end: number }[],
   windowStartMs: number,
@@ -54,27 +38,10 @@ function intervalUnionOverlapMs(
   return sum;
 }
 
-function subscriptionFundedCoverageEndsAtFromSegments(
-  segments: BillingAccessSegmentInput[],
-  nowMs: number,
-  totalMs: number,
-): Date | null {
-  let maxEnd: number | null = null;
-  for (const s of segments) {
-    if (s.kind !== 'subscription') continue;
-    const start = new Date(s.startsAt).getTime();
-    const end = new Date(s.endsAt).getTime();
-    if (!(Number.isFinite(start) && Number.isFinite(end) && end > start)) continue;
-    if (end <= nowMs || start >= totalMs) continue;
-    if (maxEnd === null || end > maxEnd) maxEnd = end;
-  }
-  return maxEnd != null ? new Date(maxEnd) : null;
-}
-
-/** Split gift-funded vs subscription-funded access for billing UI (`GET /v3/billing/me`). */
+/** Remaining access from purchase segments before total expiry. */
 export function deriveBillingAccessParts(
   user: User,
-  billing: BillingRow,
+  billing: UserTufStellarBilling | null,
   segments: BillingAccessSegmentInput[],
   nowMs: number = Date.now(),
 ): DerivedBillingAccessParts {
@@ -82,78 +49,24 @@ export function deriveBillingAccessParts(
   const totalExp = billing?.tufStellarSubscriptionExpiresAt ?? null;
   const totalMs = totalExp ? new Date(totalExp).getTime() : NaN;
 
-  const recurringExp = billing?.tufStellarRecurringPeriodEndAt ?? null;
-  const recurringMs = recurringExp ? new Date(recurringExp).getTime() : NaN;
-
-  const nominalExp = billing?.tufStellarSubscriptionNominalPeriodEndAt ?? null;
-  const nominalMs = nominalExp ? new Date(nominalExp).getTime() : NaN;
-
-  const hasRecurring = hasRecurringSubscriptionId(billing);
-
-  const splitBoundaryMs =
-    hasRecurring && Number.isFinite(nominalMs)
-      ? nominalMs
-      : hasRecurring && Number.isFinite(recurringMs)
-        ? recurringMs
-        : NaN;
-
   if (!Number.isFinite(totalMs) || totalMs <= nowMs) {
     return {
-      giftFundedRemainingMs: 0,
-      subscriptionPaidPeriodRemainingMs: 0,
-      oneTimeRemainingMs: 0,
-      recurringPeriodEndsAt: recurringExp,
+      purchaseFundedRemainingMs: 0,
       totalExpiresAt: totalExp,
-      subscriptionFundedCoverageEndsAt: null,
     };
   }
 
-  const giftIntervals = segments
-    .filter((s) => s.kind === 'gift')
+  const purchaseIntervals = segments
+    .filter((s) => s.kind === 'purchase')
     .map((s) => ({
       start: new Date(s.startsAt).getTime(),
       end: new Date(s.endsAt).getTime(),
     }));
 
-  const subIntervals = segments
-    .filter((s) => s.kind === 'subscription')
-    .map((s) => ({
-      start: new Date(s.startsAt).getTime(),
-      end: new Date(s.endsAt).getTime(),
-    }));
-
-  const useSegmentSplit = segments.length > 0;
-
-  let subscriptionPaidPeriodRemainingMs = 0;
-  let giftFundedRemainingMs = 0;
-  let subscriptionFundedCoverageEndsAt: Date | null = null;
-
-  if (useSegmentSplit) {
-    giftFundedRemainingMs = intervalUnionOverlapMs(giftIntervals, nowMs, totalMs);
-    if (hasRecurring) {
-      subscriptionPaidPeriodRemainingMs = intervalUnionOverlapMs(subIntervals, nowMs, totalMs);
-      subscriptionFundedCoverageEndsAt = subscriptionFundedCoverageEndsAtFromSegments(segments, nowMs, totalMs);
-    }
-  } else {
-    subscriptionPaidPeriodRemainingMs =
-      hasRecurring && Number.isFinite(splitBoundaryMs) ? Math.max(0, splitBoundaryMs - nowMs) : 0;
-
-    const windowStartMs =
-      hasRecurring && Number.isFinite(splitBoundaryMs) ? Math.max(nowMs, splitBoundaryMs) : nowMs;
-
-    if (giftIntervals.length > 0) {
-      giftFundedRemainingMs = intervalUnionOverlapMs(giftIntervals, windowStartMs, totalMs);
-    } else if (!hasRecurring) {
-      giftFundedRemainingMs = Math.max(0, totalMs - nowMs);
-    }
-  }
+  const purchaseFundedRemainingMs = intervalUnionOverlapMs(purchaseIntervals, nowMs, totalMs);
 
   return {
-    giftFundedRemainingMs,
-    subscriptionPaidPeriodRemainingMs,
-    oneTimeRemainingMs: giftFundedRemainingMs,
-    recurringPeriodEndsAt: recurringExp,
+    purchaseFundedRemainingMs,
     totalExpiresAt: totalExp,
-    subscriptionFundedCoverageEndsAt,
   };
 }

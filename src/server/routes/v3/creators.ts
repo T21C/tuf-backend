@@ -39,7 +39,7 @@ import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils
 import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
 import {
   canUseStellarProfileCustomization,
-  isTufStellarSubscriptionActive,
+  isTufStellarAccessActive,
   normalizeTufStellarIconVariant,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { multerMemoryCdnImage10Mb as bannerUpload } from '@/config/multerMemoryUploads.js';
@@ -1240,7 +1240,7 @@ router.patch(
     operationId: 'v3PatchCreatorTufStellarIconVariant',
     summary: 'Update creator TUFStellar icon variant (v3)',
     description:
-      'Owner, SUPER_ADMIN, or HEAD_CURATOR. The linked creator account must have an active TUFStellar subscription. Body: `{ variant: "1" | "2" | "3" }`.',
+      'Owner, SUPER_ADMIN, or HEAD_CURATOR. The linked creator account must have active TUFStellar access. Body: `{ variant: "1" | "2" | "3" }`.',
     tags: ['Database', 'Creators', 'v3'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
@@ -1281,8 +1281,8 @@ router.patch(
         return res.status(400).json({ error: 'Creator has no linked user account' });
       }
       const linkedBilling = await loadUserTufStellarBilling(linkedUser.id);
-      if (!isTufStellarSubscriptionActive(linkedUser, linkedBilling)) {
-        return res.status(403).json({ error: 'TUFStellar subscription required' });
+      if (!isTufStellarAccessActive(linkedUser, linkedBilling)) {
+        return res.status(403).json({ error: 'TUFStellar access required' });
       }
 
       const body = req.body as { variant?: unknown };

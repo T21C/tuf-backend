@@ -1,21 +1,14 @@
-import {
-  extractTufStellarPlanExternalIdFromXsollaPayload,
-  inferGiftMonthsFromXsollaPayload,
-  monthsFromTufStellarGiftProductId,
-  monthsFromTufStellarPlanExternalId,
-} from '@/server/services/billing/tufStellarProductCatalog.js';
+import { inferGiftMonthsFromXsollaPayload, monthsFromTufStellarGiftProductId } from '@/server/services/billing/tufStellarProductCatalog.js';
 
-export type BillingEventProductKind = 'gift' | 'subscription' | 'unknown';
+export type BillingEventProductKind = 'purchase' | 'unknown';
 
 /** Parsed product hints from an Xsolla IPN `rawBody` for billing activity UI. */
 export interface BillingEventProductDescriptor {
   kind: BillingEventProductKind;
-  /** Resolved term length when SKU or plan id matches the TUFStellar catalog. */
+  /** Resolved term length when SKU matches the TUFStellar catalog. */
   months: number | null;
   /** SKU / product slug from the webhook when present. */
   sku: string | null;
-  /** Recurring plan external id when present. */
-  planExternalId: string | null;
   /** Purchase line item id from Xsolla when present. */
   itemId: string | null;
 }
@@ -28,14 +21,6 @@ function extractCustomParameters(payload: Record<string, unknown>): Record<strin
     (payload?.notification as Record<string, unknown> | undefined)?.custom_parameters;
   if (cp && typeof cp === 'object' && !Array.isArray(cp)) return cp as Record<string, unknown>;
   return {};
-}
-
-function checkoutModeFromPayload(payload: Record<string, unknown>): 'gift' | 'subscription' | null {
-  const cp = extractCustomParameters(payload);
-  const m = String(cp.tuf_checkout_mode ?? '').toLowerCase().trim();
-  if (m === 'gift') return 'gift';
-  if (m === 'subscription') return 'subscription';
-  return null;
 }
 
 function trimmed(raw: unknown): string | null {
@@ -84,7 +69,7 @@ function itemIdFromPurchaseItem(item: Record<string, unknown>): string | null {
 }
 
 /**
- * Best-effort descriptor for activity/history: maps webhook line items + plan/SKU fields to catalog months and gift vs subscription.
+ * Best-effort descriptor for activity/history: maps webhook line items + SKU fields to catalog months (one-time purchases).
  */
 export function describeProductFromXsollaWebhookRawBody(rawBody: string): BillingEventProductDescriptor | null {
   let payload: Record<string, unknown>;
@@ -96,57 +81,33 @@ export function describeProductFromXsollaWebhookRawBody(rawBody: string): Billin
     return null;
   }
 
-  const cpMode = checkoutModeFromPayload(payload);
-  const planExternalId = extractTufStellarPlanExternalIdFromXsollaPayload(payload);
-
   const purchaseItem = firstPurchaseItem(payload);
   let sku: string | null = purchaseItem ? skuFromPurchaseItem(purchaseItem) : null;
   const itemId: string | null = purchaseItem ? itemIdFromPurchaseItem(purchaseItem) : null;
 
   if (!sku) {
-    const p = payload as Record<string, unknown>;
-    const purchase = p?.purchase as Record<string, unknown> | undefined;
-    const subs = (purchase?.subscription ?? p?.subscription) as Record<string, unknown> | undefined;
-    sku =
-      trimmed(subs?.product_id ?? subs?.productId ?? subs?.sku) ??
-      trimmed(purchase?.sku) ??
-      null;
+    const purchase = payload?.purchase as Record<string, unknown> | undefined;
+    sku = trimmed(purchase?.sku) ?? null;
   }
 
   const giftMonthsFromSku = sku ? monthsFromTufStellarGiftProductId(sku) : null;
   const giftMonthsInferred = inferGiftMonthsFromXsollaPayload(payload);
-  const planMonths = planExternalId ? monthsFromTufStellarPlanExternalId(planExternalId) : null;
 
   let kind: BillingEventProductKind = 'unknown';
   let months: number | null = null;
 
-  if (cpMode === 'gift') {
-    kind = 'gift';
+  if (giftMonthsFromSku != null || giftMonthsInferred != null) {
+    kind = 'purchase';
     months = giftMonthsFromSku ?? giftMonthsInferred ?? null;
-  } else if (cpMode === 'subscription') {
-    kind = 'subscription';
-    months = planMonths;
-  } else if (giftMonthsFromSku != null || giftMonthsInferred != null) {
-    kind = 'gift';
-    months = giftMonthsFromSku ?? giftMonthsInferred ?? null;
-  } else if (planMonths != null) {
-    kind = 'subscription';
-    months = planMonths;
   }
 
-  const hasSignal =
-    sku != null ||
-    planExternalId != null ||
-    itemId != null ||
-    months != null ||
-    kind !== 'unknown';
+  const hasSignal = sku != null || itemId != null || months != null || kind !== 'unknown';
   if (!hasSignal) return null;
 
   return {
     kind,
     months,
     sku,
-    planExternalId: planExternalId ?? null,
     itemId,
   };
 }

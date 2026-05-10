@@ -10,30 +10,16 @@ import {
 } from '@/server/schemas/common.js';
 import { User } from '@/models/index.js';
 import BillingEvent from '@/models/billing/BillingEvent.js';
-import { reconcileExpiredTufStellarSubscription } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
-import {
-  checkCancelTransition,
-  checkGiftCheckoutTransition,
-  checkResubscribeTransition,
-  checkSubscriptionCheckoutTransition,
-  getBillingAllowedActions,
-  getBillingLifecycleState,
-  hasRecurringSubscriptionId,
-  transitionBillingLifecycle,
-} from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
+import { reconcileExpiredTufStellarAccess } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { checkPurchaseCheckoutTransition, getBillingAllowedActions } from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
 import { XsollaApiClient, XsollaApiError } from '@/server/services/billing/XsollaApiClient.js';
-import { applyXsollaSubscriptionTerminatedState } from '@/server/services/billing/XsollaWebhookService.js';
-import {
-  monthsFromTufStellarPlanExternalId,
-  resolveTufStellarGiftProductId,
-  resolveTufStellarProductId,
-} from '@/server/services/billing/tufStellarProductCatalog.js';
+import { isTufStellarMonths, resolveTufStellarGiftProductId } from '@/server/services/billing/tufStellarProductCatalog.js';
+import { buildTufStellarAccessSegmentsForUser } from '@/server/services/billing/tufStellarAccessSegments.js';
+import { addCalendarMonthsUtc } from '@/misc/utils/time/addCalendarMonthsUtc.js';
 import { describeProductFromXsollaWebhookRawBody } from '@/server/services/billing/tufStellarBillingEventProduct.js';
 import { xsollaConfig } from '@/config/app.config.js';
-import { CacheInvalidation } from '@/server/middleware/cache.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { deriveBillingAccessParts } from '@/misc/utils/subscriptions/billingAccessDerivation.js';
-import { syncXsollaNextChargeToAccessExpiry } from '@/server/services/billing/tufStellarXsollaBillingSync.js';
 import {
   loadOrCreateUserTufStellarBilling,
   loadUserTufStellarBilling,
@@ -202,14 +188,34 @@ function extractBillingEventReferences(
   return out;
 }
 
-function isSubscriptionActive(expiresAt: Date | null | undefined): boolean {
+function isTufStellarAccessActive(expiresAt: Date | null | undefined): boolean {
   if (!expiresAt) return false;
   const t = new Date(expiresAt).getTime();
   return Number.isFinite(t) && t > Date.now();
 }
 
+function setBillingJsonNoCache(res: Response): void {
+  res.setHeader('Cache-Control', 'private, no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+}
+
 function billingDeny(res: Response, deny: { status: number; code: string; message: string }): Response {
   return res.status(deny.status).json({ error: { code: deny.code, message: deny.message } });
+}
+
+function parsePreviewMonthsQuery(raw: unknown): number | null {
+  if (raw == null || raw === '') return null;
+  const n = typeof raw === 'number' ? raw : Number(String(raw).trim());
+  if (!Number.isFinite(n) || !isTufStellarMonths(Math.floor(n))) return null;
+  return Math.floor(n);
+}
+
+function computePurchasePreviewProjectedExpiry(expiresAt: Date | null | undefined, previewMonths: number, nowMs: number): string {
+  const expMs = expiresAt ? new Date(expiresAt).getTime() : NaN;
+  const tailMs = Number.isFinite(expMs) && expMs > nowMs ? expMs : nowMs;
+  const projected = addCalendarMonthsUtc(new Date(tailMs), previewMonths);
+  return projected.toISOString();
 }
 
 router.get(
@@ -217,32 +223,31 @@ router.get(
   Auth.user(),
   ApiDoc({
     operationId: 'getBillingMe',
-    summary: 'Get current TUFStellar subscription state',
+    summary: 'Get current TUFStellar access (one-time purchases)',
     description:
-      'Returns access (expiry-driven), recurring subscription lifecycle, cancellation timestamp, and allowed actions. Top-level `active`/`expiresAt` mirror access for compatibility. Invoice IDs appear on GET /me/events only.',
+      'Returns stacked purchase entitlement (expiry-driven), per-segment breakdown (`accessSegments`), optional `preview` when `previewMonths` query matches catalog terms, and allowed checkout actions. Invoice IDs appear on GET /me/events only.',
     tags: ['Billing'],
     security: ['bearerAuth'],
+    query: {
+      previewMonths: {
+        required: false,
+        description:
+          'When set to an allowed term (1, 2, 3, 6, 9, 12), response includes `preview.projectedExpiresAt` after stacking that many calendar months.',
+        schema: { type: 'integer', enum: [1, 2, 3, 6, 9, 12] },
+      },
+    },
     responses: {
       200: {
-        description: 'Subscription state',
+        description: 'Billing state',
         schema: {
           type: 'object',
           properties: {
             active: { type: 'boolean' },
             expiresAt: { type: 'string', format: 'date-time', nullable: true },
-            cancelledAt: { type: 'string', format: 'date-time', nullable: true },
-            lifecycle: {
-              type: 'string',
-              enum: ['inactive', 'active_renewing', 'active_cancelling', 'active_checkout_pending'],
-            },
             allowedActions: {
               type: 'object',
               properties: {
-                checkout: { type: 'boolean' },
-                purchaseGift: { type: 'boolean' },
-                purchaseSubscription: { type: 'boolean' },
-                cancel: { type: 'boolean' },
-                resubscribe: { type: 'boolean' },
+                purchaseOneTime: { type: 'boolean' },
               },
             },
             access: {
@@ -250,53 +255,37 @@ router.get(
               properties: {
                 active: { type: 'boolean' },
                 expiresAt: { type: 'string', format: 'date-time', nullable: true },
-                oneTimeRemainingMs: {
-                  type: 'integer',
-                  description: 'Deprecated: same as giftFundedRemainingMs',
-                },
-                giftFundedRemainingMs: { type: 'integer' },
-                subscriptionPaidPeriodRemainingMs: { type: 'integer' },
-                subscriptionFundedCoverageEndsAt: {
-                  type: 'string',
-                  format: 'date-time',
-                  nullable: true,
-                  description:
-                    'When entitlement segments exist: end of subscription-funded coverage overlapping now; UI “through” date for subscription-paid remaining.',
-                },
-                recurringPeriodEndsAt: { type: 'string', format: 'date-time', nullable: true },
-                nominalPeriodEndsAt: {
-                  type: 'string',
-                  format: 'date-time',
-                  nullable: true,
-                  description:
-                    'Subscription cycle end from webhook before next-charge postponing; used to split gift vs paid period in UI',
+                purchaseFundedRemainingMs: { type: 'integer' },
+              },
+            },
+            accessSegments: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  segmentId: { type: 'integer' },
+                  months: { type: 'integer' },
+                  startsAt: { type: 'string', format: 'date-time' },
+                  endsAt: { type: 'string', format: 'date-time' },
+                  remainingMs: { type: 'integer' },
+                  source: { type: 'string', enum: ['self_purchase', 'gift_received', 'unknown'] },
+                  giftFrom: {
+                    type: 'object',
+                    nullable: true,
+                    properties: {
+                      userId: { type: 'string', format: 'uuid' },
+                      username: { type: 'string', nullable: true },
+                    },
+                  },
                 },
               },
             },
-            subscription: {
+            preview: {
               type: 'object',
+              nullable: true,
               properties: {
-                lifecycle: {
-                  type: 'string',
-                  enum: ['inactive', 'active_renewing', 'active_cancelling', 'active_checkout_pending'],
-                },
-                cancelledAt: { type: 'string', format: 'date-time', nullable: true },
-                hasRecurringSubscription: { type: 'boolean' },
-                termMonths: { type: 'integer', nullable: true },
-                recurringPeriodEndsAt: { type: 'string', format: 'date-time', nullable: true },
-                nominalPeriodEndsAt: {
-                  type: 'string',
-                  format: 'date-time',
-                  nullable: true,
-                  description: 'Webhook subscription period end (actual next charge may be postponed)',
-                },
-                allowedActions: {
-                  type: 'object',
-                  properties: {
-                    cancel: { type: 'boolean' },
-                    resubscribe: { type: 'boolean' },
-                  },
-                },
+                months: { type: 'integer' },
+                projectedExpiresAt: { type: 'string', format: 'date-time' },
               },
             },
           },
@@ -313,57 +302,52 @@ router.get(
       const user = await User.findByPk(tokenUser.id);
       if (!user) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
 
-      await reconcileExpiredTufStellarSubscription(user);
+      await reconcileExpiredTufStellarAccess(user);
       await user.reload();
 
-      let billing = await loadUserTufStellarBilling(user.id);
-      await syncXsollaNextChargeToAccessExpiry(user, billing, 'lazy');
-      billing = await loadUserTufStellarBilling(user.id);
+      setBillingJsonNoCache(res);
+
+      const billing = await loadUserTufStellarBilling(user.id);
 
       const segments = await loadSegmentsForUser(user.id);
       const segmentInputs = segments.map((s) => ({
-        kind: s.kind as 'gift' | 'subscription',
+        kind: 'purchase' as const,
         startsAt: s.startsAt,
         endsAt: s.endsAt,
       }));
 
-      const lifecycle = getBillingLifecycleState(billing);
       const allowedActions = getBillingAllowedActions(user, billing);
 
-      const accessActive = isSubscriptionActive(billing?.tufStellarSubscriptionExpiresAt ?? null);
-      const termMonths = monthsFromTufStellarPlanExternalId(billing?.tufStellarSubscriptionPlanExternalId ?? null);
+      const accessActive = isTufStellarAccessActive(billing?.tufStellarSubscriptionExpiresAt ?? null);
       const derived = deriveBillingAccessParts(user, billing, segmentInputs);
-      const recurringEnds = billing?.tufStellarRecurringPeriodEndAt ?? null;
-      const nominalEnds = billing?.tufStellarSubscriptionNominalPeriodEndAt ?? null;
+
+      const nowMs = Date.now();
+      const accessSegments = await buildTufStellarAccessSegmentsForUser(user.id, nowMs);
+
+      const previewMonths = parsePreviewMonthsQuery(req.query.previewMonths);
+      const preview =
+        previewMonths != null
+          ? {
+              months: previewMonths,
+              projectedExpiresAt: computePurchasePreviewProjectedExpiry(
+                billing?.tufStellarSubscriptionExpiresAt ?? null,
+                previewMonths,
+                nowMs,
+              ),
+            }
+          : null;
 
       return res.json({
         active: accessActive,
         expiresAt: billing?.tufStellarSubscriptionExpiresAt ?? null,
-        cancelledAt: billing?.tufStellarSubscriptionCancelledAt ?? null,
-        lifecycle,
         allowedActions,
         access: {
           active: accessActive,
           expiresAt: billing?.tufStellarSubscriptionExpiresAt ?? null,
-          oneTimeRemainingMs: derived.oneTimeRemainingMs,
-          giftFundedRemainingMs: derived.giftFundedRemainingMs,
-          subscriptionPaidPeriodRemainingMs: derived.subscriptionPaidPeriodRemainingMs,
-          subscriptionFundedCoverageEndsAt: derived.subscriptionFundedCoverageEndsAt,
-          recurringPeriodEndsAt: recurringEnds,
-          nominalPeriodEndsAt: nominalEnds,
+          purchaseFundedRemainingMs: derived.purchaseFundedRemainingMs,
         },
-        subscription: {
-          lifecycle,
-          cancelledAt: billing?.tufStellarSubscriptionCancelledAt ?? null,
-          hasRecurringSubscription: hasRecurringSubscriptionId(billing),
-          termMonths,
-          recurringPeriodEndsAt: recurringEnds,
-          nominalPeriodEndsAt: nominalEnds,
-          allowedActions: {
-            cancel: allowedActions.cancel,
-            resubscribe: allowedActions.resubscribe,
-          },
-        },
+        accessSegments,
+        preview,
       });
     } catch (e) {
       logger.error('GET /v3/billing/me failed', e);
@@ -399,6 +383,8 @@ router.get(
     try {
       const tokenUser = req.user;
       if (!tokenUser) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
+
+      setBillingJsonNoCache(res);
 
       const limitRaw = Number(req.query.limit);
       const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 100) : 20;
@@ -539,9 +525,9 @@ router.get(
       const purchaser = await User.findByPk(tokenUser.id);
       if (!purchaser) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
 
-      const giftGate = checkGiftCheckoutTransition(purchaser);
-      if (!giftGate.ok) {
-        return billingDeny(res, giftGate);
+      const purchaseGate = checkPurchaseCheckoutTransition(purchaser);
+      if (!purchaseGate.ok) {
+        return billingDeny(res, purchaseGate);
       }
 
       const es = ElasticsearchService.getInstance();
@@ -599,22 +585,19 @@ router.post(
   Auth.user(),
   ApiDoc({
     operationId: 'postBillingXsollaCheckout',
-    summary: 'Start an Xsolla Pay Station checkout',
+    summary: 'Start an Xsolla Pay Station checkout (one-time catalog purchase)',
     description:
-      'Mints a Pay Station token. Default `subscription` = recurring plan with auto-renew unless `autoRenew` is explicitly false. `gift` / one-time SKUs add fixed access time without renewal. `recipientUserId` optional UUID for gifts (default yourself).',
+      'Mints a catalog payment token for stacked TUFStellar access. `recipientUserId` optional UUID (defaults to yourself).',
     tags: ['Billing'],
     security: ['bearerAuth'],
     requestBody: {
       required: true,
-      description:
-        '`mode`: `subscription` (default) = recurring with renewal; `gift` = one-time access (gift SKU). `recipientUserId` optional UUID for gift beneficiary (default self). For `subscription`, omit `autoRenew` or true for renewal; `autoRenew` false = single term then stop (API-only).',
+      description: '`months` term length; optional `recipientUserId` for gifting.',
       schema: {
         type: 'object',
         properties: {
-          mode: { type: 'string', enum: ['gift', 'subscription'] },
           months: { type: 'integer', enum: [1, 2, 3, 6, 9, 12] },
           recipientUserId: { type: 'string', format: 'uuid' },
-          autoRenew: { type: 'boolean', default: true },
         },
         required: ['months'],
       },
@@ -632,7 +615,7 @@ router.post(
       },
       400: { description: 'Misconfigured', schema: errorResponseSchema },
       401: { description: 'Unauthorized', schema: errorResponseSchema },
-      409: { description: 'Invalid transition (e.g. already subscribed)', schema: errorResponseSchema },
+      409: { description: 'Conflict', schema: errorResponseSchema },
       502: { description: 'Xsolla error', schema: errorResponseSchema },
       ...standardErrorResponses500,
     },
@@ -645,16 +628,14 @@ router.post(
       const user = await User.findByPk(tokenUser.id);
       if (!user) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
 
-      await reconcileExpiredTufStellarSubscription(user);
+      await reconcileExpiredTufStellarAccess(user);
       await user.reload();
 
       const billing = await loadOrCreateUserTufStellarBilling(user.id);
 
       const body = req.body as {
-        mode?: unknown;
         months?: unknown;
         recipientUserId?: unknown;
-        autoRenew?: unknown;
       };
 
       const monthsRaw = body?.months;
@@ -664,18 +645,6 @@ router.post(
           error: { code: 'INVALID_CHECKOUT_TERM', message: 'months must be a number' },
         });
       }
-
-      let mode: 'gift' | 'subscription';
-      const modeRaw = body?.mode != null ? String(body.mode).toLowerCase() : '';
-      if (modeRaw === 'gift' || modeRaw === 'subscription') {
-        mode = modeRaw as 'gift' | 'subscription';
-      } else {
-        mode = 'subscription';
-      }
-
-      const arRaw = body?.autoRenew;
-      const autoRenewExplicitFalse = arRaw === false || String(arRaw).toLowerCase() === 'false';
-      const autoRenew = mode === 'subscription' ? !autoRenewExplicitFalse : false;
 
       const recipientParsed = parseOptionalRecipientUserId(body?.recipientUserId);
       if (recipientParsed === 'invalid') {
@@ -688,88 +657,13 @@ router.post(
 
       const returnUrl = `${xsollaConfig.redirectUrl}`;
 
-      if (mode === 'gift') {
-        const giftGate = checkGiftCheckoutTransition(user);
-        if (!giftGate.ok) {
-          return billingDeny(res, giftGate);
-        }
-
-        const giftSku = resolveTufStellarGiftProductId(months);
-        if (!giftSku) {
-          return res.status(400).json({
-            error: {
-              code: 'INVALID_CHECKOUT_TERM',
-              message: 'months must be one of 1, 2, 3, 6, 9, or 12',
-            },
-          });
-        }
-
-        const beneficiary = await User.findByPk(beneficiaryId);
-        if (!beneficiary) {
-          return res.status(400).json({
-            error: { code: 'GIFT_RECIPIENT_NOT_FOUND', message: 'Recipient user was not found.' },
-          });
-        }
-        if (beneficiary.status === 'banned' || beneficiary.status === 'suspended') {
-          return res.status(400).json({
-            error: { code: 'GIFT_RECIPIENT_BLOCKED', message: 'Recipient cannot receive gifts in this account state.' },
-          });
-        }
-
-        const beneficiaryEmail = beneficiary.email?.trim() || user.email?.trim();
-        if (!beneficiaryEmail) {
-          return res.status(400).json({
-            error: {
-              code: 'GIFT_EMAIL_REQUIRED',
-              message: 'Recipient must have an email (or you must have one on file for self-gifts).',
-            },
-          });
-        }
-
-        await billing.update({
-          tufStellarPendingGiftBeneficiaryUserId: beneficiary.id,
-          tufStellarPendingGiftMonths: months,
-          tufStellarPendingAutoRenew: null,
-        });
-
-        const result = await XsollaApiClient.createGiftPayStationToken({
-          purchaserUserId: user.id,
-          purchaserEmail: user.email ?? null,
-          purchaserUsername: user.username ?? null,
-          beneficiaryUserId: beneficiary.id,
-          beneficiaryEmail,
-          giftProductId: giftSku,
-          months,
-          returnUrl,
-          clientIp: billingRequestClientIp(req),
-        });
-
-        logger.info('[Xsolla] checkout gift', {
-          purchaserId: user.id,
-          beneficiaryId: beneficiary.id,
-          sandbox: xsollaConfig.sandbox,
-          months,
-          giftSku,
-        });
-        return res.json(result);
+      const purchaseGate = checkPurchaseCheckoutTransition(user);
+      if (!purchaseGate.ok) {
+        return billingDeny(res, purchaseGate);
       }
 
-      const subGate = checkSubscriptionCheckoutTransition(user, billing);
-      if (!subGate.ok) {
-        return billingDeny(res, subGate);
-      }
-
-      if (recipientRaw != null && recipientRaw !== user.id) {
-        return res.status(400).json({
-          error: {
-            code: 'SUBSCRIPTION_SELF_ONLY',
-            message: 'Recurring subscription checkout is only available for your own account.',
-          },
-        });
-      }
-
-      const productId = resolveTufStellarProductId(months);
-      if (!productId) {
+      const giftSku = resolveTufStellarGiftProductId(months);
+      if (!giftSku) {
         return res.status(400).json({
           error: {
             code: 'INVALID_CHECKOUT_TERM',
@@ -778,27 +672,51 @@ router.post(
         });
       }
 
+      const beneficiary = await User.findByPk(beneficiaryId);
+      if (!beneficiary) {
+        return res.status(400).json({
+          error: { code: 'GIFT_RECIPIENT_NOT_FOUND', message: 'Recipient user was not found.' },
+        });
+      }
+      if (beneficiary.status === 'banned' || beneficiary.status === 'suspended') {
+        return res.status(400).json({
+          error: { code: 'GIFT_RECIPIENT_BLOCKED', message: 'Recipient cannot receive purchases in this account state.' },
+        });
+      }
+
+      const beneficiaryEmail = beneficiary.email?.trim() || user.email?.trim();
+      if (!beneficiaryEmail) {
+        return res.status(400).json({
+          error: {
+            code: 'GIFT_EMAIL_REQUIRED',
+            message: 'Recipient must have an email (or you must have one on file for self-purchase).',
+          },
+        });
+      }
+
       await billing.update({
-        tufStellarPendingAutoRenew: autoRenew,
-        tufStellarPendingGiftBeneficiaryUserId: null,
-        tufStellarPendingGiftMonths: null,
+        tufStellarPendingGiftBeneficiaryUserId: beneficiary.id,
+        tufStellarPendingGiftMonths: months,
       });
 
-      const result = await XsollaApiClient.createSubscriptionPayStationToken({
-        userId: user.id,
-        email: user.email ?? null,
-        username: user.username ?? null,
+      const result = await XsollaApiClient.createGiftPayStationToken({
+        purchaserUserId: user.id,
+        purchaserEmail: user.email ?? null,
+        purchaserUsername: user.username ?? null,
+        beneficiaryUserId: beneficiary.id,
+        beneficiaryEmail,
+        giftProductId: giftSku,
+        months,
         returnUrl,
-        productId,
-        customParameters: { tuf_checkout_mode: 'subscription' },
+        clientIp: billingRequestClientIp(req),
       });
 
-      logger.info('[Xsolla] checkout subscription', {
-        userId: user.id,
+      logger.info('[Xsolla] checkout one-time', {
+        purchaserId: user.id,
+        beneficiaryId: beneficiary.id,
         sandbox: xsollaConfig.sandbox,
         months,
-        autoRenew,
-        productId,
+        giftSku,
       });
       return res.json(result);
     } catch (e) {
@@ -814,211 +732,6 @@ router.post(
       }
       logger.error('POST /v3/billing/xsolla/checkout failed', e);
       return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to start checkout' } });
-    }
-  },
-);
-
-router.post(
-  '/xsolla/cancel',
-  Auth.user(),
-  ApiDoc({
-    operationId: 'postBillingXsollaCancel',
-    summary: 'Cancel the current TUFStellar subscription',
-    description:
-      'Calls the Xsolla subscriptions API to cancel the user\'s active recurring subscription. Default: `non_renewing` (benefits until period end; can resume). Optional `immediate: true` uses status `canceled` (fully terminated in Xsolla; cannot resubscribe — new checkout only). Optional `refundLastPayment: true` only with `immediate: true` sets Xsolla `cancel_subscription_payment`.',
-    tags: ['Billing'],
-    security: ['bearerAuth'],
-    requestBody: {
-      required: false,
-      description:
-        'Omit body for standard cancel-at-period-end (`non_renewing`). Set `immediate: true` for instant termination (`canceled`).',
-      schema: {
-        type: 'object',
-        properties: {
-          immediate: { type: 'boolean', description: 'If true, hard-cancel via Xsolla (no resume).' },
-          refundLastPayment: {
-            type: 'boolean',
-            description: 'If true with `immediate`, request refund of the last subscription payment (Xsolla API).',
-          },
-        },
-      },
-    },
-    responses: {
-      200: { description: 'Cancellation requested', schema: { type: 'object', properties: { ok: { type: 'boolean' } } } },
-      400: { description: 'No active subscription or not ready to cancel', schema: errorResponseSchema },
-      401: { description: 'Unauthorized', schema: errorResponseSchema },
-      502: { description: 'Xsolla error', schema: errorResponseSchema },
-      ...standardErrorResponses500,
-    },
-  }),
-  async (req: Request, res: Response) => {
-    try {
-      const tokenUser = req.user;
-      if (!tokenUser) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
-
-      const user = await User.findByPk(tokenUser.id);
-      if (!user) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
-
-      await reconcileExpiredTufStellarSubscription(user);
-      await user.reload();
-
-      const billing = await loadUserTufStellarBilling(user.id);
-
-      const cancelGate = checkCancelTransition(user, billing);
-      if (!cancelGate.ok) {
-        return billingDeny(res, cancelGate);
-      }
-      if ('idempotent' in cancelGate && cancelGate.idempotent) {
-        logger.info('[Xsolla] cancel idempotent (already pending)', { userId: user.id });
-        return res.json({ ok: true });
-      }
-
-      const subId = billing?.tufStellarSubscriptionExternalId;
-      if (!subId || subId.startsWith('tx:')) {
-        return res.status(400).json({ error: { code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No active recurring subscription found' } });
-      }
-      if (!billing) {
-        return res.status(400).json({ error: { code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No active recurring subscription found' } });
-      }
-
-      const immediate = Boolean(req.body?.immediate);
-      const refundLastPayment = Boolean(req.body?.refundLastPayment);
-      if (refundLastPayment && !immediate) {
-        return res.status(400).json({
-          error: {
-            code: 'INVALID_CANCEL_OPTIONS',
-            message: 'refundLastPayment requires immediate cancel (status canceled).',
-          },
-        });
-      }
-      if (immediate) {
-        await XsollaApiClient.cancelUserSubscriptionImmediate(user.id, subId, {
-          refundLastPayment,
-        });
-        await applyXsollaSubscriptionTerminatedState(user.id);
-      } else {
-        await XsollaApiClient.cancelUserSubscription(user.id, subId);
-
-        const prevLifecycle = getBillingLifecycleState(billing);
-        const nextLifecycle = transitionBillingLifecycle(prevLifecycle, { type: 'user_cancel_committed' });
-        await billing.update({
-          tufStellarSubscriptionCancelledAt: billing.tufStellarSubscriptionCancelledAt ?? new Date(),
-          tufStellarBillingLifecycleState: nextLifecycle,
-        });
-        try {
-          await CacheInvalidation.invalidateUser(user.id);
-        } catch {
-          /* best-effort */
-        }
-      }
-
-      logger.info('[Xsolla] cancel', { userId: user.id, subId, immediate });
-      return res.json({ ok: true });
-    } catch (e) {
-      if (e instanceof XsollaApiError) {
-        logger.error('[Xsolla] cancel failed', { status: e.status, message: e.message });
-        const status = e.status === 0 ? 400 : 502;
-        const code = e.status === 0 ? 'MISCONFIGURED' : 'XSOLLA_ERROR';
-        return res.status(status).json({ error: { code, message: e.message } });
-      }
-      logger.error('POST /v3/billing/xsolla/cancel failed', e);
-      return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to cancel subscription' } });
-    }
-  },
-);
-
-router.post(
-  '/xsolla/resubscribe',
-  Auth.user(),
-  ApiDoc({
-    operationId: 'postBillingXsollaResubscribe',
-    summary: 'Resume a subscription marked non-renewing',
-    description:
-      'Calls the Xsolla subscriptions API with status active to undo a pending cancellation. Requires an existing recurring subscription id and a prior user cancel (cancelledAt set).',
-    tags: ['Billing'],
-    security: ['bearerAuth'],
-    responses: {
-      200: { description: 'Subscription resumed', schema: { type: 'object', properties: { ok: { type: 'boolean' } } } },
-      400: { description: 'Not in resubscribe-eligible state', schema: errorResponseSchema },
-      401: { description: 'Unauthorized', schema: errorResponseSchema },
-      409: {
-        description:
-          'Xsolla rejected resume (e.g. subscription fully canceled). Local state reconciled; start a new subscription checkout.',
-        schema: errorResponseSchema,
-      },
-      502: { description: 'Xsolla error', schema: errorResponseSchema },
-      ...standardErrorResponses500,
-    },
-  }),
-  async (req: Request, res: Response) => {
-    const tokenUser = req.user;
-    try {
-      if (!tokenUser) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
-
-      const user = await User.findByPk(tokenUser.id);
-      if (!user) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
-
-      await reconcileExpiredTufStellarSubscription(user);
-      await user.reload();
-
-      const billing = await loadUserTufStellarBilling(user.id);
-
-      const resubGate = checkResubscribeTransition(user, billing);
-      if (!resubGate.ok) {
-        return billingDeny(res, resubGate);
-      }
-
-      const subId = billing?.tufStellarSubscriptionExternalId;
-      if (!subId || subId.startsWith('tx:')) {
-        return res.status(400).json({
-          error: { code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No recurring subscription found to resume' },
-        });
-      }
-      if (!billing) {
-        return res.status(400).json({
-          error: { code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No recurring subscription found to resume' },
-        });
-      }
-
-      await XsollaApiClient.reactivateUserSubscription(user.id, subId);
-
-      const prevLifecycle = getBillingLifecycleState(billing);
-      const nextLifecycle = transitionBillingLifecycle(prevLifecycle, { type: 'user_resubscribe_committed' });
-      await billing.update({
-        tufStellarSubscriptionCancelledAt: null,
-        tufStellarBillingLifecycleState: nextLifecycle,
-      });
-      try {
-        await CacheInvalidation.invalidateUser(user.id);
-      } catch {
-        /* best-effort */
-      }
-
-      logger.info('[Xsolla] resubscribe', { userId: user.id, subId });
-      return res.json({ ok: true });
-    } catch (e) {
-      if (e instanceof XsollaApiError) {
-        logger.error('[Xsolla] resubscribe failed', { status: e.status, message: e.message });
-        if (e.status === 422 && tokenUser?.id) {
-          try {
-            await applyXsollaSubscriptionTerminatedState(tokenUser.id);
-          } catch (reconcileErr) {
-            logger.error('[Xsolla] resubscribe 422 reconcile failed', reconcileErr);
-          }
-          return res.status(409).json({
-            error: {
-              code: 'SUBSCRIPTION_TERMINATED_USE_CHECKOUT',
-              message:
-                'This subscription was fully canceled in Xsolla and cannot be resumed. Start a new subscription checkout.',
-            },
-          });
-        }
-        const status = e.status === 0 ? 400 : 502;
-        const code = e.status === 0 ? 'MISCONFIGURED' : 'XSOLLA_ERROR';
-        return res.status(status).json({ error: { code, message: e.message } });
-      }
-      logger.error('POST /v3/billing/xsolla/resubscribe failed', e);
-      return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to resume subscription' } });
     }
   },
 );

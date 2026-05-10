@@ -22,7 +22,7 @@ import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import Player from '@/models/players/Player.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import {
-  isTufStellarSubscriptionActive,
+  isTufStellarAccessActive,
   normalizeTufStellarIconVariant,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
@@ -503,7 +503,7 @@ router.patch(
     operationId: 'v3PatchPlayerMeTufStellarIconVariant',
     summary: 'Update my player TUFStellar icon variant (v3)',
     description:
-      'Requires an authenticated user with `playerId` set and an active TUFStellar subscription. Body: `{ variant: "1" | "2" | "3" }`.',
+      'Requires an authenticated user with `playerId` set and active TUFStellar access. Body: `{ variant: "1" | "2" | "3" }`.',
     tags: ['Database', 'Players', 'v3'],
     security: ['bearerAuth'],
     requestBody: {
@@ -529,8 +529,8 @@ router.patch(
         return res.status(400).json({ error: 'No player profile linked to this account' });
       }
       const billing = await loadUserTufStellarBilling(user.id);
-      if (!isTufStellarSubscriptionActive(user, billing)) {
-        return res.status(403).json({ error: 'TUFStellar subscription required' });
+      if (!isTufStellarAccessActive(user, billing)) {
+        return res.status(403).json({ error: 'TUFStellar access required' });
       }
 
       const body = req.body as { variant?: unknown };

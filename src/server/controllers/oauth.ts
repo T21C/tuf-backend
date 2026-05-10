@@ -21,7 +21,7 @@ import { permissionFlags } from '@/config/constants.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import User from '@/models/auth/User.js';
 import {
-  reconcileExpiredTufStellarSubscription,
+  reconcileExpiredTufStellarAccess,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 
@@ -238,7 +238,7 @@ export const OAuthController = {
 
       let userRow = await User.findByPk(req.user!.id);
       if (userRow) {
-        await reconcileExpiredTufStellarSubscription(userRow);
+        await reconcileExpiredTufStellarAccess(userRow);
         await userRow.reload();
       } else {
         userRow = req.user as User;

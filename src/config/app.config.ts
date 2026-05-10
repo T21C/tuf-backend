@@ -44,9 +44,6 @@ export interface XsollaConfig {
   merchantId: string;
   projectId: string;
   apiKey: string;
-  subscriptionPlanId: string;
-  /** Required when the plan is linked to a subscription product (plan group) in Publisher Account. */
-  subscriptionProductId: string;
   webhookSecret: string;
   redirectUrl: string;
   sandbox: boolean;
@@ -61,8 +58,6 @@ export const xsollaConfig: XsollaConfig = {
   merchantId: process.env.XSOLLA_MERCHANT_ID ?? '',
   projectId: process.env.XSOLLA_PROJECT_ID ?? '',
   apiKey: process.env.XSOLLA_API_KEY ?? '',
-  subscriptionPlanId: process.env.XSOLLA_SUBSCRIPTION_PLAN_ID ?? '',
-  subscriptionProductId: process.env.XSOLLA_SUBSCRIPTION_PRODUCT_ID ?? '',
   webhookSecret: process.env.XSOLLA_WEBHOOK_SECRET ?? '',
   sandbox: String(process.env.XSOLLA_SANDBOX ?? '').toLowerCase() === 'true',
   redirectUrl: resolveXsollaRedirectUrl(),

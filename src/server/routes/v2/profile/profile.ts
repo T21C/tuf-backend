@@ -22,7 +22,7 @@ import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { AccountDeletionService } from '@/server/services/accounts/AccountDeletionService.js';
 import {
   canUseStellarProfileCustomization,
-  reconcileExpiredTufStellarSubscription,
+  reconcileExpiredTufStellarAccess,
   type UserRow,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
@@ -106,7 +106,7 @@ router.get(
       return res.status(401).json({error: 'User not authenticated'});
     }
 
-    await reconcileExpiredTufStellarSubscription(user);
+    await reconcileExpiredTufStellarAccess(user);
     await user.reload();
 
     const billing = await loadUserTufStellarBilling(user.id);
@@ -128,8 +128,6 @@ router.get(
         avatarUrl: user.avatarUrl ?? null,
         avatarIsGif: Boolean(user.avatarIsGif),
         tufStellarSubscriptionExpiresAt: billing?.tufStellarSubscriptionExpiresAt ?? null,
-        tufStellarSubscriptionExternalId: billing?.tufStellarSubscriptionExternalId ?? null,
-        tufStellarSubscriptionCancelledAt: billing?.tufStellarSubscriptionCancelledAt ?? null,
         isRater: hasFlag(user, permissionFlags.RATER),
         isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
         isRatingBanned: hasFlag(user, permissionFlags.RATING_BANNED),
@@ -484,7 +482,7 @@ router.post(
         const billing = await loadUserTufStellarBilling(user.id);
         if (gif && !canUseStellarProfileCustomization(user as UserRow, billing)) {
             return res.status(403).json({
-                error: 'GIF profile pictures require a TUFStellar subscription',
+                error: 'GIF profile pictures require active TUFStellar access',
                 code: 'AVATAR_GIF_FORBIDDEN',
             });
         }

@@ -2,6 +2,11 @@ import path from 'path';
 import fs from 'fs';
 import AdmZip from 'adm-zip';
 import axios from 'axios';
+import http from 'http';
+import https from 'https';
+import { lookup } from 'dns/promises';
+import { isIP } from 'net';
+import { Readable } from 'stream';
 import { emitCdnJobProgress } from '@/externalServices/cdnService/jobs/jobProgressIngest.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { CDN_CONFIG, CDN_IMMUTABLE_CACHE_CONTROL } from '@/externalServices/cdnService/config.js';
@@ -27,6 +32,11 @@ const PACK_UPLOAD_PROGRESS_THROTTLE_MS = 400;
 const PACK_DOWNLOAD_SPACES_PREFIX = process.env.NODE_ENV === 'development' ? 'pack-downloads-dev' : 'pack-downloads';
 const PACK_DOWNLOAD_MAX_SIZE_BYTES = 15 * 1024 * 1024 * 1024; // 15GB hard limit
 const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 20 * 1024 * 1024 * 1024; // 20GB total concurrent limit
+const EXTERNAL_URL_MAX_LENGTH = 2048;
+const EXTERNAL_URL_HEAD_TIMEOUT_MS = 10_000;
+const EXTERNAL_URL_DOWNLOAD_TIMEOUT_MS = 30_000;
+const EXTERNAL_LEVEL_ZIP_MAX_BYTES = CDN_CONFIG.maxFileSize;
+const ZIP_LOCAL_FILE_HEADER = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 /** Max path length for extraction (e.g. Windows MAX_PATH 260; extract folder + sep + path inside zip). */
 const MAX_PATH_LENGTH = 200;
 /** Minimum characters kept when trimming a folder name or file stem (avoids single-character segments). */
@@ -304,6 +314,283 @@ function getFilenameFromDisposition(disposition?: string): string | null {
     }
     const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
     return filenameMatch ? filenameMatch[1] : null;
+}
+
+function parseIpv4(address: string): number[] | null {
+    const parts = address.split('.');
+    if (parts.length !== 4) {
+        return null;
+    }
+    const bytes = parts.map((part) => Number(part));
+    if (bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
+        return null;
+    }
+    return bytes;
+}
+
+function extractMappedIpv4(address: string): string | null {
+    const normalized = address.toLowerCase();
+    if (normalized.startsWith('::ffff:')) {
+        const mapped = normalized.slice('::ffff:'.length);
+        return parseIpv4(mapped) ? mapped : null;
+    }
+    return null;
+}
+
+function isBlockedIpv4(address: string): boolean {
+    const bytes = parseIpv4(address);
+    if (!bytes) {
+        return true;
+    }
+
+    const [a, b] = bytes;
+    return (
+        a === 0 ||
+        a === 10 ||
+        a === 127 ||
+        (a === 100 && b >= 64 && b <= 127) ||
+        (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 0) ||
+        (a === 192 && b === 168) ||
+        (a === 198 && (b === 18 || b === 19)) ||
+        (a === 198 && b === 51) ||
+        (a === 203 && b === 0) ||
+        a >= 224
+    );
+}
+
+function isBlockedIpAddress(address: string): boolean {
+    const mappedIpv4 = extractMappedIpv4(address);
+    if (mappedIpv4) {
+        return isBlockedIpv4(mappedIpv4);
+    }
+
+    const family = isIP(address);
+    if (family === 4) {
+        return isBlockedIpv4(address);
+    }
+    if (family !== 6) {
+        return true;
+    }
+
+    const normalized = address.toLowerCase();
+    return (
+        normalized === '::' ||
+        normalized === '::1' ||
+        normalized.startsWith('fc') ||
+        normalized.startsWith('fd') ||
+        normalized.startsWith('fe8') ||
+        normalized.startsWith('fe9') ||
+        normalized.startsWith('fea') ||
+        normalized.startsWith('feb') ||
+        normalized.startsWith('ff') ||
+        normalized.startsWith('2001:db8:')
+    );
+}
+
+function parseSafeExternalUrl(sourceUrl: string): URL {
+    const trimmed = sourceUrl.trim();
+    if (trimmed.length === 0 || trimmed.length > EXTERNAL_URL_MAX_LENGTH) {
+        throw new Error('External URL is empty or too long');
+    }
+
+    const url = new URL(trimmed);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error('External URL must use http or https');
+    }
+    if (url.username || url.password) {
+        throw new Error('External URL credentials are not allowed');
+    }
+    if (url.port && url.port !== '80' && url.port !== '443') {
+        throw new Error('External URL custom ports are not allowed');
+    }
+
+    const host = url.hostname.toLowerCase();
+    if (
+        host === 'localhost' ||
+        host.endsWith('.localhost') ||
+        host.endsWith('.local') ||
+        (!host.includes('.') && !isIP(host))
+    ) {
+        throw new Error('External URL host is not allowed');
+    }
+    if (isIP(host) && isBlockedIpAddress(host)) {
+        throw new Error('External URL IP address is not allowed');
+    }
+
+    return url;
+}
+
+async function assertExternalHostnameIsPublic(hostname: string): Promise<void> {
+    const records = await lookup(hostname, { all: true, verbatim: false });
+    if (records.length === 0) {
+        throw new Error('External URL host did not resolve');
+    }
+    for (const record of records) {
+        if (isBlockedIpAddress(record.address)) {
+            throw new Error('External URL resolves to a blocked address');
+        }
+    }
+}
+
+async function validateExternalUrl(sourceUrl: string): Promise<URL> {
+    const url = parseSafeExternalUrl(sourceUrl);
+    await assertExternalHostnameIsPublic(url.hostname);
+    return url;
+}
+
+const validatedLookup = (
+    hostname: string,
+    options: unknown,
+    callback: (err: NodeJS.ErrnoException | null, address: any, family?: number) => void
+) => {
+    void (async () => {
+        try {
+            const lookupOptions = typeof options === 'object' && options !== null ? options as { all?: boolean; family?: number } : {};
+            const records = await lookup(hostname, {
+                all: Boolean(lookupOptions.all),
+                family: lookupOptions.family,
+                verbatim: false,
+            } as any);
+            const resolvedRecords = Array.isArray(records) ? records : [records];
+            for (const record of resolvedRecords) {
+                if (isBlockedIpAddress(record.address)) {
+                    throw new Error('External URL resolved to a blocked address during request');
+                }
+            }
+            if (lookupOptions.all) {
+                callback(null, resolvedRecords);
+                return;
+            }
+            const first = resolvedRecords[0];
+            callback(null, first.address, first.family);
+        } catch (error) {
+            callback(error as NodeJS.ErrnoException, null);
+        }
+    })();
+};
+
+const externalHttpAgent = new http.Agent({ keepAlive: false, lookup: validatedLookup });
+const externalHttpsAgent = new https.Agent({ keepAlive: false, lookup: validatedLookup });
+
+function validateRedirectTarget(options: Record<string, any>): void {
+    const protocol = typeof options.protocol === 'string' ? options.protocol : '';
+    const hostname = typeof options.hostname === 'string' ? options.hostname : '';
+    const hostForUrl = isIP(hostname) === 6 && !hostname.startsWith('[') ? `[${hostname}]` : hostname;
+    const port = options.port ? `:${options.port}` : '';
+    if (options.auth) {
+        throw new Error('External URL redirect credentials are not allowed');
+    }
+    parseSafeExternalUrl(`${protocol}//${hostForUrl}${port}${options.path ?? '/'}`);
+}
+
+function getContentLengthBytes(headers: Record<string, any>): number | null {
+    const raw = headers['content-length'];
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    if (value === undefined || value === null || value === '') {
+        return null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function assertIdentityTransferEncoding(headers: Record<string, any>): void {
+    const raw = headers['content-encoding'];
+    const encodings = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    const blocked = encodings
+        .flatMap((encoding) => String(encoding).split(','))
+        .map((encoding) => encoding.trim().toLowerCase())
+        .filter((encoding) => encoding.length > 0 && encoding !== 'identity');
+
+    if (blocked.length > 0) {
+        throw new Error(`Compressed external URL responses are not allowed: ${blocked.join(', ')}`);
+    }
+}
+
+function isZipLocalFileHeader(bytes: Buffer): boolean {
+    return bytes.length >= ZIP_LOCAL_FILE_HEADER.length && bytes.subarray(0, ZIP_LOCAL_FILE_HEADER.length).equals(ZIP_LOCAL_FILE_HEADER);
+}
+
+async function streamValidatedZipToDisk(stream: Readable, targetPath: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+        const writeStream = fs.createWriteStream(targetPath, { flags: 'wx' });
+        let settled = false;
+        let totalBytes = 0;
+        let prefix = Buffer.alloc(0);
+        let magicValidated = false;
+
+        const fail = (error: Error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            stream.destroy(error);
+            writeStream.destroy(error);
+            reject(error);
+        };
+
+        stream.on('data', (chunk: Buffer) => {
+            totalBytes += chunk.length;
+            if (totalBytes > EXTERNAL_LEVEL_ZIP_MAX_BYTES) {
+                fail(new Error('External ZIP exceeds maximum allowed size'));
+                return;
+            }
+
+            if (!magicValidated) {
+                prefix = Buffer.concat([prefix, chunk]).subarray(0, ZIP_LOCAL_FILE_HEADER.length);
+                if (prefix.length >= ZIP_LOCAL_FILE_HEADER.length) {
+                    if (!isZipLocalFileHeader(prefix)) {
+                        fail(new Error('External file is not a valid ZIP archive'));
+                        return;
+                    }
+                    magicValidated = true;
+                }
+            }
+        });
+
+        writeStream.on('finish', () => {
+            if (settled) {
+                return;
+            }
+            if (!magicValidated) {
+                fail(new Error('External ZIP is too small or missing a ZIP header'));
+                return;
+            }
+            settled = true;
+            resolve();
+        });
+        stream.on('error', fail);
+        writeStream.on('error', fail);
+        stream.pipe(writeStream);
+    });
+}
+
+async function downloadExternalZipToDisk(sourceUrl: string, targetPath: string): Promise<Record<string, any>> {
+    const url = await validateExternalUrl(sourceUrl);
+    const response = await axios.get(url.href, {
+        responseType: 'stream',
+        decompress: false,
+        timeout: EXTERNAL_URL_DOWNLOAD_TIMEOUT_MS,
+        maxRedirects: 5,
+        httpAgent: externalHttpAgent,
+        httpsAgent: externalHttpsAgent,
+        beforeRedirect: validateRedirectTarget,
+        validateStatus: (status) => status >= 200 && status < 300,
+        headers: {
+            'Accept': 'application/zip, application/octet-stream;q=0.9, */*;q=0.1',
+            'Accept-Encoding': 'identity',
+        },
+    });
+
+    assertIdentityTransferEncoding(response.headers);
+    const contentLength = getContentLengthBytes(response.headers);
+    if (contentLength !== null && contentLength > EXTERNAL_LEVEL_ZIP_MAX_BYTES) {
+        throw new Error('External ZIP content-length exceeds maximum allowed size');
+    }
+
+    await streamValidatedZipToDisk(response.data as Readable, targetPath);
+    return response.headers;
 }
 
 async function ensurePackDownloadDirs(): Promise<void> {
@@ -631,44 +918,15 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
             tempZipPath,
             sourceUrl: node.sourceUrl
         });
-        const response = await axios.get(node.sourceUrl, {
-            responseType: 'stream',
-            timeout: 30_000 // Increased timeout for large files
-        });
-
-        const writeStream = fs.createWriteStream(tempZipPath);
-        await new Promise<void>((resolve, reject) => {
-            const cleanupOnError = async (error: Error) => {
-                writeStream.destroy();
-                // Clean up partial file on error
-                try {
-                    if (tempZipPath && fs.existsSync(tempZipPath)) {
-                        await fs.promises.unlink(tempZipPath);
-                    }
-                } catch (cleanupError) {
-                    logger.warn('Failed to cleanup partial download file', {
-                        tempZipPath,
-                        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
-                    });
-                }
-                reject(error);
-            };
-
-            response.data.pipe(writeStream);
-            writeStream.on('finish', () => {
-                logger.debug('Successfully downloaded zip file from URL to temp location', {
-                    tempZipPath,
-                    sourceUrl: node.sourceUrl,
-                    fileExists: tempZipPath ? fs.existsSync(tempZipPath) : false
-                });
-                resolve();
-            });
-            writeStream.on('error', cleanupOnError);
-            response.data.on('error', cleanupOnError);
+        const responseHeaders = await downloadExternalZipToDisk(node.sourceUrl, tempZipPath);
+        logger.debug('Successfully downloaded validated zip file from URL to temp location', {
+            tempZipPath,
+            sourceUrl: node.sourceUrl,
+            fileExists: fs.existsSync(tempZipPath)
         });
 
         const defaultName = node.name || `Level-${node.levelId ?? 'unknown'}`;
-        const dispositionFilename = getFilenameFromDisposition(response.headers['content-disposition']);
+        const dispositionFilename = getFilenameFromDisposition(responseHeaders['content-disposition']);
         const urlFilename = (() => {
             try {
                 const url = new URL(node.sourceUrl!);
@@ -1461,6 +1719,20 @@ function isPackDownloadNode(node: any): node is PackDownloadNode {
     return false;
 }
 
+async function validateExternalUrlsInPackTree(node: PackDownloadNode): Promise<void> {
+    if (node.type === 'folder') {
+        if (!Array.isArray(node.children)) {
+            return;
+        }
+        await Promise.all(node.children.map((child) => validateExternalUrlsInPackTree(child)));
+        return;
+    }
+
+    if (node.sourceUrl) {
+        await validateExternalUrl(node.sourceUrl);
+    }
+}
+
 async function getFileSizeFromCdn(fileId: string): Promise<number | null> {
     try {
         const cdnFile = await CdnFile.findByPk(fileId);
@@ -1507,18 +1779,25 @@ async function getFileSizeFromCdn(fileId: string): Promise<number | null> {
 
 async function getFileSizeFromUrl(sourceUrl: string): Promise<number | null> {
     try {
-        const response = await axios.head(sourceUrl, {
-            timeout: 10000,
+        const url = await validateExternalUrl(sourceUrl);
+        const response = await axios.head(url.href, {
+            timeout: EXTERNAL_URL_HEAD_TIMEOUT_MS,
             maxRedirects: 5,
+            decompress: false,
+            httpAgent: externalHttpAgent,
+            httpsAgent: externalHttpsAgent,
+            beforeRedirect: validateRedirectTarget,
+            headers: {
+                'Accept': 'application/zip, application/octet-stream;q=0.9, */*;q=0.1',
+                'Accept-Encoding': 'identity',
+            },
             validateStatus: (status) => status >= 200 && status < 400
         });
+        assertIdentityTransferEncoding(response.headers);
 
-        const contentLength = response.headers['content-length'];
-        if (contentLength) {
-            const size = parseInt(contentLength, 10);
-            if (!isNaN(size) && size > 0) {
-                return size;
-            }
+        const size = getContentLengthBytes(response.headers);
+        if (size !== null && size > 0 && size <= EXTERNAL_LEVEL_ZIP_MAX_BYTES) {
+            return size;
         }
         return null;
     } catch (error) {
@@ -1579,6 +1858,15 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
         }
         if (!tree || !isPackDownloadNode(tree)) {
             return res.status(400).json({ error: 'Valid download tree is required' });
+        }
+        try {
+            await validateExternalUrlsInPackTree(tree);
+        } catch (error) {
+            return res.status(400).json({
+                error: 'Pack contains an unsafe external URL',
+                code: 'INVALID_EXTERNAL_URL',
+                details: error instanceof Error ? error.message : String(error),
+            });
         }
 
         // Estimate total zip size before generation

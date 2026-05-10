@@ -3,12 +3,6 @@ import type { UserAttributes } from '@/models/auth/User.js';
 import type UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
-import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
-import { reconcileBillingLifecycleIfExpired } from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
-import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
-
-const elasticsearchService = ElasticsearchService.getInstance();
-
 export type UserRow = User | UserAttributes;
 
 function parseExpiryMs(raw: Date | string | null | undefined): number | null {
@@ -17,18 +11,19 @@ function parseExpiryMs(raw: Date | string | null | undefined): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
-/** Whether entitlement end timestamp is strictly in the future. */
-export function subscriptionExpiresAtActive(expiresAt: Date | string | null | undefined): boolean {
+/** Whether stacked access (`tufStellarSubscriptionExpiresAt`) is strictly in the future. */
+export function tufStellarExpiresAtActive(expiresAt: Date | string | null | undefined): boolean {
   const ms = parseExpiryMs(expiresAt ?? null);
   if (ms == null) return false;
   return ms > Date.now();
 }
 
 /**
- * TUFStellar benefits apply when `tufStellarSubscriptionExpiresAt` on the billing row is strictly in the future.
+ * TUFStellar benefits apply when `tufStellarSubscriptionExpiresAt` on the billing row is strictly in the future
+ * (purchase-funded stacked time; column name is historical).
  */
-export function isTufStellarSubscriptionActive(_user: UserRow, billing: UserTufStellarBilling | null): boolean {
-  return subscriptionExpiresAtActive(billing?.tufStellarSubscriptionExpiresAt ?? null);
+export function isTufStellarAccessActive(_user: UserRow, billing: UserTufStellarBilling | null): boolean {
+  return tufStellarExpiresAtActive(billing?.tufStellarSubscriptionExpiresAt ?? null);
 }
 
 export type TufStellarIconVariantId = '1' | '2' | '3';
@@ -51,41 +46,27 @@ export function canUseStellarProfileCustomization(
 ): boolean {
   if (!user) return false;
   if (hasFlag(user, permissionFlags.SUPER_ADMIN)) return true;
-  if (isTufStellarSubscriptionActive(user, billing)) return true;
+  if (isTufStellarAccessActive(user, billing)) return true;
   return false;
 }
 
-/**
- * When the paid period has ended (or is missing), align billing lifecycle to `inactive`
- * if needed and reindex the linked player so public search/docs match subscription facts.
- */
-export async function reconcileExpiredTufStellarSubscription(user: User): Promise<void> {
-  const billing = await loadUserTufStellarBilling(user.id);
-  if (!billing) return;
-  if (isTufStellarSubscriptionActive(user, billing)) return;
-
-  const changed = await reconcileBillingLifecycleIfExpired(billing);
-  if (changed && user.playerId != null) {
-    try {
-      await elasticsearchService.reindexPlayers([user.playerId]);
-    } catch {
-      // Best-effort; DB state is authoritative.
-    }
-  }
+/** No-op placeholder kept for call sites that refresh billing context before routes. */
+export async function reconcileExpiredTufStellarAccess(user: User): Promise<void> {
+  void user;
 }
 
 /**
  * PROFILE GIF CDN layout: `…/original_animated`, `…/large_animated`, … plus `…/original_static` (JPEG).
- * When the subscription is inactive, swap `_animated` → `_static` on the path. Legacy GIFs used `…/original`
+ * When TUFStellar access is inactive, swap `_animated` → `_static` on the path. Legacy GIFs used `…/original`
  * with `…/original_static` only — still supported here for media redirects.
  */
 export function getEffectiveAvatarDisplayUrl(
   avatarUrl: string | null | undefined,
   avatarIsGif: boolean | null | undefined,
-  subscriptionActive: boolean,
+  accessActive: boolean,
 ): string | null {
   if (avatarUrl == null || avatarUrl === '') return null;
-  if (!avatarIsGif || subscriptionActive) return avatarUrl;
+  if (!avatarIsGif || accessActive) return avatarUrl;
   if (avatarUrl.includes('_animated')) {
     return avatarUrl.replace(/_animated/g, '_static');
   }
@@ -94,12 +75,12 @@ export function getEffectiveAvatarDisplayUrl(
 
 export function effectiveAvatarForUserRow(
   user: UserRow | null | undefined,
-  subscriptionExpiresAt: Date | string | null | undefined,
+  accessExpiresAt: Date | string | null | undefined,
 ): string | null {
   if (!user) return null;
   return getEffectiveAvatarDisplayUrl(
     user.avatarUrl ?? null,
     Boolean(user.avatarIsGif),
-    subscriptionExpiresAtActive(subscriptionExpiresAt ?? null),
+    tufStellarExpiresAtActive(accessExpiresAt ?? null),
   );
 }
