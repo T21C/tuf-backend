@@ -1,10 +1,22 @@
 import fs from 'fs';
+import type { PathLike } from 'fs';
+import { fileURLToPath } from 'url';
 import { chain } from 'stream-chain';
 import { parser } from 'stream-json/parser.js';
 import { streamArray } from 'stream-json/streamers/stream-array.js';
 import { streamObject } from 'stream-json/streamers/stream-object.js';
 import { pick } from 'stream-json/filters/pick.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+
+function pathLikeForLog(p: PathLike): string {
+    if (Buffer.isBuffer(p)) return `Buffer(${p.length} bytes)`;
+    if (typeof p === 'string') return p;
+    try {
+        return fileURLToPath(p);
+    } catch {
+        return String(p);
+    }
+}
 
 export type OversizedLevelBasics = {
   tilecount: number;
@@ -45,19 +57,19 @@ const REGEX_FALLBACK_MAX_BYTES = 50 * 1024 * 1024;
  * "unknown" (existing `tooLargeToParse` / file-size caps in the ingest path already handle
  * the safety side of that).
  */
-export async function scanOversizedLevelFile(localAdoPath: string): Promise<OversizedLevelBasics> {
+export async function scanOversizedLevelFile(localAdoPath: PathLike): Promise<OversizedLevelBasics> {
   try {
     return await scanViaStreamJson(localAdoPath);
   } catch (err) {
     logger.debug('scanOversizedLevelFile: stream-json failed; falling back to regex scan', {
-      localAdoPath,
+      localAdoPath: pathLikeForLog(localAdoPath),
       error: err instanceof Error ? err.message : String(err),
     });
     try {
       return await scanViaRegexFallback(localAdoPath);
     } catch (fallbackErr) {
       logger.warn('scanOversizedLevelFile: regex fallback also failed', {
-        localAdoPath,
+        localAdoPath: pathLikeForLog(localAdoPath),
         error: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
       });
       return { tilecount: 0, settings: {} };
@@ -66,7 +78,7 @@ export async function scanOversizedLevelFile(localAdoPath: string): Promise<Over
 }
 
 /** Strict-JSON streaming pipeline (the original implementation, with the additional settings keys). */
-async function scanViaStreamJson(localAdoPath: string): Promise<OversizedLevelBasics> {
+async function scanViaStreamJson(localAdoPath: PathLike): Promise<OversizedLevelBasics> {
   const settings: OversizedLevelBasics['settings'] = {};
   let tilecount = 0;
 
@@ -123,7 +135,7 @@ async function scanViaStreamJson(localAdoPath: string): Promise<OversizedLevelBa
  *    overrides `settings.song`. In practice the modern .adofai layout writes `settings` before
  *    `actions` / `decorations`, and none of the deep payloads use the same key names.
  */
-async function scanViaRegexFallback(localAdoPath: string): Promise<OversizedLevelBasics> {
+async function scanViaRegexFallback(localAdoPath: PathLike): Promise<OversizedLevelBasics> {
   return new Promise<OversizedLevelBasics>((resolve, reject) => {
     const settings: OversizedLevelBasics['settings'] = {};
     let tail = '';

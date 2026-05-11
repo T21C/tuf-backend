@@ -608,6 +608,60 @@ export async function listEntries(filePath: string, signal?: AbortSignal): Promi
     return parseSlt(result.stdout);
 }
 
+/** Join one directory buffer and one readdir name buffer using the platform path separator. */
+function joinPathBufDirName(dirBuf: Buffer, nameBuf: Buffer): Buffer {
+    return Buffer.concat([dirBuf, Buffer.from(path.sep, 'utf8'), nameBuf]);
+}
+
+/** Case-insensitive ASCII suffix check on raw name bytes (extension is always ASCII). */
+function nameBufEndsWithDottedExtAsciiCI(nameBuf: Buffer, dottedExtLower: string): boolean {
+    const want = Buffer.from(dottedExtLower, 'latin1');
+    if (nameBuf.length < want.length) return false;
+    const tail = nameBuf.subarray(nameBuf.length - want.length);
+    for (let i = 0; i < want.length; i++) {
+        let a = tail[i]!;
+        let b = want[i]!;
+        if (a >= 0x41 && a <= 0x5a) a += 32;
+        if (b >= 0x41 && b <= 0x5a) b += 32;
+        if (a !== b) return false;
+    }
+    return true;
+}
+
+/**
+ * Recursive walk using `readdir(..., { encoding: 'buffer' })` and `stat(Buffer)` so dentry
+ * bytes match what 7-Zip wrote (avoids `ENOENT` when UTF-16 `path.join` diverges from on-disk UTF-8).
+ */
+async function listFilesWithExtensionRecursive(dir: string, dottedExt: string): Promise<Buffer[]> {
+    const wantedLower = dottedExt.toLowerCase();
+    const out: Buffer[] = [];
+    const stack: Buffer[] = [Buffer.from(dir, 'utf8')];
+    while (stack.length > 0) {
+        const dirBuf = stack.pop()!;
+        let names: Buffer[];
+        try {
+            names = (await fs.promises.readdir(dirBuf, { encoding: 'buffer' })) as Buffer[];
+        } catch {
+            continue;
+        }
+        for (const nameBuf of names) {
+            const fullBuf = joinPathBufDirName(dirBuf, nameBuf);
+            let st: fs.Stats;
+            try {
+                st = await fs.promises.stat(fullBuf);
+            } catch {
+                continue;
+            }
+            if (st.isDirectory()) {
+                stack.push(fullBuf);
+            } else if (st.isFile() && nameBufEndsWithDottedExtAsciiCI(nameBuf, wantedLower)) {
+                out.push(fullBuf);
+            }
+        }
+    }
+    return out;
+}
+
 /**
  * Extract every entry from an archive to `destDir`. Creates the directory if missing.
  *
@@ -634,11 +688,8 @@ export async function extractAll(archivePath: string, destDir: string, signal?: 
     }
 
     if (result.code === 1) {
-        let entries: fs.Dirent[] = [];
-        try {
-            entries = await fs.promises.readdir(destDir, { withFileTypes: true });
-        } catch { /* fall through */ }
-        if (entries.length === 0) {
+        const hasOutput = await directoryHasAnyFile(destDir);
+        if (!hasOutput) {
             throw buildSevenZError('extract (warning + empty output)', args, result);
         }
         logger.debug('archiveService.extractAll completed with warnings', {
@@ -649,27 +700,68 @@ export async function extractAll(archivePath: string, destDir: string, signal?: 
     }
 }
 
-/** True if `dir` contains at least one regular file somewhere beneath it. */
+/** True if `dir` contains at least one regular file somewhere beneath it (buffer readdir + stat). */
 async function directoryHasAnyFile(dir: string): Promise<boolean> {
-    const stack = [dir];
+    const stack: Buffer[] = [Buffer.from(dir, 'utf8')];
     while (stack.length > 0) {
-        const d = stack.pop()!;
-        let names: string[];
+        const dirBuf = stack.pop()!;
+        let names: Buffer[];
         try {
-            names = await fs.promises.readdir(d);
+            names = (await fs.promises.readdir(dirBuf, { encoding: 'buffer' })) as Buffer[];
         } catch {
             continue;
         }
-        for (const n of names) {
-            const p = path.join(d, n);
+        for (const nameBuf of names) {
+            const fullBuf = joinPathBufDirName(dirBuf, nameBuf);
             try {
-                const st = await fs.promises.stat(p);
+                const st = await fs.promises.stat(fullBuf);
                 if (st.isFile()) return true;
-                if (st.isDirectory()) stack.push(p);
+                if (st.isDirectory()) stack.push(fullBuf);
             } catch {
                 /* ignore */
             }
         }
+    }
+    return false;
+}
+
+/**
+ * Whether `relativePosix` exists under `extractRoot`, using buffer `readdir`/`stat` so dentry
+ * bytes match 7-Zip output (avoids false `existsSync(path.join(...))` misses on some trees).
+ */
+async function extractRootHasRelativePosixPath(extractRoot: string, relativePosix: string): Promise<boolean> {
+    const parts = relativePosix.replace(/\\/g, '/').split('/').filter(Boolean);
+    if (parts.length === 0) return false;
+    let dirBuf: Buffer = Buffer.from(extractRoot, 'utf8');
+    for (let i = 0; i < parts.length; i++) {
+        const wantName = Buffer.from(parts[i]!, 'utf8');
+        let names: Buffer[];
+        try {
+            names = (await fs.promises.readdir(dirBuf, { encoding: 'buffer' })) as Buffer[];
+        } catch {
+            return false;
+        }
+        let found: Buffer | null = null;
+        for (const nameBuf of names) {
+            if (nameBuf.equals(wantName)) {
+                found = nameBuf;
+                break;
+            }
+        }
+        if (!found) return false;
+        const fullBuf = joinPathBufDirName(dirBuf, found);
+        let st: fs.Stats;
+        try {
+            st = await fs.promises.stat(fullBuf);
+        } catch {
+            return false;
+        }
+        const isLast = i === parts.length - 1;
+        if (isLast) {
+            return st.isFile() || st.isDirectory();
+        }
+        if (!st.isDirectory()) return false;
+        dirBuf = Buffer.from(fullBuf);
     }
     return false;
 }
@@ -716,10 +808,15 @@ export async function extractLevelPackPayload(
 
     let missingRequired: string[] = [];
     if (filteredOk && hasFiles && options?.requiredRelativePaths?.length) {
-        missingRequired = options.requiredRelativePaths.filter(rel => {
-            const normalized = rel.replace(/\\/g, '/').replace(/^\/+/, '');
-            return !fs.existsSync(path.join(extractRoot, normalized));
-        });
+        const rels = options.requiredRelativePaths;
+        const missing = await Promise.all(
+            rels.map(async (rel) => {
+                const normalized = rel.replace(/\\/g, '/').replace(/^\/+/, '');
+                const ok = await extractRootHasRelativePosixPath(extractRoot, normalized);
+                return ok ? null : rel;
+            })
+        );
+        missingRequired = missing.filter((r): r is string => r !== null);
         if (missingRequired.length > 0) {
             logger.debug('archiveService.extractLevelPackPayload: filtered extract missing required paths; falling back to extractAll', {
                 archivePath,
@@ -782,10 +879,9 @@ export async function extractLevelPackPayload(
  *     directory and decompress only matching members — no streaming the entire
  *     archive. `.adofai` files are typically <1 MiB even on big levels.
  *
- * Returns the list of every extracted `.adofai` file path on disk (case-insensitive
- * extension match — `.ADOFAI`/`.Adofai` are tolerated). Mojibake parent-folder names
- * in the returned paths are expected and intentionally not normalised; callers only
- * read the file *contents*.
+ * Returns absolute paths as **Buffers** (valid {@link fs.PathLike} on Unix). String
+ * `path.join` + `readdir` can produce UTF-16 paths that do not match on-disk dentry bytes
+ * (ENOENT on `stat`); buffer `readdir` + `stat` preserves 7-Zip’s exact folder names.
  *
  * Best-effort: returns `[]` (not throws) when extraction fails — the encoding detector
  * just falls through to its byte-pattern heuristic.
@@ -794,7 +890,7 @@ export async function extractAdofaiFilesForDetection(
     archivePath: string,
     destDir: string,
     signal?: AbortSignal
-): Promise<string[]> {
+): Promise<Buffer[]> {
     if (!fs.existsSync(archivePath)) return [];
     await fs.promises.mkdir(destDir, { recursive: true });
 
@@ -860,37 +956,6 @@ export async function extractAdofaiFilesForDetection(
         });
     }
     return extracted;
-}
-
-/** Walk `dir` recursively and return every file whose name ends with `dottedExt` (case-insensitive). */
-async function listFilesWithExtensionRecursive(dir: string, dottedExt: string): Promise<string[]> {
-    const wantedLower = dottedExt.toLowerCase();
-    const out: string[] = [];
-    const stack = [dir];
-    while (stack.length > 0) {
-        const d = stack.pop()!;
-        let names: string[];
-        try {
-            names = await fs.promises.readdir(d);
-        } catch {
-            continue;
-        }
-        for (const name of names) {
-            const p = path.join(d, name);
-            let st: fs.Stats;
-            try {
-                st = await fs.promises.stat(p);
-            } catch {
-                continue;
-            }
-            if (st.isDirectory()) {
-                stack.push(p);
-            } else if (st.isFile() && name.toLowerCase().endsWith(wantedLower)) {
-                out.push(p);
-            }
-        }
-    }
-    return out;
 }
 
 /**

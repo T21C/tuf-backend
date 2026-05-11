@@ -335,7 +335,7 @@ async function readAdofaiReferencesViaSevenZip(filePath: string): Promise<Adofai
         // Try the smallest .adofai first — settings are usually near the top of the file and a
         // smaller chart means the streaming scanner finishes faster. We then fall through to the
         // next-smallest if the first yields nothing usable (e.g. a stray empty `.adofai`).
-        const withSizes: { path: string; size: number }[] = [];
+        const withSizes: { path: Buffer; size: number }[] = [];
         for (const p of extractedAdofaiPaths) {
             try {
                 const st = await fs.promises.stat(p);
@@ -352,7 +352,7 @@ async function readAdofaiReferencesViaSevenZip(filePath: string): Promise<Adofai
                 scanned = await scanOversizedLevelFile(adofaiPath);
             } catch (err) {
                 logger.debug('zipFilenameContentDetection: scanOversizedLevelFile threw; trying next .adofai', {
-                    adofaiPath,
+                    adofaiPath: zipFnDetectPathForLog(adofaiPath),
                     error: err instanceof Error ? err.message : String(err)
                 });
                 continue;
@@ -373,6 +373,11 @@ async function readAdofaiReferencesViaSevenZip(filePath: string): Promise<Adofai
     } finally {
         await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
     }
+}
+
+/** Stable log label for a pathname held as a Buffer (exact dentry bytes; may not be valid UTF-8). */
+function zipFnDetectPathForLog(p: Buffer): string {
+    return `[Buffer path ${p.length} bytes]`;
 }
 
 /** Coerce an `unknown` settings value to a usable trimmed string, or `undefined`. */
