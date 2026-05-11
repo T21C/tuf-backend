@@ -255,6 +255,25 @@ function trimForLog(s: string | undefined): string | undefined {
 }
 
 /**
+ * Exact argv passed to `spawn(binary, args)` (no shell) plus a POSIX-ish single-quoted line
+ * for manual reproduction in bash (escape `'` inside args).
+ */
+function formatSevenZipSpawnDump(binary: string, args: readonly string[]): {
+    argv: string[];
+    shellCommand: string;
+} {
+    const argv = [binary, ...args];
+    const shellCommand = argv
+        .map((a) => {
+            if (a === '') return "''";
+            if (/^[a-zA-Z0-9@%_+=:,./-]+$/.test(a)) return a;
+            return `'${String(a).replace(/'/g, `'\\''`)}'`;
+        })
+        .join(' ');
+    return { argv, shellCommand };
+}
+
+/**
  * What 7-Zip actually printed — used in {@link buildSevenZError} so logs show a
  * descriptive report instead of only `exit N`.
  *
@@ -791,12 +810,24 @@ export async function extractAdofaiFilesForDetection(
         '-bb0'
     ];
 
+    const spawnDump = formatSevenZipSpawnDump(SEVEN_ZIP_BIN, args);
+    logger.debug('archiveService.extractAdofaiFilesForDetection: 7z invocation (spawn argv + shell-style)', {
+        archivePath,
+        destDir,
+        sevenZipBinary: SEVEN_ZIP_BIN,
+        argv: spawnDump.argv,
+        shellCommand: spawnDump.shellCommand,
+    });
+
     let result: RunSevenZResult;
     try {
         result = await runSevenZ(args, { signal });
     } catch (err) {
         logger.debug('archiveService.extractAdofaiFilesForDetection: 7z spawn failed', {
             archivePath,
+            sevenZipBinary: SEVEN_ZIP_BIN,
+            argv: spawnDump.argv,
+            shellCommand: spawnDump.shellCommand,
             error: err instanceof Error ? err.message : String(err)
         });
         return [];
@@ -805,8 +836,12 @@ export async function extractAdofaiFilesForDetection(
     if (result.code !== 0 && result.code !== 1) {
         logger.debug('archiveService.extractAdofaiFilesForDetection: 7z exited non-zero; encoding detection will fall back', {
             archivePath,
+            sevenZipBinary: SEVEN_ZIP_BIN,
+            argv: spawnDump.argv,
+            shellCommand: spawnDump.shellCommand,
             exitCode: result.code,
-            stderr: trimForLog(result.stderr)
+            stderr: trimForLog(result.stderr),
+            stdout: trimForLog(result.stdout),
         });
         return [];
     }
@@ -816,8 +851,12 @@ export async function extractAdofaiFilesForDetection(
         logger.debug('archiveService.extractAdofaiFilesForDetection: 7z succeeded but no .adofai files under dest', {
             archivePath,
             destDir,
+            sevenZipBinary: SEVEN_ZIP_BIN,
+            argv: spawnDump.argv,
+            shellCommand: spawnDump.shellCommand,
             exitCode: result.code,
             stderr: trimForLog(result.stderr),
+            stdout: trimForLog(result.stdout),
         });
     }
     return extracted;
