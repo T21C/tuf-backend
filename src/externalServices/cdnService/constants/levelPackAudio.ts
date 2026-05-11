@@ -58,7 +58,12 @@ export const LEVEL_SUPPORTED_AUDIO_CONTENT_TYPE_BY_EXT: Record<LevelSupportedAud
 };
 
 /**
- * Builds 7-Zip `-i!` include switches for each extension (lowercase + UPPERCASE globs).
+ * Builds 7-Zip include switches for each extension (lowercase + UPPERCASE globs).
+ *
+ * Uses `-ir!` (include + recurse into archive paths), not plain `-i!`. On Linux **p7zip**,
+ * `-i!*.ext` often matches only root-level entries; nested `dir/file.adofai` then extracts
+ * nothing while exit code stays 0. Windows 7-Zip is frequently more permissive, which hid this.
+ *
  * `dottedExtensions` entries should be like `.mp3` (leading dot optional).
  */
 export function levelPackDottedExtToSevenZipIncludeGlobs(dottedExtensions: readonly string[]): string[] {
@@ -68,12 +73,12 @@ export function levelPackDottedExtToSevenZipIncludeGlobs(dottedExtensions: reado
         if (!token || /[/\\*?]/.test(token)) {
             throw new Error(`Invalid extension for 7z include glob: ${dotted}`);
         }
-        out.push(`-i!*.${token}`, `-i!*.${token.toUpperCase()}`);
+        out.push(`-ir!*.${token}`, `-ir!*.${token.toUpperCase()}`);
     }
     return out;
 }
 
-/** `-i!` patterns for `.adofai` + {@link LEVEL_SUPPORTED_AUDIO_EXTENSIONS} (used by `7z x -r`). */
+/** `-ir!` patterns for `.adofai` + {@link LEVEL_SUPPORTED_AUDIO_EXTENSIONS} (used by `7z x -r`). */
 export const LEVEL_PACK_PAYLOAD_SEVEN_ZIP_INCLUDE_GLOBS: readonly string[] = Object.freeze([
     ...levelPackDottedExtToSevenZipIncludeGlobs(['.adofai']),
     ...levelPackDottedExtToSevenZipIncludeGlobs([...LEVEL_SUPPORTED_AUDIO_EXTENSIONS])

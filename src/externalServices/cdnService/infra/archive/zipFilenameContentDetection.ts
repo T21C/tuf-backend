@@ -25,7 +25,7 @@ import type { ZipCentralDirectoryEntry } from './zipCentralDirectory.js';
  *      match on the *raw* filename bytes (the `.adofai`/`.wav`/... suffix is pure ASCII
  *      and survives any legacy decoding). The CD walk is purely a gate — if there are no
  *      `.adofai` or no audio entries, skip the (much heavier) extraction step.
- *   2. Drive {@link extractAdofaiFilesForDetection} — a 7-Zip filtered `-i!*.adofai`
+ *   2. Drive {@link extractAdofaiFilesForDetection} — a 7-Zip filtered `-ir!*.adofai`
  *      extract — to dump just the `.adofai` files into a temp directory. This is the
  *      same CDN-standard 7-Zip codepath as every other archive operation; there is no
  *      `adm-zip`, no second ZIP reader, and no need to load multi-gigabyte archives

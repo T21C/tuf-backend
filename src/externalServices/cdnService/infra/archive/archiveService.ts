@@ -759,7 +759,7 @@ export async function extractLevelPackPayload(
  *     back to OEM otherwise) is the safest choice for "just pull the bytes out".
  *
  *  3. It must be cheap on **multi-gigabyte** archives. ZIP entries are independently
- *     deflated, so `-i!*.adofai -i!*.ADOFAI` lets 7-Zip seek straight to the central
+ *     deflated, so `-ir!*.adofai -ir!*.ADOFAI` lets 7-Zip seek straight to the central
  *     directory and decompress only matching members — no streaming the entire
  *     archive. `.adofai` files are typically <1 MiB even on big levels.
  *
