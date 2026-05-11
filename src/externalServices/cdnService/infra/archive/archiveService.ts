@@ -5,7 +5,11 @@ import crypto from 'crypto';
 import { spawn } from 'child_process';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { decodeMultipartFilename } from '@/misc/utils/multipartFilename.js';
-import { LEVEL_PACK_PAYLOAD_SEVEN_ZIP_INCLUDE_GLOBS } from '@/externalServices/cdnService/constants/levelPackAudio.js';
+import {
+    LEVEL_PACK_PAYLOAD_SEVEN_ZIP_INCLUDE_GLOBS,
+    levelPackDottedExtToSevenZipIncludeGlobs
+} from '@/externalServices/cdnService/constants/levelPackAudio.js';
+import { detectZipFilenameCodePage } from './zipFilenameEncoding.js';
 
 /**
  * Archive service: a single chokepoint for read/list/extract/create operations
@@ -136,9 +140,9 @@ export function getArchiveExtension(format: SupportedArchiveExt): string {
 /**
  * Peeks magic bytes so we do not rely on `.zip` in the path alone (temp names keep extensions).
  *
- * `-mcu=on` is a **ZIP-only** `-m` sub-switch (UTF-8 entry names). 7-Zip treats unknown `-m`
- * parameters as fatal for other formats — `7z x foo.rar … -mcu=on` exits with code 2 even when
- * RAR support is installed. Only append it when the archive is actually ZIP.
+ * `-mcu=on` / `-mcp=` are **ZIP-only** `-m` sub-switches. 7-Zip treats unknown `-m` parameters as
+ * fatal for other formats — `7z x foo.rar … -mcu=on` exits with code 2 even when RAR support is
+ * installed. Only append them when the archive is actually ZIP.
  */
 function extractFormatWithMagicPeek(archivePath: string): SupportedArchiveExt | null {
     const base = path.basename(archivePath);
@@ -158,8 +162,68 @@ function extractFormatWithMagicPeek(archivePath: string): SupportedArchiveExt | 
     return detectArchiveFormat(base, peek);
 }
 
-function utf8ZipNameArgsForExtract(archivePath: string): string[] {
-    return extractFormatWithMagicPeek(archivePath) === 'zip' ? ['-mcu=on'] : [];
+/**
+ * Args for **creating** a ZIP archive — forces UTF-8 entry names and sets GPF bit 11 so every
+ * downstream reader (including ours) decodes the names unambiguously. Never use on reads.
+ */
+function utf8ZipNameArgsForCreate(): string[] {
+    return ['-mcu=on'];
+}
+
+/**
+ * Pre-scan the archive's central directory and ask 7-Zip to decode legacy entry names with the
+ * code page that wrote them (e.g. CP932 from Japanese Windows Explorer ZIPs). This is the
+ * read-side counterpart of {@link utf8ZipNameArgsForCreate}.
+ *
+ * IMPORTANT: never pass `-mcu=on` on reads — it force-interprets every entry name as UTF-8 and
+ * destroys filenames in pre-UTF-8-flag (legacy) ZIPs, producing the classic
+ * `ܡ�������.adofai`-style mojibake on Japanese / Chinese / Korean uploads.
+ *
+ * Returns `[]` when:
+ *  - the archive is not a ZIP (RAR / 7z / tar / gz handle encoding themselves);
+ *  - every entry already has GPF bit 11 set or an Info-ZIP Unicode Path Extra Field;
+ *  - legacy bytes happen to be valid UTF-8 (7-Zip default already works);
+ *  - the central directory could not be parsed (ZIP64, IO error, truncated …) — in which case
+ *    we fall back to 7-Zip's default behaviour rather than risk a wrong override.
+ */
+async function zipReadEncodingArgs(archivePath: string): Promise<string[]> {
+    if (extractFormatWithMagicPeek(archivePath) !== 'zip') return [];
+
+    let detection;
+    try {
+        detection = await detectZipFilenameCodePage(archivePath);
+    } catch (err) {
+        logger.warn('archiveService.zipReadEncodingArgs: detection threw, using 7-Zip default', {
+            archivePath,
+            error: err instanceof Error ? err.message : String(err)
+        });
+        return [];
+    }
+
+    if (detection.codePage === null) {
+        if (!detection.skipped && (detection.legacyCandidateCount > 0 || detection.unicodePathExtraCount > 0)) {
+            logger.debug('archiveService.zipReadEncodingArgs: no override needed', {
+                archivePath,
+                reason: detection.reason,
+                inspected: detection.inspectedCount,
+                utf8Flagged: detection.utf8FlaggedCount,
+                unicodePathExtra: detection.unicodePathExtraCount,
+                legacyCandidates: detection.legacyCandidateCount
+            });
+        }
+        return [];
+    }
+
+    logger.debug('archiveService.zipReadEncodingArgs: applying legacy code page to ZIP read', {
+        archivePath,
+        codePage: detection.codePage,
+        reason: detection.reason,
+        inspected: detection.inspectedCount,
+        utf8Flagged: detection.utf8FlaggedCount,
+        unicodePathExtra: detection.unicodePathExtraCount,
+        legacyCandidates: detection.legacyCandidateCount
+    });
+    return [`-mcp=${detection.codePage}`];
 }
 
 interface RunSevenZOptions {
@@ -507,9 +571,10 @@ export async function listEntries(filePath: string, signal?: AbortSignal): Promi
     if (!fs.existsSync(filePath)) {
         throw new Error(`Archive not found: ${filePath}`);
     }
-    // Match UTF-8 ZIP name decoding with {@link extractAll} / {@link extractLevelPackPayload}
-    // so `relativePath` aligns with on-disk paths after `-mcu=on` extraction.
-    const args = ['l', '-slt', '-ba', '-y', filePath, ...utf8ZipNameArgsForExtract(filePath)];
+    // ZIPs: detect legacy filename code page so listing matches what extraction will write to disk.
+    // Other formats: encodingArgs is `[]`.
+    const encodingArgs = await zipReadEncodingArgs(filePath);
+    const args = ['l', '-slt', '-ba', '-y', filePath, ...encodingArgs];
     const result = await runSevenZ(args, { signal });
     // 7z exit codes: 0 = success, 1 = warnings (still usable), 2+ = fatal.
     if (result.code !== 0 && result.code !== 1) {
@@ -521,8 +586,11 @@ export async function listEntries(filePath: string, signal?: AbortSignal): Promi
 /**
  * Extract every entry from an archive to `destDir`. Creates the directory if missing.
  *
- * For **ZIP** only, we pass `-mcu=on` so UTF-8 paths inside the archive decode consistently.
- * That switch must not be used for RAR/7z/tar — 7-Zip exits fatally (code 2) if it is.
+ * For **ZIP** only, we may pass `-mcp=<N>` if the central directory was written without GPF bit 11
+ * (e.g. Windows Explorer's built-in zipper on Japanese / Chinese / Korean systems). `-mcu=on` is
+ * intentionally never used on reads — it would force-decode legacy names as UTF-8 and turn
+ * `碧空の約束.adofai` into `ܡ�������.adofai`. Both switches are ZIP-only; passing them to a
+ * RAR/7z/tar archive makes 7-Zip exit fatally with code 2.
  */
 export async function extractAll(archivePath: string, destDir: string, signal?: AbortSignal): Promise<void> {
     if (!fs.existsSync(archivePath)) {
@@ -530,7 +598,8 @@ export async function extractAll(archivePath: string, destDir: string, signal?: 
     }
     await fs.promises.mkdir(destDir, { recursive: true });
 
-    const args = ['x', archivePath, `-o${destDir}`, '-y', ...utf8ZipNameArgsForExtract(archivePath), '-bd', '-bb0'];
+    const encodingArgs = await zipReadEncodingArgs(archivePath);
+    const args = ['x', archivePath, `-o${destDir}`, '-y', ...encodingArgs, '-bd', '-bb0'];
     const result = await runSevenZ(args, { signal });
 
     // Exit code 1 = warnings (e.g. filename encoding) but extraction usually succeeded.
@@ -602,6 +671,7 @@ export async function extractLevelPackPayload(
     }
     await fs.promises.mkdir(extractRoot, { recursive: true });
 
+    const encodingArgs = await zipReadEncodingArgs(archivePath);
     const filteredArgs = [
         'x',
         archivePath,
@@ -609,7 +679,7 @@ export async function extractLevelPackPayload(
         '-y',
         '-r',
         ...LEVEL_PACK_PAYLOAD_SEVEN_ZIP_INCLUDE_GLOBS,
-        ...utf8ZipNameArgsForExtract(archivePath),
+        ...encodingArgs,
         '-bd',
         '-bb0'
     ];
@@ -666,6 +736,104 @@ export async function extractLevelPackPayload(
 }
 
 /**
+ * 7-Zip `.adofai`-only filtered extract used **exclusively by the ZIP filename encoding
+ * detector** ({@link zipFilenameContentDetection}).
+ *
+ * Why this exists as a separate function:
+ *
+ *  1. It must NOT call {@link zipReadEncodingArgs}. That detector is the very thing
+ *     trying to decide which `-mcp=N` to pass — calling it here would be circular.
+ *     We deliberately run 7-Zip with its default filename decoding; the on-disk
+ *     filenames may be mojibake but the file *contents* (the `.adofai` JSON bytes,
+ *     which are always UTF-8) are unaffected.
+ *
+ *  2. It must NOT pass `-mcu=on` either. Forcing UTF-8 interpretation of legacy
+ *     names is what causes mojibake on Japanese/Korean/Chinese ZIPs in the first
+ *     place. Default 7-Zip behaviour (decode UTF-8 when GPF bit 11 is set, fall
+ *     back to OEM otherwise) is the safest choice for "just pull the bytes out".
+ *
+ *  3. It must be cheap on **multi-gigabyte** archives. ZIP entries are independently
+ *     deflated, so `-i!*.adofai -i!*.ADOFAI` lets 7-Zip seek straight to the central
+ *     directory and decompress only matching members — no streaming the entire
+ *     archive. `.adofai` files are typically <1 MiB even on big levels.
+ *
+ * Returns the list of every extracted `.adofai` file path on disk (case-insensitive
+ * extension match — `.ADOFAI`/`.Adofai` are tolerated). Mojibake parent-folder names
+ * in the returned paths are expected and intentionally not normalised; callers only
+ * read the file *contents*.
+ *
+ * Best-effort: returns `[]` (not throws) when extraction fails — the encoding detector
+ * just falls through to its byte-pattern heuristic.
+ */
+export async function extractAdofaiFilesForDetection(
+    archivePath: string,
+    destDir: string,
+    signal?: AbortSignal
+): Promise<string[]> {
+    if (!fs.existsSync(archivePath)) return [];
+    await fs.promises.mkdir(destDir, { recursive: true });
+
+    const includeGlobs = levelPackDottedExtToSevenZipIncludeGlobs(['.adofai']);
+    const args = [
+        'x',
+        archivePath,
+        `-o${destDir}`,
+        '-y',
+        '-r',
+        ...includeGlobs,
+        '-bd',
+        '-bb0'
+    ];
+
+    let result: RunSevenZResult;
+    try {
+        result = await runSevenZ(args, { signal });
+    } catch (err) {
+        logger.debug('archiveService.extractAdofaiFilesForDetection: 7z spawn failed', {
+            archivePath,
+            error: err instanceof Error ? err.message : String(err)
+        });
+        return [];
+    }
+
+    if (result.code !== 0 && result.code !== 1) {
+        logger.debug('archiveService.extractAdofaiFilesForDetection: 7z exited non-zero; encoding detection will fall back', {
+            archivePath,
+            exitCode: result.code,
+            stderr: trimForLog(result.stderr)
+        });
+        return [];
+    }
+
+    return await listFilesWithExtensionRecursive(destDir, '.adofai');
+}
+
+/** Walk `dir` recursively and return every file whose name ends with `dottedExt` (case-insensitive). */
+async function listFilesWithExtensionRecursive(dir: string, dottedExt: string): Promise<string[]> {
+    const wantedLower = dottedExt.toLowerCase();
+    const out: string[] = [];
+    const stack = [dir];
+    while (stack.length > 0) {
+        const d = stack.pop()!;
+        let entries: fs.Dirent[];
+        try {
+            entries = await fs.promises.readdir(d, { withFileTypes: true });
+        } catch {
+            continue;
+        }
+        for (const e of entries) {
+            const p = path.join(d, e.name);
+            if (e.isDirectory()) {
+                stack.push(p);
+            } else if (e.isFile() && e.name.toLowerCase().endsWith(wantedLower)) {
+                out.push(p);
+            }
+        }
+    }
+    return out;
+}
+
+/**
  * Extract a single entry from an archive to a precise output file path.
  *
  * 7z's `e` flattens to a directory; we extract into a temp folder, locate the
@@ -699,9 +867,10 @@ export async function extractEntry(
 
         // `x` (preserve paths) inside a private staging folder gives us deterministic
         // resolution even when entries share a basename with other paths in the archive.
+        const encodingArgs = await zipReadEncodingArgs(archivePath);
         const args = [
             'x', archivePath, pathFor7z, `-o${stagingDir}`, '-y',
-            ...utf8ZipNameArgsForExtract(archivePath),
+            ...encodingArgs,
             '-bd', '-bb0'
         ];
         const result = await runSevenZ(args, { signal });
@@ -806,7 +975,7 @@ export async function createZip(
     const args = [
         'a', '-tzip',
         '-mx=0', '-mm=Copy',
-        '-mcu=on', '-r',
+        ...utf8ZipNameArgsForCreate(), '-r',
         // Omit `-bd` so 7-Zip can emit `%` progress; `-bb1` lists added files (helps some builds emit usable output).
         '-y', '-bb1',
         targetZipPath,

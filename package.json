@@ -67,6 +67,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "form-data": "^4.0.1",
+    "iconv-lite": "^0.7.2",
     "json5": "^2.2.3",
     "jsonwebtoken": "^9.0.2",
     "mailersend": "^2.3.0",

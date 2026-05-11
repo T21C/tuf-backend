@@ -15,6 +15,7 @@ import CdnFile from '@/models/cdn/CdnFile.js';
 import crypto from 'crypto';
 import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
 import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '@/externalServices/cdnService/constants/levelPackAudio.js';
+import { extractAll as archiveExtractAll } from '@/externalServices/cdnService/infra/archive/archiveService.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -690,58 +691,33 @@ async function streamSpacesFileToDisk(spacesKey: string, targetPath: string): Pr
 async function extractZipToFolder(zipPath: string, extractTo: string): Promise<void> {
     await fs.promises.mkdir(extractTo, { recursive: true });
 
-    const sevenZipPath = '7z';
-    let cmd: string;
-
-    if (isWindows) {
-        // 7z: -mcu=on forces UTF-8 encoding for filenames
-        cmd = `"${sevenZipPath}" x "${zipPath}" -o"${extractTo}" -y -mcu=on`;
-    } else {
-        // unzip: Use LC_ALL=C.UTF-8 to force UTF-8 locale (see https://ianwwagner.com/unzip-utf-8-docker-and-c-locales.html)
-        // unzip checks locale via setlocale(LC_CTYPE, "") and needs explicit UTF-8 locale
-        // -q: quiet mode (suppress most output)
-        // Note: unzip may exit with code 1 for warnings but still extract successfully
-        cmd = `unzip -o -q "${zipPath}" -d "${extractTo}"`;
-    }
-
+    // Route through archiveService.extractAll so we get the same ZIP filename code-page
+    // detection (`-mcp=<N>`) the ingest path uses. Without this, ZIPs whose entries pre-date
+    // GPF bit 11 (Windows Explorer's built-in zipper on Japanese / Chinese / Korean systems)
+    // would produce `ܡ�������.adofai`-style mojibake when re-packed for pack downloads.
     try {
-        await execAsync(cmd, {
-            shell: isWindows ? 'cmd.exe' : '/bin/bash',
-            maxBuffer: 1024 * 1024 * 100, // 100MB buffer for stdout/stderr
-            // Set LC_ALL to force UTF-8 locale for unzip (overrides all locale categories)
-            env: isWindows ? undefined : { ...process.env, LC_ALL: 'C.UTF-8' }
-        });
-    } catch (error: any) {
-        // unzip exit codes: 0=success, 1=warnings but continued, 2=corrupt, 3=severe error
-        // Exit code 1 often means filename encoding warnings but extraction succeeded
-        const exitCode = error?.code;
-
-        // Check if extraction actually succeeded by verifying files/directories exist
+        await archiveExtractAll(zipPath, extractTo);
+        return;
+    } catch (error) {
         let extractedEntries: fs.Dirent[] = [];
         try {
             extractedEntries = await fs.promises.readdir(extractTo, { withFileTypes: true });
         } catch {
-            // Directory doesn't exist or can't be read - extraction failed
+            /* extraction directory empty / missing — handled below */
         }
-
-        // If we have files/directories, extraction succeeded despite warnings
         if (extractedEntries.length > 0) {
-            return; // Success - files were extracted
+            // Partial success (e.g. 7-Zip warning); the caller treats whatever made it to disk as good.
+            return;
         }
 
-        // Exit code 2 or 3 means real failure, or exit code 1 with no files extracted
-        // Fall back to AdmZip
-        logger.debug('Failed to extract zip using 7z/unzip, falling back to AdmZip', {
+        logger.debug('packDownloadRoutes.extractZipToFolder: archiveService.extractAll failed, falling back to AdmZip', {
             zipPath,
             extractTo,
-            error: error instanceof Error ? error.message : String(error),
-            exitCode,
-            stderr: error?.stderr?.substring(0, 500)
+            error: error instanceof Error ? error.message : String(error)
         });
-        // Fallback to AdmZip if 7z/unzip fails
-        // AdmZip reads zip entries directly and should preserve encoding
+        // AdmZip reads entries directly from the central directory and honours GPF bit 11 by itself —
+        // a useful fallback for archives 7-Zip refuses (e.g. weird method codes / extra fields).
         const zip = new AdmZip(zipPath);
-        // extractAllTo with overwrite=true should preserve UTF-8 filenames
         zip.extractAllTo(extractTo, true);
     }
 }
