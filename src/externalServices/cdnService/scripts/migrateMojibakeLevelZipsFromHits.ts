@@ -15,9 +15,11 @@
  *   Same as the audit script: with non-TTY stdout, Winston’s console transport is omitted when argv
  *   names this file (see LoggerService); use TUF_SUPPRESS_CONSOLE_LOGGER to force on/off.
  *   npx tsx src/externalServices/cdnService/scripts/migrateMojibakeLevelZipsFromHits.ts --dry-run
- *   npx tsx src/externalServices/cdnService/scripts/migrateMojibakeLevelZipsFromHits.ts --apply --actor-user-id 1
+ *   npx tsx ... --apply --actor-user-id <uuid>   # users.id (UUID), must be SUPER_ADMIN
  *   npx tsx ... --hits-file ./mojibake-hits.ndjson
- *   npx tsx ... --apply --actor-user-id 1 --continue-on-error   # dequeue failed lines too
+ *   npx tsx ... --apply --actor-user-id <uuid> --continue-on-error   # dequeue failed lines too
+ *   npx tsx ... --apply --actor-user-id <uuid> --max-files 5         # migrate 5 successes then stop (queue tail unchanged)
+ *   npx tsx ... --dry-run --max-files 10                        # preview only the first 10 would-migrate rows
  *
  * Pipeline verification (exit codes documented in audit script header):
  *   npx tsx src/externalServices/cdnService/scripts/auditLevelzipMojibakeMetadata.ts --file-id <newUuid> --check-clean
@@ -48,6 +50,9 @@ import {
 } from '../domain/metadata/mojibakeAuditLevelzipMetadata.js';
 
 const CDN_ZIP_FILE_ID_PARAM = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** `users.id` is UUID (any variant); permissive hex pattern for CLI validation */
+const USER_PK_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type HitsNdjsonLine = { fileId?: string; hitCount?: number; hits?: unknown };
 
@@ -138,11 +143,20 @@ async function main(): Promise<void> {
         .option('--hits-file <path>', 'NDJSON input (default: ./mojibake-hits.ndjson in cwd)', '')
         .option('--dry-run', 'Parse queue and print actions only (does not modify the hits file)', false)
         .option('--apply', 'Perform migrations (requires --actor-user-id)', false)
-        .option('--actor-user-id <n>', 'Main-API user id used as req.user (must be SUPER_ADMIN)', '')
+        .option(
+            '--actor-user-id <uuid>',
+            'users.id (UUID) for req.user when applying migrations (must be SUPER_ADMIN)',
+            '',
+        )
         .option(
             '--continue-on-error',
             'On failure: log error, remove the current line from the hits file, and continue (default: stop without removing the line)',
             false,
+        )
+        .option(
+            '--max-files <n>',
+            'Cap successful re-ingests (--apply) or would-migrate preview rows (--dry-run); omit = process entire queue',
+            '',
         )
         .parse();
 
@@ -152,11 +166,24 @@ async function main(): Promise<void> {
         apply?: boolean;
         actorUserId?: string;
         continueOnError?: boolean;
+        maxFiles?: string;
     }>();
 
     const dryRun = opts.dryRun === true;
     const apply = opts.apply === true;
     const continueOnError = opts.continueOnError === true;
+
+    let maxFiles: number | null = null;
+    const maxFilesRaw = String(opts.maxFiles ?? '').trim();
+    if (maxFilesRaw !== '') {
+        const n = parseInt(maxFilesRaw, 10);
+        if (!Number.isFinite(n) || n < 1) {
+            // eslint-disable-next-line no-console
+            console.error('migrateMojibakeLevelZipsFromHits: --max-files must be a positive integer');
+            process.exit(1);
+        }
+        maxFiles = n;
+    }
     const hitsFile = path.resolve(
         process.cwd(),
         opts.hitsFile && String(opts.hitsFile).trim() !== '' ? String(opts.hitsFile) : 'mojibake-hits.ndjson',
@@ -174,17 +201,16 @@ async function main(): Promise<void> {
     }
     let actor: User | null = null;
     if (apply) {
-        const raw = String(opts.actorUserId ?? '').trim();
-        const actorUserId = parseInt(raw, 10);
-        if (!Number.isFinite(actorUserId) || actorUserId <= 0) {
+        const actorUserId = String(opts.actorUserId ?? '').trim();
+        if (!actorUserId || !USER_PK_UUID.test(actorUserId)) {
             // eslint-disable-next-line no-console
-            console.error('migrateMojibakeLevelZipsFromHits: --apply requires --actor-user-id <positive integer>');
+            console.error('migrateMojibakeLevelZipsFromHits: --apply requires --actor-user-id <uuid> (users.id)');
             process.exit(1);
         }
         actor = await User.findByPk(actorUserId);
         if (!actor) {
             // eslint-disable-next-line no-console
-            console.error(`migrateMojibakeLevelZipsFromHits: user ${actorUserId} not found`);
+            console.error(`migrateMojibakeLevelZipsFromHits: user id not found: ${actorUserId}`);
             process.exit(1);
         }
         if (!hasFlag(actor, permissionFlags.SUPER_ADMIN)) {
@@ -211,7 +237,12 @@ async function main(): Promise<void> {
 
     if (dryRun) {
         let wouldProcess = 0;
+        let stoppedEarly = false;
         for (const line of initialLines) {
+            if (maxFiles !== null && wouldProcess >= maxFiles) {
+                stoppedEarly = true;
+                break;
+            }
             const fileId = parseHitsLine(line);
             if (!fileId) {
                 // eslint-disable-next-line no-console
@@ -258,6 +289,7 @@ async function main(): Promise<void> {
                 hitsFile,
                 totalLines: initialLines.length,
                 wouldProcess,
+                ...(maxFiles !== null ? { maxFiles, stoppedEarly } : {}),
             }),
         );
         return;
@@ -274,6 +306,19 @@ async function main(): Promise<void> {
     };
 
     while (lines.length > 0) {
+        if (maxFiles !== null && processed >= maxFiles) {
+            // eslint-disable-next-line no-console
+            console.error(
+                JSON.stringify({
+                    phase: 'batch-cap',
+                    maxFiles,
+                    processed,
+                    remainingLinesInQueue: lines.length,
+                }),
+            );
+            break;
+        }
+
         const line = lines[0]!;
         const fileId = parseHitsLine(line);
         if (!fileId) {
@@ -439,10 +484,27 @@ async function main(): Promise<void> {
     }
 
     // eslint-disable-next-line no-console
-    console.log(JSON.stringify({ ok: true, hitsFile, processed, failed, dryRun: false }));
+    console.log(
+        JSON.stringify({
+            ok: true,
+            hitsFile,
+            processed,
+            failed,
+            dryRun: false,
+            ...(maxFiles !== null
+                ? {
+                      maxFiles,
+                      batchCapReached: lines.length > 0,
+                      remainingLinesInQueue: lines.length,
+                  }
+                : {}),
+        }),
+    );
 }
 
-main().catch((err) => {
+main().then(() => {
+    process.exit(0);
+}).catch((err) => {
     // eslint-disable-next-line no-console
     console.error(err);
     process.exit(1);
