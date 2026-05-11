@@ -26,6 +26,7 @@ import {
   normalizeTufStellarIconVariant,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
+import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 import { DEFAULT_LEADERBOARD_RANK_SCORING_VERSION, RANK_HISTORY_MAX_POINTS } from '@/config/leaderboardRankHistory.js';
 import { buildRankHistorySeries } from '@/server/services/leaderboard/rankHistorySeries.js';
 
@@ -402,13 +403,16 @@ router.get(
           }
         : { topScores: [], potentialTopScores: [] };
 
+      const stellarOn = isTufStellarFeatureEnabled();
       const bannerPatch = playerRow
         ? {
             bio: typeof playerRow.bio === 'string' && playerRow.bio.trim().length ? playerRow.bio : null,
             bannerPreset: playerRow.bannerPreset ?? null,
             customBannerId: playerRow.customBannerId ?? null,
             customBannerUrl: playerRow.customBannerUrl ?? null,
-            tufStellarIconVariant: normalizeTufStellarIconVariant(playerRow.tufStellarIconVariant),
+            tufStellarIconVariant: stellarOn
+              ? normalizeTufStellarIconVariant(playerRow.tufStellarIconVariant)
+              : '1',
           }
         : {};
 
@@ -525,6 +529,9 @@ router.patch(
     try {
       const user = req.user;
       if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      if (!isTufStellarFeatureEnabled()) {
+        return res.status(403).json({ error: 'TUFStellar is not available on this deployment' });
+      }
       if (!user.playerId) {
         return res.status(400).json({ error: 'No player profile linked to this account' });
       }

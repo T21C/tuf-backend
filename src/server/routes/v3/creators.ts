@@ -49,6 +49,7 @@ import { parseBannerPresetForStorage } from '@/misc/utils/profileBannerPreset.js
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import User from '@/models/auth/User.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
+import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 
 /**
  * v3 creators routes — Elasticsearch-backed.
@@ -687,6 +688,8 @@ router.get(
 
       if (!doc && !enriched) return res.status(404).json({ error: 'Creator not found' });
 
+      const stellarOn = isTufStellarFeatureEnabled();
+
       // Prefer the ES document for the canonical fields (it carries the ES-stable
       // shape clients depend on). Fall back to the DB row if ES is missing the doc
       // for some reason (e.g. mid-reindex).
@@ -713,9 +716,9 @@ router.get(
               bannerPreset: enriched.creator?.bannerPreset ?? null,
               customBannerId: enriched.creator?.customBannerId ?? null,
               customBannerUrl: enriched.creator?.customBannerUrl ?? null,
-              tufStellarIconVariant: normalizeTufStellarIconVariant(
-                enriched.creator?.tufStellarIconVariant,
-              ),
+              tufStellarIconVariant: stellarOn
+                ? normalizeTufStellarIconVariant(enriched.creator?.tufStellarIconVariant)
+                : '1',
               chartsCharted: enriched.stats.chartsCharted,
               chartsVfxed: enriched.stats.chartsVfxed,
               chartsTeamed: enriched.stats.chartsTeamed,
@@ -789,7 +792,9 @@ router.get(
             bannerPreset: creatorRow.bannerPreset ?? null,
             customBannerId: creatorRow.customBannerId ?? null,
             customBannerUrl: creatorRow.customBannerUrl ?? null,
-            tufStellarIconVariant: normalizeTufStellarIconVariant(creatorRow.tufStellarIconVariant),
+            tufStellarIconVariant: stellarOn
+              ? normalizeTufStellarIconVariant(creatorRow.tufStellarIconVariant)
+              : '1',
           }
         : {};
 
@@ -1263,6 +1268,9 @@ router.patch(
     try {
       const user = req.user;
       if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      if (!isTufStellarFeatureEnabled()) {
+        return res.status(403).json({ error: 'TUFStellar is not available on this deployment' });
+      }
       const permUser = user as PermissionInput;
 
       const id = parseInt(req.params.id, 10);

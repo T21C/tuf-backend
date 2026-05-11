@@ -13,6 +13,7 @@ import {
   appendPurchaseSegment,
   revokePurchaseSegmentsByXsollaTransactionId,
 } from '@/server/services/billing/tufStellarEntitlementSegments.js';
+import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 
 const BENEFICIARY_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -366,6 +367,11 @@ async function applyPurchaseEntitlementToBeneficiary(
 }
 
 async function handlePaymentLikeEvent(purchaserUserId: string, event: BillingEvent, payload: any): Promise<void> {
+  if (!isTufStellarFeatureEnabled()) {
+    logger.info('[Xsolla] payment/order_paid skipped — TUF_STELLAR_ENABLED is off', { eventId: event.id });
+    return;
+  }
+
   const purchaser = await User.findByPk(purchaserUserId);
   if (!purchaser) return;
 
@@ -455,6 +461,7 @@ async function handlePaymentLikeEvent(purchaserUserId: string, event: BillingEve
   });
 }
 
+/** Runs even when `TUF_STELLAR_ENABLED` is off so refunds stay consistent with stored segments. */
 async function applyPurchaseRefundRevoke(event: BillingEvent): Promise<void> {
   const txId = event.xsollaTransactionId;
   if (txId == null || !Number.isFinite(Number(txId))) {

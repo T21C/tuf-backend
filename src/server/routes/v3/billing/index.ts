@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { Op } from 'sequelize';
 import { Auth } from '@/server/middleware/auth.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
@@ -25,8 +25,17 @@ import {
   loadUserTufStellarBilling,
 } from '@/server/services/billing/userTufStellarBillingSupport.js';
 import { loadSegmentsForUser } from '@/server/services/billing/tufStellarEntitlementSegments.js';
+import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 
 const router: Router = Router();
+
+router.use((_req: Request, res: Response, next: NextFunction) => {
+  if (isTufStellarFeatureEnabled()) return next();
+  res.setHeader('Cache-Control', 'private, no-store, no-cache, must-revalidate');
+  return res.status(404).json({
+    error: { code: 'TUF_STELLAR_DISABLED', message: 'TUFStellar is not available on this deployment.' },
+  });
+});
 
 /** Best-effort client IP for Xsolla `X-User-Ip` (currency); country still sent via token payload. */
 function billingRequestClientIp(req: Request): string | undefined {

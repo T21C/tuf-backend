@@ -15,7 +15,7 @@ import {
 } from 'discord-api-types/v10';
 import dotenv from 'dotenv';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { clientUrlEnv, ownUrl } from '@/config/app.config.js';
+import { clientUrlEnv, ownUrl, isTufStellarFeatureEnabled } from '@/config/app.config.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
@@ -34,6 +34,7 @@ interface ProfileResponse {
     email?: string;
     avatarUrl: string | null;
     tufStellarSubscriptionExpiresAt: Date | null;
+    tufStellarEnabled: boolean;
     isRater: boolean;
     isSuperAdmin: boolean;
     isEmailVerified: boolean;
@@ -252,6 +253,7 @@ export const OAuthController = {
           : `${ownUrl}/v2/media/avatar/${userRow.id}`
         : null;
 
+      const stellarOn = isTufStellarFeatureEnabled();
       const response: ProfileResponse = {
         user: {
           id: userRow.id,
@@ -259,7 +261,8 @@ export const OAuthController = {
           nickname: userRow.nickname || null,
           email: userRow.email,
           avatarUrl,
-          tufStellarSubscriptionExpiresAt: billingRow?.tufStellarSubscriptionExpiresAt ?? null,
+          tufStellarSubscriptionExpiresAt: stellarOn ? (billingRow?.tufStellarSubscriptionExpiresAt ?? null) : null,
+          tufStellarEnabled: stellarOn,
           isRater: hasFlag(userRow, permissionFlags.RATER),
           isSuperAdmin: hasFlag(userRow, permissionFlags.SUPER_ADMIN),
           isEmailVerified: hasFlag(userRow, permissionFlags.EMAIL_VERIFIED),

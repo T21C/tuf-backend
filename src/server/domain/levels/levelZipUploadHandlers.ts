@@ -175,7 +175,7 @@ export async function handlePostLevelZipUpload(req: Request, res: Response): Pro
         } catch (err) {
           logger.error('Async level zip finalise failed', {
             levelId,
-            error: err instanceof Error ? err.message : String(err),
+            err
           });
         } finally {
           activeLevelZipFinalizeByLevelId.delete(levelId);

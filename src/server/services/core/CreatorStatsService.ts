@@ -8,6 +8,7 @@ import {
   CreatorStatsRow,
 } from '@/server/services/elasticsearch/misc/creatorStatsQuery.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 
 const RECENT_LEVELS_LIMIT = 5;
 
@@ -125,6 +126,7 @@ export class CreatorStatsService {
       }));
 
       const billing = user ? await UserTufStellarBilling.findByPk(user.id) : null;
+      const stellarOn = isTufStellarFeatureEnabled();
 
       const userPlain = user
         ? {
@@ -140,7 +142,7 @@ export class CreatorStatsService {
                 : typeof user.permissionFlags === 'bigint'
                   ? Number(user.permissionFlags)
                   : Number(user.permissionFlags),
-            tufStellarSubscriptionExpiresAt: billing?.tufStellarSubscriptionExpiresAt ?? null,
+            tufStellarSubscriptionExpiresAt: stellarOn ? (billing?.tufStellarSubscriptionExpiresAt ?? null) : null,
           }
         : null;
 

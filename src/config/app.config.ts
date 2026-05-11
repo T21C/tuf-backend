@@ -2,6 +2,23 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+/** Parses env booleans; unknown strings fall back to `defaultValue`. */
+export function parseEnvBool(raw: string | undefined, defaultValue: boolean): boolean {
+  if (raw === undefined || raw === '') return defaultValue;
+  const s = raw.trim().toLowerCase();
+  if (s === '1' || s === 'true' || s === 'yes' || s === 'on') return true;
+  if (s === '0' || s === 'false' || s === 'no' || s === 'off') return false;
+  return defaultValue;
+}
+
+/**
+ * When false (default if `TUF_STELLAR_ENABLED` unset), TUFStellar billing APIs, webhook grants,
+ * and public stellar perks are disabled. Set `TUF_STELLAR_ENABLED=true` to enable.
+ */
+export function isTufStellarFeatureEnabled(): boolean {
+  return parseEnvBool(process.env.TUF_STELLAR_ENABLED, false);
+}
+
 export const clientUrlEnv =
   process.env.NODE_ENV === 'production'
     ? process.env.PROD_CLIENT_URL

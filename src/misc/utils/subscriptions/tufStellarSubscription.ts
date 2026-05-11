@@ -3,6 +3,7 @@ import type { UserAttributes } from '@/models/auth/User.js';
 import type UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 export type UserRow = User | UserAttributes;
 
 function parseExpiryMs(raw: Date | string | null | undefined): number | null {
@@ -13,6 +14,7 @@ function parseExpiryMs(raw: Date | string | null | undefined): number | null {
 
 /** Whether stacked access (`tufStellarSubscriptionExpiresAt`) is strictly in the future. */
 export function tufStellarExpiresAtActive(expiresAt: Date | string | null | undefined): boolean {
+  if (!isTufStellarFeatureEnabled()) return false;
   const ms = parseExpiryMs(expiresAt ?? null);
   if (ms == null) return false;
   return ms > Date.now();

@@ -26,6 +26,7 @@ import { fetchCreatorsForBulkIndex } from './fetching/creatorFetch.js';
 import { buildLevelIndexDocument } from './indexing/levelIndexDocument.js';
 import { buildPassIndexDocument } from './indexing/passIndexDocument.js';
 import { convertFromPUA } from '@/misc/utils/data/searchHelpers.js';
+import { maskStellarPublicEsDoc, maskStellarPublicEsHits } from '@/misc/utils/subscriptions/tufStellarPublicGate.js';
 
 function decodePuaDeep<T>(value: T): T {
   if (value == null) return value;
@@ -604,7 +605,8 @@ class ElasticsearchService {
   }
 
   public async searchPlayers(options: PlayerSearchOptions): Promise<PlayerSearchResult> {
-    return runPlayerSearch(options);
+    const r = await runPlayerSearch(options);
+    return { ...r, hits: maskStellarPublicEsHits(r.hits) };
   }
 
   /**
@@ -616,7 +618,8 @@ class ElasticsearchService {
         index: playerIndexName,
         id: playerId.toString(),
       });
-      return (response as any)._source ?? null;
+      const src = (response as any)._source ?? null;
+      return maskStellarPublicEsDoc(src);
     } catch (error: unknown) {
       const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
       if (status === 404) return null;
@@ -771,7 +774,8 @@ class ElasticsearchService {
   }
 
   public async searchCreators(options: CreatorSearchOptions): Promise<CreatorSearchResult> {
-    return runCreatorSearch(options);
+    const r = await runCreatorSearch(options);
+    return { ...r, hits: maskStellarPublicEsHits(r.hits) };
   }
 
   /**
@@ -786,7 +790,7 @@ class ElasticsearchService {
       const source = (response as any)._source ?? null;
       if (!source) return null;
       const [hydrated] = await hydrateCreatorUsers([source]);
-      return hydrated;
+      return maskStellarPublicEsDoc(hydrated);
     } catch (error: unknown) {
       const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
       if (status === 404) return null;

@@ -26,6 +26,7 @@ import {
   type UserRow,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
+import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -110,6 +111,7 @@ router.get(
     await user.reload();
 
     const billing = await loadUserTufStellarBilling(user.id);
+    const stellarOn = isTufStellarFeatureEnabled();
 
     const providers = await OAuthProvider.findAll({
       where: {userId: user.id},
@@ -127,7 +129,8 @@ router.get(
         email: user.email,
         avatarUrl: user.avatarUrl ?? null,
         avatarIsGif: Boolean(user.avatarIsGif),
-        tufStellarSubscriptionExpiresAt: billing?.tufStellarSubscriptionExpiresAt ?? null,
+        tufStellarSubscriptionExpiresAt: stellarOn ? (billing?.tufStellarSubscriptionExpiresAt ?? null) : null,
+        tufStellarEnabled: stellarOn,
         isRater: hasFlag(user, permissionFlags.RATER),
         isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
         isRatingBanned: hasFlag(user, permissionFlags.RATING_BANNED),
