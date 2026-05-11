@@ -36,9 +36,23 @@ import type { ZipCentralDirectoryEntry } from './zipCentralDirectory.js';
  *      `songFilename` / `song` / `artist` / `author` from `settings`.
  *   4. For each candidate codec (Korean → Simplified Chinese → Big5 → Japanese → Latin),
  *      decode every audio entry's basename and score it against the reference strings.
- *   5. Highest aggregate score wins, with a floor: if no codec scored above zero we
- *      return `null` and the caller falls back to the byte-pattern heuristic.
+ *      Comparisons use {@link normalizeLegacyFilenameComparison} so a ZIP basename that uses
+ *      ASCII `-` between words while `.adofai` uses `●` / `・` / an em dash still produces a
+ *      stem match for the correct legacy decode (otherwise every codec scores 0 and the
+ *      byte fallback picks an arbitrary CJK code page).
+ *   5. Highest aggregate score wins. Any codec that reproduces `settings.songFilename` (or the
+ *      `settings.song` stem) exactly after normalization receives {@link SCORE_PERFECT_SONG_LOCK}
+ *      once — far above accumulated substring noise so the right CP949 / CP932 / … wins even
+ *      when other fields spuriously match wrong decodings. If no codec clears the floor, fall
+ *      back to the byte-pattern heuristic.
  */
+
+interface AdofaiReferenceStrings {
+    songFilename?: string;
+    song?: string;
+    artist?: string;
+    author?: string;
+}
 
 /** Candidate codecs in **player-base order**: Korean first, then Simplified, Traditional, Japanese, Latin. */
 export const CONTENT_AWARE_CANDIDATES: readonly { codec: string; codePage: 932 | 936 | 949 | 950 | 1252; label: string }[] = Object.freeze([
@@ -58,8 +72,29 @@ const SCORE_SUBSTRING = 200;
 const SCORE_SUBSTRING_CI = 150;
 const SCORE_KNOCKOUT = -1000;
 
+/**
+ * One-shot bonus per codec when any audio basename matches the chart's song reference
+ * exactly (after {@link normalizeLegacyFilenameComparison}). Must dwarf sums of substring
+ * hits from `artist`/`author` on wrong decodings so CP949 vs CP932 disambiguates correctly.
+ */
+const SCORE_PERFECT_SONG_LOCK = 10_000_000;
+
 /** Minimum aggregate score for content-aware detection to be considered conclusive. */
 const SCORE_FLOOR_FOR_DECISION = 200;
+
+/**
+ * NFKC + unify bullets / dashes / middle dots so ZIP paths typed differently from
+ * `settings.songFilename` still match (e.g. `foo - bar.ogg` vs `foo ● bar.ogg`).
+ */
+function normalizeLegacyFilenameComparison(s: string): string {
+    let t = s.normalize('NFKC');
+    // Bullets / middle dots / katakana middle dot → hyphen for comparison only
+    t = t.replace(/[\u25CF\u2022\u2023\u2219\u22C5\u30FB\uFF65\u00B7\u2024\u2981]/g, '-');
+    // Unicode dashes / minus → ASCII hyphen
+    t = t.replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFF0D]/g, '-');
+    t = t.replace(/\s+/g, ' ').trim();
+    return t;
+}
 
 export interface ContentAwareDetection {
     codePage: 932 | 936 | 949 | 950 | 1252;
@@ -68,7 +103,7 @@ export interface ContentAwareDetection {
     /** Human-readable rationale ("cp949-kr: exact=1, substring=2, knockout=0"). */
     reason: string;
     /** Per-codec totals, useful for log inspection of close calls. */
-    perCodec: { codePage: number; score: number; label: string }[];
+    perCodec: { codePage: number; score: number; label: string; perfectSongLock?: number }[];
 }
 
 /**
@@ -107,10 +142,17 @@ export async function detectZipFilenameCodePageByContent(
     /** Pre-extract just the basenames of audio entries (raw bytes); we'll decode these per codec. */
     const audioBasenames = audioEntries.map((e) => basenameOfRawBytes(e.rawNameBytes));
 
-    const perCodec: { codePage: 932 | 936 | 949 | 950 | 1252; score: number; label: string; counters: ScoreCounters }[] = [];
+    const perCodec: {
+        codePage: 932 | 936 | 949 | 950 | 1252;
+        score: number;
+        label: string;
+        counters: ScoreCounters;
+        perfectSongLock: number;
+    }[] = [];
     for (const cand of CONTENT_AWARE_CANDIDATES) {
         const counters: ScoreCounters = { exact: 0, exactCi: 0, stem: 0, stemCi: 0, substring: 0, substringCi: 0, knockout: 0 };
         let totalScore = 0;
+        let perfectSongLock = 0;
         for (const rawBasename of audioBasenames) {
             let decoded: string;
             try {
@@ -131,19 +173,29 @@ export async function detectZipFilenameCodePageByContent(
             }
             if (bestKind !== 'none') counters[bestKind]++;
             totalScore += bestForEntry;
+            if (perfectSongLock === 0 && matchesSongGroundTruth(decoded, refs)) {
+                perfectSongLock = SCORE_PERFECT_SONG_LOCK;
+            }
         }
-        perCodec.push({ codePage: cand.codePage, score: totalScore, label: cand.label, counters });
+        totalScore += perfectSongLock;
+        perCodec.push({ codePage: cand.codePage, score: totalScore, label: cand.label, counters, perfectSongLock });
     }
 
     perCodec.sort((a, b) => b.score - a.score);
     const winner = perCodec[0];
     if (!winner || winner.score < SCORE_FLOOR_FOR_DECISION) return null;
 
+    const lockNote = winner.perfectSongLock > 0 ? `+perfectSongLock=${winner.perfectSongLock}` : '';
     return {
         codePage: winner.codePage,
         score: winner.score,
-        reason: `${winner.label}:${formatCounters(winner.counters)}`,
-        perCodec: perCodec.map((p) => ({ codePage: p.codePage, score: p.score, label: p.label }))
+        reason: `${winner.label}:${formatCounters(winner.counters)}${lockNote}`,
+        perCodec: perCodec.map((p) => ({
+            codePage: p.codePage,
+            score: p.score,
+            label: p.label,
+            ...(p.perfectSongLock > 0 ? { perfectSongLock: p.perfectSongLock } : {}),
+        })),
     };
 }
 
@@ -191,23 +243,25 @@ function scoreDecodedAgainstReference(
     }
 
     const allowExact = refKind === 'songFilename';
+    const decCmp = normalizeLegacyFilenameComparison(decoded);
+    const refCmp = normalizeLegacyFilenameComparison(reference);
 
-    if (allowExact && decoded === reference) return { score: SCORE_EXACT, kind: 'exact' };
-    if (allowExact && decoded.toLowerCase() === reference.toLowerCase()) {
+    if (allowExact && decCmp === refCmp) return { score: SCORE_EXACT, kind: 'exact' };
+    if (allowExact && decCmp.toLowerCase() === refCmp.toLowerCase()) {
         return { score: SCORE_EXACT_CI, kind: 'exactCi' };
     }
 
-    const decodedStem = stripExt(decoded);
-    const referenceStem = stripExt(reference);
+    const decodedStem = normalizeLegacyFilenameComparison(stripExt(decoded));
+    const referenceStem = normalizeLegacyFilenameComparison(stripExt(reference));
     if (allowExact && decodedStem === referenceStem) return { score: SCORE_STEM, kind: 'stem' };
     if (allowExact && decodedStem.toLowerCase() === referenceStem.toLowerCase()) {
         return { score: SCORE_STEM_CI, kind: 'stemCi' };
     }
 
-    const needle = (allowExact ? referenceStem : reference).trim();
+    const needle = (allowExact ? referenceStem : normalizeLegacyFilenameComparison(reference)).trim();
     if (needle.length >= 2) {
-        if (decoded.includes(needle)) return { score: SCORE_SUBSTRING, kind: 'substring' };
-        if (decoded.toLowerCase().includes(needle.toLowerCase())) {
+        if (decCmp.includes(needle)) return { score: SCORE_SUBSTRING, kind: 'substring' };
+        if (decCmp.toLowerCase().includes(needle.toLowerCase())) {
             return { score: SCORE_SUBSTRING_CI, kind: 'substringCi' };
         }
     }
@@ -219,6 +273,24 @@ function stripExt(name: string): string {
     const idx = name.lastIndexOf('.');
     if (idx <= 0) return name;
     return name.slice(0, idx);
+}
+
+/**
+ * True when decoded audio basename matches chart ground truth: full `songFilename`, or
+ * basename stem vs `settings.song` (same normalization as scoring).
+ */
+function matchesSongGroundTruth(decoded: string, refs: AdofaiReferenceStrings): boolean {
+    if (decoded.includes('\uFFFD')) return false;
+    if (refs.songFilename) {
+        const r = scoreDecodedAgainstReference(decoded, refs.songFilename.normalize('NFC'), 'songFilename');
+        if (r.kind === 'exact' || r.kind === 'exactCi') return true;
+    }
+    if (refs.song) {
+        const decStem = normalizeLegacyFilenameComparison(stripExt(decoded));
+        const songStem = normalizeLegacyFilenameComparison(refs.song.trim());
+        if (decStem === songStem || decStem.toLowerCase() === songStem.toLowerCase()) return true;
+    }
+    return false;
 }
 
 /**
@@ -244,13 +316,6 @@ function basenameOfRawBytes(buf: Buffer): Buffer {
         if (buf[i] === 0x2f || buf[i] === 0x5c) return buf.subarray(i + 1);
     }
     return buf;
-}
-
-interface AdofaiReferenceStrings {
-    songFilename?: string;
-    song?: string;
-    artist?: string;
-    author?: string;
 }
 
 /**
