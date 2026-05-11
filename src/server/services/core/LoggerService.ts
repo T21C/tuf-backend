@@ -5,6 +5,28 @@ import path from 'path';
 import dotenv from 'dotenv';
 dotenv.config();
 
+/**
+ * Mojibake / migration CLIs write machine-readable lines to stdout (NDJSON). Winston's default
+ * Console transport writes to stdout too, so shell redirects (`> hits.ndjson`) capture noise.
+ * Omit the console transport when stdout is piped/redirected for those entrypoints only.
+ * Override: TUF_SUPPRESS_CONSOLE_LOGGER=1 (always omit) or =0 (always attach).
+ */
+function isMachineReadableStdoutScriptProcess(): boolean {
+  return process.argv.some(
+    (arg) =>
+      arg.includes('auditLevelzipMojibakeMetadata') || arg.includes('migrateMojibakeLevelZipsFromHits')
+  );
+}
+
+function shouldAttachWinstonConsoleTransport(): boolean {
+  const flag = process.env.TUF_SUPPRESS_CONSOLE_LOGGER;
+  if (flag === '1') return false;
+  if (flag === '0') return true;
+  if (process.stdout.isTTY === true) return true;
+  if (!isMachineReadableStdoutScriptProcess()) return true;
+  return false;
+}
+
 // Define log directory
 const logDir = process.env.LOG_PATH || path.resolve('../logs');
 
@@ -196,20 +218,19 @@ class LoggerService {
       )
     });
 
-    const consoleTransport = new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.timestamp(),
-        consoleFormat
-      )
-    });
+    const transports: winston.transport[] = [fileRotateTransport];
+    if (shouldAttachWinstonConsoleTransport()) {
+      transports.push(
+        new winston.transports.Console({
+          format: winston.format.combine(winston.format.timestamp(), consoleFormat)
+        })
+      );
+    }
 
     // Create logger instance
     this.logger = winston.createLogger({
       level: process.env.MODE !== 'debug' ? 'info' : 'debug',
-      transports: [
-        fileRotateTransport,
-        consoleTransport
-      ]
+      transports
     });
 
     this.info('Logger initialized');

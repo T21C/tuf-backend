@@ -24,6 +24,10 @@ import {
     getArchiveMimeType,
     type ArchiveEntry as ServiceArchiveEntry
 } from '../infra/archive/archiveService.js';
+import {
+    rewriteZipFilenamesToUtf8,
+    zipArchiveFilenamesAlreadyUtf8Clean
+} from '../infra/archive/zipUtf8FilenameRewrite.js';
 import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
 import { normalizeRelativePath, toCopyRelativePath } from '../domain/archive/ingestPaths.js';
 import { listArchiveEntriesForIngest } from '../domain/archive/ingestArchiveEntries.js';
@@ -110,6 +114,36 @@ async function processArchiveFileInWorkspace(
         fileSize: (await fs.promises.stat(archiveFilePath)).size
     });
 
+    /**
+     * Path used for listing / extraction / the on-disk original copy. For `.zip`, when entries
+     * use legacy code-page names without UTF-8 EFS, we rebuild a temp zip that stores the same
+     * paths as UTF-8 + GPF bit 11 and stream-copies deflate/store payloads — so the object users
+     * download never depends on `-mcp` heuristics in their local unzipper.
+     */
+    let ingestArchivePath = archiveFilePath;
+    if (detectedFormat === 'zip') {
+        const alreadyUtf8Clean = await zipArchiveFilenamesAlreadyUtf8Clean(archiveFilePath);
+        if (!alreadyUtf8Clean) {
+            const normalizedZipPath = path.join(permanentDir, '.ingest-utf8-filenames.zip');
+            const rw = await rewriteZipFilenamesToUtf8(archiveFilePath, normalizedZipPath, ws.signal);
+            if (rw.ok) {
+                ingestArchivePath = normalizedZipPath;
+                logger.info('zipProcessor: stored archive normalized to UTF-8 entry names', {
+                    archiveFileId,
+                    entriesWritten: rw.entriesWritten,
+                    detectionReason: rw.detectionReason,
+                    codePage: rw.codePage
+                });
+            } else {
+                logger.warn('zipProcessor: UTF-8 name normalization skipped (using original bytes)', {
+                    archiveFileId,
+                    reason: rw.reason,
+                    detail: rw.detail
+                });
+            }
+        }
+    }
+
     const sendProgress = async (
         status: 'uploading' | 'processing' | 'caching' | 'failed',
         progressPercent: number,
@@ -123,7 +157,7 @@ async function processArchiveFileInWorkspace(
 
     try {
         await sendProgress('processing', 10, 'Listing archive entries');
-        const archiveEntries = await extractArchiveEntries(archiveFilePath, ws.signal);
+        const archiveEntries = await extractArchiveEntries(ingestArchivePath, ws.signal);
         const levelFiles: { [key: string]: any } = {};
         const allLevelFiles: Array<{
             name: string;
@@ -159,7 +193,7 @@ async function processArchiveFileInWorkspace(
 
         // Store the original archive file with its original name
         const originalArchiveDiskPath = path.join(permanentDir, finalArchiveName);
-        await fs.promises.copyFile(archiveFilePath, originalArchiveDiskPath);
+        await fs.promises.copyFile(ingestArchivePath, originalArchiveDiskPath);
         const originalArchiveSize = (await fs.promises.stat(originalArchiveDiskPath)).size;
         logger.debug('Stored original archive file:', {
             originalArchiveDiskPath,
@@ -174,7 +208,7 @@ async function processArchiveFileInWorkspace(
         const levelEntries = archiveEntries.filter(entry => !entry.isDirectory && entry.relativePath.toLowerCase().endsWith('.adofai'));
         const requiredLevelPaths = levelEntries.map(entry => normalizeRelativePath(entry.relativePath));
         await sendProgress('processing', 13, 'Extracting level and song files from archive');
-        await archiveExtractLevelPackPayload(archiveFilePath, extractRoot, ws.signal, {
+        await archiveExtractLevelPackPayload(ingestArchivePath, extractRoot, ws.signal, {
             requiredRelativePaths: requiredLevelPaths
         });
 

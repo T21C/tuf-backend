@@ -155,6 +155,7 @@ __pycache__/
 *.selftest.ts
 docs
 *.md
+*.ndjson
 *.exe
 bannerPresetManifest.json
 
