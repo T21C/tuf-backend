@@ -141,8 +141,12 @@ async function assembledFileReadable(absolutePath: string | null): Promise<boole
   }
 }
 
-/** NFC-normalise the user-supplied file name. Strip control chars + trim length. */
-function normaliseOriginalName(raw: string): string {
+/**
+ * NFC-normalise the user-supplied file name. Strip ASCII/C0 controls (incl. CR/LF/TAB)
+ * + trim length. Used for upload sessions and any other server-derived archive names
+ * that become object-storage keys (`zips/{fileId}/...`).
+ */
+export function normaliseOriginalName(raw: string): string {
   const nfc = raw.normalize('NFC');
   const noControls = nfc.replace(/[\u0000-\u001F\u007F]/g, '');
   if (noControls.length === 0) return 'file';

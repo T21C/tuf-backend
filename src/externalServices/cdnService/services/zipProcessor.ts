@@ -28,6 +28,7 @@ import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
 import { normalizeRelativePath, toCopyRelativePath } from '../domain/archive/ingestPaths.js';
 import { listArchiveEntriesForIngest } from '../domain/archive/ingestArchiveEntries.js';
 import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '../constants/levelPackAudio.js';
+import { normaliseOriginalName } from '@/server/services/upload/UploadSessionService.js';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -147,8 +148,10 @@ async function processArchiveFileInWorkspace(
             totalSize: archiveEntries.reduce((sum, entry) => sum + entry.size, 0)
         });
 
-        // originalFilename is already NFC-normalised and sanitised upstream in UploadSessionService.
-        const finalArchiveName = originalFilename;
+        // Chunked uploads normalise in UploadSessionService; URL/Workshop imports use
+        // encodeLevelZipFilenameForCdn on the main API. Re-apply here so object keys never
+        // contain CR/LF (breaks Spaces lookups vs metadata).
+        const finalArchiveName = normaliseOriginalName(originalFilename.normalize('NFC'));
         logger.debug('Using original archive name:', {
             finalArchiveName,
             format: detectedFormat
