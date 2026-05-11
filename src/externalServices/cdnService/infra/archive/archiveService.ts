@@ -869,17 +869,23 @@ async function listFilesWithExtensionRecursive(dir: string, dottedExt: string): 
     const stack = [dir];
     while (stack.length > 0) {
         const d = stack.pop()!;
-        let entries: fs.Dirent[];
+        let names: string[];
         try {
-            entries = await fs.promises.readdir(d, { withFileTypes: true });
+            names = await fs.promises.readdir(d);
         } catch {
             continue;
         }
-        for (const e of entries) {
-            const p = path.join(d, e.name);
-            if (e.isDirectory()) {
+        for (const name of names) {
+            const p = path.join(d, name);
+            let st: fs.Stats;
+            try {
+                st = await fs.promises.stat(p);
+            } catch {
+                continue;
+            }
+            if (st.isDirectory()) {
                 stack.push(p);
-            } else if (e.isFile() && e.name.toLowerCase().endsWith(wantedLower)) {
+            } else if (st.isFile() && name.toLowerCase().endsWith(wantedLower)) {
                 out.push(p);
             }
         }
