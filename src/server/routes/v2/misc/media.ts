@@ -16,6 +16,7 @@ import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStel
 import {Buffer} from 'buffer';
 import { Op } from 'sequelize';
 import { seededShuffle } from '@/misc/utils/server/random.js';
+import { coalesceAxiosContentTypeHeader } from '@/misc/utils/http/axiosContentType.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { registerShutdownStep } from '@/server/bootstrap/shutdownCoordinator.js';
 import { exec, spawn } from 'child_process';
@@ -572,14 +573,14 @@ router.get(
             }
           });
 
-          const contentType = response.headers['content-type'];
+          const contentType = coalesceAxiosContentTypeHeader(response.headers['content-type']);
 
           if (
             !contentType ||
             !contentType.startsWith('image/') ||
             !ALLOWED_IMAGE_MIME.includes(contentType.split(';')[0].trim())
           ) {
-            logger.debug(`Rejected proxied resource with unsupported content-type (${contentType}) for URL: ${imageUrl}`);
+            logger.debug(`Rejected proxied resource with unsupported content-type (${String(response.headers['content-type'])}) for URL: ${imageUrl}`);
             return res.status(415).send('Unsupported Media Type: Only images may be proxied.');
           }
 
@@ -788,7 +789,8 @@ router.get(
       responseType: 'arraybuffer',
     });
 
-    const contentType = response.headers['content-type'];
+    const contentType =
+      coalesceAxiosContentTypeHeader(response.headers['content-type']) ?? 'application/octet-stream';
     res.set('Content-Type', contentType);
     return res.send(response.data);
   } catch (error) {

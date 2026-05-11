@@ -13,6 +13,7 @@ import ArtistEvidence from '@/models/artists/ArtistEvidence.js';
 import cdnServiceInstance from '@/server/services/core/CdnService.js';
 import { Op } from 'sequelize';
 import { isCdnUrl, getFileIdFromCdnUrl } from '@/misc/utils/Utility.js';
+import { coalesceAxiosContentTypeHeader } from '@/misc/utils/http/axiosContentType.js';
 
 // Configuration
 const API_URL = 'https://7thbe.at/wapi/getArtists';
@@ -123,9 +124,9 @@ async function downloadImage(url: string): Promise<Buffer | null> {
       });
 
       // Check content-type
-      const contentType = response.headers['content-type'] || '';
+      const contentType = coalesceAxiosContentTypeHeader(response.headers['content-type']) ?? '';
       if (!contentType.startsWith('image/')) {
-        logger.warn(`URL ${url} does not have image content-type: ${contentType}`);
+        logger.warn(`URL ${url} does not have image content-type: ${contentType || '(missing)'}`);
         return null;
       }
 
