@@ -9,7 +9,11 @@ import { levelCacheService, SAFE_TO_PARSE_VERSION } from './levelCacheService.js
 import { computeLevelCacheMetadataSignature } from '../domain/level/levelCacheSignature.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
-import { scanOversizedLevelFile } from '../domain/level/oversizedHandling/oversizedLevelScan.js';
+import {
+    MAX_LEVEL_FILE_SIZE_FOR_PARSE,
+    MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE
+} from '../domain/level/levelParseLimits.js';
+import { scanOversizedLevelFile, type OversizedLevelBasics } from '../domain/level/oversizedHandling/oversizedLevelScan.js';
 import { resolveAudioRelativePath } from '../domain/level/oversizedHandling/oversizedSongPick.js';
 import { readAudioDurationMs } from '../domain/level/oversizedHandling/audioDuration.js';
 import {
@@ -42,9 +46,6 @@ export function markZipIngestFailureProgressSent(err: unknown): void {
 export function zipIngestFailureProgressWasSent(err: unknown): boolean {
     return err instanceof Error && Boolean((err as Error & {cdnZipIngestProgressSent?: boolean}).cdnZipIngestProgressSent);
 }
-
-// Limit to prevent oveloading CDN with large level files
-const MAX_LEVEL_FILE_SIZE_FOR_PARSE = 50 * 1024 * 1024;
 
 type ZipEntry = ServiceArchiveEntry;
 
@@ -134,6 +135,7 @@ async function processArchiveFileInWorkspace(
             hasYouTubeStream?: boolean;
             songFilename?: string;
             oversizedUnparsed?: boolean;
+            oversizedBasics?: OversizedLevelBasics;
         }> = [];
         const songFiles: { [key: string]: any } = {};
 
@@ -206,6 +208,7 @@ async function processArchiveFileInWorkspace(
                     hasYouTubeStream?: boolean;
                     songFilename?: string;
                     oversizedUnparsed?: boolean;
+                    oversizedBasics?: OversizedLevelBasics;
                     artist?: unknown;
                     song?: unknown;
                     author?: unknown;
@@ -213,23 +216,33 @@ async function processArchiveFileInWorkspace(
                     bpm?: unknown;
                 };
 
-                if (tooLargeToParse) {
-                    logger.debug('Skipping LevelDict parse for oversized level file (would exceed Node string limit):', {
+                // Stream-scan first: compact charts can be under the byte cap but have massive `angleData`
+                // (unsafe for adofai-lib). When scan fails on a small file we still attempt LevelDict below.
+                let scanned: OversizedLevelBasics | null = null;
+                try {
+                    scanned = await scanOversizedLevelFile(tempPath);
+                } catch (e) {
+                    logger.debug('Stream level scanner failed (non-fatal)', {
+                        name: levelFilename,
+                        error: e instanceof Error ? e.message : String(e)
+                    });
+                }
+
+                const tilecountOverLimit =
+                    scanned !== null && scanned.tilecount > MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE;
+                const skipLevelDict = tooLargeToParse || tilecountOverLimit;
+
+                if (skipLevelDict) {
+                    logger.debug('Skipping LevelDict parse for level file (streaming path)', {
                         name: levelFilename,
                         size: entry.size,
-                        maxParseSize: MAX_LEVEL_FILE_SIZE_FOR_PARSE
+                        maxParseSize: MAX_LEVEL_FILE_SIZE_FOR_PARSE,
+                        tooLargeToParse,
+                        tilecount: scanned?.tilecount,
+                        maxTilesForFullParse: MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE,
+                        tilecountOverLimit
                     });
 
-                    // Still extract a few basic settings for metadata without parsing the full file.
-                    let scanned: { settings: { bpm?: unknown; songFilename?: unknown } } | null = null;
-                    try {
-                        scanned = await scanOversizedLevelFile(tempPath);
-                    } catch (e) {
-                        logger.debug('Oversized scanner failed (non-fatal); leaving minimal metadata', {
-                            name: levelFilename,
-                            error: e instanceof Error ? e.message : String(e)
-                        });
-                    }
                     levelFile = {
                         name: levelFilename,
                         relativePath: normalizedRelativePath,
@@ -240,6 +253,7 @@ async function processArchiveFileInWorkspace(
                         songFilename: scanned?.settings?.songFilename as any,
                         bpm: scanned?.settings?.bpm as any,
                         oversizedUnparsed: true,
+                        ...(scanned ? { oversizedBasics: scanned } : {})
                     };
                 } else {
                     const levelDict = new LevelDict(tempPath);
@@ -287,7 +301,7 @@ async function processArchiveFileInWorkspace(
                     size: entry.size,
                     path: tempPath,
                     hasYouTubeStream: levelFile.hasYouTubeStream,
-                    skippedParse: tooLargeToParse
+                    skippedLevelDict: skipLevelDict
                 });
             } catch (error) {
                 logger.debug('Skipped level file during archive scan (parse/validation):', {
@@ -458,6 +472,8 @@ async function processArchiveFileInWorkspace(
         let targetLevel: string | null = null;
         let targetLevelRelativePath: string | null = null;
         let targetLevelOversized = false;
+        /** Reuse stream-scan result from ingest loop to avoid a second full scan for oversized targets. */
+        let oversizedTargetScanBasics: OversizedLevelBasics | undefined;
         const pathConfirmed = false;
 
         if (allLevelFiles.length > 0) {
@@ -477,6 +493,7 @@ async function processArchiveFileInWorkspace(
             targetLevel = largestLevel.path; // Use storage path (Spaces key or local path)
             targetLevelRelativePath = largestLevel.relativePath;
             targetLevelOversized = !!largestLevel.oversizedUnparsed;
+            oversizedTargetScanBasics = largestLevel.oversizedBasics;
             selectedPreloadedTargetLevelData =
                 nonBackupFiles.length > 0 ? preloadedNonBackupLevelData : preloadedBackupLevelData;
 
@@ -494,6 +511,9 @@ async function processArchiveFileInWorkspace(
         // Start transaction for database operations
         await sendProgress('processing', 90, 'Creating database entry');
         transaction = await cdnSequelize.transaction();
+        for (const lf of allLevelFiles) {
+            delete lf.oversizedBasics;
+        }
 
         // The same archive object is referenced under both `originalArchive` (new shape with
         // explicit format/contentType) and `originalZip` (legacy alias for backward compatibility
@@ -545,7 +565,9 @@ async function processArchiveFileInWorkspace(
                     : null;
 
                 if (localTargetPath && fs.existsSync(localTargetPath)) {
-                    const basics = await scanOversizedLevelFile(localTargetPath);
+                    const basics =
+                        oversizedTargetScanBasics ??
+                        (await scanOversizedLevelFile(localTargetPath));
 
                     const audioCandidates = Object.keys(songFiles).map((relativePath) => ({
                         relativePath
