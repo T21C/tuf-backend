@@ -36,10 +36,8 @@ import type { ZipCentralDirectoryEntry } from './zipCentralDirectory.js';
  *      `songFilename` / `song` / `artist` / `author` from `settings`.
  *   4. For each candidate codec (Korean → Simplified Chinese → Big5 → Japanese → Latin),
  *      decode every audio entry's basename and score it against the reference strings.
- *      Comparisons use {@link normalizeLegacyFilenameComparison} so a ZIP basename that uses
- *      ASCII `-` between words while `.adofai` uses `●` / `・` / an em dash still produces a
- *      stem match for the correct legacy decode (otherwise every codec scores 0 and the
- *      byte fallback picks an arbitrary CJK code page).
+ *      Comparisons apply {@link normalizeLegacyFilenameComparison} (NFC + trim only; chart and
+ *      ZIP names must match as stored — no bullet/dash or other semantic unification).
  *   5. Highest aggregate score wins. Any codec that reproduces `settings.songFilename` (or the
  *      `settings.song` stem) exactly after normalization receives {@link SCORE_PERFECT_SONG_LOCK}
  *      once — far above accumulated substring noise so the right CP949 / CP932 / … wins even
@@ -83,17 +81,11 @@ const SCORE_PERFECT_SONG_LOCK = 10_000_000;
 const SCORE_FLOOR_FOR_DECISION = 200;
 
 /**
- * NFKC + unify bullets / dashes / middle dots so ZIP paths typed differently from
- * `settings.songFilename` still match (e.g. `foo - bar.ogg` vs `foo ● bar.ogg`).
+ * Canonical Unicode comparison only: NFC normalization and outer trim. Filenames are compared
+ * as-is relative to chart JSON — no compatibility folding (NFKC) and no bullet/dash rewriting.
  */
 function normalizeLegacyFilenameComparison(s: string): string {
-    let t = s.normalize('NFKC');
-    // Bullets / middle dots / katakana middle dot → hyphen for comparison only
-    t = t.replace(/[\u25CF\u2022\u2023\u2219\u22C5\u30FB\uFF65\u00B7\u2024\u2981]/g, '-');
-    // Unicode dashes / minus → ASCII hyphen
-    t = t.replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFF0D]/g, '-');
-    t = t.replace(/\s+/g, ' ').trim();
-    return t;
+    return s.normalize('NFC').trim();
 }
 
 export interface ContentAwareDetection {

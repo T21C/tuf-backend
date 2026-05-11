@@ -64,7 +64,6 @@ export interface OriginalArchiveMeta {
 }
 
 const SEVEN_ZIP_BIN = process.env.SEVEN_ZIP_PATH || '7z';
-const isWindows = process.platform === 'win32';
 
 /** Max chars of stdout/stderr to attach to error logs. */
 const MAX_EXEC_LOG_CHUNK = 32768;
@@ -235,6 +234,11 @@ interface RunSevenZOptions {
     onStderrChunk?: (chunk: Buffer) => void;
     /** Stream stdout as it arrives (some 7-Zip builds emit progress there). Full stdout is still captured. */
     onStdoutChunk?: (chunk: Buffer) => void;
+    /**
+     * Explicit child environment. When omitted, the parent environment is copied (`{ ...process.env }`).
+     * Use this only when a caller needs a non-default env (tests, isolation).
+     */
+    env?: NodeJS.ProcessEnv;
 }
 
 interface RunSevenZResult {
@@ -282,17 +286,19 @@ function formatSevenZFailureSummary(result: RunSevenZResult, maxLen = 6000): str
  * Spawn the 7z binary with the given arguments. Returns the captured streams
  * and exit code; only throws on spawn failure or AbortSignal trigger.
  *
+ * The child inherits the current process environment (same idea as on Windows). ZIP code pages
+ * come from explicit `7z` switches (`-mcp=`, UTF-8 flags, …), not from `LC_*`. Set `LANG` or
+ * `LC_*` in the service/container if you need UTF-8 in 7z log lines on minimal Linux images.
+ *
  * Callers decide whether a non-zero exit code is fatal — list/extract treat
  * code 1 (warning) as soft success when output is present (matches the existing
  * pack-download behaviour).
  */
 async function runSevenZ(args: string[], opts: RunSevenZOptions = {}): Promise<RunSevenZResult> {
-    const { cwd, signal, maxStdoutBytes = 16 * 1024 * 1024, onStderrChunk, onStdoutChunk } = opts;
+    const { cwd, signal, maxStdoutBytes = 16 * 1024 * 1024, onStderrChunk, onStdoutChunk, env: envOverride } = opts;
 
     return new Promise<RunSevenZResult>((resolve, reject) => {
-        const env = isWindows
-            ? process.env
-            : { ...process.env, LC_ALL: 'C.UTF-8' };
+        const env = envOverride ?? { ...process.env };
 
         const child = spawn(SEVEN_ZIP_BIN, args, {
             cwd,
@@ -805,7 +811,16 @@ export async function extractAdofaiFilesForDetection(
         return [];
     }
 
-    return await listFilesWithExtensionRecursive(destDir, '.adofai');
+    const extracted = await listFilesWithExtensionRecursive(destDir, '.adofai');
+    if (extracted.length === 0) {
+        logger.debug('archiveService.extractAdofaiFilesForDetection: 7z succeeded but no .adofai files under dest', {
+            archivePath,
+            destDir,
+            exitCode: result.code,
+            stderr: trimForLog(result.stderr),
+        });
+    }
+    return extracted;
 }
 
 /** Walk `dir` recursively and return every file whose name ends with `dottedExt` (case-insensitive). */
