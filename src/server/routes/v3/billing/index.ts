@@ -16,6 +16,7 @@ import Stripe from 'stripe';
 import {
   isTufStellarMonths,
   resolveTufStellarStripePriceId,
+  TUF_STELLAR_LIST_USD_PER_MONTH,
 } from '@/server/services/billing/tufStellarProductCatalog.js';
 import { buildTufStellarAccessSegmentsForUser } from '@/server/services/billing/tufStellarAccessSegments.js';
 import { addCalendarMonthsUtc } from '@/misc/utils/time/addCalendarMonthsUtc.js';
@@ -31,6 +32,14 @@ import {
   loadUserTufStellarBilling,
 } from '@/server/services/billing/userTufStellarBillingSupport.js';
 import { loadSegmentsForUser } from '@/server/services/billing/tufStellarEntitlementSegments.js';
+import {
+  createStripeClientForBillingRefunds,
+  evaluateStripeTufStellarRefund,
+  executeStripeTufStellarRefund,
+  refundErrorResponseForEvaluation,
+  TUF_STELLAR_STRIPE_REFUND_MAX_AGE_DAYS,
+  TufStellarRefundIneligibleError,
+} from '@/server/services/billing/tufStellarStripeUserRefund.js';
 
 const router: Router = Router();
 
@@ -807,6 +816,175 @@ router.post(
       }
       logger.error('POST /v3/billing/stripe/checkout failed', e);
       return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to start checkout' } });
+    }
+  },
+);
+
+router.get(
+  '/stripe/refund-preview',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getBillingStripeRefundPreview',
+    summary: 'Preview Stripe refund for a checkout billing event',
+    description:
+      'Returns eligibility and computed refund amounts (list-rate consumption for in-use segments). Does not mutate Stripe or the database.',
+    tags: ['Billing'],
+    security: ['bearerAuth'],
+    query: {
+      billingEventId: {
+        required: true,
+        schema: { type: 'integer' },
+        description: '`BillingEvent.id` for a `checkout.session.completed` row.',
+      },
+    },
+    responses: {
+      200: {
+        description: 'Refund evaluation',
+        schema: { type: 'object' },
+      },
+      400: { description: 'Missing billingEventId or Stripe misconfigured', schema: errorResponseSchema },
+      ...standardErrorResponses401500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const tokenUser = req.user;
+      if (!tokenUser) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
+
+      const raw = req.query.billingEventId;
+      const n = typeof raw === 'string' ? Number(raw) : Number(raw);
+      if (!Number.isFinite(n) || n <= 0) {
+        return res.status(400).json({
+          error: { code: 'INVALID_PARAMETER', message: 'billingEventId must be a positive integer.' },
+        });
+      }
+
+      const stripe = createStripeClientForBillingRefunds();
+      if (!stripe) {
+        return res.status(400).json({
+          error: { code: 'MISCONFIGURED', message: 'Stripe is not configured (missing STRIPE_SECRET_KEY).' },
+        });
+      }
+
+      setBillingJsonNoCache(res);
+
+      const evaluation = await evaluateStripeTufStellarRefund({
+        billingEventId: Math.floor(n),
+        viewerUserId: tokenUser.id,
+        stripe,
+      });
+
+      return res.json({
+        ...evaluation,
+        listUsdPerMonth: TUF_STELLAR_LIST_USD_PER_MONTH,
+        maxRefundAgeDays: TUF_STELLAR_STRIPE_REFUND_MAX_AGE_DAYS,
+      });
+    } catch (e) {
+      logger.error('GET /v3/billing/stripe/refund-preview failed', e);
+      return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to load refund preview' } });
+    }
+  },
+);
+
+router.post(
+  '/stripe/refund',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postBillingStripeRefund',
+    summary: 'Refund a Stripe TUFStellar checkout purchase',
+    description:
+      'Creates a Stripe refund (full or partial per policy). Entitlement is revoked when Stripe sends `charge.refunded`.',
+    tags: ['Billing'],
+    security: ['bearerAuth'],
+    requestBody: {
+      required: true,
+      schema: {
+        type: 'object',
+        properties: { billingEventId: { type: 'integer' } },
+        required: ['billingEventId'],
+      },
+    },
+    responses: {
+      200: {
+        description: 'Refund created',
+        schema: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            refundId: { type: 'string', nullable: true },
+            refundCents: { type: 'integer' },
+            mode: { type: 'string', enum: ['full', 'partial'] },
+          },
+        },
+      },
+      400: { description: 'Not eligible / zero amount / too old', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      403: { description: 'Gift or not purchaser', schema: errorResponseSchema },
+      409: { description: 'Already refunded', schema: errorResponseSchema },
+      502: { description: 'Stripe error', schema: errorResponseSchema },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const tokenUser = req.user;
+      if (!tokenUser) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
+
+      const user = await User.findByPk(tokenUser.id);
+      if (!user) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
+
+      await reconcileExpiredTufStellarAccess(user);
+      await user.reload();
+
+      const purchaseGate = checkPurchaseCheckoutTransition(user);
+      if (!purchaseGate.ok) {
+        return billingDeny(res, purchaseGate);
+      }
+
+      const stripe = createStripeClientForBillingRefunds();
+      if (!stripe) {
+        return res.status(400).json({
+          error: { code: 'MISCONFIGURED', message: 'Stripe is not configured (missing STRIPE_SECRET_KEY).' },
+        });
+      }
+
+      const body = req.body as { billingEventId?: unknown };
+      const idRaw = body?.billingEventId;
+      const n = typeof idRaw === 'number' ? idRaw : Number(idRaw);
+      if (!Number.isFinite(n) || n <= 0) {
+        return res.status(400).json({
+          error: { code: 'INVALID_PARAMETER', message: 'billingEventId must be a positive integer.' },
+        });
+      }
+
+      setBillingJsonNoCache(res);
+
+      try {
+        const { evaluation, stripeRefundId } = await executeStripeTufStellarRefund({
+          billingEventId: Math.floor(n),
+          viewerUser: user,
+          stripe,
+        });
+        return res.json({
+          ok: true,
+          refundId: stripeRefundId,
+          refundCents: evaluation.refundCents,
+          mode: evaluation.mode,
+        });
+      } catch (e: unknown) {
+        if (e instanceof TufStellarRefundIneligibleError) {
+          const r = refundErrorResponseForEvaluation(e.evaluation);
+          return res.status(r.status).json({ error: { code: r.errorCode, message: r.message } });
+        }
+        if (e instanceof Stripe.errors.StripeError) {
+          logger.error('[Stripe] User refund Stripe error', { message: e.message, type: e.type });
+          return res.status(502).json({ error: { code: 'STRIPE_ERROR', message: e.message } });
+        }
+        throw e;
+      }
+    } catch (e) {
+      logger.error('POST /v3/billing/stripe/refund failed', e);
+      return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to process refund' } });
     }
   },
 );

@@ -1,5 +1,7 @@
 import { stripeConfig } from '@/config/app.config.js';
 
+export { TUF_STELLAR_LIST_USD_PER_MONTH } from '@/server/services/billing/tufStellarRefundMath.js';
+
 /** Allowlisted TUFStellar one-time catalog terms (virtual item SKUs / gift months). */
 export const TUF_STELLAR_ALLOWED_MONTHS = [1, 2, 3, 6, 9, 12] as const;
 export type TufStellarMonths = (typeof TUF_STELLAR_ALLOWED_MONTHS)[number];
