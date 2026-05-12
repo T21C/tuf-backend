@@ -82,17 +82,10 @@ async function main(): Promise<void> {
 
     const orphans = zips.filter((z) => !referenced.has(z.id.toLowerCase()));
 
-    for (const z of zips) {
-        const tag = referenced.has(z.id.toLowerCase()) ? 'LINKED' : 'ORPHAN';
-        const createdAt = z.getDataValue('createdAt') as Date | undefined;
-        console.log(
-            `${tag}\tid=${z.id}\tcreatedAt=${createdAt instanceof Date ? createdAt.toISOString() : ''}`,
-        );
+    for (const z of orphans) {
+        console.log(`ORPHAN\tid=${z.id}`);
     }
-
-    console.log(
-        `\nScanned ${zips.length} LEVELZIP row(s); ${orphans.length} not referenced by levels.fileId.`,
-    );
+    console.log(`\nScanned ${zips.length} LEVELZIP row(s); ${orphans.length} not referenced by levels.fileId.`);
 
     if (orphans.length === 0) {
         return;
