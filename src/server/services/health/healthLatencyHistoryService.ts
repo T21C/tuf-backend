@@ -65,6 +65,17 @@ const UTC_RANGE_LOWER_SQL: Record<HealthLatencyWindow, string> = {
   '14d': 'DATE_SUB(UTC_TIMESTAMP(), INTERVAL 14 DAY)',
 };
 
+/** Robust central tendency for smoothing one-off latency spikes when multiple samples fall in the same minute. */
+function medianRounded(values: number[]): number | null {
+  const finite = values.filter((n) => Number.isFinite(n));
+  if (finite.length === 0) return null;
+  const sorted = [...finite].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const raw =
+    sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  return Math.round(raw);
+}
+
 /** Align to minute for merging raw samples */
 function minuteFloorMs(d: Date): number {
   return Math.floor(d.getTime() / 60000) * 60000;
@@ -93,8 +104,8 @@ export function parseLatencyWindow(raw: unknown): HealthLatencyWindow | null {
 }
 
 /**
- * Short windows: same pattern as admin statistics ratings-per-user — Sequelize model +
- * Op.between so Date ➔ MySQL conversion follows the pool dialect (see PoolManager timezone).
+ * Short windows: Sequelize model + Op.between. Multiple DB rows per calendar minute are
+ * merged using a per-component median so charts stay stable when sampling runs sub-minute.
  */
 async function fetchRawPoints(from: Date, to: Date): Promise<HealthLatencyPoint[]> {
   const rows = await HealthLatencySample.findAll({
@@ -110,7 +121,7 @@ async function fetchRawPoints(from: Date, to: Date): Promise<HealthLatencyPoint[
 
   const merged = new Map<
     number,
-    { database: number | null; main_server: number | null; cdn: number | null }
+    { database: number[]; main_server: number[]; cdn: number[] }
   >();
 
   for (const row of rows) {
@@ -118,22 +129,26 @@ async function fetchRawPoints(from: Date, to: Date): Promise<HealthLatencyPoint[
     const recorded = rawRow.recordedAt ?? rawRow.recorded_at;
     const ts = minuteFloorMs(new Date(recorded as string | Date));
     if (!merged.has(ts)) {
-      merged.set(ts, { database: null, main_server: null, cdn: null });
+      merged.set(ts, { database: [], main_server: [], cdn: [] });
     }
     const pt = merged.get(ts)!;
     const comp = String(rawRow.component ?? '');
     const key = componentKey(comp);
     if (!key) continue;
     const dm = rawRow.durationMs ?? rawRow.duration_ms;
-    const v = dm === null || dm === undefined ? null : Math.round(Number(dm));
-    pt[key] = v;
+    if (dm === null || dm === undefined) continue;
+    const v = Math.round(Number(dm));
+    if (!Number.isFinite(v)) continue;
+    pt[key].push(v);
   }
 
   return [...merged.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([ms, v]) => ({
       at: new Date(ms).toISOString(),
-      ...v,
+      database: medianRounded(v.database),
+      main_server: medianRounded(v.main_server),
+      cdn: medianRounded(v.cdn),
     }));
 }
 

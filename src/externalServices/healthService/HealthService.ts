@@ -39,7 +39,7 @@ export class HealthService {
   private lastCheckTime: Date | null = null;
   private status: OverallStatus = 'online';
   private checkInterval: NodeJS.Timeout | null = null;
-  private latencyMinuteInterval: NodeJS.Timeout | null = null;
+  private latencySamplerInterval: NodeJS.Timeout | null = null;
 
   private readonly probes: ReadonlyArray<ProbeRegistration>;
   private readonly results = new Map<ProbeName, ProbeResult>();
@@ -227,6 +227,7 @@ export class HealthService {
           cdcUrl: HEALTH_CONFIG.cdcUrl,
           nginxUrl: HEALTH_CONFIG.nginxUrl || null,
           probeIntervalMs: HEALTH_CONFIG.probeIntervalMs,
+          latencySamplerIntervalMs: HEALTH_CONFIG.latencySamplerIntervalMs,
           probeTimeoutMs: HEALTH_CONFIG.probeTimeoutMs,
         },
       },
@@ -268,6 +269,7 @@ export class HealthService {
           cdcUrl: HEALTH_CONFIG.cdcUrl,
           nginxUrl: HEALTH_CONFIG.nginxUrl || null,
           intervalMs: HEALTH_CONFIG.probeIntervalMs,
+          latencySamplerIntervalMs: HEALTH_CONFIG.latencySamplerIntervalMs,
           timeoutMs: HEALTH_CONFIG.probeTimeoutMs,
         });
       });
@@ -280,19 +282,19 @@ export class HealthService {
       this.checkInterval.unref?.();
 
       void runLatencyMinuteSamplerTick().catch((error) => {
-        logger.error('[health] initial latency minute sampler failed', {
+        logger.error('[health] initial latency sampler failed', {
           error: error instanceof Error ? error.message : String(error),
         });
       });
 
-      this.latencyMinuteInterval = setInterval(() => {
+      this.latencySamplerInterval = setInterval(() => {
         void runLatencyMinuteSamplerTick().catch((error) => {
-          logger.error('[health] latency minute sampler failed', {
+          logger.error('[health] latency sampler failed', {
             error: error instanceof Error ? error.message : String(error),
           });
         });
-      }, 60_000);
-      this.latencyMinuteInterval.unref?.();
+      }, HEALTH_CONFIG.latencySamplerIntervalMs);
+      this.latencySamplerInterval.unref?.();
     } catch (error) {
       logger.error('[health] failed to start service', {
         error: error instanceof Error ? error.message : String(error),
@@ -312,9 +314,9 @@ export class HealthService {
         this.checkInterval = null;
       }
 
-      if (this.latencyMinuteInterval) {
-        clearInterval(this.latencyMinuteInterval);
-        this.latencyMinuteInterval = null;
+      if (this.latencySamplerInterval) {
+        clearInterval(this.latencySamplerInterval);
+        this.latencySamplerInterval = null;
       }
 
       await new Promise<void>((resolve) => {

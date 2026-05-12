@@ -43,7 +43,8 @@ function defaultCdcUrl(): string {
 /** Centralized, env-driven config for the standalone health service. */
 export const HEALTH_CONFIG = {
   port: envInt('HEALTH_PORT', 3883),
-  probeIntervalMs: envInt('HEALTH_PROBE_INTERVAL_MS', 5000),
+  /** How often live probes run while the health HTTP server is up. */
+  probeIntervalMs: envInt('HEALTH_PROBE_INTERVAL_MS', 3000),
   probeTimeoutMs: envInt('HEALTH_PROBE_TIMEOUT_MS', 5000),
   /** Probes slower than this emit a `warn` even if the result is `ok`. */
   slowProbeThresholdMs: envInt('HEALTH_SLOW_PROBE_THRESHOLD_MS', 2000),
@@ -52,4 +53,9 @@ export const HEALTH_CONFIG = {
   cdcUrl: defaultCdcUrl(),
   /** When unset the nginx probe is skipped entirely. */
   nginxUrl: envString('HEALTH_NGINX_URL', ''),
+  /**
+   * Interval for persisting latency samples (DB + optional HTTP). History charts merge
+   * into one value per minute using a median so brief spikes do not dominate the graph.
+   */
+  latencySamplerIntervalMs: envInt('HEALTH_LATENCY_SAMPLER_INTERVAL_MS', 10_000),
 } as const;

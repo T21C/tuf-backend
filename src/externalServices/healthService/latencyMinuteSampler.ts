@@ -39,7 +39,9 @@ async function purgeOlderThan14Days(): Promise<void> {
 }
 
 /**
- * Record one sample per minute for database + optional HTTP probes when URLs are not loopback.
+ * Record latency samples on a fixed interval (see `HEALTH_CONFIG.latencySamplerIntervalMs`).
+ * Short-window history charts merge rows into one point per minute using a median so
+ * isolated slow probes do not skew the curve.
  */
 export async function runLatencyMinuteSamplerTick(): Promise<void> {
   const recordedAt = new Date();
