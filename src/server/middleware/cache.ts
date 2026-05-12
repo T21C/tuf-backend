@@ -147,6 +147,12 @@ function generateCacheKey(req: Request, config: CacheConfig): string {
  *   varyByRole: true,
  *   ttl: 300
  * }), async (req, res) => { ... });
+ *
+ * **Stacked responses:** when the JSON body is assembled from multiple backends (e.g. pack
+ * tree from SQL + levels from Elasticsearch), `Cache()` is wrong — it only caches the final
+ * body and returns before your handler runs. Skip route-level `Cache` for that route and use
+ * {@link readCacheLayer}, {@link writeCacheLayer}, and {@link getOrFetchCacheLayer} from
+ * `./stackedCacheLayers.js` inside the handler: peek layers, fetch misses, merge, `res.json`.
  */
 export function Cache(config: CacheConfig = {}): (req: Request, res: Response, next: NextFunction) => Promise<void> {
   const mergedConfig = { ...DEFAULT_CONFIG, ...config };
@@ -603,3 +609,12 @@ export const CachePresets = {
   /** No cache for authenticated users, 5 min for anonymous */
   publicOnly: (overrides?: Partial<CacheConfig>) => Cache({ ttl: 300, bypassForAuth: true, ...overrides }),
 };
+
+export {
+  readCacheLayer,
+  writeCacheLayer,
+  getOrFetchCacheLayer,
+  readCacheLayers,
+  packLayerStorageKey,
+  defaultPackLayerTags,
+} from './stackedCacheLayers.js';

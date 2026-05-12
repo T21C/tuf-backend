@@ -6,6 +6,7 @@ import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchS
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { parseCdcFields, rowId } from './cdcRowParse.js';
 import { getLevelIdsByArtistId, getLevelIdsByPlayerId, getLevelIdsBySongId } from './cdcFanout.js';
+import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
 import Curation from '@/models/curations/Curation.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import User from '@/models/auth/User.js';
@@ -43,16 +44,19 @@ function tableEnabled(table: string): boolean {
 
 async function invalidateLevel(levelId: number): Promise<void> {
   await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all']);
+  await invalidatePackLevelsCachesForLevelIds([levelId]);
 }
 
 async function invalidateLevelAndPasses(levelId: number): Promise<void> {
   await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all', 'Passes']);
+  await invalidatePackLevelsCachesForLevelIds([levelId]);
 }
 
 async function invalidateLevels(levelIds: number[]): Promise<void> {
   if (levelIds.length === 0) return;
   const tags = ['levels:all', ...levelIds.map((id) => `level:${id}`)];
   await CacheInvalidation.invalidateTags(tags);
+  await invalidatePackLevelsCachesForLevelIds(levelIds);
 }
 
 function num(v: unknown): number | null {

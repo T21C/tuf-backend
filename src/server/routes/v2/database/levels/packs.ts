@@ -23,14 +23,19 @@ import LevelCredit from '@/models/levels/LevelCredit.js';
 import Creator from '@/models/credits/Creator.js';
 import Team from '@/models/credits/Team.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
+import {
+  invalidatePackLevelsCachesForLevelIds,
+  invalidatePackStructureLayers,
+  packDetailLayerTagsForFullInvalidation,
+  resolvePackItemsWithStackedCache,
+} from '@/server/services/packs/packDetailCacheService.js';
+import { prunePackCdnMetadataForThirdParty } from '@/server/services/packs/prunePackCdnMetadataForThirdParty.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import { incrementLevelDownloadCountsForFileIds } from '@/misc/utils/data/levelDownloadCount.js';
 import { stringIdParamSpec } from '@/server/schemas/common.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
-import { fetchPackLevelsFromElasticsearch } from '@/server/services/elasticsearch/search/levels/fetchPackLevelsFromElasticsearch.js';
-import { pruneMysqlReferencedLevelForPack } from '@/server/services/elasticsearch/search/levels/packReferencedLevelSerialize.js';
 
 const router: Router = Router();
 
@@ -507,7 +512,8 @@ router.get(
   ApiDoc({
     operationId: 'getPackCdnData',
     summary: 'Get pack CDN metadata',
-    description: 'Returns per-level CDN zip size, original filename, and full normalized LEVELZIP metadata (same family as GET /levels/:id/cdnData) for download estimates and target-level selection. Cached separately from the pack tree.',
+    description:
+      'Per-level CDN zip size, original filename, and **trimmed** LEVELZIP metadata for third-party tooling: `targetLevelRelativePath`, `levelFiles` (array of name/relativePath/songFilename/size), `songFiles` (array of { name, size }). Cached separately from the pack tree.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
@@ -615,12 +621,15 @@ router.get(
         continue;
       }
       const meta = levelMetadataByFileId.get(fid);
+      const prunedMeta = prunePackCdnMetadataForThirdParty(
+        meta?.metadata as Record<string, unknown> | undefined,
+      );
       items.push({
         levelId: level.id,
         fileId: fid,
         size: meta?.size ?? null,
         originalFilename: meta?.originalFilename ?? null,
-        metadata: meta?.metadata ?? null
+        metadata: prunedMeta,
       });
     }
 
@@ -639,19 +648,14 @@ router.get(
   ApiDoc({
     operationId: 'getPack',
     summary: 'Get pack',
-    description: 'Get a pack by ID or link code with optional tree. Cached.',
+    description:
+      'Get a pack by ID or link code with optional tree. Uses stacked Redis layers (structure vs ES level payloads) inside the handler — not monolithic route Cache.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
     query: { tree: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Pack details' }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
-  Cache({
-  ttl: process.env.NODE_ENV === 'production' ? 60*60*24 : 5,
-  varyByUser: true,
-  varyByQuery: ['tree'],
-  tags: (req) => [`pack:${req.params.id}`, 'packs:all']
-}),
   async (req: Request, res: Response) => {
   try {
     const param = req.params.id;
@@ -665,55 +669,29 @@ router.get(
         model: User,
         as: 'packOwner',
         attributes: ['id', 'nickname', 'username', 'avatarUrl']
-      },
-      {
-        model: LevelPackItem,
-        as: 'packItems',
-        required: false
-      }
-    ]
+      }]
     });
 
     if (!canViewPack(pack!, req.user)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Fetch all items in the pack (without complex includes for performance)
-    const allItems = pack!.packItems!;
-    // Separate items by type
-    const folders = allItems.filter(item => item.type === 'folder');
-    const levelItems = allItems.filter(item => item.type === 'level' && item.levelId !== null);
-    const levelIds = [...new Set(levelItems.map((item) => item.levelId!).filter((id) => id !== null))];
+    const linkCode = pack!.linkCode ?? null;
 
-    const [esLevelsById, clearedLevelIds] = await Promise.all([
-      levelIds.length > 0
-        ? fetchPackLevelsFromElasticsearch(levelIds)
-        : Promise.resolve(new Map<number, Record<string, unknown>>()),
+    const [clearedLevelIds, { flatItemsMerged: mergedFlat }] = await Promise.all([
       req.user
         ? Pass.findAll({
             where: { playerId: req.user.playerId, isDeleted: false },
             attributes: ['levelId'],
           }).then((passes) => passes.map((pass) => pass.levelId))
         : Promise.resolve([] as number[]),
+      resolvePackItemsWithStackedCache(resolvedPackId, linkCode, []),
     ]);
 
-    const levels = levelItems
-      .map((item) => {
-        const levelData = esLevelsById.get(item.levelId!);
-        if (!levelData) {
-          return null;
-        }
-        const row = item.toJSON() as unknown as Record<string, unknown>;
-        return {
-          id: row.id,
-          type: row.type,
-          parentId: row.parentId,
-          levelId: row.levelId,
-          sortOrder: row.sortOrder,
-          referencedLevel: levelData,
-        };
-      })
-      .filter((item) => item !== null);
+    const items = mergedFlat.map((item: any) => ({
+      ...item,
+      isCleared: clearedLevelIds.includes(item.levelId || 0),
+    }));
 
     const packData: any = pack!.toJSON();
     delete packData.packItems;
@@ -726,30 +704,9 @@ router.get(
       };
     }
 
-    const foldersPlain = folders.map((folder) => {
-      const row = folder.toJSON() as unknown as Record<string, unknown>;
-      return {
-        id: row.id,
-        type: row.type,
-        parentId: row.parentId,
-        name: row.name,
-        sortOrder: row.sortOrder,
-      };
-    });
-    let items = [...foldersPlain, ...levels];
-
-    items = items.map((item: any) => ({
-      ...item,
-      isCleared: clearedLevelIds.includes(item.levelId || 0)
-    }));
-
-
-
     if (tree === 'true') {
-      // Build tree structure
       packData.items = buildItemTree(items);
     } else {
-      // Flat list
       packData.items = items;
     }
 
@@ -1922,54 +1879,15 @@ router.put(
 
     await transaction.commit();
 
-    // Return the updated tree
-    const updatedItems = await LevelPackItem.findAll({
+    await invalidatePackStructureLayers(resolvedPackId);
+
+    const treeRows = await LevelPackItem.findAll({
       where: { packId: resolvedPackId },
-      include: [{
-        model: Level,
-        as: 'referencedLevel',
-        required: false,
-        include: [{
-          model: Curation,
-          as: 'curations',
-          include: [{
-            model: CurationType,
-            as: 'types',
-            required: false,
-            through: { attributes: [] },
-          }],
-          required: false,
-        },
-        {
-          model: LevelCredit,
-          as: 'levelCredits',
-          required: false,
-          include: [{
-            model: Creator,
-            as: 'creator',
-            required: false
-          }],
-        },
-        {
-          model: Team,
-          as: 'teamObject'
-        }
-      ]
-      }],
-      order: [['sortOrder', 'ASC']]
+      attributes: ['id', 'type', 'parentId', 'sortOrder', 'name', 'levelId'],
+      order: [['sortOrder', 'ASC']],
     });
 
-    // Convert Sequelize models to plain objects to avoid circular references
-    const plainItems = updatedItems.map(item => item.toJSON());
-    for (const item of plainItems) {
-      const typed = item as { referencedLevel?: Record<string, unknown> };
-      if (typed.referencedLevel) {
-        typed.referencedLevel =
-          pruneMysqlReferencedLevelForPack(typed.referencedLevel) ?? typed.referencedLevel;
-      }
-    }
-
-    const updatedTree = buildItemTree(plainItems);
+    const updatedTree = buildItemTree(treeRows.map((r) => r.toJSON()));
 
     return res.json({ items: updatedTree });
 
@@ -2451,6 +2369,7 @@ const invalidatePackCacheById = async (packId: number): Promise<void> => {
     const tags: string[] = ['packs:all'];
     tags.push(`pack:${packId}`);
     tags.push(`pack:${packId}:cdn`);
+    tags.push(...packDetailLayerTagsForFullInvalidation(packId, pack.linkCode));
     if (pack.linkCode) {
       tags.push(`pack:${pack.linkCode}`);
       tags.push(`pack:${pack.linkCode}:cdn`);
@@ -2541,13 +2460,22 @@ LevelPackItem.addHook('afterCreate', 'cacheInvalidationPackItemCreate', async (i
 });
 
 LevelPackItem.addHook('afterUpdate', 'cacheInvalidationPackItemUpdate', async (item: LevelPackItem, options: any) => {
-  logger.debug('cacheInvalidationPackItemUpdate', { item, options });
-  if (options.transaction) {
-    await options.transaction.afterCommit(async () => {
+  const fields = options.fields as string[] | undefined;
+  const run = async () => {
+    if (!fields || fields.length === 0) {
       await invalidatePackCacheById(item.packId);
-    });
+      return;
+    }
+    if (fields.some((f) => f === 'levelId' || f === 'type' || f === 'packId')) {
+      await invalidatePackCacheById(item.packId);
+      return;
+    }
+    await invalidatePackStructureLayers(item.packId);
+  };
+  if (options.transaction) {
+    await options.transaction.afterCommit(run);
   } else {
-    await invalidatePackCacheById(item.packId);
+    await run();
   }
 });
 
@@ -2564,41 +2492,47 @@ LevelPackItem.addHook('afterDestroy', 'cacheInvalidationPackItemDestroy', async 
 });
 
 LevelPackItem.addHook('afterBulkCreate', 'cacheInvalidationPackItemBulkCreate', async (instances: LevelPackItem[], options: any) => {
-  if (options.transaction) {
-    await options.transaction.afterCommit(async () => {
-      // Get unique pack IDs from created items
-      const packIds = [...new Set(instances.map(item => item.packId))];
+  const runBulk = async () => {
+    const packIds = [...new Set(instances.map((item) => item.packId))];
 
-      for (const packId of packIds) {
-        await invalidatePackCacheById(packId);
-      }
+    for (const packId of packIds) {
+      await invalidatePackCacheById(packId);
+    }
 
+    if (packIds.length > 0) {
       logger.debug(`Cache invalidated for ${packIds.length} packs (bulk item create)`);
-    });
+    }
+  };
+
+  if (options.transaction) {
+    await options.transaction.afterCommit(runBulk);
+  } else {
+    await runBulk();
   }
 });
 
 LevelPackItem.addHook('afterBulkUpdate', 'cacheInvalidationPackItemBulkUpdate', async (options: any) => {
-  logger.debug('cacheInvalidationPackItemBulkUpdate', { options });
-  if (options.transaction) {
-    await options.transaction.afterCommit(async () => {
-      // Get all affected pack IDs from the update
-      const affectedItems = await LevelPackItem.findAll({
-        where: options.where,
-        attributes: ['packId'],
-        group: ['packId']
-      });
-
-      const packIds = [...new Set(affectedItems.map(item => item.packId))];
-
-      for (const packId of packIds) {
-        await invalidatePackCacheById(packId);
-      }
-
-      if (packIds.length > 0) {
-        logger.debug(`Cache invalidated for ${packIds.length} packs (bulk item update)`);
-      }
+  const runBulk = async () => {
+    const affectedItems = await LevelPackItem.findAll({
+      where: options.where,
+      attributes: ['packId'],
     });
+
+    const packIds = [...new Set(affectedItems.map((row) => row.packId))];
+
+    for (const packId of packIds) {
+      await invalidatePackStructureLayers(packId);
+    }
+
+    if (packIds.length > 0) {
+      logger.debug(`Pack structure cache invalidated for ${packIds.length} packs (bulk item update)`);
+    }
+  };
+
+  if (options.transaction) {
+    await options.transaction.afterCommit(runBulk);
+  } else {
+    await runBulk();
   }
 });
 
