@@ -160,6 +160,21 @@ function parseOptionalRecipientUserId(v: unknown): string | null | 'invalid' {
   return s.toLowerCase();
 }
 
+function paymentIntentIdFromCheckoutSession(session: Stripe.Checkout.Session): string | null {
+  const pi = session.payment_intent;
+  if (typeof pi === 'string') {
+    const id = pi.trim();
+    return id.startsWith('pi_') ? id : null;
+  }
+  if (pi && typeof pi === 'object' && 'id' in pi && typeof (pi as { id: unknown }).id === 'string') {
+    const id = String((pi as { id: string }).id).trim();
+    return id.startsWith('pi_') ? id : null;
+  }
+  return null;
+}
+
+const STRIPE_CHECKOUT_SESSION_ID_RE = /^cs_[a-zA-Z0-9_]+$/;
+
 const REFERENCE_KIND_ORDER: BillingEventReferenceKind[] = [
   'invoice_id',
   'foreign_invoice',
@@ -816,6 +831,140 @@ router.post(
       }
       logger.error('POST /v3/billing/stripe/checkout failed', e);
       return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to start checkout' } });
+    }
+  },
+);
+
+router.get(
+  '/stripe/checkout-status',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getBillingStripeCheckoutStatus',
+    summary: 'Stripe Checkout session status for return URL polling',
+    description:
+      'Retrieves the Checkout Session from Stripe (must belong to the signed-in purchaser via metadata) and reports whether the matching `checkout.session.completed` billing row has been processed. Use after `success_url` redirect instead of inferring success from GET /me alone (gifts do not extend the purchaser\'s access).',
+    tags: ['Billing'],
+    security: ['bearerAuth'],
+    query: {
+      session_id: {
+        required: true,
+        schema: { type: 'string' },
+        description: 'Stripe Checkout Session id (`cs_…`) from the success redirect.',
+      },
+    },
+    responses: {
+      200: { description: 'Checkout + fulfillment snapshot', schema: { type: 'object' } },
+      400: { description: 'Bad session id or misconfigured', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      403: { description: 'Session not for this purchaser', schema: errorResponseSchema },
+      404: { description: 'Session not found', schema: errorResponseSchema },
+      502: { description: 'Stripe error', schema: errorResponseSchema },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const tokenUser = req.user;
+      if (!tokenUser) return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Not authenticated' } });
+
+      const rawSid = req.query.session_id ?? req.query.sessionId;
+      const sessionId = typeof rawSid === 'string' ? rawSid.trim() : '';
+      if (!sessionId || !STRIPE_CHECKOUT_SESSION_ID_RE.test(sessionId)) {
+        return res.status(400).json({
+          error: { code: 'INVALID_PARAMETER', message: 'session_id must be a Stripe Checkout Session id (cs_…).' },
+        });
+      }
+
+      if (!stripeConfig.secretKey) {
+        return res.status(400).json({
+          error: { code: 'MISCONFIGURED', message: 'Stripe is not configured (missing STRIPE_SECRET_KEY).' },
+        });
+      }
+
+      setBillingJsonNoCache(res);
+
+      const stripe = new Stripe(stripeConfig.secretKey, { typescript: true });
+      let session: Stripe.Checkout.Session;
+      try {
+        session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] });
+      } catch (e: unknown) {
+        if (e instanceof Stripe.errors.StripeInvalidRequestError && e.code === 'resource_missing') {
+          return res.status(404).json({ error: { code: 'CHECKOUT_SESSION_NOT_FOUND', message: 'Checkout session not found.' } });
+        }
+        if (e instanceof Stripe.errors.StripeError) {
+          return res.status(502).json({ error: { code: 'STRIPE_ERROR', message: e.message } });
+        }
+        throw e;
+      }
+
+      const viewerLower = String(tokenUser.id).toLowerCase();
+      const purchaserMeta = parseOptionalRecipientUserId(session.metadata?.tuf_purchaser_id ?? session.metadata?.tufPurchaserId);
+      if (!purchaserMeta || purchaserMeta === 'invalid' || purchaserMeta !== viewerLower) {
+        return res.status(403).json({
+          error: {
+            code: 'CHECKOUT_SESSION_FORBIDDEN',
+            message: 'This checkout session is not associated with the signed-in purchaser.',
+          },
+        });
+      }
+
+      const refId = trimmedString(session.client_reference_id)?.toLowerCase();
+      if (refId && refId !== viewerLower) {
+        return res.status(403).json({
+          error: {
+            code: 'CHECKOUT_SESSION_FORBIDDEN',
+            message: 'This checkout session is not associated with the signed-in purchaser.',
+          },
+        });
+      }
+
+      const beneficiaryMeta = parseOptionalRecipientUserId(session.metadata?.tuf_beneficiary_id ?? session.metadata?.tufBeneficiaryId);
+      const benNorm = beneficiaryMeta && beneficiaryMeta !== 'invalid' ? beneficiaryMeta : purchaserMeta;
+      const isGift = Boolean(benNorm && purchaserMeta && benNorm !== purchaserMeta);
+
+      const monthsRaw = session.metadata?.tuf_months ?? session.metadata?.tufMonths;
+      const monthsNum = monthsRaw != null && monthsRaw !== '' ? Number(monthsRaw) : NaN;
+      const months = Number.isFinite(monthsNum) && isTufStellarMonths(Math.floor(monthsNum)) ? Math.floor(monthsNum) : null;
+
+      const piId = paymentIntentIdFromCheckoutSession(session);
+      const externalCandidates = [piId, session.id].filter((x): x is string => Boolean(x));
+
+      const billingRow =
+        externalCandidates.length > 0
+          ? await BillingEvent.findOne({
+              where: {
+                provider: 'stripe',
+                eventType: 'checkout.session.completed',
+                externalId: { [Op.in]: externalCandidates },
+                [Op.or]: [{ userId: tokenUser.id }, { userId: viewerLower }],
+              },
+              order: [['createdAt', 'DESC']],
+            })
+          : null;
+
+      const stripePaymentComplete =
+        session.status === 'complete' && (session.payment_status === 'paid' || session.payment_status === 'no_payment_required');
+
+      const fulfillmentReady = billingRow?.status === 'processed';
+      const fulfillmentFailed = billingRow?.status === 'failed';
+
+      return res.json({
+        sessionId: session.id,
+        paymentIntentId: piId,
+        stripeSessionStatus: session.status,
+        stripePaymentStatus: session.payment_status,
+        stripePaymentComplete,
+        isGift,
+        beneficiaryUserId: isGift ? benNorm : null,
+        months,
+        billingEventId: billingRow?.id ?? null,
+        billingEventStatus: billingRow?.status ?? null,
+        fulfillmentReady,
+        fulfillmentFailed,
+      });
+    } catch (e) {
+      logger.error('GET /v3/billing/stripe/checkout-status failed', e);
+      return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to load checkout status' } });
     }
   },
 );
