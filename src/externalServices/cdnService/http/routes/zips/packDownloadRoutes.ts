@@ -1813,9 +1813,9 @@ async function estimateTotalZipSize(tree: PackDownloadNode): Promise<{ totalSize
                 totalSize += size;
             } else {
                 failedCount++;
-                // If we can't determine size, use a conservative estimate of 50MB per level
+                // If we can't determine size, use a conservative estimate aligned with max parseable chart size
                 // This ensures we don't allow unlimited growth if size detection fails
-                totalSize += 50 * 1024 * 1024; // 50MB estimate
+                totalSize += 10 * 1024 * 1024; // 10MB estimate
             }
         }
     }

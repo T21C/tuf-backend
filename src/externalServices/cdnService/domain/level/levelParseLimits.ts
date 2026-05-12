@@ -4,7 +4,7 @@
  */
 
 /** Max .adofai file size before skipping LevelDict (Node string / heap pressure). */
-export const MAX_LEVEL_FILE_SIZE_FOR_PARSE = 50 * 1024 * 1024;
+export const MAX_LEVEL_FILE_SIZE_FOR_PARSE = 10 * 1024 * 1024;
 
 /**
  * Max `angleData` tile count for a full LevelDict parse.

@@ -7,6 +7,7 @@ import { streamArray } from 'stream-json/streamers/stream-array.js';
 import { streamObject } from 'stream-json/streamers/stream-object.js';
 import { pick } from 'stream-json/filters/pick.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { MAX_LEVEL_FILE_SIZE_FOR_PARSE } from '../levelParseLimits.js';
 
 function pathLikeForLog(p: PathLike): string {
     if (Buffer.isBuffer(p)) return `Buffer(${p.length} bytes)`;
@@ -39,8 +40,8 @@ type SettingsKey = typeof SETTINGS_KEYS_OF_INTEREST[number];
 
 /** Rolling-window size for the regex fallback (32 KiB is comfortably larger than any realistic field value). */
 const REGEX_FALLBACK_TAIL_BYTES = 32 * 1024;
-/** Hard cap on how far the regex fallback will read before giving up. Settings usually appear within ~10 MiB even on huge charts. */
-const REGEX_FALLBACK_MAX_BYTES = 50 * 1024 * 1024;
+/** Hard cap on how far the regex fallback will read before giving up. Kept in line with {@link MAX_LEVEL_FILE_SIZE_FOR_PARSE}. */
+const REGEX_FALLBACK_MAX_BYTES = MAX_LEVEL_FILE_SIZE_FOR_PARSE;
 
 /**
  * Stream-scan a huge .adofai JSON without loading it into V8 heap.
