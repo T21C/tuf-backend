@@ -87,6 +87,7 @@
     "socket.io": "^4.8.1",
     "stream-chain": "^3.6.1",
     "stream-json": "^2.1.0",
+    "stripe": "^17.7.0",
     "swagger-ui-express": "^5.0.0",
     "twemoji": "^14.0.2",
     "uuid": "^11.0.3",

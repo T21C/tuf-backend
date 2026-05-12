@@ -1,4 +1,4 @@
-import { inferGiftMonthsFromXsollaPayload, monthsFromTufStellarGiftProductId } from '@/server/services/billing/tufStellarProductCatalog.js';
+import { inferGiftMonthsFromXsollaPayload, isTufStellarMonths, monthsFromTufStellarGiftProductId } from '@/server/services/billing/tufStellarProductCatalog.js';
 
 export type BillingEventProductKind = 'purchase' | 'unknown';
 
@@ -108,6 +108,52 @@ export function describeProductFromXsollaWebhookRawBody(rawBody: string): Billin
     kind,
     months,
     sku,
+    itemId,
+  };
+}
+
+/** Parsed product hints from a Stripe webhook `rawBody` (envelope JSON) for billing activity UI. */
+export function describeProductFromStripeWebhookRawBody(rawBody: string): BillingEventProductDescriptor | null {
+  let payload: Record<string, unknown>;
+  try {
+    const p = JSON.parse(rawBody) as unknown;
+    if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+    payload = p as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  const t = trimmed(payload.type);
+  if (t !== 'checkout.session.completed') return null;
+
+  const data = payload.data as Record<string, unknown> | undefined;
+  const session = data?.object as Record<string, unknown> | undefined;
+  if (!session || String(session.object) !== 'checkout.session') return null;
+
+  const md = (session.metadata as Record<string, unknown> | undefined) ?? {};
+  const mRaw = md.tuf_months ?? md.tufMonths;
+  const m = mRaw != null && mRaw !== '' ? Number(mRaw) : NaN;
+  const months = Number.isFinite(m) && isTufStellarMonths(m) ? m : null;
+
+  const liRoot = session.line_items as { data?: unknown[] } | undefined;
+  const firstLi =
+    Array.isArray(liRoot?.data) && liRoot!.data!.length > 0 && typeof liRoot!.data![0] === 'object'
+      ? (liRoot!.data![0] as Record<string, unknown>)
+      : null;
+  let itemId: string | null = null;
+  if (firstLi) {
+    const price = firstLi.price;
+    if (typeof price === 'string') itemId = trimmed(price);
+    else if (price && typeof price === 'object' && 'id' in price) itemId = trimmed((price as { id: unknown }).id);
+  }
+
+  const kind: BillingEventProductKind = months != null ? 'purchase' : 'unknown';
+  if (months == null && itemId == null) return null;
+
+  return {
+    kind,
+    months,
+    sku: null,
     itemId,
   };
 }

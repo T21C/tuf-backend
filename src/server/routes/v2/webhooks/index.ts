@@ -1,10 +1,10 @@
 import {Router} from 'express';
 import webhook from './webhook.js';
-import xsolla from './xsolla.js';
+import stripe from './stripe.js';
 
 const router: Router = Router();
 
 router.use('/', webhook);
-router.use('/', xsolla);
+router.use('/', stripe);
 
 export default router;

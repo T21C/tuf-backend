@@ -15,13 +15,14 @@ export interface UserTufStellarEntitlementSegmentAttributes {
   idempotencyKey: string;
   xsollaTransactionId?: number | null;
   xsollaSubscriptionId?: number | null;
+  stripePaymentIntentId?: string | null;
   billingEventId?: number | null;
   createdAt: Date;
 }
 
 type Creation = Optional<
   UserTufStellarEntitlementSegmentAttributes,
-  'id' | 'xsollaTransactionId' | 'xsollaSubscriptionId' | 'billingEventId' | 'createdAt'
+  'id' | 'xsollaTransactionId' | 'xsollaSubscriptionId' | 'stripePaymentIntentId' | 'billingEventId' | 'createdAt'
 >;
 
 class UserTufStellarEntitlementSegment
@@ -37,6 +38,7 @@ class UserTufStellarEntitlementSegment
   declare idempotencyKey: string;
   declare xsollaTransactionId?: number | null;
   declare xsollaSubscriptionId?: number | null;
+  declare stripePaymentIntentId?: string | null;
   declare billingEventId?: number | null;
   declare createdAt: Date;
 }
@@ -86,6 +88,11 @@ UserTufStellarEntitlementSegment.init(
       allowNull: true,
       defaultValue: null,
     },
+    stripePaymentIntentId: {
+      type: DataTypes.STRING(80),
+      allowNull: true,
+      defaultValue: null,
+    },
     billingEventId: {
       type: DataTypes.BIGINT.UNSIGNED,
       allowNull: true,
@@ -109,6 +116,7 @@ UserTufStellarEntitlementSegment.init(
     indexes: [
       { fields: ['userId'], name: 'idx_tuf_stellar_entitlement_segments_user' },
       { fields: ['userId', 'endsAt'], name: 'idx_tuf_stellar_entitlement_segments_user_ends' },
+      { fields: ['stripePaymentIntentId'], name: 'idx_tuf_stellar_entitlement_segments_stripe_pi' },
     ],
   },
 );

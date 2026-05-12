@@ -1,3 +1,5 @@
+import { stripeConfig } from '@/config/app.config.js';
+
 /** Allowlisted TUFStellar one-time catalog terms (virtual item SKUs / gift months). */
 export const TUF_STELLAR_ALLOWED_MONTHS = [1, 2, 3, 6, 9, 12] as const;
 export type TufStellarMonths = (typeof TUF_STELLAR_ALLOWED_MONTHS)[number];
@@ -25,6 +27,22 @@ export function isTufStellarMonths(value: number): value is TufStellarMonths {
 export function resolveTufStellarGiftProductId(months: number): string | null {
   if (!isTufStellarMonths(months)) return null;
   return MONTH_TO_GIFT_PRODUCT_ID[months];
+}
+
+/** Stripe Dashboard one-time `price_…` id for the term, from `stripeConfig.tufStellarPriceIds`. */
+export function resolveTufStellarStripePriceId(months: number): string | null {
+  if (!isTufStellarMonths(months)) return null;
+  const ids = stripeConfig.tufStellarPriceIds;
+  const byTerm: Record<TufStellarMonths, string> = {
+    1: ids.m1,
+    2: ids.m2,
+    3: ids.m3,
+    6: ids.m6,
+    9: ids.m9,
+    12: ids.m12,
+  };
+  const id = String(byTerm[months] ?? '').trim();
+  return id.length > 0 ? id : null;
 }
 
 /** Resolve gift SKU from webhook purchase payload (external id / sku string). */

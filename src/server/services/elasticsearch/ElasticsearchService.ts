@@ -125,15 +125,24 @@ class ElasticsearchService {
   }
 
   public async updatePlayerPasses(playerId: number): Promise<void> {
-    const passes = await Pass.findAll({
+    const passRows = await Pass.findAll({
       where: {
-        playerId: playerId,
+        playerId,
         isDeleted: false,
         isHidden: false,
-      }
+      },
+      attributes: ['id'],
+      raw: true,
     });
-    for (const pass of passes) {
-      await this.indexPass(pass.id);
+    const passIds = passRows.map((r: { id: number }) => r.id);
+    if (passIds.length === 0) return;
+
+    for (let i = 0; i < passIds.length; i += MAX_BATCH_SIZE) {
+      const chunk = passIds.slice(i, i + MAX_BATCH_SIZE);
+      const passes = await fetchPassesForBulkIndex(chunk);
+      if (passes.length > 0) {
+        await this.bulkIndexPasses(passes);
+      }
     }
   }
 

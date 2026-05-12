@@ -12,12 +12,18 @@ import { User } from '@/models/index.js';
 import BillingEvent from '@/models/billing/BillingEvent.js';
 import { reconcileExpiredTufStellarAccess } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { checkPurchaseCheckoutTransition, getBillingAllowedActions } from '@/misc/utils/subscriptions/billingLifecycleTransition.js';
-import { XsollaApiClient, XsollaApiError } from '@/server/services/billing/XsollaApiClient.js';
-import { isTufStellarMonths, resolveTufStellarGiftProductId } from '@/server/services/billing/tufStellarProductCatalog.js';
+import Stripe from 'stripe';
+import {
+  isTufStellarMonths,
+  resolveTufStellarStripePriceId,
+} from '@/server/services/billing/tufStellarProductCatalog.js';
 import { buildTufStellarAccessSegmentsForUser } from '@/server/services/billing/tufStellarAccessSegments.js';
 import { addCalendarMonthsUtc } from '@/misc/utils/time/addCalendarMonthsUtc.js';
-import { describeProductFromXsollaWebhookRawBody } from '@/server/services/billing/tufStellarBillingEventProduct.js';
-import { xsollaConfig } from '@/config/app.config.js';
+import {
+  describeProductFromStripeWebhookRawBody,
+  describeProductFromXsollaWebhookRawBody,
+} from '@/server/services/billing/tufStellarBillingEventProduct.js';
+import { isTufStellarFeatureEnabled, stripeConfig } from '@/config/app.config.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { deriveBillingAccessParts } from '@/misc/utils/subscriptions/billingAccessDerivation.js';
 import {
@@ -25,7 +31,6 @@ import {
   loadUserTufStellarBilling,
 } from '@/server/services/billing/userTufStellarBillingSupport.js';
 import { loadSegmentsForUser } from '@/server/services/billing/tufStellarEntitlementSegments.js';
-import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 
 const router: Router = Router();
 
@@ -37,18 +42,30 @@ router.use((_req: Request, res: Response, next: NextFunction) => {
   });
 });
 
-/** Best-effort client IP for Xsolla `X-User-Ip` (currency); country still sent via token payload. */
-function billingRequestClientIp(req: Request): string | undefined {
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.trim()) {
-    return fwd.split(',')[0].trim();
+function summarizeStripeEnvelope(payload: Record<string, unknown>): PaymentSummary | null {
+  const t = typeof payload.type === 'string' ? payload.type : '';
+  const dataObj = (payload.data as { object?: Record<string, unknown> } | undefined)?.object;
+  if (!dataObj || typeof dataObj !== 'object') return null;
+  if (t === 'checkout.session.completed' && String(dataObj.object) === 'checkout.session') {
+    const total = dataObj.amount_total;
+    const cur = dataObj.currency;
+    const cents = total != null ? Number(total) : NaN;
+    const amount = Number.isFinite(cents) ? cents / 100 : null;
+    return {
+      amount,
+      currency: typeof cur === 'string' ? cur.toUpperCase() : null,
+    };
   }
-  const real = req.headers['x-real-ip'];
-  if (typeof real === 'string' && real.trim()) {
-    return real.trim();
+  if (String(dataObj.object) === 'charge') {
+    const amt = dataObj.amount != null ? Number(dataObj.amount) : NaN;
+    const cur = dataObj.currency;
+    const amount = Number.isFinite(amt) ? amt / 100 : null;
+    return {
+      amount,
+      currency: typeof cur === 'string' ? cur.toUpperCase() : null,
+    };
   }
-  const raw = req.socket?.remoteAddress;
-  return raw?.trim() || undefined;
+  return null;
 }
 
 type BillingActivityKind = 'gift_received' | 'gift_sent' | 'one_time_self' | 'default';
@@ -74,22 +91,26 @@ interface PaymentSummary {
 
 function summarizeRawBody(rawBody: string): PaymentSummary {
   try {
-    const payload = JSON.parse(rawBody);
-    const tx = payload?.transaction ?? payload?.billing?.transaction;
+    const payload = JSON.parse(rawBody) as Record<string, unknown>;
+    const stripeSummary = summarizeStripeEnvelope(payload);
+    if (stripeSummary) return stripeSummary;
+
+    const p = payload as Record<string, any>;
+    const tx = p?.transaction ?? p?.billing?.transaction;
     const amountRaw =
       tx?.payment_method_sum ??
       tx?.payment_gross ??
-      payload?.order?.amount ??
-      payload?.billing?.purchase?.total?.amount ??
-      payload?.purchase?.total?.amount ??
-      payload?.purchase?.checkout?.amount ??
+      p?.order?.amount ??
+      p?.billing?.purchase?.total?.amount ??
+      p?.purchase?.total?.amount ??
+      p?.purchase?.checkout?.amount ??
       null;
     const currency =
       tx?.payment_method_currency ??
-      payload?.order?.currency ??
-      payload?.billing?.purchase?.total?.currency ??
-      payload?.purchase?.total?.currency ??
-      payload?.purchase?.checkout?.currency ??
+      p?.order?.currency ??
+      p?.billing?.purchase?.total?.currency ??
+      p?.purchase?.total?.currency ??
+      p?.purchase?.checkout?.currency ??
       null;
     const amount = amountRaw != null ? Number(amountRaw) : null;
     return {
@@ -140,8 +161,8 @@ const REFERENCE_KIND_ORDER: BillingEventReferenceKind[] = [
 ];
 
 /**
- * Invoice / order identifiers from Xsolla webhook JSON plus indexed columns on BillingEvent.
- * Used for support and disputes; raw IPN body is never exposed to the client.
+ * Invoice / order identifiers from billing webhook JSON (Xsolla IPN or Stripe event envelope)
+ * plus indexed columns on BillingEvent.
  */
 function extractBillingEventReferences(
   rawBody: string,
@@ -156,6 +177,23 @@ function extractBillingEventReferences(
 
   try {
     const p = JSON.parse(rawBody) as Record<string, any>;
+    if (typeof p?.type === 'string' && p?.data && typeof p.data === 'object') {
+      const obj = (p.data as { object?: Record<string, unknown> }).object;
+      if (obj && typeof obj === 'object') {
+        if (String(obj.object) === 'checkout.session') {
+          setIfEmpty('checkout_external_id', trimmedString(obj.id));
+          const pi = obj.payment_intent;
+          if (typeof pi === 'string') setIfEmpty('transaction_id', pi);
+          else if (pi && typeof pi === 'object' && 'id' in pi) setIfEmpty('transaction_id', trimmedString((pi as { id: unknown }).id));
+        }
+        if (String(obj.object) === 'charge') {
+          const pi = obj.payment_intent;
+          if (typeof pi === 'string') setIfEmpty('transaction_id', pi);
+          else if (pi && typeof pi === 'object' && 'id' in pi) setIfEmpty('transaction_id', trimmedString((pi as { id: unknown }).id));
+        }
+      }
+    }
+
     const notif = (p?.notification as Record<string, any> | undefined) ?? p;
     const sub = p?.purchase as Record<string, any> | undefined;
     const purchaseSub = sub?.subscription as Record<string, any> | undefined;
@@ -372,7 +410,7 @@ router.get(
     operationId: 'getBillingMeEvents',
     summary: 'Recent billing events for the current user',
     description:
-      'Returns recent BillingEvent rows (sanitized): event type, status, amount, references, optional `product` (SKU/plan/item id + catalog-resolved months for Xsolla), for disputes and clearer activity.',
+      'Returns recent BillingEvent rows (sanitized): event type, status, amount, references, optional `product` (catalog-resolved months), for disputes and clearer activity.',
     tags: ['Billing'],
     security: ['bearerAuth'],
     responses: {
@@ -442,7 +480,11 @@ router.get(
         });
         const activityKind = classifyBillingActivityKind(r, viewerId);
         const product =
-          r.provider === 'xsolla' ? describeProductFromXsollaWebhookRawBody(r.rawBody) : null;
+          r.provider === 'stripe'
+            ? describeProductFromStripeWebhookRawBody(r.rawBody)
+            : r.provider === 'xsolla'
+              ? describeProductFromXsollaWebhookRawBody(r.rawBody)
+              : null;
 
         let counterpartyUsername: string | null = null;
         let counterpartyNickname: string | null = null;
@@ -590,13 +632,13 @@ router.get(
 );
 
 router.post(
-  '/xsolla/checkout',
+  '/stripe/checkout',
   Auth.user(),
   ApiDoc({
-    operationId: 'postBillingXsollaCheckout',
-    summary: 'Start an Xsolla Pay Station checkout (one-time catalog purchase)',
+    operationId: 'postBillingStripeCheckout',
+    summary: 'Start Stripe Checkout for a one-time TUFStellar purchase',
     description:
-      'Mints a catalog payment token for stacked TUFStellar access. `recipientUserId` optional UUID (defaults to yourself).',
+      'Creates a Checkout Session (stacked calendar-month access). `recipientUserId` optional UUID (defaults to yourself).',
     tags: ['Billing'],
     security: ['bearerAuth'],
     requestBody: {
@@ -613,11 +655,10 @@ router.post(
     },
     responses: {
       200: {
-        description: 'Pay Station token + URL',
+        description: 'Stripe Checkout Session URL',
         schema: {
           type: 'object',
           properties: {
-            token: { type: 'string' },
             url: { type: 'string' },
           },
         },
@@ -625,7 +666,7 @@ router.post(
       400: { description: 'Misconfigured', schema: errorResponseSchema },
       401: { description: 'Unauthorized', schema: errorResponseSchema },
       409: { description: 'Conflict', schema: errorResponseSchema },
-      502: { description: 'Xsolla error', schema: errorResponseSchema },
+      502: { description: 'Stripe error', schema: errorResponseSchema },
       ...standardErrorResponses500,
     },
   }),
@@ -664,19 +705,32 @@ router.post(
       const recipientRaw = recipientParsed;
       const beneficiaryId = recipientRaw ?? user.id;
 
-      const returnUrl = `${xsollaConfig.redirectUrl}`;
-
       const purchaseGate = checkPurchaseCheckoutTransition(user);
       if (!purchaseGate.ok) {
         return billingDeny(res, purchaseGate);
       }
 
-      const giftSku = resolveTufStellarGiftProductId(months);
-      if (!giftSku) {
+      if (!stripeConfig.secretKey) {
+        return res.status(400).json({
+          error: { code: 'MISCONFIGURED', message: 'Stripe is not configured (missing STRIPE_SECRET_KEY).' },
+        });
+      }
+
+      if (!isTufStellarMonths(months)) {
         return res.status(400).json({
           error: {
             code: 'INVALID_CHECKOUT_TERM',
             message: 'months must be one of 1, 2, 3, 6, 9, or 12',
+          },
+        });
+      }
+
+      const priceId = resolveTufStellarStripePriceId(months);
+      if (!priceId) {
+        return res.status(400).json({
+          error: {
+            code: 'MISCONFIGURED',
+            message: 'Stripe Price ID is not configured for this term (check STRIPE_PRICE_TUFSTELLAR_* or STRIPE_TUFSTELLAR_PRICE_IDS).',
           },
         });
       }
@@ -708,38 +762,50 @@ router.post(
         tufStellarPendingGiftMonths: months,
       });
 
-      const result = await XsollaApiClient.createGiftPayStationToken({
-        purchaserUserId: user.id,
-        purchaserEmail: user.email ?? null,
-        purchaserUsername: user.username ?? null,
-        beneficiaryUserId: beneficiary.id,
-        beneficiaryEmail,
-        giftProductId: giftSku,
-        months,
-        returnUrl,
-        clientIp: billingRequestClientIp(req),
+      const stripe = new Stripe(stripeConfig.secretKey, { typescript: true });
+      const purchaserId = String(user.id).toLowerCase();
+      const benId = String(beneficiary.id).toLowerCase();
+      const session = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        success_url: stripeConfig.checkoutSuccessUrl,
+        cancel_url: stripeConfig.checkoutCancelUrl,
+        client_reference_id: purchaserId,
+        customer_email: user.email?.trim() || undefined,
+        metadata: {
+          tuf_purchaser_id: purchaserId,
+          tuf_beneficiary_id: benId,
+          tuf_months: String(months),
+        },
+        payment_intent_data: {
+          metadata: {
+            tuf_purchaser_id: purchaserId,
+            tuf_beneficiary_id: benId,
+            tuf_months: String(months),
+          },
+        },
+        line_items: [{ price: priceId, quantity: 1 }],
       });
 
-      logger.info('[Xsolla] checkout one-time', {
+      if (!session.url) {
+        return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Stripe did not return a checkout URL' } });
+      }
+
+      logger.info('[Stripe] checkout one-time', {
         purchaserId: user.id,
         beneficiaryId: beneficiary.id,
-        sandbox: xsollaConfig.sandbox,
         months,
-        giftSku,
+        priceId,
       });
-      return res.json(result);
-    } catch (e) {
-      if (e instanceof XsollaApiError) {
-        logger.error('[Xsolla] checkout failed', {
-          status: e.status,
+      return res.json({ url: session.url });
+    } catch (e: unknown) {
+      if (e instanceof Stripe.errors.StripeError) {
+        logger.error('[Stripe] checkout failed', {
+          type: e.type,
           message: e.message,
-          xsolla: e.body,
         });
-        const status = e.status === 0 ? 400 : 502;
-        const code = e.status === 0 ? 'MISCONFIGURED' : 'XSOLLA_ERROR';
-        return res.status(status).json({ error: { code, message: e.message } });
+        return res.status(502).json({ error: { code: 'STRIPE_ERROR', message: e.message } });
       }
-      logger.error('POST /v3/billing/xsolla/checkout failed', e);
+      logger.error('POST /v3/billing/stripe/checkout failed', e);
       return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to start checkout' } });
     }
   },

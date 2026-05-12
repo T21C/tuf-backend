@@ -46,39 +46,78 @@ export const ownUrl =
         ? process.env.DEV_URL
         : 'http://localhost:3002';
 
-/** Pay Station `return_url`: after checkout the browser must hit the SPA route that reads `invoice_id` / `status`. */
-function resolveXsollaRedirectUrl(): string {
-  const explicit = (process.env.XSOLLA_REDIRECT_URL ?? '').trim();
+function resolveStripeCheckoutSuccessUrl(): string {
+  const explicit = (process.env.STRIPE_CHECKOUT_SUCCESS_URL ?? '').trim();
   const env = process.env.NODE_ENV;
   if (env === 'production' || env === 'staging') {
     return explicit;
   }
   const base = String(clientUrlEnv || 'http://localhost:5173').replace(/\/$/, '');
-  return `${base}/callback`;
+  return `${base}/callback?billing=stripe&session_id={CHECKOUT_SESSION_ID}`;
 }
 
-export interface XsollaConfig {
-  merchantId: string;
-  projectId: string;
-  apiKey: string;
+function resolveStripeCheckoutCancelUrl(): string {
+  const explicit = (process.env.STRIPE_CHECKOUT_CANCEL_URL ?? '').trim();
+  const env = process.env.NODE_ENV;
+  if (env === 'production' || env === 'staging') {
+    return explicit;
+  }
+  const base = String(clientUrlEnv || 'http://localhost:5173').replace(/\/$/, '');
+  return `${base}/settings/billing`;
+}
+
+/** Stripe Price IDs (`price_…`) for TUFStellar one-time terms; from Dashboard one-time prices. */
+export interface StripeTufStellarPriceIds {
+  m1: string;
+  m2: string;
+  m3: string;
+  m6: string;
+  m9: string;
+  m12: string;
+}
+
+function readStripeTufStellarPriceIds(): StripeTufStellarPriceIds {
+  const jsonRaw = (process.env.STRIPE_TUFSTELLAR_PRICE_IDS ?? '').trim();
+  if (jsonRaw) {
+    try {
+      const o = JSON.parse(jsonRaw) as Record<string, string>;
+      const pick = (k: string) => String(o[k] ?? '').trim();
+      return {
+        m1: pick('1'),
+        m2: pick('2'),
+        m3: pick('3'),
+        m6: pick('6'),
+        m9: pick('9'),
+        m12: pick('12'),
+      };
+    } catch {
+      /* fall through to discrete env vars */
+    }
+  }
+  return {
+    m1: (process.env.STRIPE_PRICE_TUFSTELLAR_1M ?? '').trim(),
+    m2: (process.env.STRIPE_PRICE_TUFSTELLAR_2M ?? '').trim(),
+    m3: (process.env.STRIPE_PRICE_TUFSTELLAR_3M ?? '').trim(),
+    m6: (process.env.STRIPE_PRICE_TUFSTELLAR_6M ?? '').trim(),
+    m9: (process.env.STRIPE_PRICE_TUFSTELLAR_9M ?? '').trim(),
+    m12: (process.env.STRIPE_PRICE_TUFSTELLAR_12M ?? '').trim(),
+  };
+}
+
+export interface StripeConfig {
+  secretKey: string;
   webhookSecret: string;
-  redirectUrl: string;
-  sandbox: boolean;
-  /**
-   * ISO 3166-1 alpha-2 country for Pay Station item tokens when `X-User-Ip` is not sent.
-   * Xsolla requires country or IP for currency selection on Catalog POST .../admin/payment/token.
-   */
-  paymentDefaultCountry: string;
+  checkoutSuccessUrl: string;
+  checkoutCancelUrl: string;
+  tufStellarPriceIds: StripeTufStellarPriceIds;
 }
 
-export const xsollaConfig: XsollaConfig = {
-  merchantId: process.env.XSOLLA_MERCHANT_ID ?? '',
-  projectId: process.env.XSOLLA_PROJECT_ID ?? '',
-  apiKey: process.env.XSOLLA_API_KEY ?? '',
-  webhookSecret: process.env.XSOLLA_WEBHOOK_SECRET ?? '',
-  sandbox: String(process.env.XSOLLA_SANDBOX ?? '').toLowerCase() === 'true',
-  redirectUrl: resolveXsollaRedirectUrl(),
-  paymentDefaultCountry: (process.env.XSOLLA_PAYMENT_DEFAULT_COUNTRY ?? 'US').trim().toUpperCase().slice(0, 2) || 'US',
+export const stripeConfig: StripeConfig = {
+  secretKey: (process.env.STRIPE_SECRET_KEY ?? '').trim(),
+  webhookSecret: (process.env.STRIPE_WEBHOOK_SECRET ?? '').trim(),
+  checkoutSuccessUrl: resolveStripeCheckoutSuccessUrl(),
+  checkoutCancelUrl: resolveStripeCheckoutCancelUrl(),
+  tufStellarPriceIds: readStripeTufStellarPriceIds(),
 };
 
 export const corsOptions = {

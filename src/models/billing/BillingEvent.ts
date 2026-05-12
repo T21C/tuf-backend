@@ -3,7 +3,7 @@ import { getSequelizeForModelGroup } from '@/config/db.js';
 
 const sequelize = getSequelizeForModelGroup('auth');
 
-export type BillingEventStatus = 'received' | 'processed' | 'ignored' | 'failed';
+export type BillingEventStatus = 'received' | 'processed' | 'ignored' | 'failed' | 'refunded';
 
 export interface BillingEventAttributes {
   id: number;
@@ -83,7 +83,7 @@ BillingEvent.init(
       allowNull: false,
     },
     status: {
-      type: DataTypes.ENUM('received', 'processed', 'ignored', 'failed'),
+      type: DataTypes.ENUM('received', 'processed', 'ignored', 'failed', 'refunded'),
       allowNull: false,
       defaultValue: 'received',
     },

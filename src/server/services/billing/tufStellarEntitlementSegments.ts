@@ -73,6 +73,7 @@ export async function appendPurchaseSegment(params: {
   idempotencyKey: string;
   xsollaTransactionId?: number | null;
   xsollaSubscriptionId?: number | null;
+  stripePaymentIntentId?: string | null;
   billingEventId?: number | null;
   transaction?: Transaction;
 }): Promise<{ inserted: boolean; endsAt: Date }> {
@@ -95,6 +96,7 @@ export async function appendPurchaseSegment(params: {
           idempotencyKey,
           xsollaTransactionId: params.xsollaTransactionId ?? null,
           xsollaSubscriptionId: params.xsollaSubscriptionId ?? null,
+          stripePaymentIntentId: params.stripePaymentIntentId ?? null,
           billingEventId: params.billingEventId ?? null,
         },
         { transaction: t },
@@ -132,6 +134,31 @@ export async function revokePurchaseSegmentsByXsollaTransactionId(
   const userIds = [...new Set(rows.map((r) => r.userId))];
   await UserTufStellarEntitlementSegment.destroy({
     where: { xsollaTransactionId },
+    ...opts,
+  });
+  for (const uid of userIds) {
+    await recomputeMaterializedExpiry(uid, transaction);
+  }
+  return userIds;
+}
+
+/** Remove segments tied to a Stripe PaymentIntent (refund). Returns distinct user ids touched. */
+export async function revokePurchaseSegmentsByStripePaymentIntentId(
+  stripePaymentIntentId: string,
+  transaction?: Transaction,
+): Promise<string[]> {
+  const id = String(stripePaymentIntentId).trim();
+  if (!id) return [];
+  const opts = transaction ? { transaction } : {};
+  const rows = await UserTufStellarEntitlementSegment.findAll({
+    where: { stripePaymentIntentId: id },
+    ...opts,
+  });
+  if (rows.length === 0) return [];
+
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  await UserTufStellarEntitlementSegment.destroy({
+    where: { stripePaymentIntentId: id },
     ...opts,
   });
   for (const uid of userIds) {
