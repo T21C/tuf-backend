@@ -89,6 +89,137 @@ export function parseRatingRange(
   return [firstPart, lastPart];
 }
 
+/** PGU difficulties closest to `targetSortOrder`; on equal distance prefer higher sortOrder (e.g. 40.5 → U1 not G20). */
+function comparePguByDistanceToSortOrder(a: any, b: any, targetSortOrder: number): number {
+  const distA = Math.abs(a.sortOrder - targetSortOrder);
+  const distB = Math.abs(b.sortOrder - targetSortOrder);
+  if (distA !== distB) {
+    return distA - distB;
+  }
+  return b.sortOrder - a.sortOrder;
+}
+
+function pickClosestPguDifficulty(difficultyMap: Map<string, any>, targetSortOrder: number): any | null {
+  const list = Array.from(difficultyMap.values())
+    .filter((d: any) => d.type === 'PGU')
+    .sort((a, b) => comparePguByDistanceToSortOrder(a, b, targetSortOrder));
+  return list[0] ?? null;
+}
+
+/** Set of sortOrder values that exist on at least one PGU difficulty row. */
+function buildValidPguSortOrderSet(difficultyMap: Map<string, any>): Set<number> {
+  return new Set(
+    Array.from(difficultyMap.values())
+      .filter((d: any) => d.type === 'PGU')
+      .map((d: any) => d.sortOrder as number),
+  );
+}
+
+/**
+ * Map one range endpoint to a PGU ladder sortOrder.
+ * Supports named PGU (e.g. G20, U1) and pure ladder indices (e.g. 40, 41) when that sortOrder exists on a PGU row.
+ */
+function resolvePartToPguSortOrder(
+  part: string,
+  difficultyMap: Map<string, any>,
+  validPguSortOrders: Set<number>,
+): number | null {
+  const trimmed = part.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^\d+$/.test(trimmed)) {
+    const n = Number(trimmed);
+    return validPguSortOrders.has(n) ? n : null;
+  }
+
+  const match = trimmed.match(/^([PGUpgu]+)(-?\d+)$/i);
+  if (!match?.[1]) {
+    return null;
+  }
+  const normalizedName = `${match[1].toUpperCase()}${match[2]}`;
+  const d = difficultyMap.get(normalizedName);
+  if (!d || d.type !== 'PGU') {
+    return null;
+  }
+  return d.sortOrder as number;
+}
+
+function collectSpecialsFromParts(parts: string[], specialDifficulties: Set<string>): string[] {
+  const names: string[] = [];
+  for (const p of parts) {
+    const t = p.trim();
+    if (specialDifficulties.has(t)) {
+      names.push(t);
+    }
+  }
+  return names;
+}
+
+/**
+ * Decompose a rating string into specials and a single float on the PGU sortOrder axis.
+ * Ranges use the midpoint of the two endpoints in numeric space (e.g. 40~41 → 40.5, G20–U1 → same if those map to 40 and 41).
+ * Discrete difficulty is not chosen here — snap only after aggregating (e.g. in calculateAverageRating).
+ */
+async function getRatingPguNumericAndSpecials(
+  rating: string,
+  transaction: any,
+): Promise<{specialRatings: string[]; pguNumeric: number | null}> {
+  if (!rating || rating.trim() === '') {
+    return {specialRatings: [], pguNumeric: null};
+  }
+
+  const {special: specialDifficulties, nameMap: difficultyMap} = await getDifficulties(transaction);
+  const validPguSortOrders = buildValidPguSortOrderSet(difficultyMap);
+  const parts = parseRatingRange(rating.trim(), specialDifficulties);
+  const specialRatings = [...new Set(collectSpecialsFromParts(parts, specialDifficulties))];
+
+  if (parts.length === 1) {
+    const p = parts[0].trim();
+    if (specialDifficulties.has(p)) {
+      return {specialRatings, pguNumeric: null};
+    }
+    const letterMatch = p.match(/^([PGUpgu]+)(-?\d+)$/i);
+    if (letterMatch?.[1]) {
+      const normalizedName = `${letterMatch[1].toUpperCase()}${letterMatch[2]}`;
+      if (specialDifficulties.has(normalizedName)) {
+        return {
+          specialRatings: [...new Set([...specialRatings, normalizedName])],
+          pguNumeric: null,
+        };
+      }
+    }
+    const so = resolvePartToPguSortOrder(p, difficultyMap, validPguSortOrders);
+    return {specialRatings, pguNumeric: so};
+  }
+
+  if (parts.length !== 2) {
+    return {specialRatings, pguNumeric: null};
+  }
+
+  const [rawA, rawB] = parts;
+  const pA = rawA.trim();
+  const pB = rawB.trim();
+
+  const soA = specialDifficulties.has(pA)
+    ? null
+    : resolvePartToPguSortOrder(pA, difficultyMap, validPguSortOrders);
+  const soB = specialDifficulties.has(pB)
+    ? null
+    : resolvePartToPguSortOrder(pB, difficultyMap, validPguSortOrders);
+
+  const resolved = [soA, soB].filter((x): x is number => x !== null);
+
+  if (resolved.length === 0) {
+    return {specialRatings, pguNumeric: null};
+  }
+  if (resolved.length === 1) {
+    return {specialRatings, pguNumeric: resolved[0]};
+  }
+  return {specialRatings, pguNumeric: (resolved[0] + resolved[1]) / 2};
+}
+
 // Helper function to calculate minimum difficulty from user input
 export async function calculateRequestedDifficulty(
   rerateNum: string | null,
@@ -138,107 +269,16 @@ export async function normalizeRating(
     return {specialRatings: []};
   }
 
-  const {special: specialDifficulties, nameMap: difficultyMap} = await getDifficulties(transaction);
+  const {nameMap: difficultyMap} = await getDifficulties(transaction);
+  const {specialRatings, pguNumeric} = await getRatingPguNumericAndSpecials(rating, transaction);
 
-  const parts = await parseRatingRange(rating, specialDifficulties);
-  // If it's not a range, just normalize the single rating
-  if (parts.length === 1) {
-    // First check if it's a special difficulty directly
-    if (specialDifficulties.has(parts[0])) {
-      return {specialRatings: [parts[0]]};
-    }
-
-    const match = parts[0].match(/([PGUpgu])(-?\d+)/);
-    if (!match || !match[1]) {
-      return {specialRatings: []};
-    }
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const [_, prefix, num] = match;
-    const normalizedRating = prefix.toUpperCase() + num;
-
-    // Check if it's a special difficulty after normalization
-    if (specialDifficulties.has(normalizedRating)) {
-      return {specialRatings: [normalizedRating]};
-    }
-
-    return {
-      pguRating: normalizedRating,
-      specialRatings: [],
-    };
-  }
-
-  // Process range
-  type RatingInfo = {
-    raw: string;
-    isSpecial: boolean;
-    difficulty?: any;
-    sortOrder?: number;
-  };
-
-  const ratings = parts
-    .map(r => {
-      // First check if it's a special rating as is
-      if (specialDifficulties.has(r)) {
-        const difficulty = difficultyMap.get(r);
-        return {
-          raw: r,
-          isSpecial: true,
-          difficulty,
-          sortOrder: difficulty?.sortOrder
-        } as RatingInfo;
-      }
-
-      const match = r.match(/([PGUpgu]*)(-?\d+)/);
-      if (!match || !match[1]) {
-        return null;
-      }
-      const prefix = match[1].toUpperCase();
-      const num = match[2];
-      const normalizedName = `${prefix}${num}`;
-      const difficulty = difficultyMap.get(normalizedName);
-      return difficulty ? {
-        raw: normalizedName,
-        isSpecial: false,
-        difficulty,
-        sortOrder: difficulty.sortOrder
-      } as RatingInfo : null;
-    })
-    .filter((r): r is RatingInfo => r !== null);
-
-  if (ratings.length !== 2) {
-    return {specialRatings: []};
-  }
-
-  // Collect special ratings
-  const specialRatings = ratings.filter(r => r.isSpecial).map(r => r.raw);
-
-  // Find PGU ratings
-  const pguRatings = ratings.filter(r => !r.isSpecial && r.difficulty);
-  if (pguRatings.length === 0) {
+  if (pguNumeric === null) {
     return {specialRatings};
   }
 
-  if (pguRatings.length === 1) {
-    return {
-      pguRating: pguRatings[0].raw,
-      specialRatings,
-    };
-  }
-
-  // Average by sortOrder and find closest PGU by sortOrder
-  const avgSortOrder =
-    pguRatings.reduce((sum, r) => sum + (r.difficulty?.sortOrder ?? 0), 0) / pguRatings.length;
-
-  const pguDifficulties = Array.from(difficultyMap.values())
-    .filter(d => d.type === 'PGU')
-    .sort(
-      (a, b) =>
-        Math.abs(a.sortOrder - avgSortOrder) - Math.abs(b.sortOrder - avgSortOrder),
-    );
-  const closestDifficulty = pguDifficulties[0];
-
+  const closest = pickClosestPguDifficulty(difficultyMap, pguNumeric);
   return {
-    pguRating: closestDifficulty?.name,
+    pguRating: closest?.name,
     specialRatings,
   };
 }
@@ -256,13 +296,14 @@ export async function calculateAverageRating(
 
   // Count votes for each difficulty
   const voteCounts = new Map<string, {count: number; difficulty: any}>();
-  const pguVotes = new Map<number, number>(); // Map of sortOrder to vote count
+  let pguNumericSum = 0;
+  let pguNumericVoteCount = 0;
 
   // First pass: Count all votes
   for (const detail of details) {
     if (!detail.rating) continue;
 
-    const {pguRating, specialRatings} = await normalizeRating(
+    const {pguNumeric, specialRatings} = await getRatingPguNumericAndSpecials(
       detail.rating,
       transaction,
     );
@@ -276,13 +317,9 @@ export async function calculateAverageRating(
       voteCounts.set(specialRating, current);
     }
 
-    // Process PGU rating if present
-    if (pguRating) {
-      const difficulty = difficultyMap.get(pguRating);
-      if (!difficulty || difficulty.type !== 'PGU') continue;
-
-      const currentCount = pguVotes.get(difficulty.sortOrder) ?? 0;
-      pguVotes.set(difficulty.sortOrder, currentCount + 1);
+    if (pguNumeric !== null) {
+      pguNumericSum += pguNumeric;
+      pguNumericVoteCount += 1;
     }
   }
 
@@ -301,29 +338,13 @@ export async function calculateAverageRating(
     }
   }
 
-  // If no special rating has enough votes, calculate PGU average by sortOrder
-  if (pguVotes.size > 0) {
-    const totalVotes = Array.from(pguVotes.values()).reduce(
-      (sum, count) => sum + count,
-      0,
-    );
+  // If no special rating has enough votes, calculate PGU average in numeric space, then snap once
+  if (pguNumericVoteCount > 0) {
+    const weightedAvgSortOrder = pguNumericSum / pguNumericVoteCount;
 
-    const weightedAvgSortOrder =
-      Array.from(pguVotes.entries()).reduce(
-        (sum, [sortOrder, count]) => sum + sortOrder * count,
-        0,
-      ) / totalVotes;
-
-    const pguDifficulties = Array.from(difficultyMap.values())
-      .filter(d => d.type === 'PGU')
-      .sort(
-        (a, b) =>
-          Math.abs(a.sortOrder - weightedAvgSortOrder) -
-          Math.abs(b.sortOrder - weightedAvgSortOrder),
-      );
-
-    if (pguDifficulties.length > 0) {
-      return pguDifficulties[0];
+    const closest = pickClosestPguDifficulty(difficultyMap, weightedAvgSortOrder);
+    if (closest) {
+      return closest;
     }
   }
 

@@ -60,12 +60,11 @@ export function parseStoredCacheJson(cacheDataString: string | null, metadata?: 
     if (!cacheDataString) {
         return null;
     }
-
     if (metadata !== undefined && !isVersionCurrent(metadata)) {
-        logger.debug('Cache invalidated due to version mismatch', {
+/*        logger.debug('Cache invalidated due to version mismatch', {
             storedVersion: metadata?.targetSafeToParseVersion,
             currentVersion: SAFE_TO_PARSE_VERSION
-        });
+        });*/
         return null;
     }
 

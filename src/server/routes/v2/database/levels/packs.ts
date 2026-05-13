@@ -2376,7 +2376,7 @@ const invalidatePackCacheById = async (packId: number): Promise<void> => {
     }
 
     await CacheInvalidation.invalidateTags(tags);
-    logger.debug(`Cache invalidated for pack ${packId} (${pack.linkCode})`);
+    //logger.debug(`Cache invalidated for pack ${packId} (${pack.linkCode})`);
   } catch (error) {
     logger.error('Error invalidating pack cache in hook:', error);
   }
@@ -2413,7 +2413,7 @@ LevelPack.addHook('afterDestroy', 'cacheInvalidationPackDestroy', async (pack: L
       if (packId) tags.push(`pack:${packId}`);
       if (linkCode) tags.push(`pack:${linkCode}`);
       await CacheInvalidation.invalidateTags(tags);
-      logger.debug(`Cache invalidated for deleted pack ${packId} (${linkCode})`);
+      //logger.debug(`Cache invalidated for deleted pack ${packId} (${linkCode})`);
     });
   } else {
     const tags: string[] = ['packs:all'];
@@ -2442,7 +2442,7 @@ LevelPack.addHook('afterBulkUpdate', 'cacheInvalidationPackBulkUpdate', async (o
 
       if (tags.length > 1) {
         await CacheInvalidation.invalidateTags([...new Set(tags)]);
-        logger.debug(`Cache invalidated for ${affectedPacks.length} packs (bulk update)`);
+        //logger.debug(`Cache invalidated for ${affectedPacks.length} packs (bulk update)`);
       }
     });
   }
@@ -2500,7 +2500,7 @@ LevelPackItem.addHook('afterBulkCreate', 'cacheInvalidationPackItemBulkCreate', 
     }
 
     if (packIds.length > 0) {
-      logger.debug(`Cache invalidated for ${packIds.length} packs (bulk item create)`);
+      //logger.debug(`Cache invalidated for ${packIds.length} packs (bulk item create)`);
     }
   };
 
@@ -2525,7 +2525,7 @@ LevelPackItem.addHook('afterBulkUpdate', 'cacheInvalidationPackItemBulkUpdate', 
     }
 
     if (packIds.length > 0) {
-      logger.debug(`Pack structure cache invalidated for ${packIds.length} packs (bulk item update)`);
+      //logger.debug(`Pack structure cache invalidated for ${packIds.length} packs (bulk item update)`);
     }
   };
 
@@ -2560,7 +2560,7 @@ LevelPackItem.addHook('afterBulkDestroy', 'cacheInvalidationPackItemBulkDestroy'
       }
 
       if (packIds.length > 0) {
-        logger.debug(`Cache invalidated for ${packIds.length} packs (bulk item destroy)`);
+        //logger.debug(`Cache invalidated for ${packIds.length} packs (bulk item destroy)`);
       }
     });
   }
@@ -2598,7 +2598,7 @@ PackFavorite.addHook('afterBulkCreate', 'cacheInvalidationPackFavoriteBulkCreate
         await invalidatePackCacheById(packId);
       }
 
-      logger.debug(`Cache invalidated for ${packIds.length} packs (bulk favorite create)`);
+      //logger.debug(`Cache invalidated for ${packIds.length} packs (bulk favorite create)`);
     });
   }
 });
@@ -2613,7 +2613,7 @@ PackFavorite.addHook('afterBulkDestroy', 'cacheInvalidationPackFavoriteBulkDestr
         // If deleting by user, we need to find affected packs
         // This is less common, so we'll invalidate all packs list
         await CacheInvalidation.invalidateTag('packs:all');
-        logger.debug('Cache invalidated for all packs (bulk favorite destroy by user)');
+        //logger.debug('Cache invalidated for all packs (bulk favorite destroy by user)');
       }
     });
   }

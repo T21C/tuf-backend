@@ -525,7 +525,7 @@ export const CacheInvalidation = {
       await redis.sDel(tagKey);
 
       const count = deleted.filter(Boolean).length;
-      logger.debug(`Cache invalidated: ${count} keys for tag ${tag}`);
+      //logger.debug(`Cache invalidated: ${count} keys for tag ${tag}`);
       return count;
     } catch (error) {
       logger.error(`Cache invalidation error for tag ${tag}:`, error);
@@ -570,7 +570,7 @@ export const CacheInvalidation = {
             .then(results => {
               const total = results.reduce((a, b) => a + b, 0);
               if (total > 0) {
-                logger.debug(`Cache invalidated: ${total} keys for patterns [${patternList.join(', ')}]`);
+                //logger.debug(`Cache invalidated: ${total} keys for patterns [${patternList.join(', ')}]`);
               }
             })
             .catch(err => logger.error('Cache invalidation error:', err));
