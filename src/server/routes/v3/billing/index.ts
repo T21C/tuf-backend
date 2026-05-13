@@ -40,6 +40,7 @@ import {
   TUF_STELLAR_STRIPE_REFUND_MAX_AGE_DAYS,
   TufStellarRefundIneligibleError,
 } from '@/server/services/billing/tufStellarStripeUserRefund.js';
+import { classifyBillingActivityKind } from '@/server/services/billing/billingActivityKind.js';
 
 const router: Router = Router();
 
@@ -75,19 +76,6 @@ function summarizeStripeEnvelope(payload: Record<string, unknown>): PaymentSumma
     };
   }
   return null;
-}
-
-type BillingActivityKind = 'gift_received' | 'gift_sent' | 'one_time_self' | 'default';
-
-function classifyBillingActivityKind(row: BillingEvent, viewerUserId: string): BillingActivityKind {
-  const me = String(viewerUserId).toLowerCase();
-  const purchaserId = row.userId ? String(row.userId).toLowerCase() : '';
-  const benId = row.beneficiaryUserId ? String(row.beneficiaryUserId).toLowerCase() : '';
-  if (!benId) return 'default';
-  if (benId === me && purchaserId && purchaserId !== me) return 'gift_received';
-  if (purchaserId === me && benId === purchaserId) return 'one_time_self';
-  if (purchaserId === me && benId !== purchaserId) return 'gift_sent';
-  return 'default';
 }
 
 const BILLING_RECIPIENT_ES_LIMIT = 40;

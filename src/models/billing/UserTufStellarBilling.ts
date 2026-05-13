@@ -50,7 +50,7 @@ UserTufStellarBilling.init(
       defaultValue: null,
     },
     tufStellarPendingGiftBeneficiaryUserId: {
-      type: DataTypes.STRING(36),
+      type: DataTypes.UUID,
       allowNull: true,
       defaultValue: null,
     },

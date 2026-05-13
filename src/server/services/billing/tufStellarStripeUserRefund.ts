@@ -12,6 +12,7 @@ import {
 } from '@/server/services/billing/tufStellarRefundMath.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import { classifyBillingActivityKind } from '@/server/services/billing/billingActivityKind.js';
 
 /** Stripe maximum age for refunding a charge (days). */
 export const TUF_STELLAR_STRIPE_REFUND_MAX_AGE_DAYS = 180;
@@ -60,13 +61,9 @@ function normId(v: string | null | undefined): string {
   return String(v ?? '').trim().toLowerCase();
 }
 
-/** Same rules as `classifyBillingActivityKind` in billing routes (gift_sent = purchaser gifted someone else). */
+/** Same rules as `classifyBillingActivityKind` (gift_sent = purchaser gifted someone else or beneficiary was scrubbed). */
 export function isGiftSentCheckout(row: BillingEvent, viewerUserId: string): boolean {
-  const me = normId(viewerUserId);
-  const purchaserId = row.userId ? normId(row.userId) : '';
-  const benId = row.beneficiaryUserId ? normId(row.beneficiaryUserId) : '';
-  if (!benId) return false;
-  return purchaserId === me && benId !== purchaserId;
+  return classifyBillingActivityKind(row, viewerUserId) === 'gift_sent';
 }
 
 function isPurchaser(row: BillingEvent, viewerUserId: string): boolean {

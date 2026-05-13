@@ -88,11 +88,11 @@ BillingEvent.init(
       defaultValue: 'received',
     },
     userId: {
-      type: DataTypes.STRING(64),
+      type: DataTypes.UUID,
       allowNull: true,
     },
     beneficiaryUserId: {
-      type: DataTypes.STRING(36),
+      type: DataTypes.UUID,
       allowNull: true,
     },
     xsollaTransactionId: {
