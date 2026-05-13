@@ -68,12 +68,19 @@ function summarizeStripeEnvelope(payload: Record<string, unknown>): PaymentSumma
     };
   }
   if (String(dataObj.object) === 'charge') {
-    const amt = dataObj.amount != null ? Number(dataObj.amount) : NaN;
     const cur = dataObj.currency;
+    const currency = typeof cur === 'string' ? cur.toUpperCase() : null;
+    // `charge.refunded` carries cumulative refunded cents on `amount_refunded`; `amount` is the original charge.
+    if (t === 'charge.refunded') {
+      const refCents = dataObj.amount_refunded != null ? Number(dataObj.amount_refunded) : NaN;
+      const amount = Number.isFinite(refCents) ? refCents / 100 : null;
+      return { amount, currency };
+    }
+    const amt = dataObj.amount != null ? Number(dataObj.amount) : NaN;
     const amount = Number.isFinite(amt) ? amt / 100 : null;
     return {
       amount,
-      currency: typeof cur === 'string' ? cur.toUpperCase() : null,
+      currency,
     };
   }
   return null;
