@@ -41,6 +41,7 @@ import {
   TufStellarRefundIneligibleError,
 } from '@/server/services/billing/tufStellarStripeUserRefund.js';
 import { classifyBillingActivityKind } from '@/server/services/billing/billingActivityKind.js';
+import { buildBillingPricingDisplayForRequest } from '@/server/services/billing/tufStellarDisplayPricingRegion.js';
 
 const router: Router = Router();
 
@@ -284,7 +285,7 @@ router.get(
     operationId: 'getBillingMe',
     summary: 'Get current TUFStellar access (one-time purchases)',
     description:
-      'Returns stacked purchase entitlement (expiry-driven), per-segment breakdown (`accessSegments`), optional `preview` when `previewMonths` query matches catalog terms, and allowed checkout actions. Invoice IDs appear on GET /me/events only.',
+      'Returns stacked purchase entitlement (expiry-driven), per-segment breakdown (`accessSegments`), optional `preview` when `previewMonths` query matches catalog terms, allowed checkout actions, and `pricingDisplay` (marketing amounts by term, currency from `CF-IPCountry` when present). Invoice IDs appear on GET /me/events only.',
     tags: ['Billing'],
     security: ['bearerAuth'],
     query: {
@@ -347,6 +348,29 @@ router.get(
                 projectedExpiresAt: { type: 'string', format: 'date-time' },
               },
             },
+            pricingDisplay: {
+              type: 'object',
+              properties: {
+                currency: { type: 'string', description: 'ISO 4217 display currency' },
+                country: {
+                  type: 'string',
+                  nullable: true,
+                  description: 'Cloudflare `CF-IPCountry` when sent to origin; null if absent',
+                },
+                amountsByMonths: {
+                  type: 'object',
+                  description: 'Major currency units per term length (string keys 1,2,3,6,9,12)',
+                  properties: {
+                    '1': { type: 'number' },
+                    '2': { type: 'number' },
+                    '3': { type: 'number' },
+                    '6': { type: 'number' },
+                    '9': { type: 'number' },
+                    '12': { type: 'number' },
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -396,6 +420,8 @@ router.get(
             }
           : null;
 
+      const pricingDisplay = buildBillingPricingDisplayForRequest(req);
+
       return res.json({
         active: accessActive,
         expiresAt: billing?.tufStellarSubscriptionExpiresAt ?? null,
@@ -407,6 +433,7 @@ router.get(
         },
         accessSegments,
         preview,
+        pricingDisplay,
       });
     } catch (e) {
       logger.error('GET /v3/billing/me failed', e);

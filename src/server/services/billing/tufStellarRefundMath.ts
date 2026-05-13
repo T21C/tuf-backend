@@ -1,6 +1,6 @@
 /**
  * List-rate USD per calendar month used when refunding an in-use segment (consumption priced at the 1-month tier).
- * Keep in sync with client `TUF_STELLAR_TERM_OPTIONS[0].priceUsd` in `client/.../BillingPage/billingUtils.js`.
+ * Keep in sync with server `tufStellarDisplayPriceMatrix.ts` USD 1-month and client `TUF_STELLAR_DISPLAY_USD_FALLBACK_AMOUNTS["1"]`.
  */
 export const TUF_STELLAR_LIST_USD_PER_MONTH = 3;
 
