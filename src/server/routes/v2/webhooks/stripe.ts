@@ -8,7 +8,7 @@ import { StripeWebhookService } from '@/server/services/billing/StripeWebhookSer
 const router: Router = Router();
 
 function logStripeOutcome(info: { type: string; httpStatus: number; billingEventId?: number | null; duplicate?: boolean }) {
-  logger.info('[Stripe] webhook', info);
+  logger.debug('[Stripe] webhook', info);
 }
 
 router.post(

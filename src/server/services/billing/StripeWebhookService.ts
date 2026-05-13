@@ -164,19 +164,19 @@ function sessionPaymentIntentId(session: Stripe.Checkout.Session): string | null
 
 async function handleCheckoutSessionCompleted(event: BillingEvent, stripeEvent: Stripe.Event): Promise<void> {
   if (!isTufStellarFeatureEnabled()) {
-    logger.info('[Stripe] checkout.session.completed skipped — TUF_STELLAR_ENABLED is off', { eventId: event.id });
+    logger.debug('[Stripe] checkout.session.completed skipped — TUF_STELLAR_ENABLED is off', { eventId: event.id });
     return;
   }
 
   const session = stripeEvent.data.object as Stripe.Checkout.Session;
   if (session.mode !== 'payment') {
-    logger.info('[Stripe] checkout.session.completed ignored — not payment mode', { eventId: event.id, mode: session.mode });
+    logger.debug('[Stripe] checkout.session.completed ignored — not payment mode', { eventId: event.id, mode: session.mode });
     return;
   }
 
   const ps = session.payment_status;
   if (ps !== 'paid' && ps !== 'no_payment_required') {
-    logger.info('[Stripe] checkout.session.completed skipped — payment not complete', { eventId: event.id, payment_status: ps });
+    logger.debug('[Stripe] checkout.session.completed skipped — payment not complete', { eventId: event.id, payment_status: ps });
     return;
   }
 
@@ -256,7 +256,7 @@ async function handleChargeRefunded(_event: BillingEvent, stripeEvent: Stripe.Ev
   });
 
   if (affectedUserIds.length === 0) {
-    logger.info('[Stripe] charge.refunded — no entitlement segment matched payment_intent', {
+    logger.debug('[Stripe] charge.refunded — no entitlement segment matched payment_intent', {
       eventId: _event.id,
       paymentIntentId: piId,
     });
@@ -277,7 +277,7 @@ async function handleChargeRefunded(_event: BillingEvent, stripeEvent: Stripe.Ev
       }
     }
 
-    logger.info('[Stripe] Purchase entitlement revoked for charge.refunded', {
+    logger.debug('[Stripe] Purchase entitlement revoked for charge.refunded', {
       eventId: _event.id,
       paymentIntentId: piId,
       affectedUserIds,
@@ -303,6 +303,6 @@ async function markStripePurchaseBillingRefunded(paymentIntentId: string): Promi
     },
   );
   if (rows > 0) {
-    logger.info('[Stripe] Marked checkout billing event as refunded', { paymentIntentId: pi, rows });
+    logger.debug('[Stripe] Marked checkout billing event as refunded', { paymentIntentId: pi, rows });
   }
 }

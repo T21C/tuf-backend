@@ -308,7 +308,7 @@ export async function executeStripeTufStellarRefund(params: {
     },
     { idempotencyKey: idem },
   );
-  logger.info('[Stripe] User billing refund created', {
+  logger.debug('[Stripe] User billing refund created', {
     billingEventId: params.billingEventId,
     refundId: refund.id,
     amount: evaluation.refundCents,

@@ -802,7 +802,7 @@ router.post(
         return res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Stripe did not return a checkout URL' } });
       }
 
-      logger.info('[Stripe] checkout one-time', {
+      logger.debug('[Stripe] checkout one-time', {
         purchaserId: user.id,
         beneficiaryId: beneficiary.id,
         months,

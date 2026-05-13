@@ -651,7 +651,7 @@ router.post(
 
       await CacheInvalidation.invalidateUser(userId);
 
-      logger.info('[admin] Scheduled account deletion', {
+      logger.debug('[admin] Scheduled account deletion', {
         targetUserId: userId,
         actorUserId: req.user?.id,
         deletionIncludeCreator,

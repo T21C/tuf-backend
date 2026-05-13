@@ -312,7 +312,7 @@ export class ModifierService {
     });
     if (enable && hasFlag(user, permissionFlags.SUPER_ADMIN)) {
       await sourceModifier.destroy();
-      logger.info(`[Super Admin] Player ${playerId} already has super admin, destroying source modifier`);
+      logger.debug(`[Super Admin] Player ${playerId} already has super admin, destroying source modifier`);
       return;
     }
     if (!user) {
@@ -514,7 +514,7 @@ export class ModifierService {
         if (modifier.value) ids.push(modifier.value);
         return ids;
       }, [] as number[]);
-      logger.info(JSON.stringify(playersInSwapIds));
+      logger.debug(JSON.stringify(playersInSwapIds));
       const allPlayers = await Player.findAll({
         where: {
           id: {
@@ -544,7 +544,7 @@ export class ModifierService {
       if (modifier.value) ids.push(modifier.value);
       return ids;
     }, [] as number[]);
-    logger.info(JSON.stringify(playersInSwapIds));
+    logger.debug(JSON.stringify(playersInSwapIds));
     let targetPlayerId = await this.getRandomNonBannedPlayerId(playerId);
     if (!targetPlayerId) {
       logger.error(`[Player Swap] No valid target found for player ${playerId}`);

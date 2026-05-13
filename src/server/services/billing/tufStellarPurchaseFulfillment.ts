@@ -73,7 +73,7 @@ export async function applyPurchaseEntitlementToBeneficiary(params: {
   await beneficiary.reload();
   await benBilling.reload();
 
-  logger.info(`${logPrefix} Purchase entitlement applied`, {
+  logger.debug(`${logPrefix} Purchase entitlement applied`, {
     beneficiaryUserId,
     months,
     newExpiry,
