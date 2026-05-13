@@ -36,6 +36,7 @@ import { permissionFlags } from '@/config/constants.js';
 import { hasFlag, setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
 import { serializePlayer } from '@/misc/utils/server/jsonHelpers.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -1401,14 +1402,18 @@ router.get(
       }],
     });
 
+
     if (!provider || !(provider as any).oauthUser) {
       return res.status(404).json({ error: 'User not found for this Discord ID' });
     }
 
     const user = (provider as any).oauthUser as User;
+    
+    const billing = await loadUserTufStellarBilling(user.id);
     const result: any = {
       discordId,
       userId: user.id,
+      tufStellarExpiresAt: billing?.tufStellarSubscriptionExpiresAt || null,
       playerId: user.playerId || null,
       creatorId: user.creatorId || null,
       topDifficulty: null,
