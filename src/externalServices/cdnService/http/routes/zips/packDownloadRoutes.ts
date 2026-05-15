@@ -1,6 +1,5 @@
 import path from 'path';
 import fs from 'fs';
-import AdmZip from 'adm-zip';
 import axios from 'axios';
 import http from 'http';
 import https from 'https';
@@ -15,14 +14,12 @@ import CdnFile from '@/models/cdn/CdnFile.js';
 import crypto from 'crypto';
 import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
 import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '@/externalServices/cdnService/constants/levelPackAudio.js';
-import { extractAll as archiveExtractAll } from '@/externalServices/cdnService/infra/archive/archiveService.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import {
+    createZip as archiveCreateZip,
+    extractAll as archiveExtractAll
+} from '@/externalServices/cdnService/infra/archive/archiveService.js';
 
 const router = Router();
-
-const execAsync = promisify(exec);
-const isWindows = process.platform === 'win32';
 
 const PACK_DOWNLOAD_DIR = path.join(CDN_CONFIG.pack_root, 'pack-downloads');
 const PACK_DOWNLOAD_TEMP_DIR = path.join(PACK_DOWNLOAD_DIR, 'temp');
@@ -710,15 +707,7 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
             return;
         }
 
-        logger.debug('packDownloadRoutes.extractZipToFolder: archiveService.extractAll failed, falling back to AdmZip', {
-            zipPath,
-            extractTo,
-            error: error instanceof Error ? error.message : String(error)
-        });
-        // AdmZip reads entries directly from the central directory and honours GPF bit 11 by itself —
-        // a useful fallback for archives 7-Zip refuses (e.g. weird method codes / extra fields).
-        const zip = new AdmZip(zipPath);
-        zip.extractAllTo(extractTo, true);
+        throw error;
     }
 }
 
@@ -1476,31 +1465,11 @@ async function generatePackDownloadZip(
         const spacesZipFilename = `${sanitizedZipNameForSpaces}.zip`;
         const spacesKeyFilename = `${PACK_DOWNLOAD_SPACES_PREFIX}/${downloadId}/${spacesZipFilename}`;
 
-        // Use 7z to create final zip from extracted folders
-        const sevenZipPath = '7z';
-        let cmd: string;
-
-        if (isWindows) {
-            // Windows: 7z a (add) command
-            // -tzip: force zip format, -mx=0: no compression (faster), -mm=Copy: store only
-            // -r: recurse subdirectories, *: match all files and folders
-            // -mcu=on: force UTF-8 encoding for filenames
-            cmd = `cd /d "${extractRoot}" && "${sevenZipPath}" a -tzip -mx=0 -mm=Copy -r -mcu=on "${targetPath}" *`;
-        } else {
-            // Linux: zip command with -r (recursive) and -0 (store only, no compression)
-            // Use LC_ALL=C.UTF-8 to ensure UTF-8 encoding for filenames
-            cmd = `cd "${extractRoot}" && zip -r -0 "${targetPath}" .`;
-        }
-
+        // Final pack archive: 7-Zip subprocess only (same implementation as ingest `createZip`).
         try {
-            await execAsync(cmd, {
-                shell: isWindows ? 'cmd.exe' : '/bin/bash',
-                maxBuffer: 1024 * 1024 * 100, // 100MB buffer
-                // Set LC_ALL to force UTF-8 locale (overrides all locale categories)
-                env: isWindows ? undefined : { ...process.env, LC_ALL: 'C.UTF-8' }
-            });
+            await archiveCreateZip(extractRoot, targetPath);
         } catch (error) {
-            logger.error('Failed to create zip using 7z/zip', {
+            logger.error('Failed to create pack zip via 7-Zip', {
                 error: error instanceof Error ? error.message : String(error),
                 extractRoot,
                 targetPath
