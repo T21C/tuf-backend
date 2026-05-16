@@ -2,17 +2,14 @@ import { Router, Request, Response } from 'express';
 import { logger } from '@/server/services/core/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import fs from 'fs';
-import path from 'path';
-import { repackZipFile } from '@/externalServices/cdnService/services/zipProcessor.js';
 import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
-import { getOriginalArchiveMeta } from '@/externalServices/cdnService/infra/archive/archiveService.js';
 import {
     CdnSpacesTempDomain,
     withCdnFileDomainWorkspace
 } from '@/externalServices/cdnService/infra/workspaces/cdnSpacesTemp.js';
 import LevelDict from 'adofai-lib';
 import { AnalysisCacheData, levelCacheService } from '@/externalServices/cdnService/services/levelCacheService.js';
-import { encodeContentDisposition } from './shared/routeUtils.js';
+import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
 
 const router = Router();
 
@@ -149,6 +146,7 @@ router.get('/:fileId/level.adofai', async (req: Request, res: Response) => {
         if (file.type !== 'LEVELZIP') {
             throw { error: 'File is not a level zip', code: 400 };
         }
+
         const metadata = file.metadata as {
             allLevelFiles?: Array<{
                 name: string;
@@ -163,16 +161,19 @@ router.get('/:fileId/level.adofai', async (req: Request, res: Response) => {
         if (!targetLevel) {
             throw { error: 'Target level file not found in metadata', code: 400 };
         }
+
+        const levelExists = await spacesStorage.fileExists(targetLevel);
+
+        if (!levelExists) {
+            throw { error: 'Target level file not found in storage', code: 400 };
+        }
         if (metadata.targetLevelOversized) {
-            throw { error: 'Level file is too large to serve as JSON. Please download the original zip.', code: 400 };
+            const cdnUrl = await spacesStorage.getPresignedUrl(targetLevel);
+            res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
+            return res.redirect(301, cdnUrl);
         }
 
         if (metadata.targetSafeToParse) {
-            const levelExists = await spacesStorage.fileExists(targetLevel);
-
-            if (!levelExists) {
-                throw { error: 'Target level file not found in storage', code: 400 };
-            }
 
             const jsonContent = await withCdnFileDomainWorkspace(
                 CdnSpacesTempDomain.LevelsRouteMisc,
@@ -188,12 +189,6 @@ router.get('/:fileId/level.adofai', async (req: Request, res: Response) => {
             res.setHeader('Cache-Control', 'no-store');
             res.json(JSON.parse(jsonContent));
             return;
-        }
-
-        const levelExists = await spacesStorage.fileExists(targetLevel);
-
-        if (!levelExists) {
-            throw { error: 'Target level file not found in storage', code: 400 };
         }
 
         const levelData = await withCdnFileDomainWorkspace(
