@@ -15,9 +15,12 @@ import { checkPurchaseCheckoutTransition, getBillingAllowedActions } from '@/mis
 import Stripe from 'stripe';
 import {
   isTufStellarMonths,
-  resolveTufStellarStripePriceId,
   TUF_STELLAR_LIST_USD_PER_MONTH,
 } from '@/server/services/billing/tufStellarProductCatalog.js';
+import {
+  buildTufStellarCheckoutLineItem,
+  resolveCheckoutCurrency,
+} from '@/server/services/billing/tufStellarStripeCheckoutLineItem.js';
 import { buildTufStellarAccessSegmentsForUser } from '@/server/services/billing/tufStellarAccessSegments.js';
 import { addCalendarMonthsUtc } from '@/misc/utils/time/addCalendarMonthsUtc.js';
 import {
@@ -684,17 +687,21 @@ router.post(
     operationId: 'postBillingStripeCheckout',
     summary: 'Start Stripe Checkout for a one-time TUFStellar purchase',
     description:
-      'Creates a Checkout Session (stacked calendar-month access). `recipientUserId` optional UUID (defaults to yourself).',
+      'Creates a Checkout Session (stacked calendar-month access). `recipientUserId` optional UUID (defaults to yourself). `currency` optional: `auto` (geo-inferred, default) or an allowlisted ISO 4217 code.',
     tags: ['Billing'],
     security: ['bearerAuth'],
     requestBody: {
       required: true,
-      description: '`months` term length; optional `recipientUserId` for gifting.',
+      description: '`months` term length; optional `recipientUserId` for gifting; optional `currency` (`auto` or ISO 4217).',
       schema: {
         type: 'object',
         properties: {
           months: { type: 'integer', enum: [1, 2, 3, 6, 9, 12] },
           recipientUserId: { type: 'string', format: 'uuid' },
+          currency: {
+            type: 'string',
+            description: '`auto` (default, geo-inferred) or allowlisted ISO 4217 checkout currency',
+          },
         },
         required: ['months'],
       },
@@ -732,6 +739,7 @@ router.post(
       const body = req.body as {
         months?: unknown;
         recipientUserId?: unknown;
+        currency?: unknown;
       };
 
       const monthsRaw = body?.months;
@@ -771,12 +779,23 @@ router.post(
         });
       }
 
-      const priceId = resolveTufStellarStripePriceId(months);
-      if (!priceId) {
+      const currencyResolved = resolveCheckoutCurrency(req, body?.currency);
+      if (!currencyResolved.ok) {
         return res.status(400).json({
           error: {
-            code: 'MISCONFIGURED',
-            message: 'Stripe Price ID is not configured for this term (check STRIPE_PRICE_TUFSTELLAR_* or STRIPE_TUFSTELLAR_PRICE_IDS).',
+            code: currencyResolved.code,
+            message: 'currency must be auto or a supported ISO 4217 code',
+          },
+        });
+      }
+      const checkoutCurrency = currencyResolved.currency;
+
+      const lineItemBuilt = buildTufStellarCheckoutLineItem(months, checkoutCurrency);
+      if (!lineItemBuilt.ok) {
+        return res.status(400).json({
+          error: {
+            code: lineItemBuilt.code,
+            message: 'Could not resolve checkout amount for this term and currency',
           },
         });
       }
@@ -821,15 +840,17 @@ router.post(
           tuf_purchaser_id: purchaserId,
           tuf_beneficiary_id: benId,
           tuf_months: String(months),
+          tuf_checkout_currency: checkoutCurrency,
         },
         payment_intent_data: {
           metadata: {
             tuf_purchaser_id: purchaserId,
             tuf_beneficiary_id: benId,
             tuf_months: String(months),
+            tuf_checkout_currency: checkoutCurrency,
           },
         },
-        line_items: [{ price: priceId, quantity: 1 }],
+        line_items: [lineItemBuilt.lineItem],
       });
 
       if (!session.url) {
@@ -840,7 +861,8 @@ router.post(
         purchaserId: user.id,
         beneficiaryId: beneficiary.id,
         months,
-        priceId,
+        currency: checkoutCurrency,
+        unitAmount: lineItemBuilt.unitAmount,
       });
       return res.json({ url: session.url });
     } catch (e: unknown) {
