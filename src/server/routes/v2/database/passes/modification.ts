@@ -710,4 +710,101 @@ router.patch(
   },
 );
 
+router.patch(
+  '/:id([0-9]{1,20})/feeling-rating',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'updatePassFeelingRating',
+    summary: 'Update pass feeling rating',
+    description: 'Update feelingRating for a pass. Caller must own the pass (same playerId as authenticated user). feelingRating is required and must be a valid rating string.',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: {
+      description: 'New feeling rating',
+      schema: {
+        type: 'object',
+        required: ['feelingRating'],
+        properties: { feelingRating: { type: 'string' } },
+      },
+    },
+    responses: {
+      200: { description: 'Updated pass with feelingRating' },
+      400: { description: 'Invalid or missing feeling rating' },
+      401: { description: 'Authentication required' },
+      403: { description: 'Not pass owner' },
+      404: { description: 'Pass not found' },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+    try {
+      transaction = await sequelize.transaction();
+      const id = parseInt(req.params.id);
+      const user = req.user;
+
+      if (!user || !user.playerId) {
+        await safeTransactionRollback(transaction);
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      const rawFeelingRating = req.body?.feelingRating;
+      if (rawFeelingRating === undefined || rawFeelingRating === null) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'feelingRating is required' });
+      }
+
+      const sanitized = sanitizeTextInput(
+        typeof rawFeelingRating === 'string' ? rawFeelingRating : String(rawFeelingRating),
+      );
+
+      if (!sanitized) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'feelingRating cannot be empty' });
+      }
+
+      const pass = await Pass.findOne({
+        where: { id },
+        include: [
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['id'],
+          },
+        ],
+        transaction,
+      });
+
+      if (!pass) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Pass not found' });
+      }
+
+      if (pass.playerId !== user.playerId) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({ error: 'You can only update feeling rating on your own passes' });
+      }
+
+      await pass.update({ feelingRating: sanitized }, { transaction });
+
+      await transaction.commit();
+
+      await elasticsearchService.indexPass(pass.id);
+
+      return res.json({
+        message: 'Feeling rating updated successfully',
+        pass: {
+          ...pass.toJSON(),
+          feelingRating: sanitized,
+        },
+      });
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error updating pass feeling rating:', error);
+      return res.status(500).json({ error: 'Failed to update pass feeling rating' });
+    }
+  },
+);
+
 export default router;
