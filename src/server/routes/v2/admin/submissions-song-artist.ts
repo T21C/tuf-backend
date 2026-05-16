@@ -15,9 +15,13 @@ import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads
 import SongAlias from '@/models/songs/SongAlias.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import SongCredit from '@/models/songs/SongCredit.js';
+import SongService from '@/server/services/data/SongService.js';
+import ArtistService from '@/server/services/data/ArtistService.js';
 
 const router: Router = Router();
 const evidenceService = EvidenceService.getInstance();
+const songService = SongService.getInstance();
+const artistService = ArtistService.getInstance();
 
 // Change song selection (similar to creator selection)
 router.put(
@@ -682,6 +686,10 @@ router.post(
         {
           model: LevelSubmissionSongRequest,
           as: 'songRequest'
+        },
+        {
+          model: LevelSubmissionArtistRequest,
+          as: 'artistRequests'
         }
       ],
       transaction
@@ -692,16 +700,39 @@ router.post(
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    // Create or find song
-    // New songs are initially pending and require evidence
-    const [song] = await Song.findOrCreate({
-      where: { name: name.trim() },
-      defaults: {
-        name: name.trim(),
-        verificationState: 'pending' // New songs are initially pending
-      },
-      transaction
-    });
+    // Create or find song: same title only reuses a row when credit artist set matches submission artists
+    const resolvedArtistIds =
+      await artistService.resolveArtistIdsFromLevelSubmissionArtistRequests(submission);
+    const trimmedName = name.trim();
+    let song: Song;
+    if (resolvedArtistIds.length > 0) {
+      const existingSong = await songService.findSongByNameAndCreditArtistSet(
+        trimmedName,
+        resolvedArtistIds,
+        transaction
+      );
+      if (existingSong) {
+        song = existingSong;
+      } else {
+        song = await Song.create(
+          {
+            name: trimmedName,
+            verificationState: 'pending',
+          },
+          { transaction }
+        );
+      }
+    } else {
+      const [createdOrFound] = await Song.findOrCreate({
+        where: { name: trimmedName },
+        defaults: {
+          name: trimmedName,
+          verificationState: 'pending',
+        },
+        transaction,
+      });
+      song = createdOrFound;
+    }
 
     // Create song aliases if provided
     if (aliases && Array.isArray(aliases) && aliases.length > 0) {

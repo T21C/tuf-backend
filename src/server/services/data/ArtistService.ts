@@ -32,6 +32,40 @@ class ArtistService {
   }
 
   /**
+   * Resolve DB artist IDs from a level submission's artist requests, plus legacy `artistId` when there are no requests.
+   */
+  public async resolveArtistIdsFromLevelSubmissionArtistRequests(submission: {
+    artistRequests?: Array<{
+      artistId?: number | null;
+      isNewRequest?: boolean | null;
+      artistName?: string | null;
+      verificationState?: string | null;
+    }>;
+    artistId?: number | null;
+  }): Promise<number[]> {
+    const ids: number[] = [];
+    const requests = submission.artistRequests;
+    if (requests && requests.length > 0) {
+      for (const artistRequest of requests) {
+        if (artistRequest.artistId) {
+          ids.push(artistRequest.artistId);
+        } else if (artistRequest.isNewRequest && artistRequest.artistName) {
+          const verificationState = artistRequest.verificationState || 'unverified';
+          const artist = await this.findOrCreateArtist(
+            artistRequest.artistName.trim(),
+            undefined,
+            verificationState as Artist['verificationState']
+          );
+          ids.push(artist.id);
+        }
+      }
+    } else if (submission.artistId) {
+      ids.push(submission.artistId);
+    }
+    return ids;
+  }
+
+  /**
    * Find or create artist with smart duplicate detection
    */
   public async findOrCreateArtist(

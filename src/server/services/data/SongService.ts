@@ -1,4 +1,4 @@
-import { Op } from 'sequelize';
+import { Op, Transaction } from 'sequelize';
 import Song from '@/models/songs/Song.js';
 import SongAlias from '@/models/songs/SongAlias.js';
 import SongLink from '@/models/songs/SongLink.js';
@@ -25,6 +25,52 @@ class SongService {
   public normalizeSongName(name: string): string {
     if (!name) return '';
     return name.trim().toLowerCase();
+  }
+
+  private static sortedUniqueArtistIds(artistIds: number[]): number[] {
+    return [...new Set(artistIds)].sort((a, b) => a - b);
+  }
+
+  /**
+   * True when two artist-id lists are the same set (order-independent).
+   */
+  public creditArtistSetsEqual(a: number[], b: number[]): boolean {
+    const sa = SongService.sortedUniqueArtistIds(a);
+    const sb = SongService.sortedUniqueArtistIds(b);
+    if (sa.length !== sb.length) return false;
+    return sa.every((id, i) => id === sb[i]);
+  }
+
+  /**
+   * Find a song whose display name matches exactly (trimmed) and whose credits' artistIds equal `artistIds` as a set.
+   */
+  public async findSongByNameAndCreditArtistSet(
+    name: string,
+    artistIds: number[],
+    transaction?: Transaction
+  ): Promise<Song | null> {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    const want = SongService.sortedUniqueArtistIds(artistIds);
+    const songs = await Song.findAll({
+      where: { name: trimmed },
+      include: [
+        {
+          model: SongCredit,
+          as: 'credits',
+          required: false,
+          attributes: ['artistId'],
+        },
+      ],
+      transaction,
+    });
+    for (const song of songs) {
+      const have = SongService.sortedUniqueArtistIds((song.credits ?? []).map((c) => c.artistId));
+      if (this.creditArtistSetsEqual(want, have)) {
+        return song;
+      }
+    }
+    return null;
   }
 
   /**

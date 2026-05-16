@@ -10,8 +10,14 @@ export interface PlayerFunFactsCounts {
   clears12K: number;
   clears16K: number;
   clearsNoHoldTap: number;
+  /**
+   * Passes flagged `isDuplicate` plus extra clears after the first on the same
+   * level (same filters as other fun-fact pass aggregates).
+   */
   duplicatePasses: number;
   hiddenPasses: number;
+  /** Passes with stored accuracy exactly 1 (same eligibility as other fun-fact pass aggregates). */
+  totalPurePerfectClears: number;
 }
 
 export interface PlayerFunFactsJudgements {
@@ -55,7 +61,6 @@ export interface PlayerFunFactsExtremes {
 
 export interface PlayerFunFactsActivity {
   accountAgeDays: number;
-  daysActive: number;
   passesLast30Days: number;
   uniqueLevelsLiked: number;
   packsOwned: number;

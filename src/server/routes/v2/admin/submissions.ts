@@ -44,6 +44,7 @@ import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import SongCredit from '@/models/songs/SongCredit.js';
 import ArtistService from '@/server/services/data/ArtistService.js';
+import SongService from '@/server/services/data/SongService.js';
 import EvidenceService from '@/server/services/data/EvidenceService.js';
 import submissionSongArtistRoutes from './submissions-song-artist.js';
 import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
@@ -54,6 +55,7 @@ const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 const artistService = ArtistService.getInstance();
+const songService = SongService.getInstance();
 const evidenceService = EvidenceService.getInstance();
 
 enum CreditRole {
@@ -772,21 +774,48 @@ router.put(
 
         // Handle song request
         let finalSongId: number | null = null;
+        let preResolvedArtistIdsForNewSongFlow: number[] | undefined;
         if (submission.songRequest) {
           if (submission.songRequest.songId) {
             // Use existing song
             finalSongId = submission.songRequest.songId;
           } else if (submission.songRequest.isNewRequest && submission.songRequest.songName) {
-            // Create new song with verificationState from request
+            // Match by exact title + same credit artist set so different artists with the same title get separate songs
             const verificationState = submission.songRequest.verificationState || 'pending';
-            const [song] = await Song.findOrCreate({
-              where: { name: submission.songRequest.songName.trim() },
-              defaults: {
-                name: submission.songRequest.songName.trim(),
-                verificationState: verificationState
-              },
-              transaction
-            });
+            const trimmedName = submission.songRequest.songName.trim();
+            const resolvedArtistIds =
+              await artistService.resolveArtistIdsFromLevelSubmissionArtistRequests(submission);
+            preResolvedArtistIdsForNewSongFlow = resolvedArtistIds;
+
+            let song: Song;
+            if (resolvedArtistIds.length > 0) {
+              const existingSong = await songService.findSongByNameAndCreditArtistSet(
+                trimmedName,
+                resolvedArtistIds,
+                transaction
+              );
+              if (existingSong) {
+                song = existingSong;
+              } else {
+                song = await Song.create(
+                  {
+                    name: trimmedName,
+                    verificationState: verificationState,
+                  },
+                  { transaction }
+                );
+              }
+            } else {
+              const [createdOrFound] = await Song.findOrCreate({
+                where: { name: trimmedName },
+                defaults: {
+                  name: trimmedName,
+                  verificationState: verificationState,
+                },
+                transaction,
+              });
+              song = createdOrFound;
+            }
             finalSongId = song.id;
           }
         } else if (submission.songId) {
@@ -813,7 +842,7 @@ router.put(
         }
 
         // Handle artist requests (multiple artists supported)
-        const finalArtistIds: number[] = [];
+        let finalArtistIds: number[] = [];
         let finalArtistString = '';
 
         // If we have an existing song, inherit artists from song credits and discard submission artist requests
@@ -832,8 +861,10 @@ router.put(
             .filter((name: string | undefined): name is string => !!name);
           finalArtistString = artistNames.join(' & ');
         } else {
-          // For new songs, process artist requests as before
-          if (submission.artistRequests && submission.artistRequests.length > 0) {
+          // For new songs, process artist requests as before (reuse IDs if already resolved for new-song matching)
+          if (preResolvedArtistIdsForNewSongFlow !== undefined) {
+            finalArtistIds = [...preResolvedArtistIdsForNewSongFlow];
+          } else if (submission.artistRequests && submission.artistRequests.length > 0) {
             // Process multiple artist requests
             for (const artistRequest of submission.artistRequests) {
               if (artistRequest.artistId) {

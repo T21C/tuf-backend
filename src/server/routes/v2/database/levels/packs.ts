@@ -35,17 +35,32 @@ import { standardErrorResponses, standardErrorResponses404500, standardErrorResp
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import { incrementLevelDownloadCountsForFileIds } from '@/misc/utils/data/levelDownloadCount.js';
 import { stringIdParamSpec } from '@/server/schemas/common.js';
+import { isTufStellarAccessActive } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 
 const router: Router = Router();
 
 // Constants
-const MAX_PACKS_PER_USER = 50;
-const MAX_ITEMS_PER_PACK = 1000;
+const DEFAULT_MAX_PACKS_PER_USER = 20;
+const TUF_STELLAR_MAX_PACKS_PER_USER = 100;
+const DEFAULT_MAX_ITEMS_PER_PACK = 250;
+const TUF_STELLAR_MAX_ITEMS_PER_PACK = 2500;
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
 const CDN_METADATA_BATCH_SIZE = 100; // Batch CDN metadata requests to prevent OOM
 const PACK_CDN_METADATA_BATCH_TIMEOUT_MS = 15_000;
+
+async function resolvePackQuotaForUser(user: NonNullable<Request['user']>): Promise<{ maxPacks: number; maxItems: number }> {
+  if (hasFlag(user, permissionFlags.SUPER_ADMIN)) {
+    return { maxPacks: Number.MAX_SAFE_INTEGER, maxItems: Number.MAX_SAFE_INTEGER };
+  }
+  const billing = await loadUserTufStellarBilling(user.id);
+  if (isTufStellarAccessActive(user, billing)) {
+    return { maxPacks: TUF_STELLAR_MAX_PACKS_PER_USER, maxItems: TUF_STELLAR_MAX_ITEMS_PER_PACK };
+  }
+  return { maxPacks: DEFAULT_MAX_PACKS_PER_USER, maxItems: DEFAULT_MAX_ITEMS_PER_PACK };
+}
 
 // Helper function to check if user can view pack
 const canViewPack = (pack: LevelPack, user: any): boolean => {
@@ -987,8 +1002,9 @@ router.post(
       transaction
     });
 
-    if (userPackCount >= MAX_PACKS_PER_USER && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
-      throw { error: `Maximum ${MAX_PACKS_PER_USER} packs allowed per user`, code: 400 };
+    const packQuota = await resolvePackQuotaForUser(req.user!);
+    if (userPackCount >= packQuota.maxPacks) {
+      throw { error: `Maximum ${packQuota.maxPacks} packs allowed per user`, code: 400 };
     }
 
     // Only allow admins to create public packs or set pin status
@@ -1402,6 +1418,8 @@ router.post(
       throw { error: 'Access denied', code: 403 };
     }
 
+    const packQuota = await resolvePackQuotaForUser(req.user!);
+
     // Validate based on type
     if (type === 'folder') {
       if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -1441,8 +1459,8 @@ router.post(
         transaction
       });
 
-      if (itemCount >= MAX_ITEMS_PER_PACK && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
-        throw { error: `Maximum ${MAX_ITEMS_PER_PACK} items allowed per pack`, code: 400 };
+      if (itemCount >= packQuota.maxItems) {
+        throw { error: `Maximum ${packQuota.maxItems} items allowed per pack`, code: 400 };
       }
 
       // Determine sort order
@@ -1539,14 +1557,14 @@ router.post(
         transaction
       });
 
-      if (currentItemCount + newLevelIds.length > MAX_ITEMS_PER_PACK) {
+      if (currentItemCount + newLevelIds.length > packQuota.maxItems) {
         throw {
-          error: `Adding ${newLevelIds.length} items would exceed the maximum ${MAX_ITEMS_PER_PACK} items per pack`,
+          error: `Adding ${newLevelIds.length} items would exceed the maximum ${packQuota.maxItems} items per pack`,
           code: 400,
           details: {
             currentCount: currentItemCount,
             tryingToAdd: newLevelIds.length,
-            maxAllowed: MAX_ITEMS_PER_PACK
+            maxAllowed: packQuota.maxItems
           }
         };
       }

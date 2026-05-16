@@ -346,7 +346,8 @@ router.get(
 /**
  * Full profile view: ES stats + ranks + DB-enriched passes/topScores/potentialTopScores.
  * Fun-facts aggregates include hidden passes only when the caller owns the profile
- * and passes `showHidden=true` (same rule as GET .../passes).
+ * and passes `showHidden=true` (same rule as GET .../passes). The `funFacts.counts.hiddenPasses`
+ * tally is still returned for the owning caller even when `showHidden` is false.
  */
 router.get(
   '/:id([0-9]{1,20})/profile',
@@ -355,7 +356,7 @@ router.get(
     operationId: 'v3GetPlayerProfile',
     summary: 'Get player profile (v3)',
     description:
-      'Player profile page payload: ES document + on-demand ranks + DB-sourced passes, topScores, and potentialTopScores. `funFacts` includes hidden passes in totals only when the caller owns the profile and `showHidden=true`.',
+      'Player profile page payload: ES document + on-demand ranks + DB-sourced passes, topScores, and potentialTopScores. `funFacts` aggregates include hidden passes only when the caller owns the profile and `showHidden=true`; `funFacts.counts.hiddenPasses` is always the real hidden-pass count for the owning caller.',
     tags: ['Database', 'Players', 'v3'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
@@ -385,7 +386,10 @@ router.get(
       const [ranks, enriched, funFacts, playerRow] = await Promise.all([
         getPlayerRanks(doc),
         playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
-        computePlayerFunFacts(id, {includeHidden: includeHiddenInFunFacts}),
+        computePlayerFunFacts(id, {
+          includeHidden: includeHiddenInFunFacts,
+          reportHiddenPassCount: isOwnProfile,
+        }),
         Player.findByPk(id, {
           attributes: ['bio', 'bannerPreset', 'customBannerId', 'customBannerUrl', 'tufStellarIconVariant'],
         }),

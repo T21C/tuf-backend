@@ -27,10 +27,13 @@ function toIso(d: unknown): string | null {
  *   aggregates (counts, judgements, extremes, difficulty breakdowns). Must only
  *   be set when the caller has explicitly opted in (e.g. `showHidden=true` on
  *   the profile API); otherwise hidden passes are excluded entirely.
+ * @param options.reportHiddenPassCount — When true (own-profile callers only),
+ *   `counts.hiddenPasses` is still the real number of hidden passes even if
+ *   `includeHidden` is false; other aggregates stay excluding hidden rows.
  */
 export async function computePlayerFunFacts(
   playerId: number,
-  options: {includeHidden: boolean},
+  options: {includeHidden: boolean; reportHiddenPassCount?: boolean},
 ): Promise<PlayerFunFacts> {
   const empty: PlayerFunFacts = {
     counts: {
@@ -42,6 +45,7 @@ export async function computePlayerFunFacts(
       clearsNoHoldTap: 0,
       duplicatePasses: 0,
       hiddenPasses: 0,
+      totalPurePerfectClears: 0,
     },
     judgements: {
       totalTilesHit: 0,
@@ -73,7 +77,6 @@ export async function computePlayerFunFacts(
     },
     activity: {
       accountAgeDays: 0,
-      daysActive: 0,
       passesLast30Days: 0,
       uniqueLevelsLiked: 0,
       packsOwned: 0,
@@ -89,6 +92,21 @@ export async function computePlayerFunFacts(
 
   const includeHiddenPassesInAggregates = Boolean(options.includeHidden);
   const includeHidden = includeHiddenPassesInAggregates ? 1 : 0;
+  const reportHiddenPassCount = Boolean(options.reportHiddenPassCount);
+  const needOwnerHiddenSubquery = reportHiddenPassCount && !includeHiddenPassesInAggregates;
+
+  const hiddenPassCountForOwnerSelect = needOwnerHiddenSubquery
+    ? `,
+      (
+        SELECT COALESCE(COUNT(*), 0)
+        FROM passes p_h
+        INNER JOIN judgements j_h ON j_h.id = p_h.id
+        INNER JOIN levels l_h ON l_h.id = p_h.levelId AND l_h.isDeleted = 0
+        WHERE p_h.playerId = :playerId
+          AND IFNULL(p_h.isDeleted, 0) = 0
+          AND IFNULL(p_h.isHidden, 0) = 1
+      ) AS hiddenPassCountForOwner`
+    : '';
 
   const mainSql = `
     SELECT
@@ -98,8 +116,10 @@ export async function computePlayerFunFacts(
       COALESCE(SUM(CASE WHEN p.is12K = 1 THEN 1 ELSE 0 END), 0) AS clears12K,
       COALESCE(SUM(CASE WHEN p.is16K = 1 THEN 1 ELSE 0 END), 0) AS clears16K,
       COALESCE(SUM(CASE WHEN p.isNoHoldTap = 1 THEN 1 ELSE 0 END), 0) AS clearsNoHoldTap,
-      COALESCE(SUM(CASE WHEN p.isDuplicate = 1 THEN 1 ELSE 0 END), 0) AS duplicatePasses,
+      COALESCE(SUM(CASE WHEN p.isDuplicate = 1 THEN 1 ELSE 0 END), 0)
+        + (COALESCE(COUNT(*), 0) - COALESCE(COUNT(DISTINCT p.levelId), 0)) AS duplicatePasses,
       COALESCE(SUM(CASE WHEN :includeHidden = 1 AND IFNULL(p.isHidden, 0) = 1 THEN 1 ELSE 0 END), 0) AS hiddenPasses,
+      COALESCE(SUM(CASE WHEN p.accuracy = 1 THEN 1 ELSE 0 END), 0) AS totalPurePerfectClears,
       COALESCE(SUM(j.earlyDouble), 0) AS earlyDouble,
       COALESCE(SUM(j.earlySingle), 0) AS earlySingle,
       COALESCE(SUM(j.ePerfect), 0) AS ePerfect,
@@ -128,9 +148,8 @@ export async function computePlayerFunFacts(
       MAX(l.tilecount) AS highestTilecountCleared,
       MAX(l.levelLengthInMs) AS longestLevelMs,
       MAX(l.bpm) AS highestBpmCleared,
-      COALESCE(COUNT(DISTINCT DATE(p.vidUploadTime)), 0) AS daysActive,
       COALESCE(SUM(CASE WHEN p.createdAt >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY) THEN 1 ELSE 0 END), 0) AS passesLast30Days,
-      (SELECT COALESCE(DATEDIFF(UTC_TIMESTAMP(), pl.createdAt), 0) FROM players pl WHERE pl.id = :playerId LIMIT 1) AS accountAgeDays
+      (SELECT COALESCE(DATEDIFF(UTC_TIMESTAMP(), pl.createdAt), 0) FROM players pl WHERE pl.id = :playerId LIMIT 1) AS accountAgeDays${hiddenPassCountForOwnerSelect}
     FROM passes p
     INNER JOIN judgements j ON j.id = p.id
     INNER JOIN levels l ON l.id = p.levelId AND l.isDeleted = 0
@@ -231,7 +250,8 @@ export async function computePlayerFunFacts(
   // `clearsByDifficultyNoDupes`: one row per (player, level) — same rule as
   // `PlayerStatsService.getEnrichedPlayer` uniquePasses (best scoreV2 wins).
   // The `isDuplicate` column means “duplicate of another *level*”, not replay
-  // clears on the same chart, so filtering on it alone left no-dupes == raw.
+  // clears on the same chart. `counts.duplicatePasses` adds replay extras
+  // (COUNT(*) − COUNT(DISTINCT levelId)) to the `isDuplicate` sum.
   const diffSql = `
     WITH ranked AS (
       SELECT
@@ -351,7 +371,12 @@ export async function computePlayerFunFacts(
       clears16K: Number(m.clears16K) || 0,
       clearsNoHoldTap: Number(m.clearsNoHoldTap) || 0,
       duplicatePasses: Number(m.duplicatePasses) || 0,
-      hiddenPasses: includeHiddenPassesInAggregates ? Number(m.hiddenPasses) || 0 : 0,
+      hiddenPasses: includeHiddenPassesInAggregates
+        ? Number(m.hiddenPasses) || 0
+        : needOwnerHiddenSubquery
+          ? Number(m.hiddenPassCountForOwner) || 0
+          : 0,
+      totalPurePerfectClears: Number(m.totalPurePerfectClears) || 0,
     },
     judgements: {
       totalTilesHit,
@@ -393,7 +418,6 @@ export async function computePlayerFunFacts(
     },
     activity: {
       accountAgeDays,
-      daysActive: Number(m.daysActive) || 0,
       passesLast30Days: Number(m.passesLast30Days) || 0,
       uniqueLevelsLiked,
       packsOwned,
