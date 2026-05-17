@@ -397,8 +397,7 @@ router.get(
             'customBannerId',
             'customBannerUrl',
             'profileHeaderSurfaceStyle',
-            'profileHeaderSurfaceImageId',
-            'profileHeaderSurfaceImageUrl',
+            'profileHeaderSurfaceImageAssets',
             'tufStellarIconVariant',
           ],
         }),
@@ -428,8 +427,11 @@ router.get(
               typeof playerRow.profileHeaderSurfaceStyle === 'object'
                 ? playerRow.profileHeaderSurfaceStyle
                 : null,
-            profileHeaderSurfaceImageId: playerRow.profileHeaderSurfaceImageId ?? null,
-            profileHeaderSurfaceImageUrl: playerRow.profileHeaderSurfaceImageUrl ?? null,
+            profileHeaderSurfaceImageAssets:
+              playerRow.profileHeaderSurfaceImageAssets &&
+              typeof playerRow.profileHeaderSurfaceImageAssets === 'object'
+                ? playerRow.profileHeaderSurfaceImageAssets
+                : null,
             tufStellarIconVariant: stellarOn
               ? normalizeTufStellarIconVariant(playerRow.tufStellarIconVariant)
               : '1',

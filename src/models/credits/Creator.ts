@@ -21,8 +21,7 @@ class Creator extends Model implements ICreator {
   declare customBannerId: string | null;
   declare customBannerUrl: string | null;
   declare profileHeaderSurfaceStyle: Record<string, unknown> | null;
-  declare profileHeaderSurfaceImageId: string | null;
-  declare profileHeaderSurfaceImageUrl: string | null;
+  declare profileHeaderSurfaceImageAssets: Record<string, { assetId: string; url: string }> | null;
   /** Free-text policy for when/how charts may be uploaded for this creator. */
   declare uploadConditions: string | null;
   /** TUFStellar subscriber icon art on creator profile/cards: `1` | `2` | `3`. */
@@ -92,12 +91,8 @@ Creator.init(
       type: DataTypes.JSON,
       allowNull: true,
     },
-    profileHeaderSurfaceImageId: {
-      type: DataTypes.STRING(64),
-      allowNull: true,
-    },
-    profileHeaderSurfaceImageUrl: {
-      type: DataTypes.TEXT,
+    profileHeaderSurfaceImageAssets: {
+      type: DataTypes.JSON,
       allowNull: true,
     },
     uploadConditions: {

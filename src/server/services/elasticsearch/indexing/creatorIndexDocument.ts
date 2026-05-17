@@ -125,13 +125,11 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
       c.profileHeaderSurfaceStyle && typeof c.profileHeaderSurfaceStyle === 'object'
         ? c.profileHeaderSurfaceStyle
         : null,
-    profileHeaderSurfaceImageId:
-      typeof c.profileHeaderSurfaceImageId === 'string' && c.profileHeaderSurfaceImageId.length
-        ? c.profileHeaderSurfaceImageId
-        : null,
-    profileHeaderSurfaceImageUrl:
-      typeof c.profileHeaderSurfaceImageUrl === 'string' && c.profileHeaderSurfaceImageUrl.length
-        ? c.profileHeaderSurfaceImageUrl
+    profileHeaderSurfaceImageAssets:
+      c.profileHeaderSurfaceImageAssets &&
+      typeof c.profileHeaderSurfaceImageAssets === 'object' &&
+      !Array.isArray(c.profileHeaderSurfaceImageAssets)
+        ? c.profileHeaderSurfaceImageAssets
         : null,
     tufStellarIconVariant: normalizeTufStellarIconVariant(c.tufStellarIconVariant),
     aliases: serializeAliases(input.aliases ?? creator.creatorAliases ?? null),

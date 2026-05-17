@@ -1,14 +1,17 @@
-/** Profile header card shell: ordered DOM stack (gradients + image) with shared image settings. */
+/** Profile header card shell: ordered DOM stack (gradients + images) with per-layer image settings. */
 
-export const PROFILE_HEADER_SURFACE_STYLE_VERSION = 2 as const;
+export const PROFILE_HEADER_SURFACE_STYLE_VERSION = 3 as const;
 export const SURFACE_STACK_KIND_GRADIENT = 'gradient' as const;
 export const SURFACE_STACK_KIND_IMAGE = 'image' as const;
 export const MAX_PROFILE_HEADER_SURFACE_LAYER_LABEL_LENGTH = 32;
 export const MAX_PROFILE_HEADER_SURFACE_STACK_ENTRY_ID_LENGTH = 64;
-export const MAX_PROFILE_HEADER_SURFACE_LAYERS = 10;
+export const MAX_PROFILE_HEADER_SURFACE_STACK_ENTRIES = 15;
+export const MAX_PROFILE_HEADER_SURFACE_IMAGE_LAYERS = 10;
+/** @deprecated Use MAX_PROFILE_HEADER_SURFACE_STACK_ENTRIES */
+export const MAX_PROFILE_HEADER_SURFACE_LAYERS = MAX_PROFILE_HEADER_SURFACE_STACK_ENTRIES;
 export const MAX_PROFILE_HEADER_SURFACE_STOPS = 8;
 export const MIN_PROFILE_HEADER_SURFACE_STOPS = 2;
-export const MAX_PROFILE_HEADER_SURFACE_JSON_BYTES = 16_384;
+export const MAX_PROFILE_HEADER_SURFACE_JSON_BYTES = 32_768;
 
 export const GRADIENT_LAYER_TYPES = [
   'linear',
@@ -34,13 +37,43 @@ export const IMAGE_REPEAT = ['no-repeat', 'repeat', 'repeat-x', 'repeat-y', 'spa
 
 export const IMAGE_DIMENSION_PERCENT_MIN = 0;
 export const IMAGE_DIMENSION_PERCENT_MAX = 300;
+export const IMAGE_DIMENSION_PIXEL_MIN = 0;
+export const IMAGE_DIMENSION_PIXEL_MAX = 4000;
+export const IMAGE_SIZE_OFFSET_UNITS = ['percent', 'pixel'] as const;
 export const IMAGE_REPEAT_TILE = IMAGE_REPEAT.filter((r) => r !== 'no-repeat');
 
 export const IMAGE_POSITION_PERCENT_MIN = -100;
 export const IMAGE_POSITION_PERCENT_MAX = 200;
 export const IMAGE_POSITION_PIXEL_MIN = -1000;
 export const IMAGE_POSITION_PIXEL_MAX = 1000;
-export const IMAGE_POSITION_UNITS = ['percent', 'pixel'] as const;
+export const IMAGE_POSITION_OFFSET_UNITS = ['percent', 'pixel'] as const;
+export const IMAGE_POSITION_HORIZONTAL_KEYWORDS = ['left', 'center', 'right'] as const;
+export const IMAGE_POSITION_VERTICAL_KEYWORDS = ['top', 'center', 'bottom'] as const;
+
+export type ImagePositionHorizontalSide = (typeof IMAGE_POSITION_HORIZONTAL_KEYWORDS)[number];
+export type ImagePositionVerticalSide = (typeof IMAGE_POSITION_VERTICAL_KEYWORDS)[number];
+export type ImagePositionOffsetUnit = (typeof IMAGE_POSITION_OFFSET_UNITS)[number];
+
+export type ProfileHeaderSurfaceImagePositionAxis = {
+  side: ImagePositionHorizontalSide | ImagePositionVerticalSide;
+  unit: ImagePositionOffsetUnit;
+  value: number;
+};
+
+export type ProfileHeaderSurfaceImagePosition = {
+  x: ProfileHeaderSurfaceImagePositionAxis & { side: ImagePositionHorizontalSide };
+  y: ProfileHeaderSurfaceImagePositionAxis & { side: ImagePositionVerticalSide };
+};
+
+export function createDefaultImagePosition(): ProfileHeaderSurfaceImagePosition {
+  return {
+    x: { side: 'center', unit: 'percent', value: 0 },
+    y: { side: 'center', unit: 'percent', value: 0 },
+  };
+}
+
+/** Offset surface image layers below the profile header banner strip. */
+export const PROFILE_HEADER_SURFACE_IMAGE_BANNER_PAD_TOP = '9rem';
 
 export function isImageTilingEnabled(repeat: string): boolean {
   return repeat !== 'no-repeat';
@@ -81,14 +114,24 @@ export type ProfileHeaderSurfaceGradientLayer = {
 
 export type ProfileHeaderSurfaceImageSizeFit = (typeof IMAGE_SIZE_PRESETS)[number];
 
-export type ProfileHeaderSurfaceImageSizeDimensions = {
-  widthPercent: number;
-  heightPercent: number;
+export type ImageSizeOffsetUnit = (typeof IMAGE_SIZE_OFFSET_UNITS)[number];
+
+export type ProfileHeaderSurfaceImageSizeDimensionAxis = {
+  unit: ImageSizeOffsetUnit;
+  value: number;
 };
 
-export type ProfileHeaderSurfaceImagePosition =
-  | { unit: 'percent'; x: number; y: number }
-  | { unit: 'pixel'; x: number; y: number };
+export type ProfileHeaderSurfaceImageSizeDimensions = {
+  width: ProfileHeaderSurfaceImageSizeDimensionAxis;
+  height: ProfileHeaderSurfaceImageSizeDimensionAxis;
+};
+
+export function createDefaultImageSizeDimensions(): ProfileHeaderSurfaceImageSizeDimensions {
+  return {
+    width: { unit: 'percent', value: 100 },
+    height: { unit: 'percent', value: 100 },
+  };
+}
 
 export type ProfileHeaderSurfaceImageSettings = {
   sizeFit: ProfileHeaderSurfaceImageSizeFit;
@@ -98,6 +141,8 @@ export type ProfileHeaderSurfaceImageSettings = {
   position: ProfileHeaderSurfaceImagePosition;
   repeat: (typeof IMAGE_REPEAT)[number];
   blendMode?: (typeof BLEND_MODES)[number];
+  /** When true, layer is offset below the banner (`top: 9rem`). */
+  padForBanner?: boolean;
 };
 
 export type ProfileHeaderSurfaceStackEntryBase = {
@@ -120,11 +165,24 @@ export type ProfileHeaderSurfaceStackEntry =
   | ProfileHeaderSurfaceStackGradient
   | ProfileHeaderSurfaceStackImage;
 
+export type ProfileHeaderSurfaceImageAssets = Record<
+  string,
+  { assetId: string; url: string }
+>;
+
 export type ProfileHeaderSurfaceStyle = {
   version: typeof PROFILE_HEADER_SURFACE_STYLE_VERSION;
   stack: ProfileHeaderSurfaceStackEntry[];
-  image?: ProfileHeaderSurfaceImageSettings;
+  images?: Record<string, ProfileHeaderSurfaceImageSettings>;
 };
+
+export function getImageStackEntryIds(stack: ProfileHeaderSurfaceStackEntry[]): string[] {
+  return stack.filter((e) => e.kind === SURFACE_STACK_KIND_IMAGE).map((e) => e.id);
+}
+
+export function countImageStackEntries(stack: ProfileHeaderSurfaceStackEntry[]): number {
+  return stack.filter((e) => e.kind === SURFACE_STACK_KIND_IMAGE).length;
+}
 
 const DANGEROUS_COLOR =
   /url\s*\(|var\s*\(|expression\s*\(|@import|javascript:|\/\*|\*\/|;|\\|<\/|<>/i;
@@ -250,26 +308,71 @@ function parseGradientPosition(raw: unknown): { xPercent: number; yPercent: numb
   return { xPercent: x, yPercent: y };
 }
 
-function parseImagePositionPixel(raw: unknown): number | null {
+function clampImagePositionOffset(value: number, unit: ImagePositionOffsetUnit): number {
+  if (unit === 'pixel') {
+    return Math.min(
+      IMAGE_POSITION_PIXEL_MAX,
+      Math.max(IMAGE_POSITION_PIXEL_MIN, Math.round(value)),
+    );
+  }
+  return round1(Math.min(IMAGE_POSITION_PERCENT_MAX, Math.max(IMAGE_POSITION_PERCENT_MIN, value)));
+}
+
+function parseImagePositionAxisOffset(raw: unknown, unit: ImagePositionOffsetUnit): number {
   const n = Number(raw);
-  if (!Number.isFinite(n)) return null;
-  return Math.round(n);
+  if (!Number.isFinite(n)) return 0;
+  return clampImagePositionOffset(n, unit);
+}
+
+function parseImagePositionAxis(
+  raw: unknown,
+  axis: 'x' | 'y',
+): ProfileHeaderSurfaceImagePositionAxis {
+  const sides: readonly string[] =
+    axis === 'x' ? IMAGE_POSITION_HORIZONTAL_KEYWORDS : IMAGE_POSITION_VERTICAL_KEYWORDS;
+  const fallback =
+    axis === 'x'
+      ? ({ side: 'center' as const, unit: 'percent' as const, value: 0 })
+      : ({ side: 'center' as const, unit: 'percent' as const, value: 0 });
+
+  if (!raw || typeof raw !== 'object') {
+    return { ...fallback };
+  }
+
+  const o = raw as Record<string, unknown>;
+  let side = o.side;
+  if (typeof side !== 'string' || !sides.includes(side)) {
+    side = fallback.side;
+  }
+
+  const unit: ImagePositionOffsetUnit = o.unit === 'pixel' ? 'pixel' : 'percent';
+  const value = parseImagePositionAxisOffset(o.value, unit);
+
+  return {
+    side: side as ImagePositionHorizontalSide | ImagePositionVerticalSide,
+    unit,
+    value,
+  };
 }
 
 function parseImagePosition(raw: unknown): ProfileHeaderSurfaceImagePosition | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
-  const unit = o.unit === 'pixel' ? 'pixel' : 'percent';
-  if (unit === 'pixel') {
-    const x = parseImagePositionPixel(o.x ?? o.xPx);
-    const y = parseImagePositionPixel(o.y ?? o.yPx);
-    if (x === null || y === null) return null;
-    return { unit: 'pixel', x, y };
+  if (!o.x || typeof o.x !== 'object' || !o.y || typeof o.y !== 'object') return null;
+
+  const position = {
+    x: parseImagePositionAxis(o.x, 'x') as ProfileHeaderSurfaceImagePosition['x'],
+    y: parseImagePositionAxis(o.y, 'y') as ProfileHeaderSurfaceImagePosition['y'],
+  };
+  if (
+    !IMAGE_POSITION_HORIZONTAL_KEYWORDS.includes(position.x.side) ||
+    !IMAGE_POSITION_VERTICAL_KEYWORDS.includes(position.y.side) ||
+    !IMAGE_POSITION_OFFSET_UNITS.includes(position.x.unit) ||
+    !IMAGE_POSITION_OFFSET_UNITS.includes(position.y.unit)
+  ) {
+    return null;
   }
-  const x = parsePositionPercent(o.x ?? o.xPercent);
-  const y = parsePositionPercent(o.y ?? o.yPercent);
-  if (x === null || y === null) return null;
-  return { unit: 'percent', x, y };
+  return position;
 }
 
 function parseStops(raw: unknown): ProfileHeaderSurfaceColorStop[] | null {
@@ -339,51 +442,67 @@ function parseGradientLayerFields(raw: unknown): ProfileHeaderSurfaceGradientLay
   return layer;
 }
 
-const DEFAULT_IMAGE_SIZE_DIMENSIONS: ProfileHeaderSurfaceImageSizeDimensions = {
-  widthPercent: 100,
-  heightPercent: 100,
-};
-
-function parseImageDimensionPercent(raw: unknown): number | null {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return null;
-  return round1(n);
+function clampImageSizeValue(value: number, unit: ImageSizeOffsetUnit): number {
+  if (unit === 'pixel') {
+    return Math.min(
+      IMAGE_DIMENSION_PIXEL_MAX,
+      Math.max(IMAGE_DIMENSION_PIXEL_MIN, Math.round(value)),
+    );
+  }
+  return round1(Math.min(IMAGE_DIMENSION_PERCENT_MAX, Math.max(IMAGE_DIMENSION_PERCENT_MIN, value)));
 }
 
-function parseImageSizeFit(raw: unknown, legacySize: unknown): ProfileHeaderSurfaceImageSizeFit {
+function parseImageSizeAxisValue(raw: unknown, unit: ImageSizeOffsetUnit): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 100;
+  return clampImageSizeValue(n, unit);
+}
+
+function parseImageSizeDimensionAxis(
+  raw: unknown,
+): ProfileHeaderSurfaceImageSizeDimensionAxis {
+  if (!raw || typeof raw !== 'object') {
+    return { unit: 'percent', value: 100 };
+  }
+  const o = raw as Record<string, unknown>;
+  const unit: ImageSizeOffsetUnit = o.unit === 'pixel' ? 'pixel' : 'percent';
+  const value = parseImageSizeAxisValue(o.value, unit);
+  return { unit, value };
+}
+
+function parseImageSizeFit(raw: unknown): ProfileHeaderSurfaceImageSizeFit {
   if (typeof raw === 'string' && IMAGE_SIZE_PRESETS.includes(raw as ProfileHeaderSurfaceImageSizeFit)) {
     return raw as ProfileHeaderSurfaceImageSizeFit;
-  }
-  if (
-    typeof legacySize === 'string' &&
-    IMAGE_SIZE_PRESETS.includes(legacySize as ProfileHeaderSurfaceImageSizeFit)
-  ) {
-    return legacySize as ProfileHeaderSurfaceImageSizeFit;
   }
   return 'cover';
 }
 
-function parseImageSizeDimensions(raw: unknown): ProfileHeaderSurfaceImageSizeDimensions {
-  if (!raw || typeof raw !== 'object') return { ...DEFAULT_IMAGE_SIZE_DIMENSIONS };
+function parseImageSizeDimensions(raw: unknown): ProfileHeaderSurfaceImageSizeDimensions | null {
+  if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
-  const w = parseImageDimensionPercent(o.widthPercent);
-  const h = parseImageDimensionPercent(o.heightPercent);
-  return {
-    widthPercent: w ?? DEFAULT_IMAGE_SIZE_DIMENSIONS.widthPercent,
-    heightPercent: h ?? DEFAULT_IMAGE_SIZE_DIMENSIONS.heightPercent,
-  };
+  if (!o.width || typeof o.width !== 'object' || !o.height || typeof o.height !== 'object') {
+    return null;
+  }
+
+  const width = parseImageSizeDimensionAxis(o.width);
+  const height = parseImageSizeDimensionAxis(o.height);
+  if (
+    !IMAGE_SIZE_OFFSET_UNITS.includes(width.unit) ||
+    !IMAGE_SIZE_OFFSET_UNITS.includes(height.unit)
+  ) {
+    return null;
+  }
+  return { width, height };
 }
 
 function parseImageSettings(raw: unknown): ProfileHeaderSurfaceImageSettings | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
-  const sizeFit = parseImageSizeFit(o.sizeFit, o.size);
-  const sizeDimensions = parseImageSizeDimensions(
-    o.sizeDimensions ?? (typeof o.size === 'object' ? o.size : undefined),
-  );
+  const sizeFit = parseImageSizeFit(o.sizeFit);
+  const sizeDimensions = parseImageSizeDimensions(o.sizeDimensions);
   const position = parseImagePosition(o.position);
   const repeat = o.repeat;
-  if (!position) return null;
+  if (!sizeDimensions || !position) return null;
   if (typeof repeat !== 'string' || !IMAGE_REPEAT.includes(repeat as (typeof IMAGE_REPEAT)[number])) {
     return null;
   }
@@ -406,6 +525,10 @@ function parseImageSettings(raw: unknown): ProfileHeaderSurfaceImageSettings | n
     blendMode !== 'normal'
   ) {
     image.blendMode = blendMode as (typeof BLEND_MODES)[number];
+  }
+
+  if (o.padForBanner === true) {
+    image.padForBanner = true;
   }
 
   return image;
@@ -448,10 +571,11 @@ function parseStackEntry(raw: unknown): ProfileHeaderSurfaceStackEntry | null {
 
 function parseStack(rawStack: unknown): ProfileHeaderSurfaceStackEntry[] | null {
   if (!Array.isArray(rawStack)) return null;
-  if (rawStack.length > MAX_PROFILE_HEADER_SURFACE_LAYERS + 1) return null;
+  if (rawStack.length === 0 || rawStack.length > MAX_PROFILE_HEADER_SURFACE_STACK_ENTRIES) {
+    return null;
+  }
 
   let imageCount = 0;
-  let gradientCount = 0;
   const stack: ProfileHeaderSurfaceStackEntry[] = [];
 
   for (const entry of rawStack) {
@@ -459,15 +583,40 @@ function parseStack(rawStack: unknown): ProfileHeaderSurfaceStackEntry[] | null 
     if (!parsed) return null;
     if (parsed.kind === SURFACE_STACK_KIND_IMAGE) {
       imageCount += 1;
-      if (imageCount > 1) return null;
-    } else {
-      gradientCount += 1;
-      if (gradientCount > MAX_PROFILE_HEADER_SURFACE_LAYERS) return null;
+      if (imageCount > MAX_PROFILE_HEADER_SURFACE_IMAGE_LAYERS) return null;
     }
     stack.push(parsed);
   }
 
   return stack;
+}
+
+function parseImagesMap(
+  rawImages: unknown,
+  imageIds: string[],
+): Record<string, ProfileHeaderSurfaceImageSettings> | undefined | null {
+  if (imageIds.length === 0) {
+    if (rawImages !== undefined && rawImages !== null) return null;
+    return undefined;
+  }
+  if (!rawImages || typeof rawImages !== 'object' || Array.isArray(rawImages)) return null;
+
+  const o = rawImages as Record<string, unknown>;
+  const images: Record<string, ProfileHeaderSurfaceImageSettings> = {};
+
+  for (const id of imageIds) {
+    const parsed = parseImageSettings(o[id]);
+    if (!parsed) return null;
+    images[id] = parsed;
+  }
+
+  const keys = Object.keys(o).sort();
+  const expected = [...imageIds].sort();
+  if (keys.length !== expected.length || keys.some((k, i) => k !== expected[i])) {
+    return null;
+  }
+
+  return images;
 }
 
 export class ProfileHeaderSurfaceStyleError extends Error {
@@ -494,33 +643,41 @@ export function parseProfileHeaderSurfaceStyle(input: unknown): ProfileHeaderSur
   if (o.version !== PROFILE_HEADER_SURFACE_STYLE_VERSION) {
     throw new ProfileHeaderSurfaceStyleError('Unsupported style version');
   }
+  if (o.image !== undefined && o.image !== null) {
+    throw new ProfileHeaderSurfaceStyleError('top-level image settings are not supported');
+  }
 
   const stack = parseStack(o.stack);
   if (!stack || stack.length === 0) {
     throw new ProfileHeaderSurfaceStyleError('stack must be a non-empty array');
   }
 
-  const hasImageLayer = stack.some((e) => e.kind === SURFACE_STACK_KIND_IMAGE);
-  let image: ProfileHeaderSurfaceImageSettings | undefined;
-
-  if (hasImageLayer) {
-    if (o.image === undefined || o.image === null) {
-      throw new ProfileHeaderSurfaceStyleError('image settings required when stack includes image layer');
-    }
-    const parsed = parseImageSettings(o.image);
-    if (!parsed) {
-      throw new ProfileHeaderSurfaceStyleError('Invalid image settings');
-    }
-    image = parsed;
-  } else if (o.image !== undefined && o.image !== null) {
-    throw new ProfileHeaderSurfaceStyleError(
-      'image settings require an image layer in stack',
-    );
+  const imageIds = getImageStackEntryIds(stack);
+  const images = parseImagesMap(o.images, imageIds);
+  if (images === null) {
+    throw new ProfileHeaderSurfaceStyleError('Invalid image settings map');
   }
 
   return {
     version: PROFILE_HEADER_SURFACE_STYLE_VERSION,
     stack,
-    ...(image ? { image } : {}),
+    ...(images ? { images } : {}),
   };
+}
+
+export function parseProfileHeaderSurfaceImageAssets(
+  input: unknown,
+): ProfileHeaderSurfaceImageAssets {
+  if (input == null || typeof input !== 'object' || Array.isArray(input)) {
+    return {};
+  }
+  const out: ProfileHeaderSurfaceImageAssets = {};
+  for (const [layerId, val] of Object.entries(input as Record<string, unknown>)) {
+    if (!layerId || !val || typeof val !== 'object') continue;
+    const row = val as Record<string, unknown>;
+    const assetId = typeof row.assetId === 'string' ? row.assetId.trim() : '';
+    const url = typeof row.url === 'string' ? row.url.trim() : '';
+    if (assetId && url) out[layerId] = { assetId, url };
+  }
+  return out;
 }

@@ -138,13 +138,11 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
       p.profileHeaderSurfaceStyle && typeof p.profileHeaderSurfaceStyle === 'object'
         ? p.profileHeaderSurfaceStyle
         : null,
-    profileHeaderSurfaceImageId:
-      typeof p.profileHeaderSurfaceImageId === 'string' && p.profileHeaderSurfaceImageId.length
-        ? p.profileHeaderSurfaceImageId
-        : null,
-    profileHeaderSurfaceImageUrl:
-      typeof p.profileHeaderSurfaceImageUrl === 'string' && p.profileHeaderSurfaceImageUrl.length
-        ? p.profileHeaderSurfaceImageUrl
+    profileHeaderSurfaceImageAssets:
+      p.profileHeaderSurfaceImageAssets &&
+      typeof p.profileHeaderSurfaceImageAssets === 'object' &&
+      !Array.isArray(p.profileHeaderSurfaceImageAssets)
+        ? p.profileHeaderSurfaceImageAssets
         : null,
     tufStellarIconVariant: normalizeTufStellarIconVariant(p.tufStellarIconVariant),
     createdAt: p.createdAt ?? null,

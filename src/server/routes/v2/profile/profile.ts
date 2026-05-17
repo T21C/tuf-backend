@@ -17,12 +17,30 @@ import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchS
 import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
 import { parseBannerPresetForStorage } from '@/misc/utils/profileBannerPreset.js';
 import {
+  MAX_PROFILE_HEADER_SURFACE_STACK_ENTRY_ID_LENGTH,
   parseProfileHeaderSurfaceStyle,
+  parseProfileHeaderSurfaceStyle as parseStoredSurfaceStyle,
   ProfileHeaderSurfaceStyleError,
   type ProfileHeaderSurfaceStyle,
 } from '@/misc/utils/profileHeaderSurfaceStyle.js';
-import { reconcileOrphanProfileHeaderSurfaceImage } from '@/server/services/profileHeaderSurfaceImage.js';
+import {
+  clearSurfaceImageAssetsWhenNoImageLayers,
+  getReferencedImageLayerIds,
+  reconcileProfileHeaderSurfaceImageAssets,
+  removeSurfaceImageAsset,
+  upsertSurfaceImageAsset,
+} from '@/server/services/profileHeaderSurfaceImage.js';
 import { permissionFlags } from '@/config/constants.js';
+
+function parseHeaderSurfaceLayerId(req: Request): string | null {
+  const raw = (req.body as { layerId?: unknown })?.layerId ?? req.query.layerId;
+  if (typeof raw !== 'string') return null;
+  const layerId = raw.trim();
+  if (!layerId.length || layerId.length > MAX_PROFILE_HEADER_SURFACE_STACK_ENTRY_ID_LENGTH) {
+    return null;
+  }
+  return layerId;
+}
 import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { AccountDeletionService } from '@/server/services/accounts/AccountDeletionService.js';
@@ -898,30 +916,46 @@ router.patch(
       }
 
       const player = await Player.findByPk(user.playerId, {
-        attributes: ['id', 'profileHeaderSurfaceImageId'],
+        attributes: ['id', 'profileHeaderSurfaceImageAssets'],
       });
       if (!player) {
         return res.status(404).json({ error: 'Player not found' });
       }
 
-      const imageColumnUpdate = await reconcileOrphanProfileHeaderSurfaceImage(
-        player.profileHeaderSurfaceImageId,
+      const clearedAssets = await clearSurfaceImageAssetsWhenNoImageLayers(
+        player.profileHeaderSurfaceImageAssets,
         parsed,
       );
 
-      await Player.update(
-        {
-          profileHeaderSurfaceStyle: parsed as unknown as Record<string, unknown> | null,
-          ...(imageColumnUpdate ?? {}),
-        },
-        { where: { id: user.playerId } },
-      );
+      const reconciledAssets =
+        clearedAssets === null
+          ? await reconcileProfileHeaderSurfaceImageAssets(
+              player.profileHeaderSurfaceImageAssets,
+              parsed,
+            )
+          : null;
+
+      const styleUpdate: Record<string, unknown> = {
+        profileHeaderSurfaceStyle: parsed as unknown as Record<string, unknown> | null,
+        ...(clearedAssets ?? {}),
+      };
+      if (reconciledAssets !== null) {
+        styleUpdate.profileHeaderSurfaceImageAssets = Object.keys(reconciledAssets).length
+          ? reconciledAssets
+          : null;
+      }
+
+      await Player.update(styleUpdate, { where: { id: user.playerId } });
       await elasticsearchService.reindexPlayers([user.playerId]);
       await CacheInvalidation.invalidateUser(user.id);
 
+      const updatedPlayer = await Player.findByPk(user.playerId, {
+        attributes: ['profileHeaderSurfaceImageAssets'],
+      });
+
       return res.json({
         profileHeaderSurfaceStyle: parsed,
-        ...(imageColumnUpdate ?? {}),
+        profileHeaderSurfaceImageAssets: updatedPlayer?.profileHeaderSurfaceImageAssets ?? null,
       });
     } catch (error) {
       logger.error('Error updating player header surface style:', error);
@@ -963,9 +997,21 @@ router.post(
         return res.status(400).json({ error: 'No file uploaded', code: 'NO_FILE' });
       }
 
-      const player = await Player.findByPk(user.playerId);
+      const layerId = parseHeaderSurfaceLayerId(req);
+      if (!layerId) {
+        return res.status(400).json({ error: 'layerId is required' });
+      }
+
+      const player = await Player.findByPk(user.playerId, {
+        attributes: ['id', 'profileHeaderSurfaceStyle', 'profileHeaderSurfaceImageAssets'],
+      });
       if (!player) {
         return res.status(404).json({ error: 'Player not found' });
+      }
+
+      const storedStyle = parseStoredSurfaceStyle(player.profileHeaderSurfaceStyle);
+      if (storedStyle && !getReferencedImageLayerIds(storedStyle).has(layerId)) {
+        return res.status(400).json({ error: 'layerId does not match an image layer in the saved style' });
       }
 
       const result = await cdnService.uploadImage(req.file.buffer, req.file.originalname, 'BANNER');
@@ -974,16 +1020,29 @@ router.post(
         return res.status(500).json({ error: 'CDN did not return image URLs' });
       }
 
-      const oldId = player.profileHeaderSurfaceImageId;
+      const assets = upsertSurfaceImageAsset(
+        player.profileHeaderSurfaceImageAssets,
+        layerId,
+        result.fileId,
+        displayUrl,
+      );
+      const previousAssetId =
+        player.profileHeaderSurfaceImageAssets &&
+        typeof player.profileHeaderSurfaceImageAssets === 'object' &&
+        !Array.isArray(player.profileHeaderSurfaceImageAssets)
+          ? (player.profileHeaderSurfaceImageAssets as Record<string, { assetId?: string }>)[layerId]
+              ?.assetId
+          : null;
+
       await Player.update(
-        { profileHeaderSurfaceImageId: result.fileId, profileHeaderSurfaceImageUrl: displayUrl },
+        { profileHeaderSurfaceImageAssets: assets },
         { where: { id: user.playerId } },
       );
 
-      if (oldId && oldId !== result.fileId) {
+      if (previousAssetId && previousAssetId !== result.fileId) {
         try {
-          if (await cdnService.checkFileExists(oldId)) {
-            await cdnService.deleteFile(oldId);
+          if (await cdnService.checkFileExists(previousAssetId)) {
+            await cdnService.deleteFile(previousAssetId);
           }
         } catch (delErr) {
           logger.error('Error deleting previous player header surface image from CDN:', delErr);
@@ -994,8 +1053,8 @@ router.post(
       await CacheInvalidation.invalidateUser(user.id);
 
       return res.json({
-        profileHeaderSurfaceImageId: result.fileId,
-        profileHeaderSurfaceImageUrl: displayUrl,
+        layerId,
+        profileHeaderSurfaceImageAssets: assets,
       });
     } catch (error) {
       if (error instanceof CdnError) {
@@ -1039,21 +1098,36 @@ router.delete(
         return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
       }
 
-      const player = await Player.findByPk(user.playerId);
+      const layerId = parseHeaderSurfaceLayerId(req);
+      if (!layerId) {
+        return res.status(400).json({ error: 'layerId is required' });
+      }
+
+      const player = await Player.findByPk(user.playerId, {
+        attributes: ['id', 'profileHeaderSurfaceImageAssets'],
+      });
       if (!player) {
         return res.status(404).json({ error: 'Player not found' });
       }
 
-      const oldId = player.profileHeaderSurfaceImageId;
+      const assets = removeSurfaceImageAsset(player.profileHeaderSurfaceImageAssets, layerId);
+      const removedId =
+        player.profileHeaderSurfaceImageAssets &&
+        typeof player.profileHeaderSurfaceImageAssets === 'object' &&
+        !Array.isArray(player.profileHeaderSurfaceImageAssets)
+          ? (player.profileHeaderSurfaceImageAssets as Record<string, { assetId?: string }>)[layerId]
+              ?.assetId
+          : null;
+
       await Player.update(
-        { profileHeaderSurfaceImageId: null, profileHeaderSurfaceImageUrl: null },
+        { profileHeaderSurfaceImageAssets: Object.keys(assets).length ? assets : null },
         { where: { id: user.playerId } },
       );
 
-      if (oldId) {
+      if (removedId) {
         try {
-          if (await cdnService.checkFileExists(oldId)) {
-            await cdnService.deleteFile(oldId);
+          if (await cdnService.checkFileExists(removedId)) {
+            await cdnService.deleteFile(removedId);
           }
         } catch (delErr) {
           logger.error('Error deleting player header surface image from CDN:', delErr);
@@ -1063,7 +1137,10 @@ router.delete(
       await elasticsearchService.reindexPlayers([user.playerId]);
       await CacheInvalidation.invalidateUser(user.id);
 
-      return res.json({ profileHeaderSurfaceImageId: null, profileHeaderSurfaceImageUrl: null });
+      return res.json({
+        layerId,
+        profileHeaderSurfaceImageAssets: Object.keys(assets).length ? assets : null,
+      });
     } catch (error) {
       logger.error('Error removing player header surface image:', error);
       return res.status(500).json({ error: 'Failed to remove header surface image' });

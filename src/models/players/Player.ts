@@ -32,8 +32,7 @@ class Player
   declare customBannerId: string | null;
   declare customBannerUrl: string | null;
   declare profileHeaderSurfaceStyle: Record<string, unknown> | null;
-  declare profileHeaderSurfaceImageId: string | null;
-  declare profileHeaderSurfaceImageUrl: string | null;
+  declare profileHeaderSurfaceImageAssets: Record<string, { assetId: string; url: string }> | null;
   /** TUFStellar subscriber icon art: `1` | `2` | `3`. */
   declare tufStellarIconVariant: string;
   declare createdAt: Date;
@@ -99,12 +98,8 @@ Player.init(
       type: DataTypes.JSON,
       allowNull: true,
     },
-    profileHeaderSurfaceImageId: {
-      type: DataTypes.STRING(64),
-      allowNull: true,
-    },
-    profileHeaderSurfaceImageUrl: {
-      type: DataTypes.TEXT,
+    profileHeaderSurfaceImageAssets: {
+      type: DataTypes.JSON,
       allowNull: true,
     },
     tufStellarIconVariant: {

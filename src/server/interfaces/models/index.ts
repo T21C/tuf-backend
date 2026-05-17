@@ -40,8 +40,7 @@ export interface ICreator extends IBaseModel {
   customBannerId?: string | null;
   customBannerUrl?: string | null;
   profileHeaderSurfaceStyle?: Record<string, unknown> | null;
-  profileHeaderSurfaceImageId?: string | null;
-  profileHeaderSurfaceImageUrl?: string | null;
+  profileHeaderSurfaceImageAssets?: Record<string, { assetId: string; url: string }> | null;
   /** Free-text policy for chart uploads (shown to visitors when set). */
   uploadConditions?: string | null;
   /** TUFStellar icon variant on creator cards/profile: `1` | `2` | `3`. */
@@ -146,8 +145,7 @@ export interface IPlayer extends IBaseModel {
   customBannerId?: string | null;
   customBannerUrl?: string | null;
   profileHeaderSurfaceStyle?: Record<string, unknown> | null;
-  profileHeaderSurfaceImageId?: string | null;
-  profileHeaderSurfaceImageUrl?: string | null;
+  profileHeaderSurfaceImageAssets?: Record<string, { assetId: string; url: string }> | null;
   /** TUFStellar icon variant on player cards/profile: `1` | `2` | `3`. */
   tufStellarIconVariant?: string;
 

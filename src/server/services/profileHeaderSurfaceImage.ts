@@ -1,31 +1,93 @@
-import { SURFACE_STACK_KIND_IMAGE } from '@/misc/utils/profileHeaderSurfaceStyle.js';
-import type { ProfileHeaderSurfaceStyle } from '@/misc/utils/profileHeaderSurfaceStyle.js';
+import {
+  getImageStackEntryIds,
+  parseProfileHeaderSurfaceImageAssets,
+  type ProfileHeaderSurfaceImageAssets,
+  type ProfileHeaderSurfaceStyle,
+} from '@/misc/utils/profileHeaderSurfaceStyle.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 
 export function styleHasImageLayer(style: ProfileHeaderSurfaceStyle | null): boolean {
-  return style !== null && style.stack.some((e) => e.kind === SURFACE_STACK_KIND_IMAGE);
+  return style !== null && style.stack.some((e) => e.kind === 'image');
 }
 
-/** When saved style has no image stack entry, clear DB columns and delete the CDN file. */
-export async function reconcileOrphanProfileHeaderSurfaceImage(
-  existingImageId: string | null | undefined,
-  parsedStyle: ProfileHeaderSurfaceStyle | null,
-): Promise<{ profileHeaderSurfaceImageId: null; profileHeaderSurfaceImageUrl: null } | null> {
-  if (styleHasImageLayer(parsedStyle) || !existingImageId) {
-    return null;
-  }
+/** Layer ids referenced by the saved style stack. */
+export function getReferencedImageLayerIds(style: ProfileHeaderSurfaceStyle | null): Set<string> {
+  if (!style) return new Set();
+  return new Set(getImageStackEntryIds(style.stack));
+}
 
+async function deleteCdnAsset(assetId: string): Promise<void> {
   try {
-    if (await cdnService.checkFileExists(existingImageId)) {
-      await cdnService.deleteFile(existingImageId);
+    if (await cdnService.checkFileExists(assetId)) {
+      await cdnService.deleteFile(assetId);
     }
   } catch (err) {
-    logger.error('Failed to delete orphan profile header surface image from CDN:', err);
+    logger.error('Failed to delete profile header surface image from CDN:', err);
+  }
+}
+
+/**
+ * Drop CDN files and map entries for layers no longer in the style stack.
+ * Returns the pruned assets map, or null if unchanged.
+ */
+export async function reconcileProfileHeaderSurfaceImageAssets(
+  existingAssets: unknown,
+  parsedStyle: ProfileHeaderSurfaceStyle | null,
+): Promise<ProfileHeaderSurfaceImageAssets | null> {
+  const assets = parseProfileHeaderSurfaceImageAssets(existingAssets);
+  const referenced = getReferencedImageLayerIds(parsedStyle);
+  const next: ProfileHeaderSurfaceImageAssets = {};
+  let changed = false;
+
+  for (const [layerId, row] of Object.entries(assets)) {
+    if (referenced.has(layerId)) {
+      next[layerId] = row;
+    } else {
+      changed = true;
+      await deleteCdnAsset(row.assetId);
+    }
   }
 
-  return {
-    profileHeaderSurfaceImageId: null,
-    profileHeaderSurfaceImageUrl: null,
-  };
+  if (!changed) return null;
+  return next;
+}
+
+/** When saved style has no image layers, delete all CDN assets and clear the assets map. */
+export async function clearSurfaceImageAssetsWhenNoImageLayers(
+  existingAssets: unknown,
+  parsedStyle: ProfileHeaderSurfaceStyle | null,
+): Promise<{ profileHeaderSurfaceImageAssets: null } | null> {
+  if (styleHasImageLayer(parsedStyle)) return null;
+
+  const assets = parseProfileHeaderSurfaceImageAssets(existingAssets);
+  if (Object.keys(assets).length === 0) return null;
+
+  for (const row of Object.values(assets)) {
+    await deleteCdnAsset(row.assetId);
+  }
+
+  return { profileHeaderSurfaceImageAssets: null };
+}
+
+/** Upsert one layer asset in the map (does not delete previous file — caller handles replacement). */
+export function upsertSurfaceImageAsset(
+  existingAssets: unknown,
+  layerId: string,
+  assetId: string,
+  url: string,
+): ProfileHeaderSurfaceImageAssets {
+  const assets = parseProfileHeaderSurfaceImageAssets(existingAssets);
+  return { ...assets, [layerId]: { assetId, url } };
+}
+
+/** Remove one layer from the assets map. */
+export function removeSurfaceImageAsset(
+  existingAssets: unknown,
+  layerId: string,
+): ProfileHeaderSurfaceImageAssets {
+  const assets = parseProfileHeaderSurfaceImageAssets(existingAssets);
+  const next = { ...assets };
+  delete next[layerId];
+  return next;
 }

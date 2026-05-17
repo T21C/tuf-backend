@@ -89,7 +89,19 @@ export class CreatorProfileDeletionService {
     await CreatorAlias.destroy({where: {creatorId}});
 
     const creator = await Creator.findByPk(creatorId);
-    for (const fileId of [creator?.customBannerId, creator?.profileHeaderSurfaceImageId]) {
+    const surfaceAssetIds: string[] = [];
+    if (
+      creator?.profileHeaderSurfaceImageAssets &&
+      typeof creator.profileHeaderSurfaceImageAssets === 'object' &&
+      !Array.isArray(creator.profileHeaderSurfaceImageAssets)
+    ) {
+      for (const row of Object.values(creator.profileHeaderSurfaceImageAssets)) {
+        if (row && typeof row === 'object' && typeof row.assetId === 'string' && row.assetId.length) {
+          surfaceAssetIds.push(row.assetId);
+        }
+      }
+    }
+    for (const fileId of [creator?.customBannerId, ...surfaceAssetIds]) {
       if (!fileId) continue;
       try {
         if (await cdnService.checkFileExists(fileId)) {
