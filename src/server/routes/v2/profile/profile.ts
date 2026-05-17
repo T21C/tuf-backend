@@ -16,6 +16,11 @@ import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
 import { parseBannerPresetForStorage } from '@/misc/utils/profileBannerPreset.js';
+import {
+  parseProfileHeaderSurfaceStyle,
+  ProfileHeaderSurfaceStyleError,
+  type ProfileHeaderSurfaceStyle,
+} from '@/misc/utils/profileHeaderSurfaceStyle.js';
 import { permissionFlags } from '@/config/constants.js';
 import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
@@ -842,6 +847,207 @@ router.delete(
     } catch (error) {
       logger.error('Error removing player banner:', error);
       return res.status(500).json({ error: 'Failed to remove custom banner' });
+    }
+  },
+);
+
+// --- Profile header surface (gradient stack + optional CDN background) ---
+
+router.patch(
+  '/player/header-surface-style',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'patchProfilePlayerHeaderSurfaceStyle',
+    summary: 'Update player profile header card surface style',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Updated' },
+      400: { description: 'Invalid style', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      403: { description: 'Forbidden', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
+        return res.status(403).json({ error: 'Profile header customization is temporarily disabled' });
+      }
+      const user = req.user;
+      if (!user?.playerId) {
+        return res.status(400).json({ error: 'No player profile linked to this account' });
+      }
+      if (!(await canUsePlayerCustomBanner(user as PermissionInput))) {
+        return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
+      }
+
+      const body = req.body as { style?: unknown };
+      if (!Object.prototype.hasOwnProperty.call(body, 'style')) {
+        return res.status(400).json({ error: 'Request body must include style (object or null)' });
+      }
+
+      let parsed: ProfileHeaderSurfaceStyle | null;
+      try {
+        parsed = parseProfileHeaderSurfaceStyle(body.style);
+      } catch (err) {
+        const msg =
+          err instanceof ProfileHeaderSurfaceStyleError ? err.message : 'Invalid header surface style';
+        return res.status(400).json({ error: msg });
+      }
+
+      await Player.update(
+        { profileHeaderSurfaceStyle: parsed as unknown as Record<string, unknown> | null },
+        { where: { id: user.playerId } },
+      );
+      await elasticsearchService.reindexPlayers([user.playerId]);
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({ profileHeaderSurfaceStyle: parsed });
+    } catch (error) {
+      logger.error('Error updating player header surface style:', error);
+      return res.status(500).json({ error: 'Failed to update header surface style' });
+    }
+  },
+);
+
+router.post(
+  '/player/header-surface-image',
+  Auth.user(),
+  upload.single('image'),
+  ApiDoc({
+    operationId: 'postProfilePlayerHeaderSurfaceImage',
+    summary: 'Upload player profile header surface background image',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Uploaded' },
+      400: { description: 'No file or CDN error', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      403: { description: 'Forbidden', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
+        return res.status(403).json({ error: 'Profile header customization is temporarily disabled' });
+      }
+      const user = req.user;
+      if (!user?.playerId) {
+        return res.status(400).json({ error: 'No player profile linked to this account' });
+      }
+      if (!(await canUsePlayerCustomBanner(user as PermissionInput))) {
+        return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded', code: 'NO_FILE' });
+      }
+
+      const player = await Player.findByPk(user.playerId);
+      if (!player) {
+        return res.status(404).json({ error: 'Player not found' });
+      }
+
+      const result = await cdnService.uploadImage(req.file.buffer, req.file.originalname, 'BANNER');
+      const displayUrl = result.urls?.large ?? result.urls?.original ?? null;
+      if (!displayUrl) {
+        return res.status(500).json({ error: 'CDN did not return image URLs' });
+      }
+
+      const oldId = player.profileHeaderSurfaceImageId;
+      await Player.update(
+        { profileHeaderSurfaceImageId: result.fileId, profileHeaderSurfaceImageUrl: displayUrl },
+        { where: { id: user.playerId } },
+      );
+
+      if (oldId && oldId !== result.fileId) {
+        try {
+          if (await cdnService.checkFileExists(oldId)) {
+            await cdnService.deleteFile(oldId);
+          }
+        } catch (delErr) {
+          logger.error('Error deleting previous player header surface image from CDN:', delErr);
+        }
+      }
+
+      await elasticsearchService.reindexPlayers([user.playerId]);
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({
+        profileHeaderSurfaceImageId: result.fileId,
+        profileHeaderSurfaceImageUrl: displayUrl,
+      });
+    } catch (error) {
+      if (error instanceof CdnError) {
+        return res.status(400).json({
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        });
+      }
+      logger.error('Error uploading player header surface image:', error);
+      return res.status(500).json({ error: 'Failed to upload header surface image' });
+    }
+  },
+);
+
+router.delete(
+  '/player/header-surface-image',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deleteProfilePlayerHeaderSurfaceImage',
+    summary: 'Remove player profile header surface background image',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Removed' },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      403: { description: 'Forbidden', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
+        return res.status(403).json({ error: 'Profile header customization is temporarily disabled' });
+      }
+      const user = req.user;
+      if (!user?.playerId) {
+        return res.status(400).json({ error: 'No player profile linked to this account' });
+      }
+      if (!(await canUsePlayerCustomBanner(user as PermissionInput))) {
+        return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
+      }
+
+      const player = await Player.findByPk(user.playerId);
+      if (!player) {
+        return res.status(404).json({ error: 'Player not found' });
+      }
+
+      const oldId = player.profileHeaderSurfaceImageId;
+      await Player.update(
+        { profileHeaderSurfaceImageId: null, profileHeaderSurfaceImageUrl: null },
+        { where: { id: user.playerId } },
+      );
+
+      if (oldId) {
+        try {
+          if (await cdnService.checkFileExists(oldId)) {
+            await cdnService.deleteFile(oldId);
+          }
+        } catch (delErr) {
+          logger.error('Error deleting player header surface image from CDN:', delErr);
+        }
+      }
+
+      await elasticsearchService.reindexPlayers([user.playerId]);
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({ profileHeaderSurfaceImageId: null, profileHeaderSurfaceImageUrl: null });
+    } catch (error) {
+      logger.error('Error removing player header surface image:', error);
+      return res.status(500).json({ error: 'Failed to remove header surface image' });
     }
   },
 );

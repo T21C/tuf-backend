@@ -121,6 +121,18 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
     bannerPreset: typeof c.bannerPreset === 'string' && c.bannerPreset.length ? c.bannerPreset : null,
     customBannerId: typeof c.customBannerId === 'string' && c.customBannerId.length ? c.customBannerId : null,
     customBannerUrl: typeof c.customBannerUrl === 'string' && c.customBannerUrl.length ? c.customBannerUrl : null,
+    profileHeaderSurfaceStyle:
+      c.profileHeaderSurfaceStyle && typeof c.profileHeaderSurfaceStyle === 'object'
+        ? c.profileHeaderSurfaceStyle
+        : null,
+    profileHeaderSurfaceImageId:
+      typeof c.profileHeaderSurfaceImageId === 'string' && c.profileHeaderSurfaceImageId.length
+        ? c.profileHeaderSurfaceImageId
+        : null,
+    profileHeaderSurfaceImageUrl:
+      typeof c.profileHeaderSurfaceImageUrl === 'string' && c.profileHeaderSurfaceImageUrl.length
+        ? c.profileHeaderSurfaceImageUrl
+        : null,
     tufStellarIconVariant: normalizeTufStellarIconVariant(c.tufStellarIconVariant),
     aliases: serializeAliases(input.aliases ?? creator.creatorAliases ?? null),
     user: serializeUser(input.user ?? null, input.userSubscriptionExpiresAt ?? null),

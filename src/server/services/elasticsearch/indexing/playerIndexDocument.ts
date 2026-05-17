@@ -134,6 +134,18 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
     bannerPreset: typeof p.bannerPreset === 'string' && p.bannerPreset.length ? p.bannerPreset : null,
     customBannerId: typeof p.customBannerId === 'string' && p.customBannerId.length ? p.customBannerId : null,
     customBannerUrl: typeof p.customBannerUrl === 'string' && p.customBannerUrl.length ? p.customBannerUrl : null,
+    profileHeaderSurfaceStyle:
+      p.profileHeaderSurfaceStyle && typeof p.profileHeaderSurfaceStyle === 'object'
+        ? p.profileHeaderSurfaceStyle
+        : null,
+    profileHeaderSurfaceImageId:
+      typeof p.profileHeaderSurfaceImageId === 'string' && p.profileHeaderSurfaceImageId.length
+        ? p.profileHeaderSurfaceImageId
+        : null,
+    profileHeaderSurfaceImageUrl:
+      typeof p.profileHeaderSurfaceImageUrl === 'string' && p.profileHeaderSurfaceImageUrl.length
+        ? p.profileHeaderSurfaceImageUrl
+        : null,
     tufStellarIconVariant: normalizeTufStellarIconVariant(p.tufStellarIconVariant),
     createdAt: p.createdAt ?? null,
     updatedAt: p.updatedAt ?? null,

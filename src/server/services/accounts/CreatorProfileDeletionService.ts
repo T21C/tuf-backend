@@ -89,14 +89,16 @@ export class CreatorProfileDeletionService {
     await CreatorAlias.destroy({where: {creatorId}});
 
     const creator = await Creator.findByPk(creatorId);
-    if (creator?.customBannerId) {
+    for (const fileId of [creator?.customBannerId, creator?.profileHeaderSurfaceImageId]) {
+      if (!fileId) continue;
       try {
-        if (await cdnService.checkFileExists(creator.customBannerId)) {
-          await cdnService.deleteFile(creator.customBannerId);
+        if (await cdnService.checkFileExists(fileId)) {
+          await cdnService.deleteFile(fileId);
         }
       } catch (e) {
-        logger.warn('[CreatorProfileDeletion] CDN banner delete failed', {
+        logger.warn('[CreatorProfileDeletion] CDN profile asset delete failed', {
           creatorId,
+          fileId,
           message: e instanceof Error ? e.message : String(e),
         });
       }

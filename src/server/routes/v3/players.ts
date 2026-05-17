@@ -391,7 +391,16 @@ router.get(
           reportHiddenPassCount: isOwnProfile,
         }),
         Player.findByPk(id, {
-          attributes: ['bio', 'bannerPreset', 'customBannerId', 'customBannerUrl', 'tufStellarIconVariant'],
+          attributes: [
+            'bio',
+            'bannerPreset',
+            'customBannerId',
+            'customBannerUrl',
+            'profileHeaderSurfaceStyle',
+            'profileHeaderSurfaceImageId',
+            'profileHeaderSurfaceImageUrl',
+            'tufStellarIconVariant',
+          ],
         }),
       ]);
 
@@ -414,6 +423,13 @@ router.get(
             bannerPreset: playerRow.bannerPreset ?? null,
             customBannerId: playerRow.customBannerId ?? null,
             customBannerUrl: playerRow.customBannerUrl ?? null,
+            profileHeaderSurfaceStyle:
+              playerRow.profileHeaderSurfaceStyle &&
+              typeof playerRow.profileHeaderSurfaceStyle === 'object'
+                ? playerRow.profileHeaderSurfaceStyle
+                : null,
+            profileHeaderSurfaceImageId: playerRow.profileHeaderSurfaceImageId ?? null,
+            profileHeaderSurfaceImageUrl: playerRow.profileHeaderSurfaceImageUrl ?? null,
             tufStellarIconVariant: stellarOn
               ? normalizeTufStellarIconVariant(playerRow.tufStellarIconVariant)
               : '1',

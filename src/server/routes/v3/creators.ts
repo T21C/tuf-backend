@@ -46,6 +46,11 @@ import { multerMemoryCdnImage10Mb as bannerUpload } from '@/config/multerMemoryU
 import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError } from '@/server/services/core/CdnService.js';
 import { parseBannerPresetForStorage } from '@/misc/utils/profileBannerPreset.js';
+import {
+  parseProfileHeaderSurfaceStyle,
+  ProfileHeaderSurfaceStyleError,
+  type ProfileHeaderSurfaceStyle,
+} from '@/misc/utils/profileHeaderSurfaceStyle.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import User from '@/models/auth/User.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
@@ -681,6 +686,9 @@ router.get(
             'bannerPreset',
             'customBannerId',
             'customBannerUrl',
+            'profileHeaderSurfaceStyle',
+            'profileHeaderSurfaceImageId',
+            'profileHeaderSurfaceImageUrl',
             'tufStellarIconVariant',
           ],
         }),
@@ -792,6 +800,13 @@ router.get(
             bannerPreset: creatorRow.bannerPreset ?? null,
             customBannerId: creatorRow.customBannerId ?? null,
             customBannerUrl: creatorRow.customBannerUrl ?? null,
+            profileHeaderSurfaceStyle:
+              creatorRow.profileHeaderSurfaceStyle &&
+              typeof creatorRow.profileHeaderSurfaceStyle === 'object'
+                ? creatorRow.profileHeaderSurfaceStyle
+                : null,
+            profileHeaderSurfaceImageId: creatorRow.profileHeaderSurfaceImageId ?? null,
+            profileHeaderSurfaceImageUrl: creatorRow.profileHeaderSurfaceImageUrl ?? null,
             tufStellarIconVariant: stellarOn
               ? normalizeTufStellarIconVariant(creatorRow.tufStellarIconVariant)
               : '1',
@@ -1465,6 +1480,226 @@ router.delete(
       logger.error('[v3 DELETE /creators/:id/banner-custom] failure', error);
       return res.status(500).json({
         error: 'Failed to remove creator custom banner',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.patch(
+  '/:id([0-9]{1,20})/header-surface-style',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorHeaderSurfaceStyle',
+    summary: 'Update creator profile header card surface style',
+    tags: ['Database', 'Creators', 'v3'],
+    params: { id: idParamSpec },
+    responses: {
+      200: { description: 'Updated header surface style' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
+        return res.status(403).json({ error: 'Profile header customization is temporarily disabled' });
+      }
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      const permUser = user as PermissionInput;
+
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid creator id' });
+      }
+      if (!isCreatorBannerActor(permUser, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      if (!(await canUploadCreatorCustomBanner(permUser))) {
+        return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
+      }
+
+      const body = req.body as { style?: unknown };
+      if (!Object.prototype.hasOwnProperty.call(body, 'style')) {
+        return res.status(400).json({ error: 'Request body must include style (object or null)' });
+      }
+
+      let parsed: ProfileHeaderSurfaceStyle | null;
+      try {
+        parsed = parseProfileHeaderSurfaceStyle(body.style);
+      } catch (err) {
+        const msg =
+          err instanceof ProfileHeaderSurfaceStyleError ? err.message : 'Invalid header surface style';
+        return res.status(400).json({ error: msg });
+      }
+
+      const exists = await Creator.findByPk(id, { attributes: ['id'] });
+      if (!exists) return res.status(404).json({ error: 'Creator not found' });
+
+      await Creator.update(
+        { profileHeaderSurfaceStyle: parsed as unknown as Record<string, unknown> | null },
+        { where: { id } },
+      );
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json({ profileHeaderSurfaceStyle: parsed });
+    } catch (error) {
+      logger.error('[v3 PATCH /creators/:id/header-surface-style] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update header surface style',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.post(
+  '/:id([0-9]{1,20})/header-surface-image',
+  Auth.addUserToRequest(),
+  bannerUpload.single('image'),
+  ApiDoc({
+    operationId: 'v3PostCreatorHeaderSurfaceImage',
+    summary: 'Upload creator profile header surface background image',
+    tags: ['Database', 'Creators', 'v3'],
+    params: { id: idParamSpec },
+    responses: {
+      200: { description: 'Uploaded header surface image' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
+        return res.status(403).json({ error: 'Profile header customization is temporarily disabled' });
+      }
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      const permUser = user as PermissionInput;
+
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid creator id' });
+      }
+      if (!isCreatorBannerActor(permUser, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      if (!(await canUploadCreatorCustomBanner(permUser))) {
+        return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded', code: 'NO_FILE' });
+      }
+
+      const creator = await Creator.findByPk(id);
+      if (!creator) return res.status(404).json({ error: 'Creator not found' });
+
+      const result = await cdnService.uploadImage(req.file.buffer, req.file.originalname, 'BANNER');
+      const displayUrl = result.urls?.large ?? result.urls?.original ?? null;
+      if (!displayUrl) {
+        return res.status(500).json({ error: 'CDN did not return image URLs' });
+      }
+
+      const oldId = creator.profileHeaderSurfaceImageId;
+      await Creator.update(
+        { profileHeaderSurfaceImageId: result.fileId, profileHeaderSurfaceImageUrl: displayUrl },
+        { where: { id } },
+      );
+
+      if (oldId && oldId !== result.fileId) {
+        try {
+          if (await cdnService.checkFileExists(oldId)) {
+            await cdnService.deleteFile(oldId);
+          }
+        } catch (delErr) {
+          logger.error('[v3 POST /creators/:id/header-surface-image] failed deleting previous file', delErr);
+        }
+      }
+
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json({
+        profileHeaderSurfaceImageId: result.fileId,
+        profileHeaderSurfaceImageUrl: displayUrl,
+      });
+    } catch (error) {
+      if (error instanceof CdnError) {
+        return res.status(400).json({
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        });
+      }
+      logger.error('[v3 POST /creators/:id/header-surface-image] failure', error);
+      return res.status(500).json({
+        error: 'Failed to upload header surface image',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.delete(
+  '/:id([0-9]{1,20})/header-surface-image',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'v3DeleteCreatorHeaderSurfaceImage',
+    summary: 'Remove creator profile header surface background image',
+    tags: ['Database', 'Creators', 'v3'],
+    params: { id: idParamSpec },
+    responses: {
+      200: { description: 'Removed header surface image' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
+        return res.status(403).json({ error: 'Profile header customization is temporarily disabled' });
+      }
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      const permUser = user as PermissionInput;
+
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid creator id' });
+      }
+      if (!isCreatorBannerActor(permUser, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      if (!(await canUploadCreatorCustomBanner(permUser))) {
+        return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
+      }
+
+      const creator = await Creator.findByPk(id);
+      if (!creator) return res.status(404).json({ error: 'Creator not found' });
+
+      const oldId = creator.profileHeaderSurfaceImageId;
+      await Creator.update(
+        { profileHeaderSurfaceImageId: null, profileHeaderSurfaceImageUrl: null },
+        { where: { id } },
+      );
+
+      if (oldId) {
+        try {
+          if (await cdnService.checkFileExists(oldId)) {
+            await cdnService.deleteFile(oldId);
+          }
+        } catch (delErr) {
+          logger.error('[v3 DELETE /creators/:id/header-surface-image] failed deleting CDN file', delErr);
+        }
+      }
+
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json({ profileHeaderSurfaceImageId: null, profileHeaderSurfaceImageUrl: null });
+    } catch (error) {
+      logger.error('[v3 DELETE /creators/:id/header-surface-image] failure', error);
+      return res.status(500).json({
+        error: 'Failed to remove header surface image',
         details: error instanceof Error ? error.message : String(error),
       });
     }
