@@ -58,7 +58,7 @@ export async function reconcileExpiredTufStellarAccess(user: User): Promise<void
 }
 
 /**
- * PROFILE GIF CDN layout: `…/original_animated`, `…/large_animated`, … plus `…/original_static` (JPEG).
+ * PROFILE GIF CDN layout: `…/original_animated`, `…/large_animated`, … plus `…/original_static` (PNG or JPEG).
  * When TUFStellar access is inactive, swap `_animated` ➔ `_static` on the path. Legacy GIFs used `…/original`
  * with `…/original_static` only — still supported here for media redirects.
  */

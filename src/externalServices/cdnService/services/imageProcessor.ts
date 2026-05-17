@@ -1,8 +1,58 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
+import type { Sharp } from 'sharp';
 import gifResize from '@gumlet/gif-resize';
 import { IMAGE_TYPES, ImageType } from '../config.js';
+
+type RasterOutputExt = '.jpg' | '.png' | '.webp';
+
+/** Normalize upload extension to a supported raster output extension. */
+export function normalizeRasterOutputExt(extWithDot: string): RasterOutputExt {
+    const ext = extWithDot.toLowerCase();
+    if (ext === '.jpg' || ext === '.jpeg') return '.jpg';
+    if (ext === '.webp') return '.webp';
+    return '.png';
+}
+
+/** Prefer the on-disk extension; fall back to Sharp-detected format when missing. */
+export function resolveRasterOutputExt(filePath: string, metadata?: sharp.Metadata): RasterOutputExt {
+    const fromPath = path.extname(filePath);
+    if (fromPath) {
+        return normalizeRasterOutputExt(fromPath);
+    }
+    const format = metadata?.format?.toLowerCase();
+    if (format === 'jpeg' || format === 'jpg') return '.jpg';
+    if (format === 'webp') return '.webp';
+    return '.png';
+}
+
+/** Apply an explicit encoder so resized output matches the source format (alpha-safe for PNG/WebP). */
+export function encodeRasterVariant(pipeline: Sharp, outputExt: RasterOutputExt): Sharp {
+    switch (outputExt) {
+        case '.jpg':
+            return pipeline.flatten({ background: { r: 255, g: 255, b: 255 } }).jpeg({ quality: 88 });
+        case '.webp':
+            return pipeline.webp({ quality: 88, effort: 4 });
+        case '.png':
+        default:
+            return pipeline.png();
+    }
+}
+
+async function writeResizedRasterVariant(
+    inputPath: string,
+    outputPath: string,
+    width: number,
+    height: number,
+    outputExt: RasterOutputExt,
+): Promise<void> {
+    const pipeline = sharp(inputPath).resize(width, height, {
+        fit: 'inside',
+        withoutEnlargement: true,
+    });
+    await encodeRasterVariant(pipeline, outputExt).toFile(outputPath);
+}
 
 /** MIME type for Spaces / HTTP from a file extension (with dot). */
 export function mimeTypeForImageExtension(extWithDot: string): string {
@@ -69,22 +119,25 @@ async function processProfileGifAnimatedAndStatic(
         processedFiles[animKey] = metaForVariant(imageConfig.name, fileId, filePath, animKey);
     }
 
+    const staticOutputExt: RasterOutputExt = meta.hasAlpha ? '.png' : '.jpg';
+
     for (const [size, dimensions] of Object.entries(imageConfig.sizes)) {
         const staticKey = size === 'original' ? 'original_static' : `${size}_static`;
-        const outBasename = size === 'original' ? 'original_static.jpg' : `${size}_static.jpg`;
+        const outBasename =
+            size === 'original'
+                ? `original_static${staticOutputExt}`
+                : `${size}_static${staticOutputExt}`;
         const outputPath = path.join(outputDirectory, outBasename);
         const dw = dimensions.width;
         const dh = dimensions.height;
-        await sharp(filePath, { animated: true, pages: 1 })
-            .resize(dw, dh, {
-                fit: 'inside',
-                withoutEnlargement: true,
-            })
-            .jpeg({ quality: 88 })
-            .toFile(outputPath);
+        const staticFrame = sharp(filePath, { animated: true, pages: 1 }).resize(dw, dh, {
+            fit: 'inside',
+            withoutEnlargement: true,
+        });
+        await encodeRasterVariant(staticFrame, staticOutputExt).toFile(outputPath);
         processedFiles[staticKey] = {
             path: `images/${imageConfig.name}/${fileId}/${outBasename}`,
-            mimeType: 'image/jpeg',
+            mimeType: mimeTypeForImageExtension(staticOutputExt),
         };
     }
 
@@ -162,26 +215,26 @@ export async function processImage(
         return processedFiles;
     }
 
-    const image = sharp(filePath);
+    const metadata = await sharp(filePath).metadata();
+    const outputExt = resolveRasterOutputExt(filePath, metadata);
 
-    // Process each size
     for (const [size, dimensions] of Object.entries(imageConfig.sizes)) {
         if (size === 'original') {
             processedFiles[size] = metaForVariant(imageConfig.name, fileId, filePath, size);
             continue;
         }
 
-        const outputPath = path.join(outputDirectory, `${size}${path.extname(filePath)}`);
+        const outputPath = path.join(outputDirectory, `${size}${outputExt}`);
 
-        await image
-            .clone()
-            .resize(dimensions.width, dimensions.height, {
-                fit: 'inside',
-                withoutEnlargement: true
-            })
-            .toFile(outputPath);
+        await writeResizedRasterVariant(
+            filePath,
+            outputPath,
+            dimensions.width,
+            dimensions.height,
+            outputExt,
+        );
 
-        processedFiles[size] = metaForVariant(imageConfig.name, fileId, filePath, size);
+        processedFiles[size] = metaForVariant(imageConfig.name, fileId, outputPath, size);
     }
 
     return processedFiles;
