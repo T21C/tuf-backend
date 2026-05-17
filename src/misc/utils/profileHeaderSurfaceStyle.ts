@@ -3,6 +3,8 @@
 export const PROFILE_HEADER_SURFACE_STYLE_VERSION = 2 as const;
 export const SURFACE_STACK_KIND_GRADIENT = 'gradient' as const;
 export const SURFACE_STACK_KIND_IMAGE = 'image' as const;
+export const MAX_PROFILE_HEADER_SURFACE_LAYER_LABEL_LENGTH = 32;
+export const MAX_PROFILE_HEADER_SURFACE_STACK_ENTRY_ID_LENGTH = 64;
 export const MAX_PROFILE_HEADER_SURFACE_LAYERS = 10;
 export const MAX_PROFILE_HEADER_SURFACE_STOPS = 8;
 export const MIN_PROFILE_HEADER_SURFACE_STOPS = 2;
@@ -60,6 +62,7 @@ export type ProfileHeaderSurfaceGradientLayer = {
   shape?: (typeof RADIAL_SHAPES)[number];
   size?: (typeof RADIAL_SIZES)[number];
   stops: ProfileHeaderSurfaceColorStop[];
+  blendMode?: (typeof BLEND_MODES)[number];
 };
 
 export type ProfileHeaderSurfaceImageSize =
@@ -78,16 +81,20 @@ export type ProfileHeaderSurfaceImageSettings = {
   blendMode?: (typeof BLEND_MODES)[number];
 };
 
-export type ProfileHeaderSurfaceStackGradient = ProfileHeaderSurfaceGradientLayer & {
-  kind: typeof SURFACE_STACK_KIND_GRADIENT;
+export type ProfileHeaderSurfaceStackEntryBase = {
+  id: string;
+  label?: string;
   opacity?: number;
   visible?: boolean;
 };
 
-export type ProfileHeaderSurfaceStackImage = {
+export type ProfileHeaderSurfaceStackGradient = ProfileHeaderSurfaceStackEntryBase &
+  ProfileHeaderSurfaceGradientLayer & {
+    kind: typeof SURFACE_STACK_KIND_GRADIENT;
+  };
+
+export type ProfileHeaderSurfaceStackImage = ProfileHeaderSurfaceStackEntryBase & {
   kind: typeof SURFACE_STACK_KIND_IMAGE;
-  opacity?: number;
-  visible?: boolean;
 };
 
 export type ProfileHeaderSurfaceStackEntry =
@@ -102,6 +109,41 @@ export type ProfileHeaderSurfaceStyle = {
 
 const DANGEROUS_COLOR =
   /url\s*\(|var\s*\(|expression\s*\(|@import|javascript:|\/\*|\*\/|;|\\|<\/|<>/i;
+
+const STACK_ENTRY_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const STACK_ENTRY_ID_FALLBACK_RE = /^[a-zA-Z0-9_-]+$/;
+const DANGEROUS_LABEL =
+  /url\s*\(|var\s*\(|expression\s*\(|@import|javascript:|\/\*|\*\/|;|\\|<\/|<>/i;
+
+function createStackEntryId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `layer-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function parseStackId(raw: unknown, assignIfMissing: boolean): string | null {
+  if (
+    typeof raw === 'string' &&
+    raw.length > 0 &&
+    raw.length <= MAX_PROFILE_HEADER_SURFACE_STACK_ENTRY_ID_LENGTH
+  ) {
+    if (STACK_ENTRY_ID_RE.test(raw) || STACK_ENTRY_ID_FALLBACK_RE.test(raw)) {
+      return raw;
+    }
+  }
+  return assignIfMissing ? createStackEntryId() : null;
+}
+
+function parseStackLabel(raw: unknown): string | undefined | null {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim();
+  if (!s.length || s.length > MAX_PROFILE_HEADER_SURFACE_LAYER_LABEL_LENGTH) return null;
+  if (DANGEROUS_LABEL.test(s)) return null;
+  return s;
+}
 
 const HEX_COLOR = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const RGB_COLOR =
@@ -238,6 +280,15 @@ function parseGradientLayerFields(raw: unknown): ProfileHeaderSurfaceGradientLay
     layer.angleDeg = parseAngle(o.angleDeg);
   }
 
+  const blendMode = o.blendMode;
+  if (
+    typeof blendMode === 'string' &&
+    BLEND_MODES.includes(blendMode as (typeof BLEND_MODES)[number]) &&
+    blendMode !== 'normal'
+  ) {
+    layer.blendMode = blendMode as (typeof BLEND_MODES)[number];
+  }
+
   return layer;
 }
 
@@ -286,12 +337,18 @@ function parseStackEntry(raw: unknown): ProfileHeaderSurfaceStackEntry | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
   const kind = o.kind;
+  const id = parseStackId(o.id, true);
+  if (!id) return null;
+  const label = parseStackLabel(o.label);
+  if (label === null) return null;
 
   if (kind === SURFACE_STACK_KIND_IMAGE) {
     return {
+      id,
       kind: SURFACE_STACK_KIND_IMAGE,
       opacity: parseOpacity(o.opacity),
       visible: parseVisible(o.visible),
+      ...(label ? { label } : {}),
     };
   }
 
@@ -299,9 +356,11 @@ function parseStackEntry(raw: unknown): ProfileHeaderSurfaceStackEntry | null {
     const fields = parseGradientLayerFields(o);
     if (!fields) return null;
     return {
+      id,
       kind: SURFACE_STACK_KIND_GRADIENT,
       opacity: parseOpacity(o.opacity),
       visible: parseVisible(o.visible),
+      ...(label ? { label } : {}),
       ...fields,
     };
   }
