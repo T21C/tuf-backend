@@ -51,6 +51,7 @@ import {
   ProfileHeaderSurfaceStyleError,
   type ProfileHeaderSurfaceStyle,
 } from '@/misc/utils/profileHeaderSurfaceStyle.js';
+import { reconcileOrphanProfileHeaderSurfaceImage } from '@/server/services/profileHeaderSurfaceImage.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import User from '@/models/auth/User.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
@@ -1533,17 +1534,30 @@ router.patch(
         return res.status(400).json({ error: msg });
       }
 
-      const exists = await Creator.findByPk(id, { attributes: ['id'] });
-      if (!exists) return res.status(404).json({ error: 'Creator not found' });
+      const creator = await Creator.findByPk(id, {
+        attributes: ['id', 'profileHeaderSurfaceImageId'],
+      });
+      if (!creator) return res.status(404).json({ error: 'Creator not found' });
+
+      const imageColumnUpdate = await reconcileOrphanProfileHeaderSurfaceImage(
+        creator.profileHeaderSurfaceImageId,
+        parsed,
+      );
 
       await Creator.update(
-        { profileHeaderSurfaceStyle: parsed as unknown as Record<string, unknown> | null },
+        {
+          profileHeaderSurfaceStyle: parsed as unknown as Record<string, unknown> | null,
+          ...(imageColumnUpdate ?? {}),
+        },
         { where: { id } },
       );
       await elasticsearchService.reindexCreators([id]);
       await invalidateLinkedUserForCreator(id);
 
-      return res.json({ profileHeaderSurfaceStyle: parsed });
+      return res.json({
+        profileHeaderSurfaceStyle: parsed,
+        ...(imageColumnUpdate ?? {}),
+      });
     } catch (error) {
       logger.error('[v3 PATCH /creators/:id/header-surface-style] failure', error);
       return res.status(500).json({

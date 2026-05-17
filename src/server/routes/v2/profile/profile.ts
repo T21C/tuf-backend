@@ -21,6 +21,7 @@ import {
   ProfileHeaderSurfaceStyleError,
   type ProfileHeaderSurfaceStyle,
 } from '@/misc/utils/profileHeaderSurfaceStyle.js';
+import { reconcileOrphanProfileHeaderSurfaceImage } from '@/server/services/profileHeaderSurfaceImage.js';
 import { permissionFlags } from '@/config/constants.js';
 import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
@@ -896,14 +897,32 @@ router.patch(
         return res.status(400).json({ error: msg });
       }
 
+      const player = await Player.findByPk(user.playerId, {
+        attributes: ['id', 'profileHeaderSurfaceImageId'],
+      });
+      if (!player) {
+        return res.status(404).json({ error: 'Player not found' });
+      }
+
+      const imageColumnUpdate = await reconcileOrphanProfileHeaderSurfaceImage(
+        player.profileHeaderSurfaceImageId,
+        parsed,
+      );
+
       await Player.update(
-        { profileHeaderSurfaceStyle: parsed as unknown as Record<string, unknown> | null },
+        {
+          profileHeaderSurfaceStyle: parsed as unknown as Record<string, unknown> | null,
+          ...(imageColumnUpdate ?? {}),
+        },
         { where: { id: user.playerId } },
       );
       await elasticsearchService.reindexPlayers([user.playerId]);
       await CacheInvalidation.invalidateUser(user.id);
 
-      return res.json({ profileHeaderSurfaceStyle: parsed });
+      return res.json({
+        profileHeaderSurfaceStyle: parsed,
+        ...(imageColumnUpdate ?? {}),
+      });
     } catch (error) {
       logger.error('Error updating player header surface style:', error);
       return res.status(500).json({ error: 'Failed to update header surface style' });

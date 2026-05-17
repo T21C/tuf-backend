@@ -31,6 +31,20 @@ export const RADIAL_SIZES = [
 
 export const IMAGE_SIZE_PRESETS = ['cover', 'contain', 'auto'] as const;
 export const IMAGE_REPEAT = ['no-repeat', 'repeat', 'repeat-x', 'repeat-y', 'space', 'round'] as const;
+
+export const IMAGE_DIMENSION_PERCENT_MIN = 0;
+export const IMAGE_DIMENSION_PERCENT_MAX = 300;
+export const IMAGE_REPEAT_TILE = IMAGE_REPEAT.filter((r) => r !== 'no-repeat');
+
+export const IMAGE_POSITION_PERCENT_MIN = -100;
+export const IMAGE_POSITION_PERCENT_MAX = 200;
+export const IMAGE_POSITION_PIXEL_MIN = -1000;
+export const IMAGE_POSITION_PIXEL_MAX = 1000;
+export const IMAGE_POSITION_UNITS = ['percent', 'pixel'] as const;
+
+export function isImageTilingEnabled(repeat: string): boolean {
+  return repeat !== 'no-repeat';
+}
 export const BLEND_MODES = [
   'normal',
   'multiply',
@@ -65,17 +79,22 @@ export type ProfileHeaderSurfaceGradientLayer = {
   blendMode?: (typeof BLEND_MODES)[number];
 };
 
-export type ProfileHeaderSurfaceImageSize =
-  | (typeof IMAGE_SIZE_PRESETS)[number]
-  | { widthPercent: number; heightPercent: number };
+export type ProfileHeaderSurfaceImageSizeFit = (typeof IMAGE_SIZE_PRESETS)[number];
 
-export type ProfileHeaderSurfaceImagePosition = {
-  xPercent: number;
-  yPercent: number;
+export type ProfileHeaderSurfaceImageSizeDimensions = {
+  widthPercent: number;
+  heightPercent: number;
 };
 
+export type ProfileHeaderSurfaceImagePosition =
+  | { unit: 'percent'; x: number; y: number }
+  | { unit: 'pixel'; x: number; y: number };
+
 export type ProfileHeaderSurfaceImageSettings = {
-  size: ProfileHeaderSurfaceImageSize;
+  sizeFit: ProfileHeaderSurfaceImageSizeFit;
+  sizeDimensions: ProfileHeaderSurfaceImageSizeDimensions;
+  /** When true, render `background-size` as a single % (height auto); fit keyword at 100%. */
+  sizeDimensionsLinked?: boolean;
   position: ProfileHeaderSurfaceImagePosition;
   repeat: (typeof IMAGE_REPEAT)[number];
   blendMode?: (typeof BLEND_MODES)[number];
@@ -210,19 +229,47 @@ function parsePercent(raw: unknown): number | null {
   return round1(clamp(n, 0, 100));
 }
 
+function parsePositionPercent(raw: unknown): number | null {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  return round1(n);
+}
+
 function parseAngle(raw: unknown): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) return 0;
   return round1(((n % 360) + 360) % 360);
 }
 
-function parsePosition(raw: unknown): { xPercent: number; yPercent: number } | null {
+function parseGradientPosition(raw: unknown): { xPercent: number; yPercent: number } | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
-  const x = parsePercent(o.xPercent);
-  const y = parsePercent(o.yPercent);
+  const x = parsePositionPercent(o.xPercent);
+  const y = parsePositionPercent(o.yPercent);
   if (x === null || y === null) return null;
   return { xPercent: x, yPercent: y };
+}
+
+function parseImagePositionPixel(raw: unknown): number | null {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n);
+}
+
+function parseImagePosition(raw: unknown): ProfileHeaderSurfaceImagePosition | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const unit = o.unit === 'pixel' ? 'pixel' : 'percent';
+  if (unit === 'pixel') {
+    const x = parseImagePositionPixel(o.x ?? o.xPx);
+    const y = parseImagePositionPixel(o.y ?? o.yPx);
+    if (x === null || y === null) return null;
+    return { unit: 'pixel', x, y };
+  }
+  const x = parsePositionPercent(o.x ?? o.xPercent);
+  const y = parsePositionPercent(o.y ?? o.yPercent);
+  if (x === null || y === null) return null;
+  return { unit: 'percent', x, y };
 }
 
 function parseStops(raw: unknown): ProfileHeaderSurfaceColorStop[] | null {
@@ -263,7 +310,7 @@ function parseGradientLayerFields(raw: unknown): ProfileHeaderSurfaceGradientLay
   }
 
   if (type === 'radial' || type === 'repeating-radial' || type === 'conic' || type === 'repeating-conic') {
-    const pos = parsePosition(o.position);
+    const pos = parseGradientPosition(o.position);
     layer.position = pos ?? { xPercent: 50, yPercent: 50 };
   }
 
@@ -292,34 +339,65 @@ function parseGradientLayerFields(raw: unknown): ProfileHeaderSurfaceGradientLay
   return layer;
 }
 
-function parseImageSize(raw: unknown): ProfileHeaderSurfaceImageSize | null {
-  if (typeof raw === 'string' && IMAGE_SIZE_PRESETS.includes(raw as (typeof IMAGE_SIZE_PRESETS)[number])) {
-    return raw as (typeof IMAGE_SIZE_PRESETS)[number];
+const DEFAULT_IMAGE_SIZE_DIMENSIONS: ProfileHeaderSurfaceImageSizeDimensions = {
+  widthPercent: 100,
+  heightPercent: 100,
+};
+
+function parseImageDimensionPercent(raw: unknown): number | null {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  return round1(n);
+}
+
+function parseImageSizeFit(raw: unknown, legacySize: unknown): ProfileHeaderSurfaceImageSizeFit {
+  if (typeof raw === 'string' && IMAGE_SIZE_PRESETS.includes(raw as ProfileHeaderSurfaceImageSizeFit)) {
+    return raw as ProfileHeaderSurfaceImageSizeFit;
   }
-  if (!raw || typeof raw !== 'object') return null;
+  if (
+    typeof legacySize === 'string' &&
+    IMAGE_SIZE_PRESETS.includes(legacySize as ProfileHeaderSurfaceImageSizeFit)
+  ) {
+    return legacySize as ProfileHeaderSurfaceImageSizeFit;
+  }
+  return 'cover';
+}
+
+function parseImageSizeDimensions(raw: unknown): ProfileHeaderSurfaceImageSizeDimensions {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_IMAGE_SIZE_DIMENSIONS };
   const o = raw as Record<string, unknown>;
-  const w = parsePercent(o.widthPercent);
-  const h = parsePercent(o.heightPercent);
-  if (w === null || h === null) return null;
-  return { widthPercent: w, heightPercent: h };
+  const w = parseImageDimensionPercent(o.widthPercent);
+  const h = parseImageDimensionPercent(o.heightPercent);
+  return {
+    widthPercent: w ?? DEFAULT_IMAGE_SIZE_DIMENSIONS.widthPercent,
+    heightPercent: h ?? DEFAULT_IMAGE_SIZE_DIMENSIONS.heightPercent,
+  };
 }
 
 function parseImageSettings(raw: unknown): ProfileHeaderSurfaceImageSettings | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
-  const size = parseImageSize(o.size);
-  const position = parsePosition(o.position);
+  const sizeFit = parseImageSizeFit(o.sizeFit, o.size);
+  const sizeDimensions = parseImageSizeDimensions(
+    o.sizeDimensions ?? (typeof o.size === 'object' ? o.size : undefined),
+  );
+  const position = parseImagePosition(o.position);
   const repeat = o.repeat;
-  if (!size || !position) return null;
+  if (!position) return null;
   if (typeof repeat !== 'string' || !IMAGE_REPEAT.includes(repeat as (typeof IMAGE_REPEAT)[number])) {
     return null;
   }
 
   const image: ProfileHeaderSurfaceImageSettings = {
-    size,
+    sizeFit,
+    sizeDimensions,
     position,
     repeat: repeat as (typeof IMAGE_REPEAT)[number],
   };
+
+  if (o.sizeDimensionsLinked === true) {
+    image.sizeDimensionsLinked = true;
+  }
 
   const blendMode = o.blendMode;
   if (
@@ -435,11 +513,9 @@ export function parseProfileHeaderSurfaceStyle(input: unknown): ProfileHeaderSur
     }
     image = parsed;
   } else if (o.image !== undefined && o.image !== null) {
-    const parsed = parseImageSettings(o.image);
-    if (!parsed) {
-      throw new ProfileHeaderSurfaceStyleError('Invalid image settings');
-    }
-    image = parsed;
+    throw new ProfileHeaderSurfaceStyleError(
+      'image settings require an image layer in stack',
+    );
   }
 
   return {
