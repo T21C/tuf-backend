@@ -95,12 +95,18 @@ function clampPadFromTopValue(value: number, unit: ImageSizeOffsetUnit): number 
   return Math.min(PAD_FROM_TOP_PERCENT_MAX, Math.max(PAD_FROM_TOP_PERCENT_MIN, rounded));
 }
 
+function parsePadFromTopUnit(raw: unknown): ImageSizeOffsetUnit {
+  if (raw === 'pixel' || raw === 'px') return 'pixel';
+  if (raw === 'percent' || raw === '%') return 'percent';
+  return 'percent';
+}
+
 export function normalizePadFromTop(raw: unknown): ProfileHeaderSurfacePadFromTop {
   if (!raw || typeof raw !== 'object') {
     return createDefaultPadFromTop();
   }
   const o = raw as Record<string, unknown>;
-  const unit: ImageSizeOffsetUnit = o.unit === 'pixel' ? 'pixel' : 'percent';
+  const unit = parsePadFromTopUnit(o.unit);
   const n = Number(o.value);
   const value = Number.isFinite(n) ? clampPadFromTopValue(n, unit) : 0;
   return { unit, value };
@@ -180,7 +186,7 @@ export type ProfileHeaderSurfaceImageSettings = {
   position: ProfileHeaderSurfaceImagePosition;
   repeat: (typeof IMAGE_REPEAT)[number];
   blendMode?: (typeof BLEND_MODES)[number];
-  /** Shifts the layer down via CSS `top` (px or % of the surface box). */
+  /** Extra downward offset on `background-position` Y (px or % of the layer box). */
   padFromTop?: ProfileHeaderSurfacePadFromTop;
 };
 
