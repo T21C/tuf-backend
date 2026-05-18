@@ -46,6 +46,12 @@ export const IMAGE_POSITION_PERCENT_MIN = -100;
 export const IMAGE_POSITION_PERCENT_MAX = 200;
 export const IMAGE_POSITION_PIXEL_MIN = -1000;
 export const IMAGE_POSITION_PIXEL_MAX = 1000;
+
+/** Stored values: only block absurd magnitudes (e.g. 100000px). */
+export const OFFSET_PERCENT_EXTREME_MIN = -1_000_000;
+export const OFFSET_PERCENT_EXTREME_MAX = 1_000_000;
+export const OFFSET_PIXEL_EXTREME_MIN = -1_000_000;
+export const OFFSET_PIXEL_EXTREME_MAX = 1_000_000;
 export const IMAGE_POSITION_OFFSET_UNITS = ['percent', 'pixel'] as const;
 export const IMAGE_POSITION_HORIZONTAL_KEYWORDS = ['left', 'center', 'right'] as const;
 export const IMAGE_POSITION_VERTICAL_KEYWORDS = ['top', 'center', 'bottom'] as const;
@@ -72,52 +78,110 @@ export function createDefaultImagePosition(): ProfileHeaderSurfaceImagePosition 
   };
 }
 
-export const PAD_FROM_TOP_OFFSET_UNITS = IMAGE_SIZE_OFFSET_UNITS;
-export const PAD_FROM_TOP_PERCENT_MIN = IMAGE_POSITION_PERCENT_MIN;
-export const PAD_FROM_TOP_PERCENT_MAX = IMAGE_POSITION_PERCENT_MAX;
-export const PAD_FROM_TOP_PIXEL_MIN = IMAGE_POSITION_PIXEL_MIN;
-export const PAD_FROM_TOP_PIXEL_MAX = IMAGE_POSITION_PIXEL_MAX;
+export const LAYER_PAD_EDGES = ['top', 'right', 'bottom', 'left'] as const;
+export type LayerPadEdge = (typeof LAYER_PAD_EDGES)[number];
 
-export type ProfileHeaderSurfacePadFromTop = {
+export const LAYER_PAD_OFFSET_UNITS = IMAGE_SIZE_OFFSET_UNITS;
+export const LAYER_PAD_PERCENT_MIN = IMAGE_POSITION_PERCENT_MIN;
+export const LAYER_PAD_PERCENT_MAX = IMAGE_POSITION_PERCENT_MAX;
+export const LAYER_PAD_PIXEL_MIN = IMAGE_POSITION_PIXEL_MIN;
+export const LAYER_PAD_PIXEL_MAX = IMAGE_POSITION_PIXEL_MAX;
+
+export type ProfileHeaderSurfaceLayerPadAxis = {
   unit: ImageSizeOffsetUnit;
   value: number;
 };
 
-export function createDefaultPadFromTop(): ProfileHeaderSurfacePadFromTop {
+export type ProfileHeaderSurfaceLayerPad = Partial<
+  Record<LayerPadEdge, ProfileHeaderSurfaceLayerPadAxis>
+>;
+
+/** @deprecated Use ProfileHeaderSurfaceLayerPadAxis */
+export type ProfileHeaderSurfacePadFromTop = ProfileHeaderSurfaceLayerPadAxis;
+
+export function createDefaultLayerPadAxis(): ProfileHeaderSurfaceLayerPadAxis {
   return { unit: 'pixel', value: 0 };
 }
 
-function clampPadFromTopValue(value: number, unit: ImageSizeOffsetUnit): number {
-  if (unit === 'pixel') {
-    return Math.min(PAD_FROM_TOP_PIXEL_MAX, Math.max(PAD_FROM_TOP_PIXEL_MIN, Math.round(value)));
-  }
-  const rounded = Math.round(value * 10) / 10;
-  return Math.min(PAD_FROM_TOP_PERCENT_MAX, Math.max(PAD_FROM_TOP_PERCENT_MIN, rounded));
+/** @deprecated Use createDefaultLayerPadAxis */
+export function createDefaultPadFromTop(): ProfileHeaderSurfaceLayerPadAxis {
+  return createDefaultLayerPadAxis();
 }
 
-function parsePadFromTopUnit(raw: unknown): ImageSizeOffsetUnit {
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+export function sanitizeAxisOffsetValue(value: number, unit: ImageSizeOffsetUnit): number {
+  if (unit === 'pixel') {
+    return clamp(Math.round(value), OFFSET_PIXEL_EXTREME_MIN, OFFSET_PIXEL_EXTREME_MAX);
+  }
+  return round1(clamp(value, OFFSET_PERCENT_EXTREME_MIN, OFFSET_PERCENT_EXTREME_MAX));
+}
+
+function parseLayerPadAxisUnit(raw: unknown): ImageSizeOffsetUnit {
   if (raw === 'pixel' || raw === 'px') return 'pixel';
   if (raw === 'percent' || raw === '%') return 'percent';
   return 'percent';
 }
 
-export function normalizePadFromTop(raw: unknown): ProfileHeaderSurfacePadFromTop {
+export function normalizeLayerPadAxis(raw: unknown): ProfileHeaderSurfaceLayerPadAxis {
   if (!raw || typeof raw !== 'object') {
-    return createDefaultPadFromTop();
+    return createDefaultLayerPadAxis();
   }
   const o = raw as Record<string, unknown>;
-  const unit = parsePadFromTopUnit(o.unit);
+  const unit = parseLayerPadAxisUnit(o.unit);
   const n = Number(o.value);
-  const value = Number.isFinite(n) ? clampPadFromTopValue(n, unit) : 0;
+  const value = Number.isFinite(n) ? sanitizeAxisOffsetValue(n, unit) : 0;
   return { unit, value };
 }
 
-function parsePadFromTop(raw: unknown): ProfileHeaderSurfacePadFromTop | undefined | null {
+/** @deprecated Use normalizeLayerPadAxis */
+export function normalizePadFromTop(raw: unknown): ProfileHeaderSurfaceLayerPadAxis {
+  return normalizeLayerPadAxis(raw);
+}
+
+function parseLayerPadAxis(raw: unknown): ProfileHeaderSurfaceLayerPadAxis | undefined | null {
   if (raw === undefined || raw === null) return undefined;
   if (typeof raw !== 'object') return null;
-  const pad = normalizePadFromTop(raw);
-  if (!PAD_FROM_TOP_OFFSET_UNITS.includes(pad.unit)) return null;
+  const pad = normalizeLayerPadAxis(raw);
+  if (!LAYER_PAD_OFFSET_UNITS.includes(pad.unit)) return null;
   return pad;
+}
+
+function parseLayerPad(
+  rawLayerPad: unknown,
+  legacyPadFromTop: unknown,
+): ProfileHeaderSurfaceLayerPad | undefined | null {
+  const source: Record<string, unknown> =
+    rawLayerPad !== undefined &&
+    rawLayerPad !== null &&
+    typeof rawLayerPad === 'object' &&
+    !Array.isArray(rawLayerPad)
+      ? { ...(rawLayerPad as Record<string, unknown>) }
+      : {};
+  if (legacyPadFromTop !== undefined && legacyPadFromTop !== null) {
+    if (typeof legacyPadFromTop !== 'object') return null;
+    if (source.top === undefined) {
+      source.top = legacyPadFromTop;
+    }
+  }
+  if (Object.keys(source).length === 0) return undefined;
+
+  const layerPad: ProfileHeaderSurfaceLayerPad = {};
+  for (const edge of LAYER_PAD_EDGES) {
+    if (source[edge] === undefined) continue;
+    const axis = parseLayerPadAxis(source[edge]);
+    if (!axis) return null;
+    if (axis.value !== 0) {
+      layerPad[edge] = axis;
+    }
+  }
+  return Object.keys(layerPad).length > 0 ? layerPad : undefined;
 }
 
 export function isImageTilingEnabled(repeat: string): boolean {
@@ -186,8 +250,10 @@ export type ProfileHeaderSurfaceImageSettings = {
   position: ProfileHeaderSurfaceImagePosition;
   repeat: (typeof IMAGE_REPEAT)[number];
   blendMode?: (typeof BLEND_MODES)[number];
-  /** Extra downward offset on `background-position` Y (px or % of the layer box). */
-  padFromTop?: ProfileHeaderSurfacePadFromTop;
+  /** Per-edge layer inset (px or % of the card). Replaces legacy `padFromTop`. */
+  layerPad?: ProfileHeaderSurfaceLayerPad;
+  /** @deprecated Migrated to `layerPad.top` on read */
+  padFromTop?: ProfileHeaderSurfaceLayerPadAxis;
 };
 
 export type ProfileHeaderSurfaceStackEntryBase = {
@@ -273,14 +339,6 @@ const RGB_COLOR =
 const HSL_COLOR =
   /^hsla?\(\s*(\d{1,3})\s*,\s*(\d{1,3})%\s*,\s*(\d{1,3})%(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/i;
 
-function clamp(n: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, n));
-}
-
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
-}
-
 function parseOpacity(raw: unknown): number {
   if (raw === undefined || raw === null) return 1;
   const n = Number(raw);
@@ -353,20 +411,10 @@ function parseGradientPosition(raw: unknown): { xPercent: number; yPercent: numb
   return { xPercent: x, yPercent: y };
 }
 
-function clampImagePositionOffset(value: number, unit: ImagePositionOffsetUnit): number {
-  if (unit === 'pixel') {
-    return Math.min(
-      IMAGE_POSITION_PIXEL_MAX,
-      Math.max(IMAGE_POSITION_PIXEL_MIN, Math.round(value)),
-    );
-  }
-  return round1(Math.min(IMAGE_POSITION_PERCENT_MAX, Math.max(IMAGE_POSITION_PERCENT_MIN, value)));
-}
-
 function parseImagePositionAxisOffset(raw: unknown, unit: ImagePositionOffsetUnit): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) return 0;
-  return clampImagePositionOffset(n, unit);
+  return sanitizeAxisOffsetValue(n, unit);
 }
 
 function parseImagePositionAxis(
@@ -487,20 +535,10 @@ function parseGradientLayerFields(raw: unknown): ProfileHeaderSurfaceGradientLay
   return layer;
 }
 
-function clampImageSizeValue(value: number, unit: ImageSizeOffsetUnit): number {
-  if (unit === 'pixel') {
-    return Math.min(
-      IMAGE_DIMENSION_PIXEL_MAX,
-      Math.max(IMAGE_DIMENSION_PIXEL_MIN, Math.round(value)),
-    );
-  }
-  return round1(Math.min(IMAGE_DIMENSION_PERCENT_MAX, Math.max(IMAGE_DIMENSION_PERCENT_MIN, value)));
-}
-
 function parseImageSizeAxisValue(raw: unknown, unit: ImageSizeOffsetUnit): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) return 100;
-  return clampImageSizeValue(n, unit);
+  return sanitizeAxisOffsetValue(n, unit);
 }
 
 function parseImageSizeDimensionAxis(
@@ -572,10 +610,10 @@ function parseImageSettings(raw: unknown): ProfileHeaderSurfaceImageSettings | n
     image.blendMode = blendMode as (typeof BLEND_MODES)[number];
   }
 
-  const padFromTop = parsePadFromTop(o.padFromTop);
-  if (padFromTop === null) return null;
-  if (padFromTop) {
-    image.padFromTop = padFromTop;
+  const layerPad = parseLayerPad(o.layerPad, o.padFromTop);
+  if (layerPad === null) return null;
+  if (layerPad) {
+    image.layerPad = layerPad;
   }
 
   return image;
