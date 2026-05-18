@@ -72,8 +72,47 @@ export function createDefaultImagePosition(): ProfileHeaderSurfaceImagePosition 
   };
 }
 
-/** Offset surface image layers below the profile header banner strip. */
-export const PROFILE_HEADER_SURFACE_IMAGE_BANNER_PAD_TOP = '9rem';
+export const PAD_FROM_TOP_OFFSET_UNITS = IMAGE_SIZE_OFFSET_UNITS;
+export const PAD_FROM_TOP_PERCENT_MIN = IMAGE_POSITION_PERCENT_MIN;
+export const PAD_FROM_TOP_PERCENT_MAX = IMAGE_POSITION_PERCENT_MAX;
+export const PAD_FROM_TOP_PIXEL_MIN = IMAGE_POSITION_PIXEL_MIN;
+export const PAD_FROM_TOP_PIXEL_MAX = IMAGE_POSITION_PIXEL_MAX;
+
+export type ProfileHeaderSurfacePadFromTop = {
+  unit: ImageSizeOffsetUnit;
+  value: number;
+};
+
+export function createDefaultPadFromTop(): ProfileHeaderSurfacePadFromTop {
+  return { unit: 'pixel', value: 0 };
+}
+
+function clampPadFromTopValue(value: number, unit: ImageSizeOffsetUnit): number {
+  if (unit === 'pixel') {
+    return Math.min(PAD_FROM_TOP_PIXEL_MAX, Math.max(PAD_FROM_TOP_PIXEL_MIN, Math.round(value)));
+  }
+  const rounded = Math.round(value * 10) / 10;
+  return Math.min(PAD_FROM_TOP_PERCENT_MAX, Math.max(PAD_FROM_TOP_PERCENT_MIN, rounded));
+}
+
+export function normalizePadFromTop(raw: unknown): ProfileHeaderSurfacePadFromTop {
+  if (!raw || typeof raw !== 'object') {
+    return createDefaultPadFromTop();
+  }
+  const o = raw as Record<string, unknown>;
+  const unit: ImageSizeOffsetUnit = o.unit === 'pixel' ? 'pixel' : 'percent';
+  const n = Number(o.value);
+  const value = Number.isFinite(n) ? clampPadFromTopValue(n, unit) : 0;
+  return { unit, value };
+}
+
+function parsePadFromTop(raw: unknown): ProfileHeaderSurfacePadFromTop | undefined | null {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object') return null;
+  const pad = normalizePadFromTop(raw);
+  if (!PAD_FROM_TOP_OFFSET_UNITS.includes(pad.unit)) return null;
+  return pad;
+}
 
 export function isImageTilingEnabled(repeat: string): boolean {
   return repeat !== 'no-repeat';
@@ -141,8 +180,8 @@ export type ProfileHeaderSurfaceImageSettings = {
   position: ProfileHeaderSurfaceImagePosition;
   repeat: (typeof IMAGE_REPEAT)[number];
   blendMode?: (typeof BLEND_MODES)[number];
-  /** When true, layer is offset below the banner (`top: 9rem`). */
-  padForBanner?: boolean;
+  /** Shifts the layer down via CSS `top` (px or % of the surface box). */
+  padFromTop?: ProfileHeaderSurfacePadFromTop;
 };
 
 export type ProfileHeaderSurfaceStackEntryBase = {
@@ -527,8 +566,10 @@ function parseImageSettings(raw: unknown): ProfileHeaderSurfaceImageSettings | n
     image.blendMode = blendMode as (typeof BLEND_MODES)[number];
   }
 
-  if (o.padForBanner === true) {
-    image.padForBanner = true;
+  const padFromTop = parsePadFromTop(o.padFromTop);
+  if (padFromTop === null) return null;
+  if (padFromTop) {
+    image.padFromTop = padFromTop;
   }
 
   return image;
