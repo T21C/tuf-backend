@@ -3,10 +3,7 @@ import type {UserAttributes} from '@/models/auth/User.js';
 declare global {
   namespace Express {
     interface Request {
-      user?: UserAttributes & {
-        provider?: string;
-        providerId?: string;
-      };
+      user?: UserAttributes
     }
 
     interface User extends UserAttributes {

@@ -37,11 +37,7 @@ import {
 } from '@/server/services/creators/creatorSelfAliases.js';
 import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
 import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
-import {
-  canUseStellarProfileCustomization,
-  isTufStellarAccessActive,
-  normalizeTufStellarIconVariant,
-} from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { multerMemoryCdnImage10Mb as bannerUpload } from '@/config/multerMemoryUploads.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError } from '@/server/services/core/CdnService.js';
@@ -72,7 +68,6 @@ function parseHeaderSurfaceLayerId(req: Request): string | null {
 }
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import User from '@/models/auth/User.js';
-import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 
 /**
@@ -941,24 +936,32 @@ router.patch(
   },
 );
 
-function isCreatorBannerActor(user: PermissionInput, creatorId: number): boolean {
-  const u = user as { creatorId?: number | string | null };
-  const isOwner = u.creatorId != null && Number(u.creatorId) === creatorId;
-  return (
-    isOwner ||
-    hasFlag(user, permissionFlags.SUPER_ADMIN) ||
-    hasFlag(user, permissionFlags.HEAD_CURATOR)
-  );
+function parseCreatorRouteId(req: Request): number | null {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return id;
 }
 
-async function canUploadCreatorCustomBanner(user: PermissionInput): Promise<boolean> {
-  if (hasFlag(user, permissionFlags.SUPER_ADMIN)) return true;
-  if (hasFlag(user, permissionFlags.HEAD_CURATOR)) return true;
-  const uid = (user as { id?: string }).id;
-  if (!uid) return false;
-  const billing = await loadUserTufStellarBilling(uid);
-  const dbUser = await User.findByPk(uid, { attributes: ['id', 'permissionFlags'] });
-  return canUseStellarProfileCustomization(dbUser as User | null, billing);
+/** Ensures `:id` matches the authenticated user's linked creator profile. */
+function resolveOwnCreatorRouteId(
+  req: Request,
+  res: Response,
+  user: { creatorId?: number | string | null },
+): number | null {
+  const id = parseCreatorRouteId(req);
+  if (id === null) {
+    res.status(400).json({ error: 'Invalid creator id' });
+    return null;
+  }
+  if (user.creatorId == null) {
+    res.status(400).json({ error: 'No creator profile linked to this account' });
+    return null;
+  }
+  if (Number(user.creatorId) !== id) {
+    res.status(403).json({ error: 'Forbidden' });
+    return null;
+  }
+  return id;
 }
 
 async function invalidateLinkedUserForCreator(creatorId: number): Promise<void> {
@@ -1175,7 +1178,7 @@ router.patch(
 
 router.patch(
   '/:id([0-9]{1,20})/banner-preset',
-  Auth.addUserToRequest(),
+  Auth.user(),
   ApiDoc({
     operationId: 'v3PatchCreatorBannerPreset',
     summary: 'Update creator profile banner preset',
@@ -1188,17 +1191,9 @@ router.patch(
   }),
   async (req: Request, res: Response) => {
     try {
-      const user = req.user;
-      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
-      const permUser = user as PermissionInput;
-
-      const id = parseInt(req.params.id, 10);
-      if (!Number.isFinite(id) || id <= 0) {
-        return res.status(400).json({ error: 'Invalid creator id' });
-      }
-      if (!isCreatorBannerActor(permUser, id)) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
+      const user = req.user!;
+      const id = resolveOwnCreatorRouteId(req, res, user);
+      if (id === null) return;
 
       const body = req.body as { preset?: unknown };
       if (!Object.prototype.hasOwnProperty.call(body, 'preset')) {
@@ -1210,9 +1205,6 @@ router.patch(
       } catch {
         return res.status(400).json({ error: 'Invalid banner preset' });
       }
-
-      const exists = await Creator.findByPk(id, { attributes: ['id'] });
-      if (!exists) return res.status(404).json({ error: 'Creator not found' });
 
       await Creator.update({ bannerPreset: preset }, { where: { id } });
       await elasticsearchService.reindexCreators([id]);
@@ -1231,7 +1223,7 @@ router.patch(
 
 router.delete(
   '/:id([0-9]{1,20})/banner-preset',
-  Auth.addUserToRequest(),
+  Auth.user(),
   ApiDoc({
     operationId: 'v3DeleteCreatorBannerPreset',
     summary: 'Clear creator profile banner preset',
@@ -1244,20 +1236,9 @@ router.delete(
   }),
   async (req: Request, res: Response) => {
     try {
-      const user = req.user;
-      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
-      const permUser = user as PermissionInput;
-
-      const id = parseInt(req.params.id, 10);
-      if (!Number.isFinite(id) || id <= 0) {
-        return res.status(400).json({ error: 'Invalid creator id' });
-      }
-      if (!isCreatorBannerActor(permUser, id)) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-
-      const exists = await Creator.findByPk(id, { attributes: ['id'] });
-      if (!exists) return res.status(404).json({ error: 'Creator not found' });
+      const user = req.user!;
+      const id = resolveOwnCreatorRouteId(req, res, user);
+      if (id === null) return;
 
       await Creator.update({ bannerPreset: null }, { where: { id } });
       await elasticsearchService.reindexCreators([id]);
@@ -1276,12 +1257,12 @@ router.delete(
 
 router.patch(
   '/:id([0-9]{1,20})/tuf-stellar-icon-variant',
-  Auth.addUserToRequest(),
+  Auth.tufStellarUser(),
   ApiDoc({
     operationId: 'v3PatchCreatorTufStellarIconVariant',
     summary: 'Update creator TUFStellar icon variant (v3)',
     description:
-      'Owner, SUPER_ADMIN, or HEAD_CURATOR. The linked creator account must have active TUFStellar access. Body: `{ variant: "1" | "2" | "3" }`.',
+      'Active TUFStellar subscription required. Linked creator profile only. Body: `{ variant: "1" | "2" | "3" }`.',
     tags: ['Database', 'Creators', 'v3'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
@@ -1302,32 +1283,12 @@ router.patch(
   }),
   async (req: Request, res: Response) => {
     try {
-      const user = req.user;
-      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      const user = req.user!;
       if (!isTufStellarFeatureEnabled()) {
         return res.status(403).json({ error: 'TUFStellar is not available on this deployment' });
       }
-      const permUser = user as PermissionInput;
-
-      const id = parseInt(req.params.id, 10);
-      if (!Number.isFinite(id) || id <= 0) {
-        return res.status(400).json({ error: 'Invalid creator id' });
-      }
-      if (!isCreatorBannerActor(permUser, id)) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-
-      const linkedUser = await User.findOne({
-        where: { creatorId: id },
-        attributes: ['id', 'permissionFlags'],
-      });
-      if (!linkedUser) {
-        return res.status(400).json({ error: 'Creator has no linked user account' });
-      }
-      const linkedBilling = await loadUserTufStellarBilling(linkedUser.id);
-      if (!isTufStellarAccessActive(linkedUser, linkedBilling)) {
-        return res.status(403).json({ error: 'TUFStellar access required' });
-      }
+      const id = resolveOwnCreatorRouteId(req, res, user);
+      if (id === null) return;
 
       const body = req.body as { variant?: unknown };
       if (!Object.prototype.hasOwnProperty.call(body, 'variant')) {
@@ -1338,9 +1299,6 @@ router.patch(
         return res.status(400).json({ error: 'variant must be "1", "2", or "3"' });
       }
       const next = normalizeTufStellarIconVariant(rawVariant);
-
-      const exists = await Creator.findByPk(id, { attributes: ['id'] });
-      if (!exists) return res.status(404).json({ error: 'Creator not found' });
 
       await Creator.update({ tufStellarIconVariant: next }, { where: { id } });
       await elasticsearchService.reindexCreators([id]);
@@ -1359,7 +1317,7 @@ router.patch(
 
 router.post(
   '/:id([0-9]{1,20})/banner-custom',
-  Auth.addUserToRequest(),
+  Auth.tufStellarUser(),
   bannerUpload.single('banner'),
   ApiDoc({
     operationId: 'v3PostCreatorBannerCustom',
@@ -1376,20 +1334,9 @@ router.post(
       if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
         return res.status(403).json({ error: 'Custom profile banners are temporarily disabled' });
       }
-      const user = req.user;
-      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
-      const permUser = user as PermissionInput;
-
-      const id = parseInt(req.params.id, 10);
-      if (!Number.isFinite(id) || id <= 0) {
-        return res.status(400).json({ error: 'Invalid creator id' });
-      }
-      if (!isCreatorBannerActor(permUser, id)) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-      if (!(await canUploadCreatorCustomBanner(permUser))) {
-        return res.status(403).json({ error: 'Custom profile banners are not enabled for this account' });
-      }
+      const user = req.user!;
+      const id = resolveOwnCreatorRouteId(req, res, user);
+      if (id === null) return;
 
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded', code: 'NO_FILE' });
@@ -1446,7 +1393,7 @@ router.post(
 
 router.delete(
   '/:id([0-9]{1,20})/banner-custom',
-  Auth.addUserToRequest(),
+  Auth.tufStellarUser(),
   ApiDoc({
     operationId: 'v3DeleteCreatorBannerCustom',
     summary: 'Remove creator custom profile banner',
@@ -1462,20 +1409,9 @@ router.delete(
       if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
         return res.status(403).json({ error: 'Custom profile banners are temporarily disabled' });
       }
-      const user = req.user;
-      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
-      const permUser = user as PermissionInput;
-
-      const id = parseInt(req.params.id, 10);
-      if (!Number.isFinite(id) || id <= 0) {
-        return res.status(400).json({ error: 'Invalid creator id' });
-      }
-      if (!isCreatorBannerActor(permUser, id)) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-      if (!(await canUploadCreatorCustomBanner(permUser))) {
-        return res.status(403).json({ error: 'Custom profile banners are not enabled for this account' });
-      }
+      const user = req.user!;
+      const id = resolveOwnCreatorRouteId(req, res, user);
+      if (id === null) return;
 
       const creator = await Creator.findByPk(id);
       if (!creator) return res.status(404).json({ error: 'Creator not found' });
@@ -1509,7 +1445,7 @@ router.delete(
 
 router.patch(
   '/:id([0-9]{1,20})/header-surface-style',
-  Auth.addUserToRequest(),
+  Auth.tufStellarUser(),
   ApiDoc({
     operationId: 'v3PatchCreatorHeaderSurfaceStyle',
     summary: 'Update creator profile header card surface style',
@@ -1525,20 +1461,9 @@ router.patch(
       if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
         return res.status(403).json({ error: 'Profile header customization is temporarily disabled' });
       }
-      const user = req.user;
-      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
-      const permUser = user as PermissionInput;
-
-      const id = parseInt(req.params.id, 10);
-      if (!Number.isFinite(id) || id <= 0) {
-        return res.status(400).json({ error: 'Invalid creator id' });
-      }
-      if (!isCreatorBannerActor(permUser, id)) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-      if (!(await canUploadCreatorCustomBanner(permUser))) {
-        return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
-      }
+      const user = req.user!;
+      const id = resolveOwnCreatorRouteId(req, res, user);
+      if (id === null) return;
 
       const body = req.body as { style?: unknown };
       if (!Object.prototype.hasOwnProperty.call(body, 'style')) {
@@ -1606,7 +1531,7 @@ router.patch(
 
 router.post(
   '/:id([0-9]{1,20})/header-surface-image',
-  Auth.addUserToRequest(),
+  Auth.tufStellarUser(),
   bannerUpload.single('image'),
   ApiDoc({
     operationId: 'v3PostCreatorHeaderSurfaceImage',
@@ -1623,20 +1548,10 @@ router.post(
       if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
         return res.status(403).json({ error: 'Profile header customization is temporarily disabled' });
       }
-      const user = req.user;
-      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
-      const permUser = user as PermissionInput;
+      const user = req.user!;
+      const id = resolveOwnCreatorRouteId(req, res, user);
+      if (id === null) return;
 
-      const id = parseInt(req.params.id, 10);
-      if (!Number.isFinite(id) || id <= 0) {
-        return res.status(400).json({ error: 'Invalid creator id' });
-      }
-      if (!isCreatorBannerActor(permUser, id)) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-      if (!(await canUploadCreatorCustomBanner(permUser))) {
-        return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
-      }
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded', code: 'NO_FILE' });
       }
@@ -1714,7 +1629,7 @@ router.post(
 
 router.delete(
   '/:id([0-9]{1,20})/header-surface-image',
-  Auth.addUserToRequest(),
+  Auth.tufStellarUser(),
   ApiDoc({
     operationId: 'v3DeleteCreatorHeaderSurfaceImage',
     summary: 'Remove creator profile header surface background image',
@@ -1730,20 +1645,9 @@ router.delete(
       if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
         return res.status(403).json({ error: 'Profile header customization is temporarily disabled' });
       }
-      const user = req.user;
-      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
-      const permUser = user as PermissionInput;
-
-      const id = parseInt(req.params.id, 10);
-      if (!Number.isFinite(id) || id <= 0) {
-        return res.status(400).json({ error: 'Invalid creator id' });
-      }
-      if (!isCreatorBannerActor(permUser, id)) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-      if (!(await canUploadCreatorCustomBanner(permUser))) {
-        return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
-      }
+      const user = req.user!;
+      const id = resolveOwnCreatorRouteId(req, res, user);
+      if (id === null) return;
 
       const layerId = parseHeaderSurfaceLayerId(req);
       if (!layerId) {

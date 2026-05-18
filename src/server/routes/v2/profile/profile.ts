@@ -14,7 +14,7 @@ import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError } from '@/server/services/core/CdnService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
-import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
+import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { parseBannerPresetForStorage } from '@/misc/utils/profileBannerPreset.js';
 import {
   MAX_PROFILE_HEADER_SURFACE_STACK_ENTRY_ID_LENGTH,
@@ -45,9 +45,8 @@ import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { AccountDeletionService } from '@/server/services/accounts/AccountDeletionService.js';
 import {
-  canUseStellarProfileCustomization,
   reconcileExpiredTufStellarAccess,
-  type UserRow,
+  tufStellarExpiresAtActive,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
@@ -506,8 +505,7 @@ router.post(
 
         const avatarMode = parseProfileAvatarMode(req.body);
         const gif = isGifAvatarFile(req.file);
-        const billing = await loadUserTufStellarBilling(user.id);
-        if (gif && !canUseStellarProfileCustomization(user as UserRow, billing)) {
+        if (gif && !tufStellarExpiresAtActive(user.tufStellarBilling?.tufStellarSubscriptionExpiresAt ?? null)) {
             return res.status(403).json({
                 error: 'GIF profile pictures require active TUFStellar access',
                 code: 'AVATAR_GIF_FORBIDDEN',
@@ -645,14 +643,6 @@ router.delete(
   }
 );
 
-async function canUsePlayerCustomBanner(user: PermissionInput): Promise<boolean> {
-  if (!user || typeof user === 'bigint' || typeof user === 'number') return false;
-  const uid = (user as { id?: string }).id;
-  if (!uid) return false;
-  const billing = await loadUserTufStellarBilling(uid);
-  return canUseStellarProfileCustomization(user as UserRow, billing);
-}
-
 // --- Profile banner (preset + custom CDN) ---
 
 router.patch(
@@ -734,7 +724,7 @@ router.delete(
 
 router.post(
   '/player/banner-custom',
-  Auth.user(),
+  Auth.tufStellarUser(),
   upload.single('banner'),
   ApiDoc({
     operationId: 'postProfilePlayerBannerCustom',
@@ -757,9 +747,6 @@ router.post(
       const user = req.user;
       if (!user?.playerId) {
         return res.status(400).json({ error: 'No player profile linked to this account' });
-      }
-      if (!(await canUsePlayerCustomBanner(user as PermissionInput))) {
-        return res.status(403).json({ error: 'Custom profile banners are not enabled for this account' });
       }
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded', code: 'NO_FILE' });
@@ -815,7 +802,7 @@ router.post(
 
 router.delete(
   '/player/banner-custom',
-  Auth.user(),
+  Auth.tufStellarUser(),
   ApiDoc({
     operationId: 'deleteProfilePlayerBannerCustom',
     summary: 'Remove custom player profile banner',
@@ -836,9 +823,6 @@ router.delete(
       const user = req.user;
       if (!user?.playerId) {
         return res.status(400).json({ error: 'No player profile linked to this account' });
-      }
-      if (!(await canUsePlayerCustomBanner(user as PermissionInput))) {
-        return res.status(403).json({ error: 'Custom profile banners are not enabled for this account' });
       }
 
       const player = await Player.findByPk(user.playerId);
@@ -874,7 +858,7 @@ router.delete(
 
 router.patch(
   '/player/header-surface-style',
-  Auth.user(),
+  Auth.tufStellarUser(),
   ApiDoc({
     operationId: 'patchProfilePlayerHeaderSurfaceStyle',
     summary: 'Update player profile header card surface style',
@@ -896,9 +880,6 @@ router.patch(
       const user = req.user;
       if (!user?.playerId) {
         return res.status(400).json({ error: 'No player profile linked to this account' });
-      }
-      if (!(await canUsePlayerCustomBanner(user as PermissionInput))) {
-        return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
       }
 
       const body = req.body as { style?: unknown };
@@ -966,7 +947,7 @@ router.patch(
 
 router.post(
   '/player/header-surface-image',
-  Auth.user(),
+  Auth.tufStellarUser(),
   upload.single('image'),
   ApiDoc({
     operationId: 'postProfilePlayerHeaderSurfaceImage',
@@ -989,9 +970,6 @@ router.post(
       const user = req.user;
       if (!user?.playerId) {
         return res.status(400).json({ error: 'No player profile linked to this account' });
-      }
-      if (!(await canUsePlayerCustomBanner(user as PermissionInput))) {
-        return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
       }
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded', code: 'NO_FILE' });
@@ -1072,7 +1050,7 @@ router.post(
 
 router.delete(
   '/player/header-surface-image',
-  Auth.user(),
+  Auth.tufStellarUser(),
   ApiDoc({
     operationId: 'deleteProfilePlayerHeaderSurfaceImage',
     summary: 'Remove player profile header surface background image',
@@ -1093,9 +1071,6 @@ router.delete(
       const user = req.user;
       if (!user?.playerId) {
         return res.status(400).json({ error: 'No player profile linked to this account' });
-      }
-      if (!(await canUsePlayerCustomBanner(user as PermissionInput))) {
-        return res.status(403).json({ error: 'Profile header customization is not enabled for this account' });
       }
 
       const layerId = parseHeaderSurfaceLayerId(req);

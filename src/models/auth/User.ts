@@ -3,6 +3,7 @@ import Player from '@/models/players/Player.js';
 import OAuthProvider from './OAuthProvider.js';
 import Creator from '@/models/credits/Creator.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
+import UserTufStellarBilling from '../billing/UserTufStellarBilling.js';
 const sequelize = getSequelizeForModelGroup('auth');
 
 export interface UserAttributes {
@@ -39,6 +40,7 @@ export interface UserAttributes {
   providers?: OAuthProvider[];
   player?: Player;
   creator?: Creator;
+  tufStellarBilling?: UserTufStellarBilling;
 }
 
 class User extends Model<UserAttributes> implements UserAttributes {
@@ -75,6 +77,7 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare player?: Player;
   declare creator?: Creator;
   declare providers?: OAuthProvider[];
+  declare tufStellarBilling?: UserTufStellarBilling;
 }
 
 User.init(

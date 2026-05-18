@@ -1,5 +1,5 @@
 import {Request, Response, NextFunction} from 'express';
-import {User, OAuthProvider} from '@/models/index.js';
+import {User, OAuthProvider, UserTufStellarBilling} from '@/models/index.js';
 import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC} from '@/misc/utils/auth/auth.js';
 import type {UserAttributes} from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
@@ -9,6 +9,7 @@ import PlayerStats from '@/models/players/PlayerStats.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasAnyFlag, hasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { tufStellarExpiresAtActive } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 
 const getUser = async (id: string): Promise<User | null> => {
   return await User.findByPk(id, {
@@ -17,6 +18,11 @@ const getUser = async (id: string): Promise<User | null> => {
         model: OAuthProvider,
         as: 'providers',
         attributes: ['id', 'userId', 'provider', 'providerId'],
+      },
+      {
+        model: UserTufStellarBilling,
+        as: 'tufStellarBilling',
+        attributes: ['tufStellarSubscriptionExpiresAt'],
       },
       {
         model: Player,
@@ -42,10 +48,7 @@ const getUser = async (id: string): Promise<User | null> => {
 declare global {
   namespace Express {
     interface Request {
-      user?: UserAttributes & {
-        provider?: string;
-        providerId?: string;
-      };
+      user?: UserAttributes;
     }
   }
 }
@@ -144,7 +147,7 @@ const chainMiddleware = (...middlewares: MiddlewareFunction[]): MiddlewareFuncti
 /**
  * Permission check middleware factory
  */
-const requirePermission = (checkFn: (user: UserAttributes) => boolean, errorMessage: string): MiddlewareFunction => {
+const requirePermission = (checkFn: (user: UserAttributes & { billing?: UserTufStellarBilling }) => boolean, errorMessage: string): MiddlewareFunction => {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (!req.user) {
       res.status(401).json({error: 'User not found'});
@@ -208,6 +211,19 @@ export const Auth = {
    */
   user: (): MiddlewareFunction => baseAuth,
 
+
+  /**
+   * Require authenticated user
+   */
+  tufStellarUser: (): MiddlewareFunction =>
+    chainMiddleware(
+      baseAuth,
+      requirePermission(
+        (user) => tufStellarExpiresAtActive(user.billing?.tufStellarSubscriptionExpiresAt ?? null),
+        'TUF Stellar user access required'
+      ),
+      auditLogMiddleware
+    ),
 
   /**
    * Require head curator privileges

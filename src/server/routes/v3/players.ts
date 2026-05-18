@@ -21,11 +21,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import Player from '@/models/players/Player.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
-import {
-  isTufStellarAccessActive,
-  normalizeTufStellarIconVariant,
-} from '@/misc/utils/subscriptions/tufStellarSubscription.js';
-import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
+import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 import { DEFAULT_LEADERBOARD_RANK_SCORING_VERSION, RANK_HISTORY_MAX_POINTS } from '@/config/leaderboardRankHistory.js';
 import { buildRankHistorySeries } from '@/server/services/leaderboard/rankHistorySeries.js';
@@ -524,7 +520,7 @@ router.patch(
 
 router.patch(
   '/me/tuf-stellar-icon-variant',
-  Auth.user(),
+  Auth.tufStellarUser(),
   ApiDoc({
     operationId: 'v3PatchPlayerMeTufStellarIconVariant',
     summary: 'Update my player TUFStellar icon variant (v3)',
@@ -556,10 +552,6 @@ router.patch(
       }
       if (!user.playerId) {
         return res.status(400).json({ error: 'No player profile linked to this account' });
-      }
-      const billing = await loadUserTufStellarBilling(user.id);
-      if (!isTufStellarAccessActive(user, billing)) {
-        return res.status(403).json({ error: 'TUFStellar access required' });
       }
 
       const body = req.body as { variant?: unknown };
