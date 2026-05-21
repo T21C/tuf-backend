@@ -572,7 +572,7 @@ export class CdnSpacesStorage {
         // Since the bucket is public, we just return the CDN URL directly
         // This enables proper CDN caching without query string parameters
         const url = this.getFileUrl(key);
-        logger.debug('Generated CDN URL for Spaces file', { key });
+        // logger.debug('Generated CDN URL for Spaces file', { key });
         return url;
     }
 

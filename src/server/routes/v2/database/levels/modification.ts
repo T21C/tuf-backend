@@ -652,7 +652,7 @@ router.put(
     });
 
     const basescoreTagName = 'Basescore Edit'
-    const ppBasescoreTagName = 'Pure Perfect Basescore Increase'
+    const ppBasescoreTagName = 'Pure Perfect Basescore Edit'
     let basescoreTag = await LevelTag.findOne({where: {name: basescoreTagName}, transaction});
     let ppBasescoreTag = await LevelTag.findOne({where: {name: ppBasescoreTagName}, transaction});
     if (!basescoreTag) { basescoreTag = await LevelTag.create({name: basescoreTagName, color: '#ff0000'}, {transaction}); }
