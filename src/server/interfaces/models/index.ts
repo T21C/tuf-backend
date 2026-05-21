@@ -103,6 +103,7 @@ export interface ILevel extends IBaseModel {
   teamObject?: Team;
   highestAccuracy?: number | null;
   firstPass?: IPass | null;
+  firstPPPass?: IPass | null;
   tags?: ILevelTag[];
 }
 

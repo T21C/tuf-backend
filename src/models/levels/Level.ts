@@ -58,6 +58,7 @@ class Level
   declare teamObject: Team;
   declare highestAccuracy: number | null;
   declare firstPass: IPass | null;
+  declare firstPPPass: IPass | null;
   // Virtual fields from associations
   declare passes?: IPass[];
   declare difficulty: IDifficulty;

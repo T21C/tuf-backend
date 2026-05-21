@@ -83,7 +83,7 @@ export function esDocToLegacyPlayerStats(
     generalScoreRank: ranks?.generalScoreRank,
     ppScoreRank: ranks?.ppScoreRank,
     wfScoreRank: ranks?.wfScoreRank,
-    wfPPScoreRank: ranks?.wfPPScoreRank,
+    //wfPPScoreRank: ranks?.wfPPScoreRank,
     score12KRank: ranks?.score12KRank,
     rank: ranks?.rankedScoreRank,
     player: {
