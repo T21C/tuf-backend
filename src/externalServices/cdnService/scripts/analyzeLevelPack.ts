@@ -33,6 +33,7 @@ import { getOriginalArchiveMeta } from '../infra/archive/archiveService.js';
 import { analyzeLevelPackArchive } from '../domain/level/levelPackAnalysis.js';
 import { auditLevelzipMetadataForMojibake } from '../domain/metadata/mojibakeAuditLevelzipMetadata.js';
 import { computeLevelCacheMetadataSignature } from '../domain/level/levelCacheSignature.js';
+import { CdnSpacesTempDomain } from '../infra/workspaces/cdnSpacesTemp.js';
 
 initializeAssociations();
 
@@ -202,7 +203,7 @@ async function main(): Promise<void> {
             });
         };
 
-        const analysis = await withWorkspace('analyze-level-pack', (ws) => runAnalysis(ws.dir));
+        const analysis = await withWorkspace(CdnSpacesTempDomain.LevelsRouteMisc, (ws) => runAnalysis(ws.dir));
 
         const output: ScriptOutput = {
             input: { mode, levelId, fileId, zipPath },
