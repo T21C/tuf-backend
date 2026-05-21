@@ -64,7 +64,7 @@ export async function computePlayerFunFacts(
       totalTilecountCleared: 0,
       totalPlaytimeMs: 0,
       averageBpm: 0,
-      totalScoreV2: 0,
+      totalRawScoreV2: 0,
     },
     extremes: {
       firstPassAt: null,
@@ -142,7 +142,7 @@ export async function computePlayerFunFacts(
         END
       ), 0) AS totalPlaytimeMs,
       COALESCE(AVG(l.bpm), 0) AS averageBpm,
-      COALESCE(SUM(IFNULL(p.scoreV2, 0)), 0) AS totalScoreV2,
+      COALESCE(SUM(IFNULL(p.scoreV2, 0)), 0) AS totalRawScoreV2,
       MIN(p.vidUploadTime) AS firstPassAt,
       MAX(p.vidUploadTime) AS latestPassAt,
       MAX(p.accuracy) AS bestAccuracy,
@@ -406,7 +406,7 @@ export async function computePlayerFunFacts(
       totalTilecountCleared: Number(m.totalTilecountCleared) || 0,
       totalPlaytimeMs: Number(m.totalPlaytimeMs) || 0,
       averageBpm: Number(m.averageBpm) || 0,
-      totalScoreV2: Number(m.totalScoreV2) || 0,
+      totalRawScoreV2: Number(m.totalRawScoreV2) || 0,
     },
     extremes: {
       firstPassAt: toIso(m.firstPassAt),

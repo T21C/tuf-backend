@@ -21,6 +21,7 @@ export interface LegacyPlayerStatsShape {
   id: number;
   rankedScore: number;
   generalScore: number;
+  totalScoreV2: number;
   ppScore: number;
   wfScore: number;
   wfPPScore: number;
@@ -66,6 +67,7 @@ export function esDocToLegacyPlayerStats(
     id: Number(safeDoc.id ?? 0),
     rankedScore: Number(safeDoc.rankedScore ?? 0),
     generalScore: Number(safeDoc.generalScore ?? 0),
+    totalScoreV2: Number(safeDoc.totalScoreV2 ?? 0),
     ppScore: Number(safeDoc.ppScore ?? 0),
     wfScore: Number(safeDoc.wfScore ?? 0),
     wfPPScore: Number(safeDoc.wfPPScore ?? 0),

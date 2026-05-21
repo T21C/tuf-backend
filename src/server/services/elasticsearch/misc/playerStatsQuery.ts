@@ -65,6 +65,13 @@ export const playerStatsQuery = `
     FROM GeneralPassesData p
     GROUP BY p.playerId
   ),
+  TotalScoreV2Calc AS (
+    SELECT
+      p.playerId,
+      SUM(p.scoreV2) as totalScoreV2
+    FROM PassesData p
+    GROUP BY p.playerId
+  ),
   PPScoreCalc AS (
     SELECT
       p.playerId,
@@ -200,6 +207,7 @@ export const playerStatsQuery = `
     p.playerId as id,
     COALESCE(rs.rankedScore, 0) as rankedScore,
     COALESCE(gs.generalScore, 0) as generalScore,
+    COALESCE(tsv2.totalScoreV2, 0) as totalScoreV2,
     COALESCE(ps.ppScore, 0) as ppScore,
     COALESCE(wfs.wfScore, 0) as wfScore,
     COALESCE(wfpp.wfPPScore, 0) as wfPPScore,
@@ -217,6 +225,7 @@ export const playerStatsQuery = `
   FROM (SELECT DISTINCT playerId FROM PassesData) p
   LEFT JOIN RankedScoreCalc rs ON rs.playerId = p.playerId
   LEFT JOIN GeneralScoreCalc gs ON gs.playerId = p.playerId
+  LEFT JOIN TotalScoreV2Calc tsv2 ON tsv2.playerId = p.playerId
   LEFT JOIN PPScoreCalc ps ON ps.playerId = p.playerId
   LEFT JOIN WFScoreCalc wfs ON wfs.playerId = p.playerId
   LEFT JOIN WFPPScoreCalc wfpp ON wfpp.playerId = p.playerId
@@ -234,6 +243,7 @@ export interface PlayerStatsRow {
   id: number;
   rankedScore: number;
   generalScore: number;
+  totalScoreV2: number;
   ppScore: number;
   wfScore: number;
   wfPPScore: number;

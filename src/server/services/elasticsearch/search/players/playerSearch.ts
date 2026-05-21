@@ -32,6 +32,7 @@ export interface PlayerSearchResult {
 const PLAYER_SORT_FIELD_MAP: Record<string, string> = {
   rankedScore: 'rankedScore',
   generalScore: 'generalScore',
+  totalScoreV2: 'totalScoreV2',
   ppScore: 'ppScore',
   wfScore: 'wfScore',
   wfPPScore: 'wfPPScore',
@@ -52,6 +53,7 @@ const PLAYER_SORT_FIELD_MAP: Record<string, string> = {
 const NUMERIC_FILTER_FIELDS = new Set([
   'rankedScore',
   'generalScore',
+  'totalScoreV2',
   'ppScore',
   'wfScore',
   'wfPPScore',
@@ -375,6 +377,7 @@ export async function getPlayerMaxFields(): Promise<Record<string, number>> {
       track_total_hits: false,
       aggs: {
         maxRankedScore: { max: { field: 'rankedScore' } },
+        maxTotalScoreV2: { max: { field: 'totalScoreV2' } },
         maxGeneralScore: { max: { field: 'generalScore' } },
         maxPpScore: { max: { field: 'ppScore' } },
         maxWfScore: { max: { field: 'wfScore' } },

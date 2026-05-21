@@ -153,6 +153,7 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
 
     rankedScore: coerceNumber(stats?.rankedScore, 0),
     generalScore: coerceNumber(stats?.generalScore, 0),
+    totalScoreV2: coerceNumber(stats?.totalScoreV2, 0),
     ppScore: coerceNumber(stats?.ppScore, 0),
     wfScore: coerceNumber(stats?.wfScore, 0),
     wfPPScore: coerceNumber(stats?.wfPPScore, 0),

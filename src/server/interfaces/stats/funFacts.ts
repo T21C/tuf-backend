@@ -38,7 +38,8 @@ export interface PlayerFunFactsLevelsCleared {
   totalTilecountCleared: number;
   totalPlaytimeMs: number;
   averageBpm: number;
-  totalScoreV2: number;
+  /** Sum of scoreV2 across every pass row (includes reclears). */
+  totalRawScoreV2: number;
 }
 
 export interface PlayerFunFactsExtremes {

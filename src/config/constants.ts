@@ -28,11 +28,12 @@ export const curationTypeAbilities = {
 
 export const validSortOptions = [
   'rankedScore',
-  'generalScore',
+  'totalScoreV2',
   'ppScore',
   'wfScore',
   'wfPPScore',
   'score12K',
+  'generalScore',
   'universalPassCount',
   'averageXacc',
   'worldsFirstCount',

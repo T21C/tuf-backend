@@ -158,6 +158,7 @@ export interface IPlayer extends IBaseModel {
   // Virtual fields
   rankedScore?: number;
   generalScore?: number;
+  totalScoreV2?: number;
   ppScore?: number;
   wfScore?: number;
   score12K?: number;

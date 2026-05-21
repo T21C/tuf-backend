@@ -617,6 +617,7 @@ export const playerMapping = {
       // Aggregated stats (replaces player_stats table)
       rankedScore: { type: 'double' as const },
       generalScore: { type: 'double' as const },
+      totalScoreV2: { type: 'double' as const },
       ppScore: { type: 'double' as const },
       wfScore: { type: 'double' as const },
       wfPPScore: { type: 'double' as const },
