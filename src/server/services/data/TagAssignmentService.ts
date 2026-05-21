@@ -53,6 +53,7 @@ const dlcTagsMap: Record<string, string> = {
     Hold: 'Hold',
     MultiPlanet: 'Multi Planet',
     FreeRoam: 'Free Roam',
+    ScaleMargin: 'Timing Window Scale',
 };
 
 const requiredModsTagsMap: Record<string, string> = {
@@ -62,7 +63,7 @@ const requiredModsTagsMap: Record<string, string> = {
 
 const miscTagsMap: Record<string, string> = {
     isJudgementLimited: 'Judgement Limit',
-    autoTile: 'Auto Tile',
+    autoTile: 'Auto Tile'
 };
 
 const groupNameMap = {
