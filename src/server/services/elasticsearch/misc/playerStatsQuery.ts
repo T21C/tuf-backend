@@ -20,6 +20,7 @@ export const playerStatsQuery = `
       p.levelId,
       p.availability_status,
       MAX(p.isWorldsFirst) as isWorldsFirst,
+      MAX(p.isWorldsFirstPP) as isWorldsFirstPP,
       MAX(p.is12K) as is12K,
       MAX(p.accuracy) as accuracy,
       MAX(p.scoreV2) as scoreV2
@@ -81,6 +82,15 @@ export const playerStatsQuery = `
     WHERE p.isWorldsFirst = true
     GROUP BY p.playerId
   ),
+  WFPPScoreCalc AS (
+    SELECT
+      p.playerId,
+      SUM(ps.baseScore) as wfPPScore
+    FROM PassesData p
+    JOIN player_pass_summary ps ON p.playerId = ps.playerId AND p.levelId = ps.levelId
+    WHERE p.isWorldsFirstPP = true
+    GROUP BY p.playerId
+  ),
   Score12KCalc AS (
     SELECT
       ranked.playerId,
@@ -126,6 +136,14 @@ export const playerStatsQuery = `
       COUNT(*) as worldsFirstCount
     FROM PassesData p
     WHERE p.isWorldsFirst = true
+    GROUP BY p.playerId
+  ),
+  WorldsFirstPPCountCalc AS (
+    SELECT
+      p.playerId,
+      COUNT(*) as worldsFirstPPCount
+    FROM PassesData p
+    WHERE p.isWorldsFirstPP = true
     GROUP BY p.playerId
   ),
   /*
@@ -184,10 +202,12 @@ export const playerStatsQuery = `
     COALESCE(gs.generalScore, 0) as generalScore,
     COALESCE(ps.ppScore, 0) as ppScore,
     COALESCE(wfs.wfScore, 0) as wfScore,
+    COALESCE(wfpp.wfPPScore, 0) as wfPPScore,
     COALESCE(s12k.score12K, 0) as score12K,
     COALESCE(axc.averageXacc, 0) as averageXacc,
     COALESCE(upc.universalPassCount, 0) as universalPassCount,
     COALESCE(wfc.worldsFirstCount, 0) as worldsFirstCount,
+    COALESCE(wfppc.worldsFirstPPCount, 0) as worldsFirstPPCount,
     COALESCE(tdi.diffId, 0) as topDiffId,
     COALESCE(td12k.diffId, 0) as top12kDiffId,
     COALESCE(tpc.totalPasses, 0) as totalPasses,
@@ -199,10 +219,12 @@ export const playerStatsQuery = `
   LEFT JOIN GeneralScoreCalc gs ON gs.playerId = p.playerId
   LEFT JOIN PPScoreCalc ps ON ps.playerId = p.playerId
   LEFT JOIN WFScoreCalc wfs ON wfs.playerId = p.playerId
+  LEFT JOIN WFPPScoreCalc wfpp ON wfpp.playerId = p.playerId
   LEFT JOIN Score12KCalc s12k ON s12k.playerId = p.playerId
   LEFT JOIN AverageXaccCalc axc ON axc.playerId = p.playerId
   LEFT JOIN UniversalPassCountCalc upc ON upc.playerId = p.playerId
   LEFT JOIN WorldsFirstCountCalc wfc ON wfc.playerId = p.playerId
+  LEFT JOIN WorldsFirstPPCountCalc wfppc ON wfppc.playerId = p.playerId
   LEFT JOIN TopDiffId tdi ON tdi.playerId = p.playerId
   LEFT JOIN TopDiff12kId td12k ON td12k.playerId = p.playerId
   LEFT JOIN TotalPassesCalc tpc ON tpc.playerId = p.playerId
@@ -214,10 +236,12 @@ export interface PlayerStatsRow {
   generalScore: number;
   ppScore: number;
   wfScore: number;
+  wfPPScore: number;
   score12K: number;
   averageXacc: number;
   universalPassCount: number;
   worldsFirstCount: number;
+  worldsFirstPPCount: number;
   topDiffId: number;
   top12kDiffId: number;
   totalPasses: number;

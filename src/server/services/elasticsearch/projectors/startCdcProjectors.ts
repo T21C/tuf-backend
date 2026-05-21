@@ -6,6 +6,8 @@ import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchS
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { parseCdcFields, rowId } from './cdcRowParse.js';
 import { getLevelIdsByArtistId, getLevelIdsByPlayerId, getLevelIdsBySongId } from './cdcFanout.js';
+import { cdcPassProjectorDebounce } from './cdcPassProjectorDebounce.js';
+import { CDC_PASSES_STREAM_BLOCK_MS } from '@/server/services/elasticsearch/misc/constants.js';
 import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
 import Curation from '@/models/curations/Curation.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
@@ -44,11 +46,6 @@ function tableEnabled(table: string): boolean {
 
 async function invalidateLevel(levelId: number): Promise<void> {
   await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all']);
-  await invalidatePackLevelsCachesForLevelIds([levelId]);
-}
-
-async function invalidateLevelAndPasses(levelId: number): Promise<void> {
-  await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all', 'Passes']);
   await invalidatePackLevelsCachesForLevelIds([levelId]);
 }
 
@@ -103,9 +100,14 @@ export function startCdcProjectors(): void {
     if (!tableEnabled(table)) continue;
 
     const stream = `${CDC_PREFIX}${table}`;
+    const isPassesStream = table === 'passes';
     const { stop } = subscribeStream({
       stream,
       consumerGroup: 'cdc-projectors',
+      blockMs: isPassesStream ? CDC_PASSES_STREAM_BLOCK_MS : undefined,
+      onIdle: isPassesStream
+        ? () => cdcPassProjectorDebounce.flushOnStreamIdle()
+        : undefined,
       partitionKey: (fields) => {
         const { before, after } = parseCdcFields(fields);
         const id = rowId(before, after);
@@ -125,26 +127,26 @@ export function startCdcProjectors(): void {
           case 'passes': {
             const id = rowId(before, after);
             if (op === 'd') {
-              if (id != null) await es.deletePassDocumentById(id);
               const lid = num(before?.levelId);
-              if (lid != null) {
-                await es.indexLevel(lid);
-                await invalidateLevelAndPasses(lid);
-              }
+              const playerId = num(before?.playerId);
+              cdcPassProjectorDebounce.schedule({
+                deletePassId: id,
+                levelIds: lid != null ? [lid] : [],
+                playerId,
+              });
             } else {
-              if (id != null) await es.indexPass(id);
               const prev = num(before?.levelId);
               const next = num(after?.levelId);
               const lids = new Set<number>();
               if (prev != null) lids.add(prev);
               if (next != null) lids.add(next);
-              for (const lid of lids) {
-                await es.indexLevel(lid);
-                await invalidateLevelAndPasses(lid);
-              }
+              const playerId = num(after?.playerId ?? before?.playerId);
+              cdcPassProjectorDebounce.schedule({
+                passId: id,
+                levelIds: lids,
+                playerId,
+              });
             }
-            const playerId = num(after?.playerId ?? before?.playerId);
-            if (playerId != null) await es.reindexPlayers([playerId]);
             break;
           }
           case 'level_likes': {

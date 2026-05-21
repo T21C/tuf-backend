@@ -34,11 +34,13 @@ const PLAYER_SORT_FIELD_MAP: Record<string, string> = {
   generalScore: 'generalScore',
   ppScore: 'ppScore',
   wfScore: 'wfScore',
+  wfPPScore: 'wfPPScore',
   score12K: 'score12K',
   averageXacc: 'averageXacc',
   totalPasses: 'totalPasses',
   universalPassCount: 'universalPassCount',
   worldsFirstCount: 'worldsFirstCount',
+  worldsFirstPPCount: 'worldsFirstPPCount',
   topDiff: 'topDiffSortOrder',
   top12kDiff: 'top12kDiffSortOrder',
   topDiffId: 'topDiffSortOrder',
@@ -52,11 +54,13 @@ const NUMERIC_FILTER_FIELDS = new Set([
   'generalScore',
   'ppScore',
   'wfScore',
+  'wfPPScore',
   'score12K',
   'averageXacc',
   'totalPasses',
   'universalPassCount',
   'worldsFirstCount',
+  'worldsFirstPPCount',
 ]);
 
 function parseSpecialPrefix(raw?: string): {
@@ -236,6 +240,7 @@ export interface PlayerRanks {
   generalScoreRank: number;
   ppScoreRank: number;
   wfScoreRank: number;
+  wfPPScoreRank: number;
   score12KRank: number;
 }
 
@@ -249,6 +254,7 @@ export async function getPlayerRanks(doc: {
   generalScore?: number;
   ppScore?: number;
   wfScore?: number;
+  wfPPScore?: number;
   score12K?: number;
 }): Promise<PlayerRanks> {
   if (doc?.isBanned) {
@@ -257,6 +263,7 @@ export async function getPlayerRanks(doc: {
       generalScoreRank: -1,
       ppScoreRank: -1,
       wfScoreRank: -1,
+      wfPPScoreRank: -1,
       score12KRank: -1,
     };
   }
@@ -266,6 +273,7 @@ export async function getPlayerRanks(doc: {
     'generalScoreRank',
     'ppScoreRank',
     'wfScoreRank',
+    'wfPPScoreRank',
     'score12KRank',
   ];
   const fields: Record<keyof PlayerRanks, string> = {
@@ -273,6 +281,7 @@ export async function getPlayerRanks(doc: {
     generalScoreRank: 'generalScore',
     ppScoreRank: 'ppScore',
     wfScoreRank: 'wfScore',
+    wfPPScoreRank: 'wfPPScore',
     score12KRank: 'score12K',
   };
 
@@ -305,7 +314,8 @@ export async function getPlayerRanks(doc: {
     generalScoreRank: counts[1] + 1,
     ppScoreRank: counts[2] + 1,
     wfScoreRank: counts[3] + 1,
-    score12KRank: counts[4] + 1,
+    wfPPScoreRank: counts[4] + 1,
+    score12KRank: counts[5] + 1,
   };
   return result;
 }
@@ -368,11 +378,13 @@ export async function getPlayerMaxFields(): Promise<Record<string, number>> {
         maxGeneralScore: { max: { field: 'generalScore' } },
         maxPpScore: { max: { field: 'ppScore' } },
         maxWfScore: { max: { field: 'wfScore' } },
+        maxWfPPScore: { max: { field: 'wfPPScore' } },
         maxScore12K: { max: { field: 'score12K' } },
         maxAverageXacc: { max: { field: 'averageXacc' } },
         maxTotalPasses: { max: { field: 'totalPasses' } },
         maxUniversalPassCount: { max: { field: 'universalPassCount' } },
         maxWorldsFirstCount: { max: { field: 'worldsFirstCount' } },
+        maxWorldsFirstPPCount: { max: { field: 'worldsFirstPPCount' } },
       },
     });
     const aggs = (response as any).aggregations || {};

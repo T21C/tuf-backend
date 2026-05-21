@@ -6,7 +6,7 @@ import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/index.js';
 import sequelize from '@/config/db.js';
-import {updateWorldsFirstStatus} from './passes/index.js';
+import {updateWorldsFirstFlags} from './passes/index.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import User from '@/models/auth/User.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
@@ -792,20 +792,35 @@ async function updateAffectedLevelsWorldsFirst(
   playerId: number,
   transaction?: any,
 ) {
-  // Find all levels where this player has passes
   const affectedLevels = await Pass.findAll({
     where: {
       playerId,
-      isWorldsFirst: true,
+      isDeleted: false,
     },
     attributes: ['levelId'],
     group: ['levelId'],
     transaction,
   });
 
-  // Update world's first status for each affected level
-  for (const level of affectedLevels) {
-    await updateWorldsFirstStatus(level.levelId, transaction);
+  const levelIds = new Set<number>();
+  const wfLevels = await Pass.findAll({
+    where: {playerId, isWorldsFirst: true},
+    attributes: ['levelId'],
+    group: ['levelId'],
+    transaction,
+  });
+  const wfppLevels = await Pass.findAll({
+    where: {playerId, isWorldsFirstPP: true},
+    attributes: ['levelId'],
+    group: ['levelId'],
+    transaction,
+  });
+  for (const row of [...affectedLevels, ...wfLevels, ...wfppLevels]) {
+    levelIds.add(row.levelId);
+  }
+
+  for (const levelId of levelIds) {
+    await updateWorldsFirstFlags(levelId, transaction);
   }
 }
 

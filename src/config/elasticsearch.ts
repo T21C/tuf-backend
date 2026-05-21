@@ -467,6 +467,7 @@ export const passMapping = {
       isAnnounced: { type: 'boolean' as const },
       isDuplicate: { type: 'boolean' as const },
       isWorldsFirst: { type: 'boolean' as const },
+      isWorldsFirstPP: { type: 'boolean' as const },
       player: {
         properties: {
           name: { type: 'text' as const, analyzer: 'custom_text_analyzer' },
@@ -618,10 +619,12 @@ export const playerMapping = {
       generalScore: { type: 'double' as const },
       ppScore: { type: 'double' as const },
       wfScore: { type: 'double' as const },
+      wfPPScore: { type: 'double' as const },
       score12K: { type: 'double' as const },
       averageXacc: { type: 'float' as const },
       universalPassCount: { type: 'integer' as const },
       worldsFirstCount: { type: 'integer' as const },
+      worldsFirstPPCount: { type: 'integer' as const },
       totalPasses: { type: 'integer' as const },
       // Denormalized top-diff info
       topDiffId: { type: 'integer' as const },

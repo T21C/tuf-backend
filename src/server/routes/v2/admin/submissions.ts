@@ -17,7 +17,7 @@ import {getIO} from '@/misc/utils/server/socket.js';
 import sequelize from '@/config/db.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
-import {updateWorldsFirstStatus} from '@/server/routes/v2/database/passes/index.js';
+import {updateWorldsFirstFlags} from '@/server/routes/v2/database/passes/index.js';
 import {IPassSubmissionJudgements} from '@/server/interfaces/models/index.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import Rating from '@/models/levels/Rating.js';
@@ -266,7 +266,7 @@ async function approvePassSubmission(
   }
 
   await submission.update({ status: 'approved', passId: pass.id }, { transaction });
-  await updateWorldsFirstStatus(submission.levelId, transaction);
+  await updateWorldsFirstFlags(submission.levelId, transaction);
 
   const newPass = await Pass.findByPk(pass.id, {
     include: [

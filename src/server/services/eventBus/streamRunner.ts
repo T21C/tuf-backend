@@ -60,6 +60,11 @@ export interface SubscribeStreamOptions {
   partitionKey: (fields: Record<string, string>) => string;
   /** Process one message; throw to trigger retry / DLQ. */
   handle: (fields: Record<string, string>) => Promise<void>;
+  /**
+   * Called after a blocking read returns no messages and all in-flight partition
+   * handlers for this consumer have finished (stream caught up for now).
+   */
+  onIdle?: () => void | Promise<void>;
   partitionSlots?: number;
   blockMs?: number;
   batchCount?: number;
@@ -148,7 +153,15 @@ export function subscribeStream(options: SubscribeStreamOptions): { stop: () => 
           { COUNT: batchCount, BLOCK: aborted ? 1 : blockMs },
         );
 
-        if (!res || res.length === 0) continue;
+        if (!res || res.length === 0) {
+          await Promise.all(slotTail);
+          try {
+            await options.onIdle?.();
+          } catch (idleErr) {
+            logger.error(`[eventBus] onIdle failed for ${options.stream}:`, idleErr);
+          }
+          continue;
+        }
 
         for (const streamEntry of res) {
           for (const msg of streamEntry.messages) {

@@ -86,7 +86,12 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
       totalLikesOnLevels: 0,
       totalDownloadsOnLevels: 0,
     },
-    audience: {uniquePlayersCleared: 0, worldsFirstsOnLevels: 0, totalTilesPlayedOnLevels: 0},
+    audience: {
+      uniquePlayersCleared: 0,
+      worldsFirstsOnLevels: 0,
+      worldsFirstPPsOnLevels: 0,
+      totalTilesPlayedOnLevels: 0,
+    },
     curation: {curatedLevels: 0, rerateCount: 0},
     timeline: {firstLevelAt: null, latestLevelAt: null},
     levelsByDifficulty: {},
@@ -161,6 +166,7 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
     SELECT
       COUNT(DISTINCT p.playerId) AS uniquePlayersCleared,
       COALESCE(SUM(CASE WHEN p.isWorldsFirst = 1 THEN 1 ELSE 0 END), 0) AS worldsFirstsOnLevels,
+      COALESCE(SUM(CASE WHEN p.isWorldsFirstPP = 1 THEN 1 ELSE 0 END), 0) AS worldsFirstPPsOnLevels,
       COALESCE(SUM(
         j.earlyDouble + j.earlySingle + j.ePerfect + j.perfect + j.lPerfect + j.lateSingle + j.lateDouble
       ), 0) AS totalTilesPlayedOnLevels
@@ -280,6 +286,7 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
     audience: {
       uniquePlayersCleared: Number(aud.uniquePlayersCleared) || 0,
       worldsFirstsOnLevels: Number(aud.worldsFirstsOnLevels) || 0,
+      worldsFirstPPsOnLevels: Number(aud.worldsFirstPPsOnLevels) || 0,
       totalTilesPlayedOnLevels: Number(aud.totalTilesPlayedOnLevels) || 0,
     },
     curation: {

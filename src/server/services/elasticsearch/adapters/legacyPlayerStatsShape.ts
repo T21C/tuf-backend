@@ -23,10 +23,12 @@ export interface LegacyPlayerStatsShape {
   generalScore: number;
   ppScore: number;
   wfScore: number;
+  wfPPScore: number;
   score12K: number;
   averageXacc: number;
   universalPassCount: number;
   worldsFirstCount: number;
+  worldsFirstPPCount: number;
   totalPasses: number;
   topDiffId: number;
   top12kDiffId: number;
@@ -55,6 +57,7 @@ export function esDocToLegacyPlayerStats(
     generalScoreRank?: number;
     ppScoreRank?: number;
     wfScoreRank?: number;
+    wfPPScoreRank?: number;
     score12KRank?: number;
   },
 ): LegacyPlayerStatsShape {
@@ -65,10 +68,12 @@ export function esDocToLegacyPlayerStats(
     generalScore: Number(safeDoc.generalScore ?? 0),
     ppScore: Number(safeDoc.ppScore ?? 0),
     wfScore: Number(safeDoc.wfScore ?? 0),
+    wfPPScore: Number(safeDoc.wfPPScore ?? 0),
     score12K: Number(safeDoc.score12K ?? 0),
     averageXacc: Number(safeDoc.averageXacc ?? 0),
     universalPassCount: Number(safeDoc.universalPassCount ?? 0),
     worldsFirstCount: Number(safeDoc.worldsFirstCount ?? 0),
+    worldsFirstPPCount: Number(safeDoc.worldsFirstPPCount ?? 0),
     totalPasses: Number(safeDoc.totalPasses ?? 0),
     topDiffId: Number(safeDoc.topDiffId ?? 0),
     top12kDiffId: Number(safeDoc.top12kDiffId ?? 0),
@@ -78,6 +83,7 @@ export function esDocToLegacyPlayerStats(
     generalScoreRank: ranks?.generalScoreRank,
     ppScoreRank: ranks?.ppScoreRank,
     wfScoreRank: ranks?.wfScoreRank,
+    wfPPScoreRank: ranks?.wfPPScoreRank,
     score12KRank: ranks?.score12KRank,
     rank: ranks?.rankedScoreRank,
     player: {

@@ -44,6 +44,50 @@ export async function updateWorldsFirstStatus(
   return null;
 }
 
+export async function updateWorldsFirstPPStatus(
+  levelId: number,
+  transaction?: any,
+): Promise<Pass | null> {
+  const earliestPP = await Pass.findOne({
+    where: {
+      levelId,
+      isDeleted: false,
+      accuracy: 1,
+    },
+    attributes: ['id', 'vidUploadTime'],
+    order: [['vidUploadTime', 'ASC']],
+    transaction,
+  });
+
+  await Pass.update(
+    {isWorldsFirstPP: false},
+    {
+      where: {levelId, isWorldsFirstPP: true},
+      transaction,
+    },
+  );
+
+  if (earliestPP) {
+    await Pass.update(
+      {isWorldsFirstPP: true},
+      {
+        where: {id: earliestPP.id},
+        transaction,
+      },
+    );
+    return earliestPP;
+  }
+  return null;
+}
+
+export async function updateWorldsFirstFlags(
+  levelId: number,
+  transaction?: any,
+): Promise<void> {
+  await updateWorldsFirstStatus(levelId, transaction);
+  await updateWorldsFirstPPStatus(levelId, transaction);
+}
+
 export async function searchPasses(query: any, userPlayerId?: number, isSuperAdmin = false) {
   try {
       const startTime = Date.now();

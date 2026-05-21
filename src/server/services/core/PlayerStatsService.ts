@@ -173,11 +173,13 @@ export class PlayerStatsService {
           [sequelize.fn('MAX', sequelize.col('generalScore')), 'maxGeneralScore'],
           [sequelize.fn('MAX', sequelize.col('ppScore')), 'maxPpScore'],
           [sequelize.fn('MAX', sequelize.col('wfScore')), 'maxWfScore'],
+          [sequelize.fn('MAX', sequelize.col('wfPPScore')), 'maxWfPPScore'],
           [sequelize.fn('MAX', sequelize.col('score12K')), 'maxScore12K'],
           [sequelize.fn('MAX', sequelize.col('averageXacc')), 'maxAverageXacc'],
           [sequelize.fn('MAX', sequelize.col('totalPasses')), 'maxTotalPasses'],
           [sequelize.fn('MAX', sequelize.col('universalPassCount')), 'maxUniversalPassCount'],
           [sequelize.fn('MAX', sequelize.col('worldsFirstCount')), 'maxWorldsFirstCount'],
+          [sequelize.fn('MAX', sequelize.col('worldsFirstPPCount')), 'maxWorldsFirstPPCount'],
         ],
         raw: true
       });
@@ -259,11 +261,13 @@ export class PlayerStatsService {
           generalScore: 'generalScore',
           ppScore: 'ppScore',
           wfScore: 'wfScore',
+          wfPPScore: 'wfPPScore',
           score12K: 'score12K',
           averageXacc: 'averageXacc',
           totalPasses: 'totalPasses',
           universalPassCount: 'universalPassCount',
-          worldsFirstCount: 'worldsFirstCount'
+          worldsFirstCount: 'worldsFirstCount',
+          worldsFirstPPCount: 'worldsFirstPPCount',
         };
 
         Object.entries(filters).forEach(([key, [min, max]]) => {
@@ -283,11 +287,13 @@ export class PlayerStatsService {
         generalScore: {field: 'generalScore', rankField: 'generalScoreRank'},
         ppScore: {field: 'ppScore', rankField: 'ppScoreRank'},
         wfScore: {field: 'wfScore', rankField: 'wfScoreRank'},
+        wfPPScore: {field: 'wfPPScore', rankField: 'wfPPScoreRank'},
         score12K: {field: 'score12K', rankField: 'score12KRank'},
         averageXacc: {field: 'averageXacc', rankField: null},
         totalPasses: {field: 'totalPasses', rankField: null},
         universalPassCount: {field: 'universalPassCount', rankField: null},
         worldsFirstCount: {field: 'worldsFirstCount', rankField: null},
+        worldsFirstPPCount: {field: 'worldsFirstPPCount', rankField: null},
         topDiffId: {field: 'topDiffId', rankField: null},
         top12kDiffId: {field: 'top12kDiffId', rankField: null},
       };
@@ -725,10 +731,12 @@ export class PlayerStatsService {
           generalScore: stats?.generalScore || 0,
           ppScore: stats?.ppScore || 0,
           wfScore: stats?.wfScore || 0,
+          wfPPScore: stats?.wfPPScore || 0,
           score12K: stats?.score12K || 0,
           averageXacc: stats?.averageXacc || 0,
           universalPassCount: stats?.universalPassCount || 0,
           worldsFirstCount: stats?.worldsFirstCount || 0,
+          worldsFirstPPCount: stats?.worldsFirstPPCount || 0,
           topDiff: stats?.topDiff,
           top12kDiff: stats?.top12kDiff,
           totalPasses: stats?.totalPasses || 0,
@@ -968,6 +976,7 @@ impact_calc AS (
       'videoLink',
       'isHidden',
       'isWorldsFirst',
+      'isWorldsFirstPP',
       'isDuplicate',
     ];
     const levelAttributes = ['id', 'song', 'artist', 'diffId', 'baseScore', 'isHidden'];

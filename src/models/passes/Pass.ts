@@ -28,6 +28,7 @@ class Pass
   declare is16K: boolean | null;
   declare isNoHoldTap: boolean | null;
   declare isWorldsFirst: boolean | null;
+  declare isWorldsFirstPP: boolean | null;
   declare accuracy: number | null;
   declare scoreV2: number | null;
   declare isHidden: boolean | null;
@@ -120,6 +121,11 @@ Pass.init(
       type: DataTypes.BOOLEAN,
       allowNull: true,
     },
+    isWorldsFirstPP: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     accuracy: {
       type: DataTypes.DOUBLE,
       allowNull: true,
@@ -166,6 +172,7 @@ Pass.init(
       {fields: ['playerId']},
       {fields: ['levelId']},
       {fields: ['isWorldsFirst']},
+      {fields: ['isWorldsFirstPP']},
       {fields: ['isDuplicate']},
       {fields: ['isDeleted']},
       {fields: ['scoreV2']},

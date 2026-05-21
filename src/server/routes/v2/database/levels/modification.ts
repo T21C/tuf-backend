@@ -22,6 +22,7 @@ const getUserModel = (user: any): User => user as User;
 import Player from '@/models/players/Player.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import {updateWorldsFirstPPStatus} from '@/server/routes/v2/database/passes/index.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
 import {
   isCdnUrl,
@@ -320,6 +321,7 @@ const handleScoreRecalculations = async (
       },
     );
     await elasticsearchService.reindexPasses(passUpdates.map(pass => pass.id));
+    await updateWorldsFirstPPStatus(levelId, transaction);
 
     logger.debug(`Bulk updated ${passUpdates.length} passes for level ${levelId}`);
   }

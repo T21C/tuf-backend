@@ -245,9 +245,10 @@ export async function createClearEmbed(
     : null;
 
   const showAddInfo =
-    pass.isWorldsFirst || pass.is12K || pass.is16K || pass.isNoHoldTap;
+    pass.isWorldsFirst || pass.isWorldsFirstPP || pass.is12K || pass.is16K || pass.isNoHoldTap;
   const additionalInfo = (
     `${pass.isWorldsFirst ? "🏆 World's First!  |  " : ''}` +
+    `${pass.isWorldsFirstPP ? "🏆 World's First PP!  |  " : ''}` +
     `${pass.is12K ? '12K  |  ' : ''}` +
     `${pass.is16K ? '16K  |  ' : ''}` +
     `${pass.isNoHoldTap ? 'Alt. Tap Option  |  ' : ''}`

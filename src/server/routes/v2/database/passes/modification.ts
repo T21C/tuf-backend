@@ -10,7 +10,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { getIO } from '@/misc/utils/server/socket.js';
 import sequelize from '@/config/db.js';
-import { updateWorldsFirstStatus } from './index.js';
+import { updateWorldsFirstFlags, updateWorldsFirstPPStatus } from './index.js';
 import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
 import { calcAcc, IJudgements } from '@/misc/utils/pass/CalcAcc.js';
 import { getScoreV2 } from '@/misc/utils/pass/CalcScore.js';
@@ -237,58 +237,16 @@ router.put(
         );
       }
 
-      // If vidUploadTime changed or levelId changed, recalculate isWorldsFirst for all passes of this level
-      if (vidUploadTime || levelId !== oldPass.levelId) {
-        // Get the target level ID (either new levelId or current one)
+      const wfFieldsChanged = vidUploadTime || levelId !== oldPass.levelId;
+      const ppAccuracyChanged = judgements != null || accuracy !== undefined;
 
-        // Find the earliest non-deleted pass for this level from non-banned players
-        const earliestPass = await Pass.findOne({
-          where: {
-            levelId,
-            isDeleted: false
-          },
-          include: [
-            {
-            model: Player,
-            as: 'player',
-            required: true,
-            where: {
-              isBanned: false
-            },
-            include: [
-              {
-                model: User,
-                as: 'user',
-                required: false,
-              }
-            ]
-            },
-          ],
-          order: [['vidUploadTime', 'ASC']],
-          transaction,
-        });
-
-        // Reset all passes for this level to not be world's first
-        await Pass.update(
-          {isWorldsFirst: false},
-          {
-            where: {levelId},
-            transaction,
-          },
-        );
-
-        // If we found an earliest pass, mark it as world's first
-        if (earliestPass) {
-          await Pass.update(
-            {isWorldsFirst: true},
-            {
-              where: {id: earliestPass.id},
-              transaction,
-            },
-          );
+      if (wfFieldsChanged) {
+        if (levelId !== oldPass.levelId) {
+          await updateWorldsFirstFlags(oldPass.levelId, transaction);
         }
-        await updateWorldsFirstStatus(oldPass.levelId, transaction);
-        await updateWorldsFirstStatus(levelId, transaction);
+        await updateWorldsFirstFlags(levelId, transaction);
+      } else if (ppAccuracyChanged) {
+        await updateWorldsFirstPPStatus(levelId, transaction);
       }
 
       // Fetch the updated pass
@@ -452,8 +410,8 @@ router.delete(
           },
         );
 
-        // Update world's first status for this level
-        await updateWorldsFirstStatus(levelId, transaction);
+        // Update world's first / world's first PP status for this level
+        await updateWorldsFirstFlags(levelId, transaction);
 
         // Reload the pass to get updated data
         await pass.reload({
@@ -596,9 +554,8 @@ router.patch(
           },
         );
 
-        // Update world's first status for this level
-        await updateWorldsFirstStatus(levelId, transaction);
-
+        // Update world's first / world's first PP status for this level
+        await updateWorldsFirstFlags(levelId, transaction);
 
         await transaction.commit();
 

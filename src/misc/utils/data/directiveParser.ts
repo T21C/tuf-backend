@@ -22,6 +22,7 @@ const PASS_FIELDS = {
   'BASESCORE': (pass: IPass, level: Level) => level.baseScore || level.difficulty?.baseScore || 0,
   'SCORE': (pass: IPass) => pass.scoreV2 || 0,
   'IS_WF': (pass: IPass) => pass.isWorldsFirst || false,
+  'IS_WF_PP': (pass: IPass) => pass.isWorldsFirstPP || false,
   'IS_NHT': (pass: IPass) => pass.isNoHoldTap || false,
   'IS_12K': (pass: IPass) => pass.is12K || false,
   'IS_16K': (pass: IPass) => pass.is16K || false,

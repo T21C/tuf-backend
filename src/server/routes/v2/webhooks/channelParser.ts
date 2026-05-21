@@ -70,6 +70,9 @@ function evaluateCondition(condition: DirectiveCondition, pass: Pass, level: Lev
     case DirectiveConditionType.WORLDS_FIRST:
       return pass.isWorldsFirst === true;
 
+    case DirectiveConditionType.WORLDS_FIRST_PP:
+      return pass.isWorldsFirstPP === true;
+
     case DirectiveConditionType.BASE_SCORE:
       if (!condition.value || !condition.operator || !level.baseScore) return false;
       const baseScore = level.baseScore;

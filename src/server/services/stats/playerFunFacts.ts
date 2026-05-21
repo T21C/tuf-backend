@@ -40,6 +40,7 @@ export async function computePlayerFunFacts(
       totalPasses: 0,
       uniqueLevelsCleared: 0,
       worldsFirstCount: 0,
+      worldsFirstPPCount: 0,
       clears12K: 0,
       clears16K: 0,
       clearsNoHoldTap: 0,
@@ -85,6 +86,7 @@ export async function computePlayerFunFacts(
     clearsByDifficulty: {},
     clearsByDifficultyNoDupes: {},
     worldsFirstByDifficulty: {},
+    worldsFirstPPByDifficulty: {},
     clearsByDifficultyType: {...emptyClearsByDifficultyType()},
   };
 
@@ -113,6 +115,7 @@ export async function computePlayerFunFacts(
       COALESCE(COUNT(*), 0) AS totalPasses,
       COALESCE(COUNT(DISTINCT p.levelId), 0) AS uniqueLevelsCleared,
       COALESCE(SUM(CASE WHEN p.isWorldsFirst = 1 THEN 1 ELSE 0 END), 0) AS worldsFirstCount,
+      COALESCE(SUM(CASE WHEN p.isWorldsFirstPP = 1 THEN 1 ELSE 0 END), 0) AS worldsFirstPPCount,
       COALESCE(SUM(CASE WHEN p.is12K = 1 THEN 1 ELSE 0 END), 0) AS clears12K,
       COALESCE(SUM(CASE WHEN p.is16K = 1 THEN 1 ELSE 0 END), 0) AS clears16K,
       COALESCE(SUM(CASE WHEN p.isNoHoldTap = 1 THEN 1 ELSE 0 END), 0) AS clearsNoHoldTap,
@@ -258,6 +261,7 @@ export async function computePlayerFunFacts(
         l.diffId AS diffId,
         d.type AS diffType,
         IFNULL(p.isWorldsFirst, 0) AS is_wf,
+        IFNULL(p.isWorldsFirstPP, 0) AS is_wfpp,
         ROW_NUMBER() OVER (
           PARTITION BY p.playerId, p.levelId
           ORDER BY IFNULL(p.scoreV2, 0) DESC, p.id DESC
@@ -274,7 +278,8 @@ export async function computePlayerFunFacts(
       diffType,
       COUNT(*) AS cnt,
       COALESCE(SUM(CASE WHEN rn_level = 1 THEN 1 ELSE 0 END), 0) AS cntNoDupes,
-      COALESCE(SUM(CASE WHEN is_wf = 1 THEN 1 ELSE 0 END), 0) AS cntWf
+      COALESCE(SUM(CASE WHEN is_wf = 1 THEN 1 ELSE 0 END), 0) AS cntWf,
+      COALESCE(SUM(CASE WHEN is_wfpp = 1 THEN 1 ELSE 0 END), 0) AS cntWfpp
     FROM ranked
     GROUP BY diffId, diffType
   `;
@@ -322,18 +327,24 @@ export async function computePlayerFunFacts(
   const clearsByDifficulty: Record<string, number> = {};
   const clearsByDifficultyNoDupes: Record<string, number> = {};
   const worldsFirstByDifficulty: Record<string, number> = {};
+  const worldsFirstPPByDifficulty: Record<string, number> = {};
   const clearsByDifficultyType = {...emptyClearsByDifficultyType()};
   for (const row of diffRows) {
     const diffId = String(Number(row.diffId) || 0);
     const cnt = Number(row.cnt) || 0;
     const cntNoDupes = Number(row.cntNoDupes) || 0;
     const cntWf = Number(row.cntWf) || 0;
+    const cntWfpp = Number(row.cntWfpp) || 0;
     clearsByDifficulty[diffId] = (clearsByDifficulty[diffId] || 0) + cnt;
     clearsByDifficultyNoDupes[diffId] =
       (clearsByDifficultyNoDupes[diffId] || 0) + cntNoDupes;
     if (cntWf > 0) {
       worldsFirstByDifficulty[diffId] =
         (worldsFirstByDifficulty[diffId] || 0) + cntWf;
+    }
+    if (cntWfpp > 0) {
+      worldsFirstPPByDifficulty[diffId] =
+        (worldsFirstPPByDifficulty[diffId] || 0) + cntWfpp;
     }
     mergeDifficultyTypeCounts(clearsByDifficultyType, row.diffType as string, cnt);
   }
@@ -367,6 +378,7 @@ export async function computePlayerFunFacts(
       totalPasses: Number(m.totalPasses) || 0,
       uniqueLevelsCleared: Number(m.uniqueLevelsCleared) || 0,
       worldsFirstCount: Number(m.worldsFirstCount) || 0,
+      worldsFirstPPCount: Number(m.worldsFirstPPCount) || 0,
       clears12K: Number(m.clears12K) || 0,
       clears16K: Number(m.clears16K) || 0,
       clearsNoHoldTap: Number(m.clearsNoHoldTap) || 0,
@@ -426,6 +438,7 @@ export async function computePlayerFunFacts(
     clearsByDifficulty,
     clearsByDifficultyNoDupes,
     worldsFirstByDifficulty,
+    worldsFirstPPByDifficulty,
     clearsByDifficultyType: {...clearsByDifficultyType},
   };
 }

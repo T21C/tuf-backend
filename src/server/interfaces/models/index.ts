@@ -119,6 +119,7 @@ export interface IPass extends IBaseModel {
   is16K: boolean | null;
   isNoHoldTap: boolean | null;
   isWorldsFirst: boolean | null;
+  isWorldsFirstPP: boolean | null;
   accuracy: number | null;
   scoreV2: number | null;
   isAnnounced: boolean | null;
@@ -163,6 +164,8 @@ export interface IPlayer extends IBaseModel {
   totalPasses?: number;
   universalPassCount?: number;
   worldsFirstCount?: number;
+  wfPPScore?: number;
+  worldsFirstPPCount?: number;
   topDiff?: IDifficulty;
   top12kDiff?: IDifficulty;
 }
@@ -295,6 +298,7 @@ export enum ConditionOperator {
 export enum DirectiveConditionType {
   ACCURACY = 'ACCURACY',
   WORLDS_FIRST = 'WORLDS_FIRST',
+  WORLDS_FIRST_PP = 'WORLDS_FIRST_PP',
   BASE_SCORE = 'BASE_SCORE',
   CUSTOM = 'CUSTOM',
 }

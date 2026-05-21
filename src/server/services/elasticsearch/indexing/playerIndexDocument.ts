@@ -155,10 +155,12 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
     generalScore: coerceNumber(stats?.generalScore, 0),
     ppScore: coerceNumber(stats?.ppScore, 0),
     wfScore: coerceNumber(stats?.wfScore, 0),
+    wfPPScore: coerceNumber(stats?.wfPPScore, 0),
     score12K: coerceNumber(stats?.score12K, 0),
     averageXacc: coerceNumber(stats?.averageXacc, 0),
     universalPassCount: coerceNumber(stats?.universalPassCount, 0),
     worldsFirstCount: coerceNumber(stats?.worldsFirstCount, 0),
+    worldsFirstPPCount: coerceNumber(stats?.worldsFirstPPCount, 0),
     totalPasses: coerceNumber(stats?.totalPasses, 0),
 
     topDiffId: coerceNumber(stats?.topDiffId, 0),

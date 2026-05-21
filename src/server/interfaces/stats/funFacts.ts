@@ -7,6 +7,7 @@ export interface PlayerFunFactsCounts {
   totalPasses: number;
   uniqueLevelsCleared: number;
   worldsFirstCount: number;
+  worldsFirstPPCount: number;
   clears12K: number;
   clears16K: number;
   clearsNoHoldTap: number;
@@ -83,6 +84,8 @@ export interface PlayerFunFacts {
   clearsByDifficultyNoDupes: Record<string, number>;
   /** diffId string -> number of world's-first passes on that difficulty */
   worldsFirstByDifficulty: Record<string, number>;
+  /** diffId string -> number of world's-first perfect passes on that difficulty */
+  worldsFirstPPByDifficulty: Record<string, number>;
   clearsByDifficultyType: {
     PGU: number;
     SPECIAL: number;
@@ -116,6 +119,7 @@ export interface CreatorFunFactsContent {
 export interface CreatorFunFactsAudience {
   uniquePlayersCleared: number;
   worldsFirstsOnLevels: number;
+  worldsFirstPPsOnLevels: number;
   totalTilesPlayedOnLevels: number;
 }
 

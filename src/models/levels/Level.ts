@@ -256,6 +256,12 @@ Level.init(
         return this.passes ? this.passes.find(pass => pass.isWorldsFirst) : null;
       },
     },
+    firstPPPass: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.passes ? this.passes.find(pass => pass.isWorldsFirstPP) : null;
+      },
+    },
     highestAccuracy: {
       type: DataTypes.VIRTUAL,
       get() {
