@@ -10,8 +10,16 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import User from '@/models/auth/User.js';
 import {Router, Request, Response, NextFunction} from 'express';
 import Team from '@/models/credits/Team.js';
+import {TeamAlias} from '@/models/credits/TeamAlias.js';
 import Creator from '@/models/credits/Creator.js';
+import {CreatorAlias} from '@/models/credits/CreatorAlias.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
+import LevelAlias from '@/models/levels/LevelAlias.js';
+import Song from '@/models/songs/Song.js';
+import SongAlias from '@/models/songs/SongAlias.js';
+import SongCredit from '@/models/songs/SongCredit.js';
+import Artist from '@/models/artists/Artist.js';
+import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { calculateAverageRating } from '@/misc/utils/data/RatingUtils.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -19,6 +27,89 @@ import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 const router: Router = Router();
+
+const MAX_RATING_COMMENT_LENGTH = 10_000;
+
+/** Level includes for rating list/search (aliases for song, artist, creators, team). */
+const ratingLevelSearchIncludes = [
+  {
+    model: LevelAlias,
+    as: 'aliases',
+    attributes: ['field', 'alias'],
+    required: false,
+  },
+  {
+    model: Song,
+    as: 'songObject',
+    attributes: ['id', 'name'],
+    required: false,
+    include: [
+      {
+        model: SongAlias,
+        as: 'aliases',
+        attributes: ['alias'],
+        required: false,
+      },
+      {
+        model: SongCredit,
+        as: 'credits',
+        attributes: ['role'],
+        required: false,
+        include: [
+          {
+            model: Artist,
+            as: 'artist',
+            attributes: ['id', 'name'],
+            required: false,
+            include: [
+              {
+                model: ArtistAlias,
+                as: 'aliases',
+                attributes: ['alias'],
+                required: false,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    model: Team,
+    as: 'teamObject',
+    attributes: ['name'],
+    required: false,
+    include: [
+      {
+        model: TeamAlias,
+        as: 'teamAliases',
+        attributes: ['name'],
+        required: false,
+      },
+    ],
+  },
+  {
+    model: LevelCredit,
+    as: 'levelCredits',
+    required: false,
+    attributes: ['id', 'role'],
+    include: [
+      {
+        model: Creator,
+        as: 'creator',
+        attributes: ['name', 'id'],
+        include: [
+          {
+            model: CreatorAlias,
+            as: 'creatorAliases',
+            attributes: ['name'],
+            required: false,
+          },
+        ],
+      },
+    ],
+  },
+];
 
 /** Reusable options for fetching a rating with full includes (level, details, difficulties). */
 function fullRatingIncludeOptions(transaction: any) {
@@ -31,13 +122,7 @@ function fullRatingIncludeOptions(transaction: any) {
         required: false,
         include: [
           { model: Difficulty, as: 'difficulty', required: false },
-          { model: Team, as: 'teamObject', required: false },
-          {
-            model: LevelCredit,
-            as: 'levelCredits',
-            required: false,
-            include: [{ model: Creator, as: 'creator' }],
-          },
+          ...ratingLevelSearchIncludes,
         ],
       },
       {
@@ -87,27 +172,7 @@ router.get(
             isDeleted: false,
             isHidden: false
           },
-          include: [
-            {
-              model: Team,
-              as: 'teamObject',
-              attributes: ['name'],
-              required: false,
-            },
-            {
-              model: LevelCredit,
-              as: 'levelCredits',
-              required: false,
-              attributes: ['id', 'role'],
-              include: [
-                {
-                  model: Creator,
-                  as: 'creator',
-                  attributes: ['name', 'id'],
-                },
-              ],
-            },
-          ],
+          include: [...ratingLevelSearchIncludes],
         },
         {
           model: RatingDetail,
@@ -150,12 +215,17 @@ router.put(
   let transaction: any;
 
   try {
-    transaction = await sequelize.transaction();
     const {id} = req.params;
     const {rating: ratingString, comment: commentString, isCommunityRating = false} = req.body;
+
+    if (typeof commentString === 'string' && commentString.length > MAX_RATING_COMMENT_LENGTH) {
+      return res.status(400).json({error: `Comment must not exceed ${MAX_RATING_COMMENT_LENGTH} characters`});
+    }
+
+    transaction = await sequelize.transaction();
     const user = req.user;
     const rating = typeof ratingString === 'string' ? ratingString.slice(0, 254) : '';
-    const comment = typeof commentString === 'string' ? commentString.slice(0, 254) : '';
+    const comment = typeof commentString === 'string' ? commentString : '';
     // Get user to check permissions
     if (!user) {
       await safeTransactionRollback(transaction);

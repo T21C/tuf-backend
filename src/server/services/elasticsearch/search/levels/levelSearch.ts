@@ -650,7 +650,7 @@ async function getLevelSortOptions(sort?: string): Promise<any[]> {
       ];
     }
     case 'CLEARS':
-      return [{ clears: direction }, { id: 'desc' }];
+      return [{ uniqueClears: direction }, { id: 'desc' }];
     case 'BASESCORE': {
       const [difficultyBaseScoreById, difficultySortOrderById] = await Promise.all([
         getDifficultyBaseScoreByDiffId(),
