@@ -1,451 +1,222 @@
-#!/usr/bin/env npx tsx
 /**
- * Find LEVELZIP rows where GET /:fileId/transform can still run a full LevelDict parse
- * despite oversized ingest limits — typically legacy uploads before `targetLevelOversized`
- * was set correctly, or metadata mismatch (`oversizedUnparsed` on the target entry but
- * `targetLevelOversized` false/missing).
+ * Scan LEVELZIP rows where GET /:fileId/transform can still run a full LevelDict parse
+ * despite oversized ingest limits (read-only).
  *
- * Read-only: scans `cdn_files` metadata (and optionally Spaces HEAD for the target .adofai).
+ * Pair with {@link fixTransformOversizeExposure.ts} (`--apply`) to close the transform gate
+ * and rebuild minimal oversized cache — same workflow as auditPassJudgements scan vs clamp.
  *
  * Usage (from server/):
  *   npx tsx src/externalServices/cdnService/scripts/auditTransformOversizeExposure.ts
+ *   npx tsx src/externalServices/cdnService/scripts/auditTransformOversizeExposure.ts --help
  *   npx tsx src/externalServices/cdnService/scripts/auditTransformOversizeExposure.ts --only-exposed
- *   npx tsx src/externalServices/cdnService/scripts/auditTransformOversizeExposure.ts --verify-spaces --limit 500
- *   npx tsx src/externalServices/cdnService/scripts/auditTransformOversizeExposure.ts --file-id <uuid> --with-level-ids
+ *   npx tsx src/externalServices/cdnService/scripts/auditTransformOversizeExposure.ts --verify-spaces --out-json ./exposed.json
+ *   npx tsx src/externalServices/cdnService/scripts/fixTransformOversizeExposure.ts --apply
  */
 
-import { Command } from 'commander';
+import {parseArgs} from 'node:util';
+import {writeFile} from 'node:fs/promises';
 import dotenv from 'dotenv';
-import { Op } from 'sequelize';
 
 dotenv.config();
 
-import Level from '@/models/levels/Level.js';
-import CdnFile from '@/models/cdn/CdnFile.js';
-import { getSequelizeForModelGroup } from '@/config/db.js';
-import { initializeAssociations } from '@/models/associations.js';
-import { deriveLargestLevelFromRaw } from '../http/routes/levels/shared/routeUtils.js';
+import {getSequelizeForModelGroup} from '@/config/db.js';
+import {initializeAssociations} from '@/models/associations.js';
+import {logger} from '@/server/services/core/LoggerService.js';
+import {spacesStorage} from '../infra/storage/spacesStorage.js';
 import {
     MAX_LEVEL_FILE_SIZE_FOR_PARSE,
     MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE,
 } from '../domain/level/levelParseLimits.js';
-import { spacesStorage } from '../infra/storage/spacesStorage.js';
+import {scanTransformOversizeExposure} from '../domain/level/transformOversizeExposureAudit.js';
 
 initializeAssociations();
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 
-type LevelFileEntry = {
-    name?: string;
-    path?: string;
-    size?: number;
-    relativePath?: string;
-    oversizedUnparsed?: boolean;
-};
-
-type LevelzipMetadata = {
-    targetLevel?: string | null;
-    targetLevelRelativePath?: string | null;
-    targetLevelOversized?: boolean;
-    targetSafeToParse?: boolean;
-    targetSafeToParseVersion?: number;
-    songFiles?: Record<string, unknown>;
-    allLevelFiles?: LevelFileEntry[] | Record<string, LevelFileEntry>;
-    levelFiles?: Record<string, LevelFileEntry>;
-};
-
-export type TransformExposureReason =
-    | 'metadata_mismatch_oversized_unparsed'
-    | 'metadata_size_over_parse_limit'
-    | 'cache_tilecount_over_parse_limit'
-    | 'legacy_safe_to_parse_on_oversized'
-    | 'spaces_size_over_parse_limit'
-    | 'spaces_size_unknown';
-
-export type TransformExposureHit = {
-    fileId: string;
-    /** Transform route only blocks when this is strictly true. */
-    transformGateOpen: boolean;
-    /** Would pass transform pre-checks and reach LevelDict(parse) on the target path. */
-    crashRisk: boolean;
-    severity: 'critical' | 'high' | 'medium' | 'low' | 'none';
-    reasons: TransformExposureReason[];
-    targetLevel: string | null;
-    targetLevelName: string | null;
-    targetLevelOversized: boolean;
-    targetOversizedUnparsed: boolean;
-    metadataTargetSizeBytes: number | null;
-    spacesTargetSizeBytes: number | null;
-    cacheTilecount: number | null;
-    targetSafeToParse: boolean;
-    hasSongFiles: boolean;
-    levelIds?: number[];
-};
-
-function collectLevelEntries(metadata: LevelzipMetadata): LevelFileEntry[] {
-    const out: LevelFileEntry[] = [];
-    const push = (v: unknown) => {
-        if (v && typeof v === 'object' && !Array.isArray(v)) {
-            out.push(v as LevelFileEntry);
-        }
-    };
-    const alf = metadata.allLevelFiles;
-    if (Array.isArray(alf)) {
-        for (const e of alf) push(e);
-    } else if (alf && typeof alf === 'object') {
-        for (const e of Object.values(alf)) push(e);
-    }
-    const lf = metadata.levelFiles;
-    if (lf && typeof lf === 'object') {
-        for (const e of Object.values(lf)) push(e);
-    }
-    return out;
+interface CliOptions {
+    fileId?: string;
+    offset: number;
+    limit?: number;
+    batchSize: number;
+    onlyExposed: boolean;
+    verifySpaces: boolean;
+    withLevelIds: boolean;
+    minFileSizeBytes: number;
+    minTilecount: number;
+    outJson?: string;
 }
 
-function resolveTransformTarget(metadata: LevelzipMetadata): {
-    path: string | null;
-    name: string | null;
-    entry: LevelFileEntry | null;
-} {
-    let path =
-        typeof metadata.targetLevel === 'string' && metadata.targetLevel.length > 0
-            ? metadata.targetLevel
-            : null;
+function printHelp(): void {
+    const text = `
+auditTransformOversizeExposure.ts
 
-    if (!path) {
-        const derived = deriveLargestLevelFromRaw(metadata as Record<string, unknown>);
-        path = derived?.path ?? null;
-    }
+Read-only scan for LEVELZIP rows where transform can still load the target .adofai with
+LevelDict (OOM risk on huge charts). Writes JSON summary to stdout unless --out-json is set.
 
-    if (!path) {
-        return { path: null, name: null, entry: null };
-    }
+To repair flagged rows, use the sibling fix script (dry-run by default):
+  npx tsx src/externalServices/cdnService/scripts/fixTransformOversizeExposure.ts
+  npx tsx src/externalServices/cdnService/scripts/fixTransformOversizeExposure.ts --apply
 
-    const entries = collectLevelEntries(metadata);
-    const entry =
-        entries.find((e) => e.path === path) ||
-        entries.find((e) => typeof e.path === 'string' && path!.endsWith(e.path)) ||
-        null;
+FLAGS
+  --help, -h
+    Show this help.
 
-    const name =
-        (typeof entry?.name === 'string' && entry.name) ||
-        path.split('/').pop() ||
-        null;
+  --file-id <uuid>
+    Audit a single cdn_files.id.
 
-    return { path, name, entry };
+  --offset <n>
+    Skip first n LEVELZIP rows (order by id). Default: 0
+
+  --limit <n>
+    Max rows to scan (omit = all).
+
+  --batch-size <n>
+    SELECT batch size. Default: 500
+
+  --only-exposed
+    Output only crashRisk hits in the hits array.
+
+  --verify-spaces
+    HEAD target .adofai in Spaces (slower; adds spaces_* reasons).
+
+  --with-level-ids
+    Attach levels.id for each exposed hit.
+
+  --min-size-bytes <n>
+    File size threshold (default ${MAX_LEVEL_FILE_SIZE_FOR_PARSE}).
+
+  --min-tilecount <n>
+    Tile count threshold (default ${MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE}).
+
+  --out-json <path>
+    Write full scan result JSON to a file instead of only stdout.
+
+EXAMPLES
+  Scan all exposed rows:
+    npx tsx src/externalServices/cdnService/scripts/auditTransformOversizeExposure.ts --only-exposed
+
+  Export for review:
+    npx tsx src/externalServices/cdnService/scripts/auditTransformOversizeExposure.ts --only-exposed --out-json ./transform-exposed.json
+
+  Single file:
+    npx tsx src/externalServices/cdnService/scripts/auditTransformOversizeExposure.ts --file-id <uuid> --with-level-ids
+`.trim();
+
+    // eslint-disable-next-line no-console
+    console.log(text);
 }
 
-function parseCacheTilecount(cacheData: string | null): number | null {
-    if (!cacheData) return null;
-    try {
-        const parsed = JSON.parse(cacheData) as { tilecount?: unknown };
-        const tc = parsed?.tilecount;
-        return typeof tc === 'number' && Number.isFinite(tc) ? tc : null;
-    } catch {
-        return null;
-    }
-}
-
-/**
- * Mirrors transform route: oversized levels are blocked only when `targetLevelOversized === true`.
- */
-export function evaluateTransformOversizeExposure(
-    file: Pick<CdnFile, 'id' | 'metadata' | 'cacheData'>,
-    options: {
-        minFileSizeBytes?: number;
-        minTilecount?: number;
-        /** Set when --verify-spaces ran; null means HEAD miss or missing ContentLength. */
-        spacesTargetSizeBytes?: number | null;
-        spacesChecked?: boolean;
-    } = {}
-): TransformExposureHit {
-    const minFileSizeBytes = options.minFileSizeBytes ?? MAX_LEVEL_FILE_SIZE_FOR_PARSE;
-    const minTilecount = options.minTilecount ?? MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE;
-
-    const metadata = (file.metadata || {}) as LevelzipMetadata;
-    const targetLevelOversized = metadata.targetLevelOversized === true;
-    const transformGateOpen = !targetLevelOversized;
-    const hasSongFiles =
-        !!metadata.songFiles &&
-        typeof metadata.songFiles === 'object' &&
-        Object.keys(metadata.songFiles).length > 0;
-
-    const { path: targetLevel, name: targetLevelName, entry } = resolveTransformTarget(metadata);
-    const metadataTargetSizeBytes =
-        typeof entry?.size === 'number' && Number.isFinite(entry.size) ? entry.size : null;
-    const targetOversizedUnparsed = entry?.oversizedUnparsed === true;
-    const cacheTilecount = parseCacheTilecount(file.cacheData);
-    const targetSafeToParse = metadata.targetSafeToParse === true;
-
-    const reasons: TransformExposureReason[] = [];
-
-    if (targetOversizedUnparsed && !targetLevelOversized) {
-        reasons.push('metadata_mismatch_oversized_unparsed');
-    }
-    if (metadataTargetSizeBytes !== null && metadataTargetSizeBytes > minFileSizeBytes) {
-        reasons.push('metadata_size_over_parse_limit');
-    }
-    if (cacheTilecount !== null && cacheTilecount > minTilecount) {
-        reasons.push('cache_tilecount_over_parse_limit');
-    }
-    if (
-        targetSafeToParse &&
-        (reasons.includes('metadata_size_over_parse_limit') ||
-            reasons.includes('cache_tilecount_over_parse_limit') ||
-            targetOversizedUnparsed)
-    ) {
-        reasons.push('legacy_safe_to_parse_on_oversized');
-    }
-
-    const spacesChecked = options.spacesChecked === true;
-    const spacesSize = options.spacesTargetSizeBytes;
-    if (spacesChecked && spacesSize != null && spacesSize > minFileSizeBytes) {
-        reasons.push('spaces_size_over_parse_limit');
-    }
-    if (spacesChecked && targetLevel && (spacesSize == null || spacesSize === undefined)) {
-        reasons.push('spaces_size_unknown');
-    }
-
-    const canReachParse =
-        transformGateOpen && hasSongFiles && !!targetLevel;
-
-    const crashRisk = canReachParse && reasons.length > 0;
-
-    let severity: TransformExposureHit['severity'] = 'none';
-    if (crashRisk) {
-        const sizeBytes = Math.max(
-            metadataTargetSizeBytes ?? 0,
-            spacesSize ?? 0
-        );
-        const tiles = cacheTilecount ?? 0;
-        if (
-            sizeBytes > minFileSizeBytes ||
-            tiles > minTilecount ||
-            reasons.includes('metadata_mismatch_oversized_unparsed')
-        ) {
-            severity = 'critical';
-        } else if (reasons.includes('legacy_safe_to_parse_on_oversized')) {
-            severity = 'high';
-        } else if (metadataTargetSizeBytes !== null && metadataTargetSizeBytes > minFileSizeBytes * 0.5) {
-            severity = 'medium';
-        } else {
-            severity = 'low';
-        }
-    }
-
-    return {
-        fileId: file.id,
-        transformGateOpen,
-        crashRisk,
-        severity,
-        reasons,
-        targetLevel,
-        targetLevelName,
-        targetLevelOversized,
-        targetOversizedUnparsed,
-        metadataTargetSizeBytes,
-        spacesTargetSizeBytes: spacesSize ?? null,
-        cacheTilecount,
-        targetSafeToParse,
-        hasSongFiles,
-    };
-}
-
-async function attachLevelIds(hits: TransformExposureHit[]): Promise<void> {
-    const ids = hits.map((h) => h.fileId);
-    if (ids.length === 0) return;
-
-    const levels = await Level.findAll({
-        where: { fileId: { [Op.in]: ids } },
-        attributes: ['id', 'fileId'],
-    });
-    const byFileId = new Map<string, number[]>();
-    for (const row of levels) {
-        if (!row.fileId) continue;
-        const list = byFileId.get(row.fileId) ?? [];
-        list.push(row.id);
-        byFileId.set(row.fileId, list);
-    }
-    for (const hit of hits) {
-        const levelIds = byFileId.get(hit.fileId);
-        if (levelIds?.length) {
-            hit.levelIds = levelIds;
-        }
-    }
-}
-
-async function main(): Promise<void> {
-    const program = new Command();
-    program
-        .name('audit-transform-oversize-exposure')
-        .description(
-            'List LEVELZIP rows where transform can still full-parse levels that exceed ingest limits'
-        )
-        .option('--file-id <uuid>', 'Audit a single cdn_files.id')
-        .option('--offset <n>', 'Skip first n LEVELZIP rows (order by id)', '0')
-        .option('--limit <n>', 'Max rows to scan (omit = all)')
-        .option('--batch-size <n>', 'SELECT batch size', '500')
-        .option('--only-exposed', 'Output only crashRisk hits', false)
-        .option('--verify-spaces', 'HEAD target .adofai in Spaces (slower)', false)
-        .option('--with-level-ids', 'Attach levels.id for each hit', false)
-        .option(
-            '--min-size-bytes <n>',
-            'Treat as oversized file size (default MAX_LEVEL_FILE_SIZE_FOR_PARSE)',
-            String(MAX_LEVEL_FILE_SIZE_FOR_PARSE)
-        )
-        .option(
-            '--min-tilecount <n>',
-            'Treat as oversized tile count (default MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE)',
-            String(MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE)
-        )
-        .parse();
-
-    const opts = program.opts<{
-        fileId?: string;
-        offset?: string;
-        limit?: string;
-        batchSize?: string;
-        onlyExposed?: boolean;
-        verifySpaces?: boolean;
-        withLevelIds?: boolean;
-        minSizeBytes?: string;
-        minTilecount?: string;
-    }>();
-
-    const minFileSizeBytes = Math.max(1, parseInt(String(opts.minSizeBytes), 10) || MAX_LEVEL_FILE_SIZE_FOR_PARSE);
-    const minTilecount = Math.max(1, parseInt(String(opts.minTilecount), 10) || MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE);
-    const onlyExposed = opts.onlyExposed === true;
-    const verifySpaces = opts.verifySpaces === true;
-    const withLevelIds = opts.withLevelIds === true;
-    const batchSize = Math.max(1, parseInt(String(opts.batchSize || '500'), 10) || 500);
-    const maxRows =
-        opts.limit !== undefined && String(opts.limit).trim() !== ''
-            ? Math.max(1, parseInt(String(opts.limit), 10) || 0)
-            : null;
-    let offset = Math.max(0, parseInt(String(opts.offset || '0'), 10) || 0);
-    const fileId = opts.fileId ? String(opts.fileId) : null;
-
-    const where: Record<string, unknown> = { type: 'LEVELZIP' };
-    if (fileId) {
-        where.id = fileId;
-    }
-
-    const hits: TransformExposureHit[] = [];
-    let scanned = 0;
-    let gateOpenCount = 0;
-    let crashRiskCount = 0;
-
-    const processRow = async (row: CdnFile) => {
-        scanned++;
-        const meta = (row.metadata || {}) as LevelzipMetadata;
-        const { path: targetPath } = resolveTransformTarget(meta);
-
-        let spacesTargetSizeBytes: number | null | undefined;
-        let spacesChecked = false;
-        if (verifySpaces && targetPath) {
-            spacesChecked = true;
-            const head = await spacesStorage.getFileMetadata(targetPath);
-            spacesTargetSizeBytes =
-                typeof head?.ContentLength === 'number' ? head.ContentLength : null;
-        }
-
-        const hit = evaluateTransformOversizeExposure(row, {
-            minFileSizeBytes,
-            minTilecount,
-            ...(spacesChecked ? { spacesTargetSizeBytes, spacesChecked: true } : {}),
-        });
-
-        if (hit.transformGateOpen) {
-            gateOpenCount++;
-        }
-        if (hit.crashRisk) {
-            crashRiskCount++;
-        }
-
-        if (!onlyExposed || hit.crashRisk) {
-            hits.push(hit);
-        }
-    };
-
-    if (fileId) {
-        const row = await CdnFile.findOne({
-            where,
-            attributes: ['id', 'metadata', 'cacheData'],
-        });
-        if (!row) {
-            throw new Error(`No LEVELZIP cdn_files row for ${fileId}`);
-        }
-        await processRow(row);
-    } else {
-        while (true) {
-            const remaining = maxRows != null ? Math.max(0, maxRows - scanned) : batchSize;
-            if (maxRows != null && remaining <= 0) break;
-            const thisLimit = maxRows != null ? Math.min(batchSize, remaining) : batchSize;
-
-            const rows = await CdnFile.findAll({
-                where,
-                attributes: ['id', 'metadata', 'cacheData'],
-                order: [['id', 'ASC']],
-                limit: thisLimit,
-                offset,
-            });
-
-            if (rows.length === 0) break;
-
-            for (const row of rows) {
-                await processRow(row);
-            }
-
-            offset += rows.length;
-            if (rows.length < thisLimit) break;
-            if (maxRows != null && scanned >= maxRows) break;
-        }
-    }
-
-    const exposedHits = hits.filter((h) => h.crashRisk);
-    if (withLevelIds && exposedHits.length > 0) {
-        await attachLevelIds(exposedHits);
-    }
-
-    const bySeverity = {
-        critical: exposedHits.filter((h) => h.severity === 'critical').length,
-        high: exposedHits.filter((h) => h.severity === 'high').length,
-        medium: exposedHits.filter((h) => h.severity === 'medium').length,
-        low: exposedHits.filter((h) => h.severity === 'low').length,
-    };
-
-    const byReason: Record<string, number> = {};
-    for (const h of exposedHits) {
-        for (const r of h.reasons) {
-            byReason[r] = (byReason[r] ?? 0) + 1;
-        }
-    }
-
-    const output = {
-        scanned,
-        transformGateOpenCount: gateOpenCount,
-        crashRiskCount,
-        limits: {
-            maxLevelFileSizeForParse: MAX_LEVEL_FILE_SIZE_FOR_PARSE,
-            maxLevelTilecountForFullParse: MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE,
-            auditMinFileSizeBytes: minFileSizeBytes,
-            auditMinTilecount: minTilecount,
+async function runScript(): Promise<void> {
+    const {values} = parseArgs({
+        options: {
+            help: {type: 'boolean', short: 'h', default: false},
+            'file-id': {type: 'string'},
+            offset: {type: 'string', default: '0'},
+            limit: {type: 'string'},
+            'batch-size': {type: 'string', default: '500'},
+            'only-exposed': {type: 'boolean', default: false},
+            'verify-spaces': {type: 'boolean', default: false},
+            'with-level-ids': {type: 'boolean', default: false},
+            'min-size-bytes': {type: 'string', default: String(MAX_LEVEL_FILE_SIZE_FOR_PARSE)},
+            'min-tilecount': {type: 'string', default: String(MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE)},
+            'out-json': {type: 'string'},
         },
-        bySeverity,
-        byReason,
-        hits: onlyExposed ? exposedHits : hits,
-        exposedOnly: onlyExposed,
-        verifySpaces,
+        allowPositionals: false,
+    });
+
+    if (values.help) {
+        printHelp();
+        return;
+    }
+
+    const offset = parseInt(String(values.offset), 10);
+    if (!Number.isFinite(offset) || offset < 0) {
+        throw new Error('Invalid --offset');
+    }
+
+    const limitRaw = values.limit;
+    const limit =
+        limitRaw != null && String(limitRaw).trim() !== ''
+            ? parseInt(String(limitRaw), 10)
+            : undefined;
+    if (limit != null && (!Number.isFinite(limit) || limit < 1)) {
+        throw new Error('Invalid --limit');
+    }
+
+    const batchSize = parseInt(String(values['batch-size']), 10);
+    if (!Number.isFinite(batchSize) || batchSize < 1) {
+        throw new Error('Invalid --batch-size');
+    }
+
+    const minFileSizeBytes = parseInt(String(values['min-size-bytes']), 10);
+    if (!Number.isFinite(minFileSizeBytes) || minFileSizeBytes < 1) {
+        throw new Error('Invalid --min-size-bytes');
+    }
+
+    const minTilecount = parseInt(String(values['min-tilecount']), 10);
+    if (!Number.isFinite(minTilecount) || minTilecount < 1) {
+        throw new Error('Invalid --min-tilecount');
+    }
+
+    const opts: CliOptions = {
+        fileId: values['file-id']?.trim() || undefined,
+        offset,
+        limit,
+        batchSize,
+        onlyExposed: Boolean(values['only-exposed']),
+        verifySpaces: Boolean(values['verify-spaces']),
+        withLevelIds: Boolean(values['with-level-ids']),
+        minFileSizeBytes,
+        minTilecount,
+        outJson: values['out-json']?.trim() || undefined,
     };
 
-    // eslint-disable-next-line no-console
-    console.log(JSON.stringify(output, null, 2));
+    const t0 = Date.now();
+    await cdnSequelize.authenticate();
+    logger.info('DB OK', {mode: 'scan'});
 
-    await cdnSequelize.close();
+    const output = await scanTransformOversizeExposure({
+        fileId: opts.fileId ?? null,
+        offset: opts.offset,
+        limit: opts.limit ?? null,
+        batchSize: opts.batchSize,
+        onlyExposed: opts.onlyExposed,
+        verifySpaces: opts.verifySpaces,
+        withLevelIds: opts.withLevelIds,
+        minFileSizeBytes: opts.minFileSizeBytes,
+        minTilecount: opts.minTilecount,
+        getSpacesTargetSizeBytes: opts.verifySpaces
+            ? async (targetPath) => {
+                  const head = await spacesStorage.getFileMetadata(targetPath);
+                  return typeof head?.ContentLength === 'number' ? head.ContentLength : null;
+              }
+            : undefined,
+    });
+
+    const json = JSON.stringify(output, null, 2);
+    if (opts.outJson) {
+        await writeFile(opts.outJson, json, 'utf8');
+        logger.info('Wrote JSON', {path: opts.outJson, crashRiskCount: output.crashRiskCount});
+    } else {
+        // eslint-disable-next-line no-console
+        console.log(json);
+    }
+
+    logger.info('Scan complete', {
+        elapsedMs: Date.now() - t0,
+        scanned: output.scanned,
+        crashRiskCount: output.crashRiskCount,
+    });
 }
 
-main().catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
-});
+runScript()
+    .catch((e) => {
+        logger.error(e instanceof Error ? e.message : String(e));
+        process.exitCode = 1;
+    })
+    .finally(async () => {
+        await cdnSequelize.close();
+    })
+    .then(() => {
+        process.exit(process.exitCode ?? 0);
+    });
