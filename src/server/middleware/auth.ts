@@ -9,7 +9,7 @@ import PlayerStats from '@/models/players/PlayerStats.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasAnyFlag, hasFlag } from '@/misc/utils/auth/permissionUtils.js';
-import { tufStellarExpiresAtActive } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { canUseStellarProfileCustomization } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 
 const getUser = async (id: string): Promise<User | null> => {
   return await User.findByPk(id, {
@@ -147,7 +147,7 @@ const chainMiddleware = (...middlewares: MiddlewareFunction[]): MiddlewareFuncti
 /**
  * Permission check middleware factory
  */
-const requirePermission = (checkFn: (user: UserAttributes & { billing?: UserTufStellarBilling }) => boolean, errorMessage: string): MiddlewareFunction => {
+const requirePermission = (checkFn: (user: UserAttributes & { tufStellarBilling?: UserTufStellarBilling }) => boolean, errorMessage: string): MiddlewareFunction => {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (!req.user) {
       res.status(401).json({error: 'User not found'});
@@ -219,7 +219,7 @@ export const Auth = {
     chainMiddleware(
       baseAuth,
       requirePermission(
-        (user) => tufStellarExpiresAtActive(user.billing?.tufStellarSubscriptionExpiresAt ?? null),
+        (user) => canUseStellarProfileCustomization(user, user.tufStellarBilling ?? null),
         'TUF Stellar user access required'
       ),
       auditLogMiddleware
