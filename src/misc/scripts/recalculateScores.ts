@@ -118,7 +118,9 @@ async function recalculateScores() {
             difficulty: {
               name: pass.level.difficulty?.name || '',
               baseScore: pass.level.difficulty?.baseScore || 0
-            }
+            },
+            xaccPoleOffset: pass.level.xaccPoleOffset ?? null,
+            xaccTopMultiplier: pass.level.xaccTopMultiplier ?? null,
           };
 
           const newScore = getScoreV2(passData, levelData);

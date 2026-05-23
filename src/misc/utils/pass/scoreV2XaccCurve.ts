@@ -20,6 +20,42 @@ export const XACC_CURVE_DEFAULTS: Required<XaccCurveConfig> = {
   poleOffset: 0.0054,
 };
 
+/** Valid range for per-level pole offset (E). */
+export const XACC_POLE_OFFSET_MIN = 0.0005;
+export const XACC_POLE_OFFSET_MAX = 0.05;
+
+/** Valid range for per-level top multiplier (G). */
+export const XACC_TOP_MULTIPLIER_MIN = 2;
+export const XACC_TOP_MULTIPLIER_MAX = 15;
+
+export type LevelXaccCurveSource = {
+  xaccPoleOffset?: number | null;
+  xaccTopMultiplier?: number | null;
+  xaccCurve?: XaccCurveConfig | null;
+};
+
+/** DB / API fields → overrides, or undefined when both null (site defaults). */
+export function pickLevelXaccCurve(
+  level?: LevelXaccCurveSource | null,
+): XaccCurveConfig | undefined {
+  if (!level) return undefined;
+  const pole = level.xaccPoleOffset ?? level.xaccCurve?.poleOffset;
+  const top = level.xaccTopMultiplier ?? level.xaccCurve?.topMultiplier;
+  if (pole == null && top == null) return undefined;
+  return {
+    poleOffset: pole ?? XACC_CURVE_DEFAULTS.poleOffset,
+    topMultiplier: top ?? XACC_CURVE_DEFAULTS.topMultiplier,
+  };
+}
+
+export function resolveXaccCurveForLevelData(
+  levelData?: LevelXaccCurveSource | null,
+): XaccCurveConfig | undefined {
+  if (!levelData) return undefined;
+  if (levelData.xaccCurve) return levelData.xaccCurve;
+  return pickLevelXaccCurve(levelData);
+}
+
 export function resolveXaccCurveConfig(
   overrides?: XaccCurveConfig | null,
 ): Required<XaccCurveConfig> {

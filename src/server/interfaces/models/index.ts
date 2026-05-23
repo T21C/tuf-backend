@@ -94,6 +94,10 @@ export interface ILevel extends IBaseModel {
   tilecount?: number | null;
   /** Chart length in ms from CDN cache `analysis.levelLengthInMs` (denormalized). */
   levelLengthInMs?: number | null;
+  /** Per-level xacc pole offset (null = site default). */
+  xaccPoleOffset?: number | null;
+  /** Per-level xacc top multiplier at 100% (null = site default). */
+  xaccTopMultiplier?: number | null;
   passes?: IPass[];
   aliases?: LevelAlias[] | null;
   levelCredits?: LevelCredit[] | null;

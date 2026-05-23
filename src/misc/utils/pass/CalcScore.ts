@@ -1,6 +1,10 @@
 import {IPassSubmission} from '@/server/interfaces/models/index.js';
 import {calcAcc, IJudgements, tilecount} from './CalcAcc.js';
-import {xaccMultiplier as xaccCurveMultiplier, type XaccCurveConfig} from './scoreV2XaccCurve.js';
+import {
+  xaccMultiplier as xaccCurveMultiplier,
+  type XaccCurveConfig,
+  resolveXaccCurveForLevelData,
+} from './scoreV2XaccCurve.js';
 
 const gmConst = 315;
 const start = 1;
@@ -82,7 +86,7 @@ const getScore = (passData: PassData, levelData: LevelData) => {
     accuracy === 1 && levelData.ppBaseScore ? levelData.ppBaseScore :
     levelData.baseScore ? levelData.baseScore
     : levelData.difficulty?.baseScore || 0;
-  const xaccMtp = getXaccMtp(inputs, base);
+  const xaccMtp = getXaccMtp(inputs, base, resolveXaccCurveForLevelData(levelData));
 
   let speedMtp = 0;
   let score = 0;
@@ -104,6 +108,9 @@ interface LevelData {
     name: string;
     baseScore: number;
   };
+  xaccPoleOffset?: number | null;
+  xaccTopMultiplier?: number | null;
+  xaccCurve?: XaccCurveConfig | null;
 }
 
 interface PassData {

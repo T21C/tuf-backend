@@ -11,6 +11,12 @@ import Pass from '@/models/passes/Pass.js';
 import Judgement from '@/models/passes/Judgement.js';
 import {calcAcc} from '@/misc/utils/pass/CalcAcc.js';
 import {getScoreV2} from '@/misc/utils/pass/CalcScore.js';
+import {
+  XACC_POLE_OFFSET_MAX,
+  XACC_POLE_OFFSET_MIN,
+  XACC_TOP_MULTIPLIER_MAX,
+  XACC_TOP_MULTIPLIER_MIN,
+} from '@/misc/utils/pass/scoreV2XaccCurve.js';
 import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import LevelLikes from '@/models/levels/LevelLikes.js';
@@ -113,6 +119,72 @@ function parseChartStatPayload(body: Record<string, unknown>): {
         ok: false,
         code: 400,
         error: `${key} must be a non-negative integer when set`,
+      };
+    }
+    update[key] = num;
+  }
+
+  return { ok: true, update };
+}
+
+const XACC_CURVE_FIELDS = ['xaccPoleOffset', 'xaccTopMultiplier'] as const;
+type XaccCurveKey = (typeof XACC_CURVE_FIELDS)[number];
+
+function parseXaccCurvePayload(body: Record<string, unknown>): {
+  ok: true;
+  update: Partial<Record<XaccCurveKey, number | null>>;
+} | { ok: false; error: string; code: number } {
+  const keysPresent = XACC_CURVE_FIELDS.filter((k) =>
+    Object.prototype.hasOwnProperty.call(body, k),
+  );
+  if (keysPresent.length === 0) {
+    return {
+      ok: false,
+      code: 400,
+      error:
+        'Request must include at least one of: xaccPoleOffset, xaccTopMultiplier',
+    };
+  }
+
+  const update: Partial<Record<XaccCurveKey, number | null>> = {};
+
+  for (const key of keysPresent) {
+    const raw = body[key];
+    if (raw === null || raw === '') {
+      update[key] = null;
+      continue;
+    }
+    if (typeof raw === 'string' && raw.trim() === '') {
+      update[key] = null;
+      continue;
+    }
+
+    const num = Number(raw);
+    if (!Number.isFinite(num)) {
+      return {
+        ok: false,
+        code: 400,
+        error: `Invalid value for ${key}: must be a finite number or null`,
+      };
+    }
+
+    if (key === 'xaccPoleOffset') {
+      if (num < XACC_POLE_OFFSET_MIN || num > XACC_POLE_OFFSET_MAX) {
+        return {
+          ok: false,
+          code: 400,
+          error: `xaccPoleOffset must be between ${XACC_POLE_OFFSET_MIN} and ${XACC_POLE_OFFSET_MAX}`,
+        };
+      }
+      update[key] = num;
+      continue;
+    }
+
+    if (num < XACC_TOP_MULTIPLIER_MIN || num > XACC_TOP_MULTIPLIER_MAX) {
+      return {
+        ok: false,
+        code: 400,
+        error: `xaccTopMultiplier must be between ${XACC_TOP_MULTIPLIER_MIN} and ${XACC_TOP_MULTIPLIER_MAX}`,
       };
     }
     update[key] = num;
@@ -283,12 +355,20 @@ const handleScoreRecalculations = async (
     }
 
     const levelData = {
-      baseScore: updateData.baseScore || pass.level?.baseScore || 0,
-      ppBaseScore: updateData.ppBaseScore || pass.level?.ppBaseScore || 0,
+      baseScore: updateData.baseScore ?? pass.level?.baseScore ?? 0,
+      ppBaseScore: updateData.ppBaseScore ?? pass.level?.ppBaseScore ?? 0,
       difficulty: {
         name: diffToUse.name,
         baseScore: diffToUse.baseScore || 0,
       },
+      xaccPoleOffset:
+        updateData.xaccPoleOffset !== undefined
+          ? updateData.xaccPoleOffset
+          : pass.level?.xaccPoleOffset ?? null,
+      xaccTopMultiplier:
+        updateData.xaccTopMultiplier !== undefined
+          ? updateData.xaccTopMultiplier
+          : pass.level?.xaccTopMultiplier ?? null,
     };
 
     const scoreV2 = getScoreV2(
@@ -1164,6 +1244,155 @@ router.patch(
       });
     }
   }
+);
+
+router.patch(
+  '/:id([0-9]{1,20})/xacc-curve',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'patchLevelXaccCurve',
+    summary: 'Update level xacc score curve knobs',
+    description:
+      'Super admin only. Sets per-level xacc pole offset and/or top multiplier (null clears to site defaults). Recalculates all passes on the level.',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: {
+      description:
+        'At least one of xaccPoleOffset, xaccTopMultiplier (null clears to defaults)',
+      schema: {
+        type: 'object',
+        properties: {
+          xaccPoleOffset: { oneOf: [{ type: 'number' }, { type: 'null' }] },
+          xaccTopMultiplier: { oneOf: [{ type: 'number' }, { type: 'null' }] },
+        },
+      },
+      required: true,
+    },
+    responses: {
+      200: { description: 'Xacc curve updated' },
+      400: { description: 'Invalid body', schema: errorResponseSchema },
+      ...standardErrorResponses403404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const levelId = parseInt(req.params.id, 10);
+      const body = req.body as Record<string, unknown>;
+      const parsed = parseXaccCurvePayload(body);
+      if (!parsed.ok) {
+        return res.status(parsed.code).json({ error: parsed.error });
+      }
+
+      const level = await Level.findByPk(levelId, {
+        attributes: [
+          'id',
+          'baseScore',
+          'ppBaseScore',
+          'diffId',
+          'xaccPoleOffset',
+          'xaccTopMultiplier',
+        ],
+      });
+      if (!level) {
+        return res.status(404).json({ error: 'Level not found' });
+      }
+
+      await Level.update(
+        { ...parsed.update, updatedAt: new Date() },
+        { where: { id: levelId } },
+      );
+
+      const updated = await Level.findByPk(levelId, {
+        attributes: [
+          'id',
+          'xaccPoleOffset',
+          'xaccTopMultiplier',
+          'baseScore',
+          'ppBaseScore',
+          'diffId',
+        ],
+      });
+
+      const recalcPayload = {
+        baseScore: updated?.baseScore ?? level.baseScore ?? 0,
+        ppBaseScore: updated?.ppBaseScore ?? level.ppBaseScore ?? 0,
+        diffId: updated?.diffId ?? level.diffId,
+        xaccPoleOffset:
+          parsed.update.xaccPoleOffset !== undefined
+            ? parsed.update.xaccPoleOffset
+            : updated?.xaccPoleOffset ?? null,
+        xaccTopMultiplier:
+          parsed.update.xaccTopMultiplier !== undefined
+            ? parsed.update.xaccTopMultiplier
+            : updated?.xaccTopMultiplier ?? null,
+      };
+
+      void (async () => {
+        let recalcTransaction: Transaction | null = null;
+        try {
+          recalcTransaction = await sequelize.transaction({
+            isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
+          });
+
+          const affectedPlayerIds = await handleScoreRecalculations(
+            levelId,
+            recalcPayload,
+            recalcTransaction,
+          );
+
+          await recalcTransaction.commit();
+
+          await elasticsearchService.reindexPlayers(
+            Array.from(new Set(affectedPlayerIds)),
+          );
+          await elasticsearchService.indexLevel(levelId);
+
+          try {
+            await CacheInvalidation.invalidateTags([
+              `level:${levelId}`,
+              'levels:all',
+            ]);
+          } catch (cacheErr) {
+            logger.error(
+              `Cache invalidation after xacc-curve patch failed for level ${levelId}:`,
+              cacheErr,
+            );
+          }
+
+          sseManager.broadcast({ type: 'ratingUpdate' });
+          sseManager.broadcast({ type: 'levelUpdate' });
+          sseManager.broadcast({
+            type: 'passUpdate',
+            data: {
+              levelId,
+              action: 'levelUpdate',
+            },
+          });
+        } catch (error) {
+          if (recalcTransaction) {
+            try {
+              await recalcTransaction.rollback();
+            } catch (rollbackErr) {
+              logger.error('Error rolling back xacc-curve recalc:', rollbackErr);
+            }
+          }
+          logger.error(
+            `Error recalculating passes after xacc-curve patch for level ${levelId}:`,
+            error,
+          );
+        }
+      })();
+
+      return res.json({
+        message: 'Xacc curve updated',
+        level: updated,
+      });
+    } catch (error) {
+      logger.error('Error patching level xacc curve:', error);
+      return res.status(500).json({ error: 'Failed to update xacc curve' });
+    }
+  },
 );
 
 router.patch(
