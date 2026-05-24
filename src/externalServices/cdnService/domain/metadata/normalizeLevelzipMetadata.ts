@@ -3,7 +3,7 @@
  *
  * Strips migration-era paths, duplicate storage hints, and upload-time-only fields
  * while preserving everything referenced by:
- * - {@link ../infra/level/levelSourceBytes.ts} (sourceCopyPath, originalZip.path, allLevelFiles paths)
+ * - {@link ../infra/level/levelSourceBytes.ts} (sourcePath, originalZip.path, allLevelFiles paths)
  * - transform / levelData / chart routes (songFiles, targetLevel*, allLevelFiles)
  * - {@link ../infra/archive/archiveService.ts} getOriginalArchiveMeta (originalArchive / originalZip)
  * - {@link ../domain/level/levelCacheSignature.ts} (targetSafeToParse*)
@@ -15,6 +15,9 @@ const LEVEL_FILE_ENTRY_KEYS = new Set([
     'relativePath',
     'path',
     'size',
+    'sourcePath',
+    'sourceRelativePath',
+    'sourceStorageType',
     'sourceCopyPath',
     'sourceCopyRelativePath',
     'sourceCopyStorageType',

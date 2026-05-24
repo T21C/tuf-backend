@@ -17,7 +17,7 @@ import {
     parseStoredCacheJson
 } from '../domain/level/levelCacheValidation.js';
 import { buildFullCachePayload } from '../domain/level/levelCacheBuild.js';
-import { downloadLevelToWorkspace, extractSourceCopyFromMetadata } from '../infra/level/levelSourceBytes.js';
+import { downloadLevelToWorkspace, extractLevelSourceFromMetadata } from '../infra/level/levelSourceBytes.js';
 
 dotenv.config();
 
@@ -50,8 +50,8 @@ class LevelCacheService {
     // level source-byte helpers extracted into infra/level/levelSourceBytes.ts
 
     /**
-     * Prefer the byte-for-byte source copy when re-normalizing so pathData and other
-     * author-specific formatting are not lost via an intermediate angleData canonical file.
+     * Prefer the byte-for-byte `.source` object when re-normalizing so pathData and author formatting
+     * are not lost via the canonical LevelDict-normalized object.
      */
     private async resolveParseSourcePath(
         file: CdnFile,
@@ -60,7 +60,7 @@ class LevelCacheService {
         canonicalLocalPath: string,
         join: (...parts: string[]) => string
     ): Promise<string> {
-        const extracted = await extractSourceCopyFromMetadata({
+        const extracted = await extractLevelSourceFromMetadata({
             file,
             targetLevelPath: targetLevelPath,
             metadata: fileMetadata,

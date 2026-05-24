@@ -29,7 +29,7 @@ import {
     zipArchiveFilenamesAlreadyUtf8Clean
 } from '../infra/archive/zipUtf8FilenameRewrite.js';
 import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
-import { normalizeRelativePath, toCopyRelativePath } from '../domain/archive/ingestPaths.js';
+import { normalizeRelativePath, snapshotLevelSourceBytes, toSourceRelativePath } from '../domain/archive/ingestPaths.js';
 import { listArchiveEntriesForIngest } from '../domain/archive/ingestArchiveEntries.js';
 import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '../constants/levelPackAudio.js';
 import { normaliseOriginalName } from '@/server/services/upload/UploadSessionService.js';
@@ -163,9 +163,10 @@ async function processArchiveFileInWorkspace(
             name: string;
             relativePath: string;
             path: string;
-            sourceCopyPath?: string;
-            sourceCopyRelativePath?: string;
-            sourceCopyStorageType?: string;
+            sourceLocalPath?: string;
+            sourceRelativePath?: string;
+            sourcePath?: string;
+            sourceStorageType?: string;
             size: number;
             hasYouTubeStream?: boolean;
             songFilename?: string;
@@ -231,16 +232,21 @@ async function processArchiveFileInWorkspace(
 
             try {
                 const levelFilename = path.basename(entry.relativePath);
-                const sourceCopyRelativePath = toCopyRelativePath(normalizedRelativePath);
+                const { sourceLocalPath, sourceRelativePath } = await snapshotLevelSourceBytes(
+                    tempPath,
+                    extractRoot,
+                    normalizedRelativePath
+                );
                 const tooLargeToParse = entry.size > MAX_LEVEL_FILE_SIZE_FOR_PARSE;
 
                 let levelFile: {
                     name: string;
                     relativePath: string;
                     path: string;
-                    sourceCopyPath?: string;
-                    sourceCopyRelativePath?: string;
-                    sourceCopyStorageType?: string;
+                    sourceLocalPath: string;
+                    sourceRelativePath: string;
+                    sourcePath?: string;
+                    sourceStorageType?: string;
                     size: number;
                     hasYouTubeStream?: boolean;
                     songFilename?: string;
@@ -284,7 +290,8 @@ async function processArchiveFileInWorkspace(
                         name: levelFilename,
                         relativePath: normalizedRelativePath,
                         path: tempPath,
-                        sourceCopyRelativePath,
+                        sourceLocalPath,
+                        sourceRelativePath,
                         size: entry.size,
                         hasYouTubeStream: false,
                         songFilename: scanned?.settings?.songFilename as any,
@@ -309,8 +316,9 @@ async function processArchiveFileInWorkspace(
                     levelFile = {
                         name: levelFilename,
                         relativePath: normalizedRelativePath,
-                        path: tempPath, // Keep temp path for now, will be uploaded later
-                        sourceCopyRelativePath,
+                        path: tempPath, // Working copy; may be rewritten when canonical JSON is normalized
+                        sourceLocalPath,
+                        sourceRelativePath,
                         size: entry.size,
                         hasYouTubeStream: levelDict.getSetting('requiredMods')?.includes('YouTubeStream'),
                         songFilename: levelDict.getSetting('songFilename'),
@@ -418,8 +426,27 @@ async function processArchiveFileInWorkspace(
             songCount: Object.keys(songFiles).length
         });
 
-        // Upload level files
-        await sendProgress('uploading', 50, 'Uploading level files');
+        // Upload immutable pre-parse sources first (separate local paths from working extracts).
+        await sendProgress('uploading', 50, 'Uploading level source files');
+        const sourceUploadResults: Array<{ path: string; storageType: string } | null> = [];
+        for (const file of allLevelFiles) {
+            const sourceRelativePath = file.sourceRelativePath || toSourceRelativePath(file.relativePath);
+            const sourceKey = `levels/${archiveFileId}/${sourceRelativePath}`;
+            await spacesStorage.uploadFile(file.sourceLocalPath!, sourceKey, 'application/octet-stream', {
+                fileId: archiveFileId,
+                sourceType: 'original-level-source',
+                originalRelativePath: encodeURIComponent(file.relativePath),
+                uploadedAt: new Date().toISOString()
+            });
+            sourceUploadResults.push({
+                path: sourceKey,
+                storageType: 'spaces'
+            });
+        }
+        await sendProgress('uploading', 58, 'Level source files uploaded');
+
+        // Upload canonical level objects (working extract paths; target may be normalized later).
+        await sendProgress('uploading', 58, 'Uploading level files');
         const levelUploadResult = await spacesStorage.uploadLevelFiles(
             allLevelFiles.map(file => ({
                 sourcePath: file.path,
@@ -430,40 +457,16 @@ async function processArchiveFileInWorkspace(
         );
         await sendProgress('uploading', 65, 'Level files uploaded');
 
-        /** Byte-for-byte copy beside canonical level JSON — only needed when LevelDict may rewrite the uploaded level. */
-        const sourceCopyResults: Array<{ path: string; storageType: string } | null> = [];
-        for (const file of allLevelFiles) {
-            if (file.oversizedUnparsed) {
-                sourceCopyResults.push(null);
-                continue;
-            }
-            const sourceCopyRelativePath = file.sourceCopyRelativePath || toCopyRelativePath(file.relativePath);
-            const sourceCopyKey = `levels/${archiveFileId}/${sourceCopyRelativePath}`;
-            await spacesStorage.uploadFile(file.path, sourceCopyKey, 'application/octet-stream', {
-                fileId: archiveFileId,
-                sourceType: 'original-level-copy',
-                originalRelativePath: encodeURIComponent(file.relativePath),
-                uploadedAt: new Date().toISOString()
-            });
-            sourceCopyResults.push({
-                path: sourceCopyKey,
-                storageType: 'spaces'
-            });
-        }
-
         // Update file paths in metadata
         allLevelFiles.forEach((file, index) => {
             const uploadedFile = levelUploadResult.files[index];
-            const uploadedSourceCopy = sourceCopyResults[index];
+            const uploadedSource = sourceUploadResults[index];
             file.path = uploadedFile.path;
-            if (uploadedSourceCopy) {
-                file.sourceCopyPath = uploadedSourceCopy.path;
-                file.sourceCopyStorageType = uploadedSourceCopy.storageType;
-            } else {
-                delete file.sourceCopyPath;
-                delete file.sourceCopyStorageType;
-                delete file.sourceCopyRelativePath;
+            if (uploadedSource) {
+                file.sourcePath = uploadedSource.path;
+                file.sourceStorageType = uploadedSource.storageType;
             }
+            delete (file as { sourceLocalPath?: string }).sourceLocalPath;
         });
 
         // Upload song files using hybrid storage manager

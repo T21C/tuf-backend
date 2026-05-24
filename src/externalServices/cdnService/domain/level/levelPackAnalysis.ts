@@ -20,7 +20,7 @@ import {
     zipArchiveFilenamesAlreadyUtf8Clean
 } from '../../infra/archive/zipUtf8FilenameRewrite.js';
 import { listArchiveEntriesForIngest } from '../archive/ingestArchiveEntries.js';
-import { normalizeRelativePath, toCopyRelativePath } from '../archive/ingestPaths.js';
+import { normalizeRelativePath, toSourceRelativePath } from '../archive/ingestPaths.js';
 import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '../../constants/levelPackAudio.js';
 import {
     MAX_LEVEL_FILE_SIZE_FOR_PARSE,
@@ -151,7 +151,7 @@ function toMetadataLevelEntry(
         name: analyzed.name,
         relativePath: analyzed.relativePath,
         path: storagePathForLevel(analyzed.relativePath, fileId),
-        sourceCopyRelativePath: toCopyRelativePath(analyzed.relativePath),
+        sourceRelativePath: toSourceRelativePath(analyzed.relativePath),
         size: analyzed.size,
         hasYouTubeStream: analyzed.hasYouTubeStream ?? false,
         songFilename: analyzed.songFilename,
@@ -164,9 +164,9 @@ function toMetadataLevelEntry(
     if (analyzed.oversizedUnparsed) {
         entry.oversizedUnparsed = true;
     }
-    if (!analyzed.oversizedUnparsed && analyzed.parsePath === 'leveldict') {
-        entry.sourceCopyPath = `levels/${fileId ?? '__fileId__'}/${toCopyRelativePath(analyzed.relativePath)}`;
-        entry.sourceCopyStorageType = 'spaces';
+    if (analyzed.parsePath !== 'missing-after-extract') {
+        entry.sourcePath = `levels/${fileId ?? '__fileId__'}/${toSourceRelativePath(analyzed.relativePath)}`;
+        entry.sourceStorageType = 'spaces';
     }
     return entry;
 }
