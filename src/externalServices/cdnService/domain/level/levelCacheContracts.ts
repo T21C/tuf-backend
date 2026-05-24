@@ -3,7 +3,7 @@
  * Increment this when breaking changes are made to the level parsing logic
  * to force re-parsing of all cached levels.
  */
-export const SAFE_TO_PARSE_VERSION = 3;
+export const SAFE_TO_PARSE_VERSION = 4;
 
 /**
  * Version number for the analysis cache format.
