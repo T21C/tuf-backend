@@ -220,7 +220,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     await fs.promises.mkdir(tempDir, { recursive: true });
 
                     const tempLevelPath = path.join(tempDir, `transformed_${Date.now()}.adofai`);
-                    await fs.promises.writeFile(tempLevelPath, JSON.stringify(transformedLevel, null, 2));
+                    await fs.promises.writeFile(tempLevelPath, JSON.stringify(transformedLevel.toJSON(), null, 2));
 
                     // Find the song file referenced in the level
                     const songFilename = transformedLevel.getSetting('songFilename');
