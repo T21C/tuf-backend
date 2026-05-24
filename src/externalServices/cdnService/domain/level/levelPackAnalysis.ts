@@ -320,6 +320,7 @@ export async function analyzeLevelPackArchive(
             }
 
             try {
+                // Read-only pack analysis; canonical persistence uses levelCacheService on ingest.
                 const levelDict = new LevelDict(tempPath);
                 levelFiles.push({
                     name: levelFilename,

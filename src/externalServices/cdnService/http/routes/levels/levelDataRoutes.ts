@@ -1,13 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '@/server/services/core/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
-import fs from 'fs';
 import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
-import {
-    CdnSpacesTempDomain,
-    withCdnFileDomainWorkspace
-} from '@/externalServices/cdnService/infra/workspaces/cdnSpacesTemp.js';
-import LevelDict from 'adofai-lib';
+import type LevelDict from 'adofai-lib';
 import { AnalysisCacheData, levelCacheService } from '@/externalServices/cdnService/services/levelCacheService.js';
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
 
@@ -66,7 +61,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     // If no modes specified, return full level data (no caching for this case)
     if (!modes || typeof modes !== 'string') {
         const { levelData } = await levelCacheService.loadLevelData(file, targetLevel, metadata);
-        return res.json(levelData);
+        return res.json(levelData.toJSON());
     }
 
     // Parse requested modes
@@ -116,7 +111,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         // Durations are always extracted on-demand from levelData (not cached)
         if (requestedModes.includes('durations')) {
             const durations = levelData.getDurations();
-            response.durations = durations.filter((d): d is number => d !== undefined);
+            response.durations = durations.filter((d: number | undefined): d is number => d !== undefined);
         }
     }
 
@@ -154,7 +149,6 @@ router.get('/:fileId/level.adofai', async (req: Request, res: Response) => {
                 size: number;
             }>;
             targetLevel?: string | null;
-            targetSafeToParse?: boolean;
             targetLevelOversized?: boolean;
         };
         const targetLevel = metadata.targetLevel || metadata.allLevelFiles?.[0]?.path;
@@ -167,44 +161,10 @@ router.get('/:fileId/level.adofai', async (req: Request, res: Response) => {
         if (!levelExists) {
             throw { error: 'Target level file not found in storage', code: 400 };
         }
-        if (metadata.targetLevelOversized) {
-            const cdnUrl = await spacesStorage.getPresignedUrl(targetLevel);
-            res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
-            return res.redirect(301, cdnUrl);
-        }
 
-        if (metadata.targetSafeToParse) {
-
-            const jsonContent = await withCdnFileDomainWorkspace(
-                CdnSpacesTempDomain.LevelsRouteMisc,
-                fileId,
-                async ({ join }) => {
-                    const tempPath = join(`serve_${Date.now()}.adofai`);
-                    await spacesStorage.downloadFileToPathStreaming(targetLevel, tempPath);
-                    return await fs.promises.readFile(tempPath, 'utf8');
-                }
-            );
-
-            res.setHeader('Content-Type', 'application/json');
-            res.setHeader('Cache-Control', 'no-store');
-            res.json(JSON.parse(jsonContent));
-            return;
-        }
-
-        const levelData = await withCdnFileDomainWorkspace(
-            CdnSpacesTempDomain.LevelsRouteMisc,
-            fileId,
-            async ({ join }) => {
-                const tempPath = join(`parse_${Date.now()}.adofai`);
-                await spacesStorage.downloadFileToPathStreaming(targetLevel, tempPath);
-                return new LevelDict(tempPath);
-            }
-        );
-
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Cache-Control', 'no-store');
-        res.json(levelData.toJSON());
-        return;
+        const cdnUrl = await spacesStorage.getPresignedUrl(targetLevel);
+        res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
+        return res.redirect(301, cdnUrl);
     } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
             const customError = error as { code: number; error: string };

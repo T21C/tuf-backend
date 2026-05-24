@@ -91,6 +91,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
                     const tempPath = path.join(tempDir, `levels_${fileId}_${crypto.randomUUID()}.adofai`);
                     await spacesStorage.downloadFileToPathStreaming(objectKey, tempPath);
                     try {
+                        // Read-only metadata probe; does not rewrite canonical storage (see levelCacheService).
                         const levelDict = new LevelDict(tempPath);
                         return {
                             name: file.name,

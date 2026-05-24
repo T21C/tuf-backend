@@ -1,7 +1,6 @@
 import { logger } from '@/server/services/core/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import LevelDict, { analysisUtils } from 'adofai-lib';
-import fs from 'fs';
 import dotenv from 'dotenv';
 import { spacesStorage } from '../infra/storage/spacesStorage.js';
 import { CdnSpacesTempDomain, withCdnFileDomainWorkspace } from '../infra/workspaces/cdnSpacesTemp.js';
@@ -51,6 +50,59 @@ class LevelCacheService {
     // level source-byte helpers extracted into infra/level/levelSourceBytes.ts
 
     /**
+     * Prefer the byte-for-byte source copy when re-normalizing so pathData and other
+     * author-specific formatting are not lost via an intermediate angleData canonical file.
+     */
+    private async resolveParseSourcePath(
+        file: CdnFile,
+        targetLevelPath: string,
+        fileMetadata: any,
+        canonicalLocalPath: string,
+        join: (...parts: string[]) => string
+    ): Promise<string> {
+        const extracted = await extractSourceCopyFromMetadata({
+            file,
+            targetLevelPath: targetLevelPath,
+            metadata: fileMetadata,
+            join
+        });
+        if (extracted) {
+            return extracted.localPath;
+        }
+        logger.warn('No source copy for target level; parsing canonical storage object', {
+            fileId: file.id,
+            targetLevelPath
+        });
+        return canonicalLocalPath;
+    }
+
+    /**
+     * Write canonical level JSON via LevelDict (respects preserveAngleFormat) and upload to storage.
+     */
+    async persistCanonicalLevel(
+        levelData: LevelDict,
+        localPath: string,
+        storagePath: string
+    ): Promise<void> {
+        levelData.writeToFile(localPath);
+        await spacesStorage.uploadFile(localPath, storagePath, 'application/json');
+    }
+
+    /**
+     * Mark the target level object as normalized for the current safe-to-parse contract version.
+     */
+    async markTargetSafeToParse(file: CdnFile, metadata?: any): Promise<void> {
+        const fileMetadata = metadata ?? (file.metadata as Record<string, unknown>);
+        await file.update({
+            metadata: {
+                ...fileMetadata,
+                targetSafeToParse: true,
+                targetSafeToParseVersion: SAFE_TO_PARSE_VERSION
+            }
+        });
+    }
+
+    /**
      * Load level data with proper version checking and cache management.
      * This is the SINGLE entry point for loading level files - use this instead of
      * manually checking safeToParse.
@@ -83,43 +135,26 @@ class LevelCacheService {
                 const needsReparse = !safeToParse || !versionCurrent;
 
                 if (needsReparse) {
-                    let sourceToUse = resolvedLevel.localPath;
-
                     if (safeToParse && !versionCurrent) {
-                        logger.debug('SafeToParse version outdated, extracting original source', {
+                        logger.debug('SafeToParse version outdated, re-normalizing from source copy', {
                             fileId: file.id,
                             storedVersion: fileMetadata?.targetSafeToParseVersion,
                             currentVersion: SAFE_TO_PARSE_VERSION
                         });
-
-                        const extracted = await extractSourceCopyFromMetadata({
-                            file,
-                            targetLevelPath: levelPath,
-                            metadata: fileMetadata,
-                            join
-                        });
-                        if (extracted) {
-                            sourceToUse = extracted.localPath;
-                        } else {
-                            logger.warn('Could not extract original source from Spaces, using downloaded level file', {
-                                fileId: file.id
-                            });
-                        }
                     }
+
+                    const sourceToUse = await this.resolveParseSourcePath(
+                        file,
+                        levelPath,
+                        fileMetadata,
+                        resolvedLevel.localPath,
+                        join
+                    );
 
                     const levelData = new LevelDict(sourceToUse);
 
-                    levelData.writeToFile(resolvedLevel.localPath);
-
-                    await spacesStorage.uploadFile(resolvedLevel.localPath, levelPath, 'application/json');
-
-                    await file.update({
-                        metadata: {
-                            ...fileMetadata,
-                            targetSafeToParse: true,
-                            targetSafeToParseVersion: SAFE_TO_PARSE_VERSION
-                        }
-                    });
+                    await this.persistCanonicalLevel(levelData, resolvedLevel.localPath, levelPath);
+                    await this.markTargetSafeToParse(file, fileMetadata);
 
                     logger.debug('Level file loaded and version updated', {
                         fileId: file.id,
@@ -129,8 +164,7 @@ class LevelCacheService {
                     return { levelData, wasReparsed: true };
                 }
 
-                const raw = await fs.promises.readFile(resolvedLevel.localPath, 'utf8');
-                const levelData = LevelDict.fromJSON(raw);
+                const levelData = new LevelDict(resolvedLevel.localPath);
                 return { levelData, wasReparsed: false };
             }
         );

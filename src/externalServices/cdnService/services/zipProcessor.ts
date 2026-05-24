@@ -5,7 +5,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { cdnLocalTemp } from '../infra/workspaces/cdnLocalTempManager.js';
 import { spacesStorage } from '../infra/storage/spacesStorage.js';
 import LevelDict from 'adofai-lib';
-import { levelCacheService, SAFE_TO_PARSE_VERSION } from './levelCacheService.js';
+import { levelCacheService } from './levelCacheService.js';
 import { computeLevelCacheMetadataSignature } from '../domain/level/levelCacheSignature.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
@@ -668,19 +668,16 @@ async function processArchiveFileInWorkspace(
                     selectedPreloadedTargetLevelData
                 );
 
-                // Also normalize the stored .adofai JSON immediately so future loads can safely parse it
-                // without extracting/re-writing from the original source.
-                // (We already have the parsed LevelDict; no Spaces download is needed.)
-                const normalizedJson = JSON.stringify(selectedPreloadedTargetLevelData.toJSON(), null, 4);
-                await spacesStorage.uploadBuffer(Buffer.from(normalizedJson, 'utf8'), targetLevel, 'application/json');
-
-                await cdnFile.update({
-                    metadata: {
-                        ...(cdnFile.metadata as any),
-                        targetSafeToParse: true,
-                        targetSafeToParseVersion: SAFE_TO_PARSE_VERSION
-                    }
-                });
+                // Normalize canonical storage via LevelDict.writeToFile (preserves pathData when applicable).
+                const canonicalLocalPath = targetLevelRelativePath
+                    ? path.join(extractRoot, normalizeRelativePath(targetLevelRelativePath))
+                    : path.join(extractRoot, `canonical_target_${Date.now()}.adofai`);
+                await levelCacheService.persistCanonicalLevel(
+                    selectedPreloadedTargetLevelData,
+                    canonicalLocalPath,
+                    targetLevel
+                );
+                await levelCacheService.markTargetSafeToParse(cdnFile, cdnFile.metadata);
             } catch (cacheError) {
                 logger.warn('Failed to populate cache from extracted level (non-critical):', {
                     fileId: archiveFileId,

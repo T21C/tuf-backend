@@ -12,7 +12,6 @@ import {
     CdnSpacesTempDomain,
     withCdnFileDomainWorkspace
 } from '@/externalServices/cdnService/infra/workspaces/cdnSpacesTemp.js';
-import LevelDict from 'adofai-lib';
 import { levelCacheService } from '@/externalServices/cdnService/services/levelCacheService.js';
 import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '@/externalServices/cdnService/constants/levelPackAudio.js';
 import { encodeContentDisposition, resolveSongFileForTransform } from './shared/routeUtils.js';
@@ -195,18 +194,16 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     dropFilters: dropFilters ? new Set(String(dropFilters).split(',')) : undefined
                 };
 
-                // Read the level file from storage using the found storage type
                 const levelPath = metadata.targetLevel;
-                let parsedLevel: LevelDict;
-
-                if (levelExists) {
-                    const tempPath = path.join(tempDir, `level_${Date.now()}.adofai`);
-                    await spacesStorage.downloadFileToPathStreaming(levelPath, tempPath);
-                    parsedLevel = await new LevelDict(tempPath);
-                    fs.promises.unlink(tempPath).catch(() => {});
-                } else {
+                if (!levelExists) {
                     throw { error: 'Target level file not found in storage', code: 400 };
                 }
+
+                const { levelData: parsedLevel } = await levelCacheService.loadLevelData(
+                    file,
+                    levelPath,
+                    metadata
+                );
 
                 // Transform the level
                 const transformedLevel = transformLevel(parsedLevel, options);
@@ -220,7 +217,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     await fs.promises.mkdir(tempDir, { recursive: true });
 
                     const tempLevelPath = path.join(tempDir, `transformed_${Date.now()}.adofai`);
-                    await fs.promises.writeFile(tempLevelPath, JSON.stringify(transformedLevel.toJSON(), null, 2));
+                    transformedLevel.writeToFile(tempLevelPath);
 
                     // Find the song file referenced in the level
                     const songFilename = transformedLevel.getSetting('songFilename');
@@ -388,13 +385,13 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     const displayFilename = path.basename(levelPath);
                     res.setHeader('Content-Disposition', encodeContentDisposition(`transformed_${displayFilename}`));
                     res.setHeader('Cache-Control', 'no-store');
-                    res.json(transformedLevel);
+                    res.json(transformedLevel.toJSON());
                     return;
                 }
                 else {
                     res.setHeader('Content-Type', 'application/json');
                     res.setHeader('Cache-Control', 'no-store');
-                    res.json(transformedLevel);
+                    res.json(transformedLevel.toJSON());
                     return;
                 }
             }
