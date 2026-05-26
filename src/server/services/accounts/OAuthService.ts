@@ -3,6 +3,12 @@ import {v4 as uuidv4} from 'uuid';
 import {UserAttributes} from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
 import { logger } from '../core/LoggerService.js';
+import {
+  isValidUsername,
+  normalizeUsername,
+  sanitizeUsername,
+  USERNAME_MAX_LEN,
+} from '@/misc/utils/auth/username.js';
 
 interface OAuthProfile {
   id: string;
@@ -85,7 +91,12 @@ class OAuthService {
         // Check if there's a player mapping for this Discord ID
         let playerId: number | undefined;
 
-        let playerName = profile.username;
+        const desiredNickname = profile.username;
+        const normalizedDiscordName = normalizeUsername(desiredNickname);
+        const canonicalFromDiscord = isValidUsername(normalizedDiscordName)
+          ? normalizedDiscordName
+          : sanitizeUsername(desiredNickname);
+        let playerName = canonicalFromDiscord;
         let attempts = 0;
         const maxAttempts = 5;
         while (attempts < maxAttempts) {
@@ -103,7 +114,8 @@ class OAuthService {
           } catch (error: any) {
             if (error.name === 'SequelizeUniqueConstraintError' && error.errors?.[0]?.path === 'name') {
               // If name is duplicate, append a random number and try again
-              playerName = `${profile.username}${Math.floor(Math.random() * 10000)}`;
+              const suffix = String(Math.floor(Math.random() * 10000));
+              playerName = `${canonicalFromDiscord.slice(0, Math.max(0, USERNAME_MAX_LEN - suffix.length))}${suffix}`;
               attempts++;
               continue;
             }
@@ -115,7 +127,8 @@ class OAuthService {
         }
 
         // Try to create user with retry logic for username conflicts
-        let username = profile.username;
+        // Use Discord username when it already matches our rules; otherwise sanitize.
+        let username = canonicalFromDiscord;
         let userAttempts = 0;
         const maxUserAttempts = 5;
         while (userAttempts < maxUserAttempts) {
@@ -124,7 +137,7 @@ class OAuthService {
               id: uuidv4(),
               username: username,
               email: profile.email || undefined,
-              nickname: profile.nickname,
+              nickname: profile.nickname || desiredNickname,
               avatarId: profile.avatarId,
               avatarUrl: profile.avatarUrl,
               isEmailVerified: !!profile.email,
@@ -142,7 +155,8 @@ class OAuthService {
           } catch (error: any) {
             if (error.name === 'SequelizeUniqueConstraintError' && error.errors?.[0]?.path === 'username') {
               // If username is duplicate, append a random number and try again
-              username = `${profile.username}${Math.floor(Math.random() * 10000)}`;
+              const suffix = String(Math.floor(Math.random() * 10000));
+              username = `${canonicalFromDiscord.slice(0, Math.max(0, USERNAME_MAX_LEN - suffix.length))}${suffix}`;
               userAttempts++;
               continue;
             }

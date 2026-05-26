@@ -18,6 +18,7 @@ import { RateLimiter } from '@/server/decorators/rateLimiter.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasFlag, setUserPermission, setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { getUsernameFormatError, normalizeUsername } from '@/misc/utils/auth/username.js';
 
 // Create a singleton instance of CaptchaService
 const captchaService = new CaptchaService();
@@ -64,7 +65,8 @@ class AuthController {
   })
   public async register(req: Request, res: Response): Promise<Response> {
     try {
-      const {email, password, username, captchaToken} = req.body;
+      const {email, password, captchaToken} = req.body;
+      const username = normalizeUsername(String(req.body.username ?? ''));
 
       if (captchaToken) {
         const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken);
@@ -84,15 +86,9 @@ class AuthController {
         return res.status(400).json({message: 'Invalid email format'});
       }
 
-      // Validate username length (3-20 characters)
-      if (username.length < 3 || username.length > 20) {
-        return res.status(400).json({message: 'Username must be between 3 and 20 characters'});
-      }
-
-      // Validate username contains only alphanumeric characters, underscores (_) and hyphens (-)
-      const usernameRegex = /^[a-zA-Z0-9_-]+$/;
-      if (!usernameRegex.test(username)) {
-        return res.status(400).json({message: 'Username can only contain alphanumeric characters, underscores _ and hyphens -'});
+      const usernameFormatError = getUsernameFormatError(username);
+      if (usernameFormatError) {
+        return res.status(400).json({message: usernameFormatError});
       }
 
       // Validate password length (minimum 8 characters)

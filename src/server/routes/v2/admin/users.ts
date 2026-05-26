@@ -11,6 +11,7 @@ import { hasFlag, setUserPermissionAndSave, wherehasFlag } from '@/misc/utils/au
 import { permissionFlags } from '@/config/constants.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { AccountDeletionService } from '@/server/services/accounts/AccountDeletionService.js';
+import { isValidUsername, normalizeUsername } from '@/misc/utils/auth/username.js';
 
 const router: Router = Router();
 const accountDeletionService = AccountDeletionService.getInstance();
@@ -421,8 +422,18 @@ router.post(
         try {
           const discordInfo = await fetchDiscordUserInfo(discordId);
 
-          if (discordInfo.username && discordInfo.username !== user.username) {
-            await user.update({username: discordInfo.username});
+          const discordName = discordInfo.username
+            ? normalizeUsername(discordInfo.username)
+            : '';
+          const updates: { nickname?: string; username?: string } = {};
+          if (discordInfo.username && discordInfo.username !== user.nickname) {
+            updates.nickname = discordInfo.username;
+          }
+          if (discordName && isValidUsername(discordName) && discordName !== user.username) {
+            updates.username = discordName;
+          }
+          if (Object.keys(updates).length) {
+            await user.update(updates);
             // Invalidate user-specific cache
             await CacheInvalidation.invalidateUser(user.id);
             updates.push(discordId);

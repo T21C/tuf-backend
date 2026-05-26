@@ -55,6 +55,13 @@ const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
 const accountDeletionService = AccountDeletionService.getInstance();
 
+import {
+  getUsernameFormatError,
+  normalizeUsername,
+  USERNAME_MAX_LEN,
+  USERNAME_MIN_LEN,
+} from '@/misc/utils/auth/username.js';
+
 const usernameChangeCooldown = 1 * 24 * 60 * 60 * 1000; // 1 day
 
 const GIF_ENABLED = process.env.CUSTOM_PROFILE_BANNERS_ENABLED === 'true' ? true : false;
@@ -208,24 +215,14 @@ router.put(
 
   try {
     transaction = await sequelize.transaction();
-    const username = req.body.username;
+    const username =
+      typeof req.body.username === 'string' && req.body.username.length
+        ? normalizeUsername(req.body.username)
+        : undefined;
     const user = req.user;
 
     if (!user) {
       throw {'error': 'User not authenticated', 'code': 401};
-    }
-
-    if (req.body.username && req.body.username.length > 30) {
-      throw {'error': 'Username must be less than 30 characters', 'code': 400};
-    }
-
-    if (req.body.username && req.body.username.length < 3) {
-      throw {'error': 'Username must be at least 3 characters', 'code': 400};
-    }
-
-    // Validate username format: only alphanumeric characters and underscores
-    if (req.body.username && !/^[a-zA-Z0-9_]+$/.test(req.body.username)) {
-      throw {'error': 'Username can only contain letters, numbers, and underscores', 'code': 400};
     }
 
     if (req.body.nickname && req.body.nickname.length > 60) {
@@ -255,6 +252,17 @@ router.put(
     const targetPlayerName = req.body.nickname || user.player?.name || user.nickname;
     // Check if username is being changed
     if (username && username !== user.username) {
+      if (username.length > USERNAME_MAX_LEN) {
+        throw {'error': `Username must be at most ${USERNAME_MAX_LEN} characters`, 'code': 400};
+      }
+      if (username.length < USERNAME_MIN_LEN) {
+        throw {'error': `Username must be at least ${USERNAME_MIN_LEN} characters`, 'code': 400};
+      }
+      const usernameFormatError = getUsernameFormatError(username);
+      if (usernameFormatError) {
+        throw { error: usernameFormatError, code: 400 };
+      }
+
       // Check if username is taken
       const existingUser = await User.findOne({
         where: {username},
