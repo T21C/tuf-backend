@@ -110,6 +110,17 @@ function buildTextShould(text: string): any[] {
     { wildcard: { 'user.username.lower': { value: wildcardValue, boost: 2, case_insensitive: true } } },
     // Nickname substring (no prefix boost — display name)
     { wildcard: { 'user.nickname': { value: wildcardValue, boost: 1, case_insensitive: true } } },
+    {
+      nested: {
+        path: 'aliases',
+        query: {
+          wildcard: {
+            'aliases.name.lower': { value: wildcardValue, boost: 3, case_insensitive: true },
+          },
+        },
+        score_mode: 'max',
+      },
+    },
     // Fuzzy/text fields fall back via match
     { match: { name: { query: text, boost: 1 } } },
     { match: { 'user.username': { query: text, boost: 1 } } },

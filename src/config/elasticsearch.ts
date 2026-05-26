@@ -561,6 +561,20 @@ export const playerMapping = {
       profileHeaderSurfaceStyle: { type: 'object' as const, enabled: false },
       profileHeaderSurfaceImageAssets: { type: 'object' as const, enabled: false },
       tufStellarIconVariant: { type: 'keyword' as const },
+      aliases: {
+        type: 'nested' as const,
+        properties: {
+          id: { type: 'integer' as const },
+          name: {
+            type: 'text' as const,
+            analyzer: 'custom_text_analyzer',
+            fields: {
+              keyword: { type: 'keyword' as const },
+              lower: { type: 'keyword' as const, normalizer: 'lowercase_normalizer' },
+            },
+          },
+        },
+      },
       createdAt: { type: 'date' as const },
       updatedAt: { type: 'date' as const },
       user: {

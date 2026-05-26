@@ -90,7 +90,7 @@ export class CreatorStatsService {
     try {
       const [creator, aliases, user, statsRows, recentCredits] = await Promise.all([
         Creator.findByPk(creatorId),
-        CreatorAlias.findAll({ where: { creatorId } }),
+        CreatorAlias.findAll({ where: { creatorId }, order: [['id', 'ASC']] }),
         User.findOne({ where: { creatorId } }),
         runCreatorStatsQuery({ creatorIds: [creatorId] }),
         LevelCredit.findAll({

@@ -35,6 +35,7 @@ import {
   replaceCreatorAliasesForCreator,
   validateCreatorAliasListForSelf,
 } from '@/server/services/creators/creatorSelfAliases.js';
+import {appendCreatorAliasFromRename} from '@/server/services/aliases/nameChangeAliases.js';
 import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
 import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
 import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
@@ -304,6 +305,7 @@ router.patch(
         });
       }
 
+      await appendCreatorAliasFromRename(id, currentName, rawName);
       await Creator.update({name: rawName}, {where: {id}});
       // Elasticsearch: CDC projectors (`creators` ➔ indexCreator + level fanout on name change).
 
@@ -1071,6 +1073,7 @@ router.patch(
                 'That name matches an existing creator alias. Change or remove the conflicting alias first.',
             });
           }
+          await appendCreatorAliasFromRename(id, currentName, rawName, transaction);
         }
         updatePayload.name = rawName;
         nextName = rawName;

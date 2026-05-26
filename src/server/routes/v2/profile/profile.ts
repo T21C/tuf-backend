@@ -61,6 +61,9 @@ import {
   USERNAME_MAX_LEN,
   USERNAME_MIN_LEN,
 } from '@/misc/utils/auth/username.js';
+import {
+  appendPlayerAliasFromRename,
+} from '@/server/services/aliases/nameChangeAliases.js';
 
 const usernameChangeCooldown = 1 * 24 * 60 * 60 * 1000; // 1 day
 
@@ -336,6 +339,14 @@ router.put(
         });
         if (existingPlayer) {
           throw {'error': 'Player name already taken', 'code': 400};
+        }
+        if (user.playerId && user.player?.name) {
+          await appendPlayerAliasFromRename(
+            user.playerId,
+            user.player.name,
+            targetPlayerName,
+            transaction,
+          );
         }
       }
       await User.update(

@@ -31,6 +31,7 @@ export async function fetchCreatorsForBulkIndex(creatorIds: number[]): Promise<P
     }),
     CreatorAlias.findAll({
       where: { creatorId: { [Op.in]: ids } },
+      order: [['id', 'ASC']],
     }),
     User.findAll({
       where: { creatorId: { [Op.in]: ids } },

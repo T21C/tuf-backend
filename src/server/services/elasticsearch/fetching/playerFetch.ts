@@ -1,5 +1,6 @@
 import { Op } from 'sequelize';
 import Player from '@/models/players/Player.js';
+import PlayerAlias from '@/models/players/PlayerAlias.js';
 import User from '@/models/auth/User.js';
 import Creator from '@/models/credits/Creator.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
@@ -23,7 +24,7 @@ export async function fetchPlayersForBulkIndex(playerIds: number[]): Promise<Pre
   const ids = [...new Set(playerIds)].filter((id) => Number.isFinite(id) && id > 0);
   if (ids.length === 0) return [];
 
-  const [players, users, statsRows] = await Promise.all([
+  const [players, users, statsRows, aliasRows] = await Promise.all([
     Player.findAll({
       where: { id: { [Op.in]: ids } },
     }),
@@ -32,7 +33,19 @@ export async function fetchPlayersForBulkIndex(playerIds: number[]): Promise<Pre
       include: [{ model: Creator, as: 'creator', required: false }],
     }),
     runPlayerStatsQuery({ playerIds: ids }),
+    PlayerAlias.findAll({
+      where: { playerId: { [Op.in]: ids } },
+      attributes: ['id', 'playerId', 'name'],
+      order: [['id', 'ASC']],
+    }),
   ]);
+
+  const aliasesByPlayerId = new Map<number, PlayerAlias[]>();
+  for (const alias of aliasRows) {
+    const list = aliasesByPlayerId.get(alias.playerId) ?? [];
+    list.push(alias);
+    aliasesByPlayerId.set(alias.playerId, list);
+  }
 
   const usersByPlayerId = new Map<number, User>();
   for (const u of users) {
@@ -95,6 +108,7 @@ export async function fetchPlayersForBulkIndex(playerIds: number[]): Promise<Pre
 
       const doc = buildPlayerIndexDocument({
         player,
+        aliases: aliasesByPlayerId.get(player.id) ?? [],
         user,
         userSubscriptionExpiresAt: user ? expiresByUserId.get(user.id) ?? null : null,
         discordProvider: discord,

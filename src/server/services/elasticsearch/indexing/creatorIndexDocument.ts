@@ -40,7 +40,8 @@ function serializeAliases(aliases: CreatorAlias[] | null | undefined): Array<{ i
     .map((a) => ({
       id: coerceNumber(a.id, 0),
       name: a.name,
-    }));
+    }))
+    .sort((a, b) => a.id - b.id);
 }
 
 function permissionFlagsToLong(value: unknown): number | null {

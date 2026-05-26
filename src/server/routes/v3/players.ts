@@ -20,6 +20,7 @@ import { computePlayerFunFacts } from '@/server/services/stats/playerFunFacts.js
 import { logger } from '@/server/services/core/LoggerService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import Player from '@/models/players/Player.js';
+import PlayerAlias from '@/models/players/PlayerAlias.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
@@ -434,12 +435,25 @@ router.get(
           }
         : {};
 
+      let aliases = Array.isArray((doc as {aliases?: unknown}).aliases)
+        ? (doc as {aliases: Array<{id?: number; name: string}>}).aliases
+        : [];
+      if (aliases.length === 0) {
+        const rows = await PlayerAlias.findAll({
+          where: {playerId: id},
+          attributes: ['id', 'name'],
+          order: [['id', 'ASC']],
+        });
+        aliases = rows.map((a) => ({id: a.id, name: a.name}));
+      }
+
       return res.json({
         ...doc,
         ...bannerPatch,
         ...ranks,
         ...plainEnriched,
         funFacts,
+        aliases,
       });
     } catch (error) {
       logger.error('[v3 /players/:id/profile] failure', error);

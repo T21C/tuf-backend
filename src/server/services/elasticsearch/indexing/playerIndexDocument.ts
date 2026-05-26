@@ -1,4 +1,5 @@
 import Player from '@/models/players/Player.js';
+import PlayerAlias from '@/models/players/PlayerAlias.js';
 import User from '@/models/auth/User.js';
 import Creator from '@/models/credits/Creator.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
@@ -8,6 +9,7 @@ import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufSt
 
 export interface PlayerIndexDocumentInput {
   player: Player;
+  aliases?: PlayerAlias[] | null;
   user?: User | null;
   /** From `user_tuf_stellar_billing.tufStellarSubscriptionExpiresAt` (not on `users`). */
   userSubscriptionExpiresAt?: Date | null;
@@ -86,6 +88,18 @@ function serializeCreator(creator: Creator | null | undefined): Record<string, u
   };
 }
 
+function serializeAliases(aliases: PlayerAlias[] | null | undefined): Array<{id: number; name: string}> {
+  if (!aliases || aliases.length === 0) return [];
+  return aliases
+    .map((a) => plain(a) as {id?: unknown; name?: unknown})
+    .filter((a) => a && typeof a.name === 'string')
+    .map((a) => ({
+      id: coerceNumber(a.id, 0),
+      name: String(a.name),
+    }))
+    .sort((a, b) => a.id - b.id);
+}
+
 function serializeUser(user: User | null | undefined, subscriptionExpiresAt: Date | null | undefined): any | null {
   if (!user) return null;
   const u = plain(user) as any;
@@ -145,6 +159,7 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
         ? p.profileHeaderSurfaceImageAssets
         : null,
     tufStellarIconVariant: normalizeTufStellarIconVariant(p.tufStellarIconVariant),
+    aliases: serializeAliases(input.aliases ?? (player as any).playerAliases ?? null),
     createdAt: p.createdAt ?? null,
     updatedAt: p.updatedAt ?? null,
 

@@ -22,6 +22,7 @@ import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchS
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import { validCreatorVerificationStatuses, type CreatorVerificationStatus } from '@/config/constants.js';
+import {appendCreatorAliasFromRename} from '@/server/services/aliases/nameChangeAliases.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 const router: Router = Router();
@@ -809,8 +810,20 @@ router.put(
       });
     }
 
+    const creatorId = parseInt(id, 10);
     const updatePayload: Record<string, unknown> = {};
-    if (name !== undefined) updatePayload.name = name;
+    if (name !== undefined) {
+      const creatorRow = await Creator.findByPk(creatorId, {
+        attributes: ['id', 'name'],
+        transaction,
+      });
+      const currentName = String(creatorRow?.name ?? '');
+      const nextName = String(name).trim();
+      if (creatorRow && nextName && nextName !== currentName) {
+        await appendCreatorAliasFromRename(creatorId, currentName, nextName, transaction);
+      }
+      updatePayload.name = name;
+    }
     if (userId !== undefined) updatePayload.userId = userId;
     if (verificationStatus !== undefined) {
       updatePayload.verificationStatus = verificationStatus as CreatorVerificationStatus;
@@ -818,7 +831,7 @@ router.put(
 
     if (Object.keys(updatePayload).length > 0) {
       await Creator.update(updatePayload, {
-        where: {id: parseInt(id)},
+        where: {id: creatorId},
         transaction,
       });
     }

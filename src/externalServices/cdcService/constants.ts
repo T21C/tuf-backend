@@ -7,6 +7,7 @@ export const CDC_WATCHED_TABLES: readonly string[] = [
   'levels',
   'level_likes',
   'players',
+  'player_aliases',
   'level_tags',
   'level_tag_assignments',
   'curations',

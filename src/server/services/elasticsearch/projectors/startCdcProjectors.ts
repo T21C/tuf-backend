@@ -171,6 +171,11 @@ export function startCdcProjectors(): void {
             }
             break;
           }
+          case 'player_aliases': {
+            const pid = num(after?.playerId ?? before?.playerId);
+            if (pid != null) await es.indexPlayer(pid);
+            break;
+          }
           case 'users': {
             const prevP = num(before?.playerId);
             const nextP = num(after?.playerId);

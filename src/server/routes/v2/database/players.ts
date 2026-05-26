@@ -37,6 +37,12 @@ import { hasFlag, setUserPermissionAndSave } from '@/misc/utils/auth/permissionU
 import { serializePlayer } from '@/misc/utils/server/jsonHelpers.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
+import {appendPlayerAliasFromRename, migratePlayerAliasesOnMerge} from '@/server/services/aliases/nameChangeAliases.js';
+import PlayerAlias from '@/models/players/PlayerAlias.js';
+import {
+  replacePlayerAliasesForPlayer,
+  validatePlayerAliasListForAdmin,
+} from '@/server/services/players/playerAliases.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -164,6 +170,12 @@ router.get(
             'permissionFlags',
           ],
         },
+        {
+          model: PlayerAlias,
+          as: 'playerAliases',
+          attributes: ['id', 'name'],
+          required: false,
+        },
       ],
     });
 
@@ -215,8 +227,15 @@ router.get(
       )
     } : null;
 
+    const playerAliases =
+      (playerExists as any).playerAliases?.map((a: {id: number; name: string}) => ({
+        id: a.id,
+        name: a.name,
+      })) ?? [];
+
     return res.json({
       ...plainEnrichedPlayer,
+      playerAliases,
       stats: playerStats,
       topScores: plainEnrichedPlayer?.topScores,
       potentialTopScores: plainEnrichedPlayer?.potentialTopScores,
@@ -714,7 +733,12 @@ router.put(
         return res.status(404).json({error: 'Player not found'});
       }
 
-      await player.update({name});
+      const previousName = player.name;
+      const nextName = name.trim();
+      if (previousName !== nextName) {
+        await appendPlayerAliasFromRename(player.id, previousName, nextName);
+      }
+      await player.update({name: nextName});
 
       // Invalidate user-specific cache if player has a user
       if (player.user) {
@@ -726,7 +750,7 @@ router.put(
 
       return res.json({
         message: 'Player name updated successfully',
-        name: name,
+        name: nextName,
       });
     } catch (error) {
       logger.error('Error updating player name:', error);
@@ -736,6 +760,83 @@ router.put(
       });
     }
   }
+);
+
+router.put(
+  '/:id([0-9]{1,20})/aliases',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putPlayerAliases',
+    summary: 'Replace player aliases',
+    description: 'Full replacement of searchable player aliases (max 20). Super admin.',
+    tags: ['Database', 'Players'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: {
+      description: 'aliases',
+      schema: {
+        type: 'object',
+        properties: {aliases: {type: 'array', items: {type: 'string'}}},
+        required: ['aliases'],
+      },
+      required: true,
+    },
+    responses: {200: {description: 'Aliases updated'}, ...standardErrorResponses},
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) {
+        return res.status(400).json({error: 'Invalid player id'});
+      }
+
+      const player = await Player.findByPk(id, {attributes: ['id', 'name']});
+      if (!player) {
+        return res.status(404).json({error: 'Player not found'});
+      }
+
+      const seq = Player.sequelize!;
+      const validated = await validatePlayerAliasListForAdmin(
+        seq,
+        id,
+        player.name,
+        req.body?.aliases,
+      );
+      if (!validated.ok) {
+        return res.status(400).json({error: validated.error});
+      }
+
+      transaction = await sequelize.transaction();
+      await replacePlayerAliasesForPlayer(id, validated.names, transaction);
+      await transaction.commit();
+
+      const aliasRows = await PlayerAlias.findAll({
+        where: {playerId: id},
+        attributes: ['id', 'name'],
+        order: [['id', 'ASC']],
+      });
+
+      const linkedUser = await User.findOne({
+        where: {playerId: id},
+        attributes: ['id'],
+      });
+      if (linkedUser) {
+        await CacheInvalidation.invalidateUser(linkedUser.id);
+      }
+
+      return res.json({
+        playerAliases: aliasRows.map((a) => ({id: a.id, name: a.name})),
+      });
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error updating player aliases:', error);
+      return res.status(500).json({
+        error: 'Failed to update player aliases',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
 );
 
 router.put(
@@ -1171,6 +1272,13 @@ router.post(
           );
         }
       }
+
+      await migratePlayerAliasesOnMerge(
+        sourcePlayer.id,
+        targetPlayer.id,
+        sourcePlayer.name,
+        transaction,
+      );
 
       // Delete player stats first to avoid constraint issues
       await PlayerStats.destroy({
