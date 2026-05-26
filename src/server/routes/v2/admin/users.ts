@@ -425,15 +425,15 @@ router.post(
           const discordName = discordInfo.username
             ? normalizeUsername(discordInfo.username)
             : '';
-          const updates: { nickname?: string; username?: string } = {};
+          const userUpdates: { nickname?: string; username?: string } = {};
           if (discordInfo.username && discordInfo.username !== user.nickname) {
-            updates.nickname = discordInfo.username;
+            userUpdates.nickname = discordInfo.username;
           }
           if (discordName && isValidUsername(discordName) && discordName !== user.username) {
-            updates.username = discordName;
+            userUpdates.username = discordName;
           }
-          if (Object.keys(updates).length) {
-            await user.update(updates);
+          if (Object.keys(userUpdates).length) {
+            await user.update(userUpdates);
             // Invalidate user-specific cache
             await CacheInvalidation.invalidateUser(user.id);
             updates.push(discordId);
