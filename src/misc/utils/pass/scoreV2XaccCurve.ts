@@ -217,7 +217,7 @@ export function fitHyperbolaThreePoints(
       return { ok: false, error: 'No valid hyperbola fits these pins' };
     }
     left = bracketLo;
-    right = bracketHi;
+    right = bracketHi ?? right;
   }
 
   for (let i = 0; i < 100; i += 1) {
@@ -518,7 +518,7 @@ export function fitXaccCurveFromPins(
     return { ok: false, error: 'Fixed 95% anchor does not match this hyperbola' };
   }
 
-  return { ok: true, poleOffset: E, topMultiplier: G, multX, multY };
+  return { ok: true, poleOffset: E, topMultiplier: G };
 }
 
 export function xaccMultiplier(
