@@ -1,4 +1,7 @@
-import { SCORE_V2_ZERO_MISS_MULTIPLIER } from './CalcScore.js';
+import {
+  SCORE_V2_ZERO_MISS_MULTIPLIER,
+  scoreV2MtpFromMisses,
+} from './CalcScore.js';
 
 /**
  * Normalized hyperbola xacc multiplier on [cutoff, 1):
@@ -33,8 +36,10 @@ export const XACC_POLE_OFFSET_MAX = 1 - 1e-9;
 export const XACC_TOP_MULTIPLIER_MIN = 1 + 1e-9;
 export const XACC_TOP_MULTIPLIER_MAX = 999;
 
-/** Minimum accuracy gap between pin 1 and pin 2 (0.2%). */
+/** Minimum accuracy gap between pin 1 and pin 2 (0.2%) — slider / UI only. */
 export const XACC_PIN_ACC_GAP = 0.002;
+/** Minimum gap for hyperbola fit (pass-derived pins may be closer than UI gap). */
+export const XACC_FIT_MIN_PIN_ACC_GAP = 1e-9;
 /** Interior pin 1 lower bound — above cutoff. */
 export const XACC_PIN_ACC_MIN = XACC_CURVE_DEFAULTS.cutoff + 0.005;
 /** Interior pin 1 accuracy upper bound (< 100%). */
@@ -352,24 +357,41 @@ export type XaccPinValues = {
 export function xaccMultiplierFromDisplayScore(
   displayScore: number,
   baseScore: number,
-  zeroMissMtp: number = SCORE_V2_ZERO_MISS_MULTIPLIER,
+  scoreV2Mtp: number = SCORE_V2_ZERO_MISS_MULTIPLIER,
 ): number {
   const base = Number(baseScore);
-  const mtp = Number(zeroMissMtp);
+  const mtp = Number(scoreV2Mtp);
   if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(mtp) || mtp <= 0) {
     return NaN;
   }
   return Number(displayScore) / (base * mtp);
 }
 
+export function resolveScoreV2RatingBase(
+  accuracy: number,
+  levelBaseScore: number,
+  ppBaseScore?: number | null,
+): number {
+  const acc = Number(accuracy);
+  const level = Number(levelBaseScore);
+  const pp = Number(ppBaseScore);
+  if (acc >= 1 - 1e-9 && Number.isFinite(pp) && pp > 0) {
+    return pp;
+  }
+  if (Number.isFinite(level) && level > 0) {
+    return level;
+  }
+  return 100;
+}
+
 export function displayScoreFromXaccMultiplier(
   mult: number,
   baseScore: number,
-  zeroMissMtp: number = SCORE_V2_ZERO_MISS_MULTIPLIER,
+  scoreV2Mtp: number = SCORE_V2_ZERO_MISS_MULTIPLIER,
 ): number {
   const base = Number(baseScore);
   const m = Number(mult);
-  const mtp = Number(zeroMissMtp);
+  const mtp = Number(scoreV2Mtp);
   if (!Number.isFinite(base) || base <= 0) return 0;
   if (!Number.isFinite(m) || !Number.isFinite(mtp)) return 0;
   return base * m * mtp;
@@ -400,12 +422,15 @@ export function xaccCurveToPinValues(
 export type FitXaccCurveFromPinsInput = {
   accX: number;
   accY: number;
-  /** Plotted ScoreV2 (includes zero-miss multiplier when misses = 0). */
+  /** Plotted ScoreV2 at accX for this pin's miss slice. */
   scoreX: number;
   scoreY: number;
   baseScore: number;
   cutoff?: number;
-  zeroMissMultiplier?: number;
+  hitTiles?: number;
+  missesX?: number;
+  missesY?: number;
+  ppBaseScore?: number | null;
 };
 
 export type FitXaccCurveFromPinsResult =
@@ -434,16 +459,26 @@ export function fitXaccCurveFromPins(
   if (baseScore <= 0) {
     return { ok: false, error: 'Level base score must be positive' };
   }
-  if (accX <= cutoff || accY > XACC_PIN2_ACC_MAX || accY <= accX + XACC_PIN_ACC_GAP) {
-    return { ok: false, error: 'Pin accuracies must satisfy cutoff < X < Y <= 100%' };
+  if (
+    accX <= cutoff ||
+    accY > XACC_PIN2_ACC_MAX + 1e-9 ||
+    accY <= accX + XACC_FIT_MIN_PIN_ACC_GAP
+  ) {
+    return {
+      ok: false,
+      error: 'Pin accuracies must satisfy cutoff < X < Y (Y at most 100%)',
+    };
   }
 
-  const zeroMissMtp =
-    Number(pins.zeroMissMultiplier) > 0
-      ? Number(pins.zeroMissMultiplier)
-      : SCORE_V2_ZERO_MISS_MULTIPLIER;
-  const multX = xaccMultiplierFromDisplayScore(scoreX, baseScore, zeroMissMtp);
-  const multY = xaccMultiplierFromDisplayScore(scoreY, baseScore, zeroMissMtp);
+  const hitTiles = Math.max(1, Math.floor(Number(pins.hitTiles)) || 100);
+  const missesX = Math.max(0, Math.floor(Number(pins.missesX)) || 0);
+  const missesY = Math.max(0, Math.floor(Number(pins.missesY)) || 0);
+  const baseX = resolveScoreV2RatingBase(accX, baseScore, pins.ppBaseScore);
+  const baseY = resolveScoreV2RatingBase(accY, baseScore, pins.ppBaseScore);
+  const mtpX = scoreV2MtpFromMisses(missesX, hitTiles);
+  const mtpY = scoreV2MtpFromMisses(missesY, hitTiles);
+  const multX = xaccMultiplierFromDisplayScore(scoreX, baseX, mtpX);
+  const multY = xaccMultiplierFromDisplayScore(scoreY, baseY, mtpY);
   if (multX < XACC_PIN_MULT_MIN || multY < XACC_PIN_MULT_MIN) {
     return { ok: false, error: 'Pin scores cannot be negative' };
   }

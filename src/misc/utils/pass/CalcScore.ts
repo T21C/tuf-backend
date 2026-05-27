@@ -16,7 +16,7 @@ const pwr = 0.7;
 /** Applied when miss count is zero (matches plotted zero-miss ScoreV2 curve). */
 export const SCORE_V2_ZERO_MISS_MULTIPLIER = 1.1;
 
-const getScoreV2Mtp = (inputs: IJudgements) => {
+export const getScoreV2Mtp = (inputs: IJudgements) => {
   const misses = inputs.earlyDouble;
 
   const tiles = tilecount(inputs);
@@ -45,6 +45,24 @@ const getScoreV2Mtp = (inputs: IJudgements) => {
     return 1 - endDeduc / 100;
   }
 };
+
+/** Miss-debuff multiplier for a miss count and hit-tile count (zero misses → 1.1). */
+export function scoreV2MtpFromMisses(misses: number, hitTiles: number): number {
+  const m = Math.max(0, Math.floor(Number(misses)) || 0);
+  const hits = Math.max(0, Math.floor(Number(hitTiles)) || 0);
+  if (hits <= 0) {
+    return m === 0 ? SCORE_V2_ZERO_MISS_MULTIPLIER : 1;
+  }
+  return getScoreV2Mtp({
+    earlyDouble: m,
+    earlySingle: 0,
+    ePerfect: 0,
+    perfect: hits,
+    lPerfect: 0,
+    lateSingle: 0,
+    lateDouble: 0,
+  });
+}
 
 const getXaccMtp = (
   inp: IJudgements,
