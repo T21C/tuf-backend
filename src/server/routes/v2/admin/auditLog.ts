@@ -72,13 +72,33 @@ router.get(
     const orderUpper = typeof order === 'string' ? order.toUpperCase() : 'DESC';
     const orderDir = orderUpper === 'ASC' ? 'ASC' : 'DESC';
 
-    const { rows, count } = await AuditLog.findAndCountAll({
+    const userInclude = {
+      model: User,
+      as: 'user',
+      attributes: ['id', 'username', 'avatarUrl', 'nickname'],
+    };
+
+    const count = await AuditLog.count({ where });
+
+    // Sort on ids only (indexed columns) so MySQL does not filesort large JSON columns.
+    const idRows = await AuditLog.findAll({
       where,
       order: [[sortCol, orderDir]],
       offset,
       limit,
-      include: [{ model: User, as: 'user', attributes: ['id', 'username', 'avatarUrl', 'nickname'] }],
+      attributes: ['id'],
+      raw: true,
     });
+    const ids = idRows.map((row) => row.id);
+
+    const rows =
+      ids.length === 0
+        ? []
+        : await AuditLog.findAll({
+            where: { id: ids },
+            include: [userInclude],
+            order: [[sortCol, orderDir]],
+          });
 
     res.json({
       total: count,

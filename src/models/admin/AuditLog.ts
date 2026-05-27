@@ -49,6 +49,11 @@ AuditLog.init(
     modelName: 'AuditLog',
     tableName: 'audit_logs',
     timestamps: true,
+    indexes: [
+      { fields: ['createdAt'], name: 'idx_audit_logs_created_at' },
+      { fields: ['updatedAt'], name: 'idx_audit_logs_updated_at' },
+      { fields: ['userId', 'createdAt'], name: 'idx_audit_logs_user_created_at' },
+    ],
   },
 );
 
