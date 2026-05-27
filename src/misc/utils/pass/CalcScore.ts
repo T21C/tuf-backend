@@ -13,13 +13,16 @@ const startDeduc = 10;
 const endDeduc = 50;
 const pwr = 0.7;
 
+/** Applied when miss count is zero (matches plotted zero-miss ScoreV2 curve). */
+export const SCORE_V2_ZERO_MISS_MULTIPLIER = 1.1;
+
 const getScoreV2Mtp = (inputs: IJudgements) => {
   const misses = inputs.earlyDouble;
 
   const tiles = tilecount(inputs);
 
   if (!misses) {
-    return 1.1;
+    return SCORE_V2_ZERO_MISS_MULTIPLIER;
   }
   const tp = (start + end) / 2;
   const tpDeduc = (startDeduc + endDeduc) / 2;
@@ -108,8 +111,7 @@ interface LevelData {
     name: string;
     baseScore: number;
   };
-  xaccPoleOffset?: number | null;
-  xaccTopMultiplier?: number | null;
+  xaccCurveMeta?: unknown | null;
   xaccCurve?: XaccCurveConfig | null;
 }
 

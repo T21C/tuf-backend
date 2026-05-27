@@ -119,8 +119,7 @@ async function recalculateScores() {
               name: pass.level.difficulty?.name || '',
               baseScore: pass.level.difficulty?.baseScore || 0
             },
-            xaccPoleOffset: pass.level.xaccPoleOffset ?? null,
-            xaccTopMultiplier: pass.level.xaccTopMultiplier ?? null,
+            xaccCurveMeta: (pass.level as any).xaccCurveMeta ?? null,
           };
 
           const newScore = getScoreV2(passData, levelData);

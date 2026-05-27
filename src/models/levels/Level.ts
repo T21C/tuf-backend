@@ -84,10 +84,8 @@ class Level
   declare bpm: number | null;
   declare tilecount: number | null;
   declare levelLengthInMs: number | null;
-  /** Per-level xacc pole offset (null = site default). */
-  declare xaccPoleOffset: number | null;
-  /** Per-level xacc top multiplier at 100% (null = site default). */
-  declare xaccTopMultiplier: number | null;
+  /** Per-level xacc curve configuration + pins (null = site defaults). */
+  declare xaccCurveMeta: unknown | null;
 }
 
 Level.init(
@@ -240,13 +238,8 @@ Level.init(
       allowNull: true,
       defaultValue: null,
     },
-    xaccPoleOffset: {
-      type: DataTypes.DOUBLE,
-      allowNull: true,
-      defaultValue: null,
-    },
-    xaccTopMultiplier: {
-      type: DataTypes.DOUBLE,
+    xaccCurveMeta: {
+      type: DataTypes.JSON,
       allowNull: true,
       defaultValue: null,
     },

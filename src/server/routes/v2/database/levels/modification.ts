@@ -11,12 +11,6 @@ import Pass from '@/models/passes/Pass.js';
 import Judgement from '@/models/passes/Judgement.js';
 import {calcAcc} from '@/misc/utils/pass/CalcAcc.js';
 import {getScoreV2} from '@/misc/utils/pass/CalcScore.js';
-import {
-  XACC_POLE_OFFSET_MAX,
-  XACC_POLE_OFFSET_MIN,
-  XACC_TOP_MULTIPLIER_MAX,
-  XACC_TOP_MULTIPLIER_MIN,
-} from '@/misc/utils/pass/scoreV2XaccCurve.js';
 import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import LevelLikes from '@/models/levels/LevelLikes.js';
@@ -47,6 +41,10 @@ import { getSongDisplayName, getArtistDisplayName } from '@/misc/utils/data/leve
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import {executePermanentLevelDeleteWithSideEffects} from '@/server/domain/levels/levelPermanentDelete.js';
+import {
+  validateXaccCurveParams,
+  XACC_CURVE_DEFAULTS,
+} from '@/misc/utils/pass/scoreV2XaccCurve.js';
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 
@@ -127,70 +125,49 @@ function parseChartStatPayload(body: Record<string, unknown>): {
   return { ok: true, update };
 }
 
-const XACC_CURVE_FIELDS = ['xaccPoleOffset', 'xaccTopMultiplier'] as const;
-type XaccCurveKey = (typeof XACC_CURVE_FIELDS)[number];
-
 function parseXaccCurvePayload(body: Record<string, unknown>): {
   ok: true;
-  update: Partial<Record<XaccCurveKey, number | null>>;
+  update: { xaccCurveMeta?: unknown | null };
 } | { ok: false; error: string; code: number } {
-  const keysPresent = XACC_CURVE_FIELDS.filter((k) =>
-    Object.prototype.hasOwnProperty.call(body, k),
-  );
-  if (keysPresent.length === 0) {
+  if (!Object.prototype.hasOwnProperty.call(body, 'xaccCurveMeta')) {
     return {
       ok: false,
       code: 400,
-      error:
-        'Request must include at least one of: xaccPoleOffset, xaccTopMultiplier',
+      error: 'Request must include xaccCurveMeta (null clears to defaults)',
     };
   }
 
-  const update: Partial<Record<XaccCurveKey, number | null>> = {};
-
-  for (const key of keysPresent) {
-    const raw = body[key];
-    if (raw === null || raw === '') {
-      update[key] = null;
-      continue;
-    }
-    if (typeof raw === 'string' && raw.trim() === '') {
-      update[key] = null;
-      continue;
-    }
-
-    const num = Number(raw);
-    if (!Number.isFinite(num)) {
-      return {
-        ok: false,
-        code: 400,
-        error: `Invalid value for ${key}: must be a finite number or null`,
-      };
-    }
-
-    if (key === 'xaccPoleOffset') {
-      if (num < XACC_POLE_OFFSET_MIN || num > XACC_POLE_OFFSET_MAX) {
-        return {
-          ok: false,
-          code: 400,
-          error: `xaccPoleOffset must be between ${XACC_POLE_OFFSET_MIN} and ${XACC_POLE_OFFSET_MAX}`,
-        };
-      }
-      update[key] = num;
-      continue;
-    }
-
-    if (num < XACC_TOP_MULTIPLIER_MIN || num > XACC_TOP_MULTIPLIER_MAX) {
-      return {
-        ok: false,
-        code: 400,
-        error: `xaccTopMultiplier must be between ${XACC_TOP_MULTIPLIER_MIN} and ${XACC_TOP_MULTIPLIER_MAX}`,
-      };
-    }
-    update[key] = num;
+  const raw = body.xaccCurveMeta;
+  if (raw === null) {
+    return { ok: true, update: { xaccCurveMeta: null } };
   }
 
-  return { ok: true, update };
+  if (!raw || typeof raw !== 'object') {
+    return {
+      ok: false,
+      code: 400,
+      error: 'xaccCurveMeta must be an object or null',
+    };
+  }
+
+  const meta: any = raw;
+  const pole = meta.poleOffset;
+  const top = meta.topMultiplier;
+  if (pole !== undefined || top !== undefined) {
+    const paramCheck = validateXaccCurveParams(
+      pole !== undefined ? Number(pole) : XACC_CURVE_DEFAULTS.poleOffset,
+      top !== undefined ? Number(top) : XACC_CURVE_DEFAULTS.topMultiplier,
+    );
+    if (!paramCheck.ok) {
+      return {
+        ok: false,
+        code: 400,
+        error: paramCheck.error,
+      };
+    }
+  }
+
+  return { ok: true, update: { xaccCurveMeta: meta } };
 }
 
 const router = Router();
@@ -361,14 +338,10 @@ const handleScoreRecalculations = async (
         name: diffToUse.name,
         baseScore: diffToUse.baseScore || 0,
       },
-      xaccPoleOffset:
-        updateData.xaccPoleOffset !== undefined
-          ? updateData.xaccPoleOffset
-          : pass.level?.xaccPoleOffset ?? null,
-      xaccTopMultiplier:
-        updateData.xaccTopMultiplier !== undefined
-          ? updateData.xaccTopMultiplier
-          : pass.level?.xaccTopMultiplier ?? null,
+      xaccCurveMeta:
+        updateData.xaccCurveMeta !== undefined
+          ? updateData.xaccCurveMeta
+          : (pass.level as any)?.xaccCurveMeta ?? null,
     };
 
     const scoreV2 = getScoreV2(
@@ -1251,20 +1224,19 @@ router.patch(
   Auth.superAdmin(),
   ApiDoc({
     operationId: 'patchLevelXaccCurve',
-    summary: 'Update level xacc score curve knobs',
+    summary: 'Update level xacc score curve meta',
     description:
-      'Super admin only. Sets per-level xacc pole offset and/or top multiplier (null clears to site defaults). Recalculates all passes on the level.',
+      'Super admin only. Sets per-level xacc curve meta (including saved pin positions). null clears to site defaults. Recalculates all passes on the level.',
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
     requestBody: {
       description:
-        'At least one of xaccPoleOffset, xaccTopMultiplier (null clears to defaults)',
+        'xaccCurveMeta object (or null to clear to defaults)',
       schema: {
         type: 'object',
         properties: {
-          xaccPoleOffset: { oneOf: [{ type: 'number' }, { type: 'null' }] },
-          xaccTopMultiplier: { oneOf: [{ type: 'number' }, { type: 'null' }] },
+          xaccCurveMeta: { oneOf: [{ type: 'object' }, { type: 'null' }] },
         },
       },
       required: true,
@@ -1290,8 +1262,7 @@ router.patch(
           'baseScore',
           'ppBaseScore',
           'diffId',
-          'xaccPoleOffset',
-          'xaccTopMultiplier',
+          'xaccCurveMeta',
         ],
       });
       if (!level) {
@@ -1306,8 +1277,7 @@ router.patch(
       const updated = await Level.findByPk(levelId, {
         attributes: [
           'id',
-          'xaccPoleOffset',
-          'xaccTopMultiplier',
+          'xaccCurveMeta',
           'baseScore',
           'ppBaseScore',
           'diffId',
@@ -1318,14 +1288,10 @@ router.patch(
         baseScore: updated?.baseScore ?? level.baseScore ?? 0,
         ppBaseScore: updated?.ppBaseScore ?? level.ppBaseScore ?? 0,
         diffId: updated?.diffId ?? level.diffId,
-        xaccPoleOffset:
-          parsed.update.xaccPoleOffset !== undefined
-            ? parsed.update.xaccPoleOffset
-            : updated?.xaccPoleOffset ?? null,
-        xaccTopMultiplier:
-          parsed.update.xaccTopMultiplier !== undefined
-            ? parsed.update.xaccTopMultiplier
-            : updated?.xaccTopMultiplier ?? null,
+        xaccCurveMeta:
+          parsed.update.xaccCurveMeta !== undefined
+            ? parsed.update.xaccCurveMeta
+            : updated?.xaccCurveMeta ?? null,
       };
 
       void (async () => {
