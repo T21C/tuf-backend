@@ -952,6 +952,12 @@ router.post(
       if (error.code === 'PACK_SIZE_LIMIT_EXCEEDED') {
         return res.status(400).json({ error: error.message, code: error.code });
       }
+      if (error.code === 'PACK_DISK_FULL') {
+        return res.status(503).json({ error: error.message, code: error.code });
+      }
+      if (error.code === 'PACK_QUEUE_BUSY') {
+        return res.status(503).json({ error: error.message, code: error.code });
+      }
       return res.status(500).json({ error: error.message, code: error.code });
     }
     logger.error('Error generating pack download link:', {

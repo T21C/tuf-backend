@@ -1,3 +1,4 @@
+import '@/config/db.js';
 import express from 'express';
 import fs from 'fs';
 import cors from 'cors';

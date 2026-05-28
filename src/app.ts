@@ -15,15 +15,12 @@ import queryValidator from '@/server/middleware/queryValidator.js';
 import {fileURLToPath} from 'url';
 import { logger } from './server/services/core/LoggerService.js';
 import { clientUrlEnv, port, corsOptions } from './config/app.config.js';
-import { initializeDefaultPools } from './config/poolConfig.js';
 import { registerGlobalProcessHandlers } from '@/server/bootstrap/processHandlers.js';
 import { initializeRuntimeServices } from '@/server/bootstrap/runtimeServices.js';
 import { slowEndpointLoggingMiddleware } from '@/server/middleware/slowEndpointLogging.js';
 import { setTerminalServiceTitle } from '@/misc/utils/terminalTitle.js';
 
 setTerminalServiceTitle('TUF Main API');
-// CRITICAL: Initialize pools BEFORE importing models to ensure logging database is available
-initializeDefaultPools();
 
 dotenv.config();
 registerGlobalProcessHandlers();

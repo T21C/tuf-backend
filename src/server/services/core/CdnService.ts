@@ -6,7 +6,14 @@ import { ImageFileType } from '@/models/cdn/CdnFile.js';
 import Level from '@/models/levels/Level.js';
 const CDN_BASE_URL = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 
-const IGNORED_ERROR_CODES = ['PACK_SIZE_LIMIT_EXCEEDED', 'VALIDATION_ERROR', 'read ECONNRESET', 'GET_LEVEL_DATA_ERROR'];
+const IGNORED_ERROR_CODES = [
+    'PACK_SIZE_LIMIT_EXCEEDED',
+    'PACK_DISK_FULL',
+    'PACK_QUEUE_BUSY',
+    'VALIDATION_ERROR',
+    'read ECONNRESET',
+    'GET_LEVEL_DATA_ERROR',
+];
 const MAX_PACK_GENERATION_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 
 function envTimeoutMs(name: string, fallback: number): number {

@@ -1,9 +1,13 @@
 import {Sequelize} from 'sequelize';
 import dotenv from 'dotenv';
 import { getPoolManager, PoolManager } from './PoolManager.js';
+import { initializeDefaultPools } from './poolConfig.js';
 import './poolDiagnostics.js';
 
 dotenv.config();
+
+// Named pools + model mappings must exist before any model module calls getSequelizeForModelGroup().
+initializeDefaultPools();
 
 // Initialize PoolManager and get default pool (backward compatibility)
 const poolManager = getPoolManager();

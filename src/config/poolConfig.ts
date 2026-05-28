@@ -133,7 +133,7 @@ const defaultPoolConfig: PoolConfiguration = {
     },
     {
       name: 'cdn',
-      maxConnections: 10,
+      maxConnections: 15,
       minConnections: 1,
       acquireTimeout: 20000,
       idleTimeout: 10000,

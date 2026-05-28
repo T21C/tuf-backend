@@ -18,6 +18,23 @@ import {
     createZip as archiveCreateZip,
     extractAll as archiveExtractAll
 } from '@/externalServices/cdnService/infra/archive/archiveService.js';
+import {
+    PACK_DOWNLOAD_MAX_SIZE_BYTES,
+    PACK_DOWNLOAD_MAX_CONCURRENT_DISK_BYTES,
+    PACK_DOWNLOAD_MAX_CONCURRENT_JOBS,
+    PACK_DOWNLOAD_MIN_FREE_DISK_BYTES,
+    PACK_DOWNLOAD_PARALLELISM,
+    PACK_DOWNLOAD_TEMP_SWEEP_MAX_AGE_MS,
+    computePackDiskBudgetBytes,
+} from '@/externalServices/cdnService/domain/pack/packDownloadConfig.js';
+import {
+    PackDiskFullError,
+    assertPackDiskHeadroom,
+    isEnospcError,
+    toPackDownloadFailure,
+} from '@/externalServices/cdnService/domain/pack/packDownloadDisk.js';
+import { sweepOrphanedPackDownloadArtifacts } from '@/externalServices/cdnService/domain/pack/packDownloadTempSweep.js';
+import { createAsyncPool } from '@/misc/utils/asyncPool.js';
 
 const router = Router();
 
@@ -28,8 +45,8 @@ const PACK_DOWNLOAD_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 /** Min interval between pack upload progress broadcasts (R2 multipart fires often). */
 const PACK_UPLOAD_PROGRESS_THROTTLE_MS = 400;
 const PACK_DOWNLOAD_SPACES_PREFIX = process.env.NODE_ENV === 'development' ? 'pack-downloads-dev' : 'pack-downloads';
-const PACK_DOWNLOAD_MAX_SIZE_BYTES = 15 * 1024 * 1024 * 1024; // 15GB hard limit
-const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 20 * 1024 * 1024 * 1024; // 20GB total concurrent limit
+const CDN_FILE_PACK_ATTRIBUTES = ['id', 'type', 'metadata'] as const;
+const packLevelWorkPool = createAsyncPool(PACK_DOWNLOAD_PARALLELISM);
 const EXTERNAL_URL_MAX_LENGTH = 2048;
 const EXTERNAL_URL_HEAD_TIMEOUT_MS = 10_000;
 const EXTERNAL_URL_DOWNLOAD_TIMEOUT_MS = 30_000;
@@ -95,15 +112,17 @@ interface PackDownloadProgress {
 
 const packDownloadProgress = new Map<string, PackDownloadProgress>();
 
-// Queue system for managing concurrent pack generations
+// Queue system for managing concurrent pack generations (disk budget + job count)
 interface ActiveGeneration {
     cacheKey: string;
     estimatedSize: number;
+    diskBudgetBytes: number;
 }
 
 interface QueuedGeneration {
     cacheKey: string;
     estimatedSize: number;
+    diskBudgetBytes: number;
     resolve: () => void;
     reject: (error: Error) => void;
 }
@@ -111,56 +130,81 @@ interface QueuedGeneration {
 const activeGenerations = new Map<string, ActiveGeneration>();
 const generationQueue: QueuedGeneration[] = [];
 
-function getTotalActiveSize(): number {
+function getTotalActiveDiskBudget(): number {
     let total = 0;
     for (const gen of activeGenerations.values()) {
-        total += gen.estimatedSize;
+        total += gen.diskBudgetBytes;
     }
     return total;
 }
 
+function canStartGeneration(diskBudgetBytes: number): boolean {
+    if (activeGenerations.size >= PACK_DOWNLOAD_MAX_CONCURRENT_JOBS) {
+        return false;
+    }
+    return getTotalActiveDiskBudget() + diskBudgetBytes <= PACK_DOWNLOAD_MAX_CONCURRENT_DISK_BYTES;
+}
+
+async function registerGeneration(
+    estimatedSize: number,
+    diskBudgetBytes: number,
+    cacheKey: string,
+): Promise<void> {
+    await assertPackDiskHeadroom(
+        PACK_DOWNLOAD_DIR,
+        diskBudgetBytes,
+        PACK_DOWNLOAD_MIN_FREE_DISK_BYTES,
+    );
+
+    activeGenerations.set(cacheKey, {
+        cacheKey,
+        estimatedSize,
+        diskBudgetBytes,
+    });
+
+    logger.debug('Pack generation registered', {
+        cacheKey,
+        estimatedSize,
+        estimatedSizeGB: (estimatedSize / (1024 * 1024 * 1024)).toFixed(2),
+        diskBudgetBytes,
+        diskBudgetGB: (diskBudgetBytes / (1024 * 1024 * 1024)).toFixed(2),
+        activeJobs: activeGenerations.size,
+        activeDiskBudgetGB: (getTotalActiveDiskBudget() / (1024 * 1024 * 1024)).toFixed(2),
+    });
+}
+
 async function waitForSpace(estimatedSize: number, cacheKey: string): Promise<void> {
-    // If already registered (e.g., another request for same cacheKey is already active), skip
     if (activeGenerations.has(cacheKey)) {
         return;
     }
 
-    const currentTotal = getTotalActiveSize();
+    const diskBudgetBytes = computePackDiskBudgetBytes(estimatedSize);
 
-    // If adding this request would exceed the limit, queue it
-    if (currentTotal + estimatedSize > PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES) {
-        logger.debug('Pack generation queued due to size limit', {
-            cacheKey,
-            estimatedSize,
-            estimatedSizeGB: (estimatedSize / (1024 * 1024 * 1024)).toFixed(2),
-            currentTotal,
-            currentTotalGB: (currentTotal / (1024 * 1024 * 1024)).toFixed(2),
-            queueLength: generationQueue.length
-        });
-
-        // Wait in queue until space is available
-        return new Promise<void>((resolve, reject) => {
-            generationQueue.push({
-                cacheKey,
-                estimatedSize,
-                resolve,
-                reject
-            });
-        });
+    if (canStartGeneration(diskBudgetBytes)) {
+        await registerGeneration(estimatedSize, diskBudgetBytes, cacheKey);
+        return;
     }
 
-    // Space available, register immediately
-    activeGenerations.set(cacheKey, {
-        cacheKey,
-        estimatedSize
-    });
-
-    logger.debug('Pack generation started immediately', {
+    logger.debug('Pack generation queued (disk budget or job limit)', {
         cacheKey,
         estimatedSize,
-        estimatedSizeGB: (estimatedSize / (1024 * 1024 * 1024)).toFixed(2),
-        currentTotal: currentTotal + estimatedSize,
-        currentTotalGB: ((currentTotal + estimatedSize) / (1024 * 1024 * 1024)).toFixed(2)
+        diskBudgetBytes,
+        diskBudgetGB: (diskBudgetBytes / (1024 * 1024 * 1024)).toFixed(2),
+        activeJobs: activeGenerations.size,
+        maxJobs: PACK_DOWNLOAD_MAX_CONCURRENT_JOBS,
+        activeDiskBudgetGB: (getTotalActiveDiskBudget() / (1024 * 1024 * 1024)).toFixed(2),
+        maxDiskBudgetGB: (PACK_DOWNLOAD_MAX_CONCURRENT_DISK_BYTES / (1024 * 1024 * 1024)).toFixed(2),
+        queueLength: generationQueue.length,
+    });
+
+    return new Promise<void>((resolve, reject) => {
+        generationQueue.push({
+            cacheKey,
+            estimatedSize,
+            diskBudgetBytes,
+            resolve,
+            reject,
+        });
     });
 }
 
@@ -172,46 +216,40 @@ function unregisterGeneration(cacheKey: string): void {
 
     logger.debug('Pack generation completed, processing queue', {
         cacheKey,
-        currentTotal: getTotalActiveSize(),
-        currentTotalGB: (getTotalActiveSize() / (1024 * 1024 * 1024)).toFixed(2),
-        queueLength: generationQueue.length
+        activeJobs: activeGenerations.size,
+        activeDiskBudgetGB: (getTotalActiveDiskBudget() / (1024 * 1024 * 1024)).toFixed(2),
+        queueLength: generationQueue.length,
     });
 
-    // Process queue - try to start queued generations that can fit
+    void drainGenerationQueue();
+}
+
+async function drainGenerationQueue(): Promise<void> {
     while (generationQueue.length > 0) {
         const queued = generationQueue[0];
 
-        // Skip if this cacheKey is already registered (e.g., another request already started)
         if (activeGenerations.has(queued.cacheKey)) {
-            generationQueue.shift(); // Remove from queue
-            queued.resolve(); // Still resolve to unblock the waiting request
+            generationQueue.shift();
+            queued.resolve();
             continue;
         }
 
-        // Recalculate current total (may have changed from previous iterations)
-        const currentTotal = getTotalActiveSize();
+        if (!canStartGeneration(queued.diskBudgetBytes)) {
+            break;
+        }
 
-        // Check if this queued item can fit now
-        if (currentTotal + queued.estimatedSize <= PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES) {
-            generationQueue.shift(); // Remove from queue
-            activeGenerations.set(queued.cacheKey, {
-                cacheKey: queued.cacheKey,
-                estimatedSize: queued.estimatedSize
-            });
+        generationQueue.shift();
 
+        try {
+            await registerGeneration(queued.estimatedSize, queued.diskBudgetBytes, queued.cacheKey);
             logger.debug('Pack generation dequeued and started', {
                 cacheKey: queued.cacheKey,
-                estimatedSize: queued.estimatedSize,
-                estimatedSizeGB: (queued.estimatedSize / (1024 * 1024 * 1024)).toFixed(2),
-                newTotal: currentTotal + queued.estimatedSize,
-                newTotalGB: ((currentTotal + queued.estimatedSize) / (1024 * 1024 * 1024)).toFixed(2),
-                remainingQueueLength: generationQueue.length
+                diskBudgetGB: (queued.diskBudgetBytes / (1024 * 1024 * 1024)).toFixed(2),
+                remainingQueueLength: generationQueue.length,
             });
-
             queued.resolve();
-        } else {
-            // Can't fit this one yet, stop processing queue
-            break;
+        } catch (error) {
+            queued.reject(error instanceof Error ? error : new Error(String(error)));
         }
     }
 }
@@ -660,6 +698,11 @@ async function cleanupExpiredDownloads(): Promise<void> {
 async function initializePackDownloadStorage(): Promise<void> {
     await ensurePackDownloadDirs();
     await cleanupExpiredDownloads();
+    await sweepOrphanedPackDownloadArtifacts(
+        PACK_DOWNLOAD_DIR,
+        PACK_DOWNLOAD_TEMP_DIR,
+        PACK_DOWNLOAD_TEMP_SWEEP_MAX_AGE_MS,
+    );
 }
 
 await initializePackDownloadStorage();
@@ -667,6 +710,15 @@ await cleanupPackDownloadSpaces();
 setInterval(() => {
     cleanupExpiredDownloads().catch(error => {
         logger.error('Failed to cleanup expired pack downloads:', {
+            error: error instanceof Error ? error.message : String(error)
+        });
+    });
+    sweepOrphanedPackDownloadArtifacts(
+        PACK_DOWNLOAD_DIR,
+        PACK_DOWNLOAD_TEMP_DIR,
+        PACK_DOWNLOAD_TEMP_SWEEP_MAX_AGE_MS,
+    ).catch(error => {
+        logger.error('Failed to sweep orphaned pack download temp dirs:', {
             error: error instanceof Error ? error.message : String(error)
         });
     });
@@ -717,7 +769,9 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
     }
 
     try {
-        const cdnFile = await CdnFile.findByPk(node.fileId);
+        const cdnFile = await CdnFile.findByPk(node.fileId, {
+            attributes: [...CDN_FILE_PACK_ATTRIBUTES],
+        });
         if (!cdnFile || cdnFile.type !== 'LEVELZIP' || !cdnFile.metadata) {
             logger.warn('CDN file missing or invalid for pack download', {
                 fileId: node.fileId
@@ -1366,8 +1420,11 @@ async function processPackNode(node: PackDownloadNode, parentPath: string, conte
 
         if (Array.isArray(node.children) && node.children.length > 0) {
             const children = node.children as PackDownloadNode[];
-            // Process concurrently since we're streaming to disk (no memory pressure)
-            await Promise.all(children.map(child => processPackNode(child, folderPath, context)));
+            await Promise.all(
+                children.map((child) =>
+                    packLevelWorkPool(() => processPackNode(child, folderPath, context)),
+                ),
+            );
         }
         return;
     }
@@ -1469,6 +1526,11 @@ async function generatePackDownloadZip(
         try {
             await archiveCreateZip(extractRoot, targetPath);
         } catch (error) {
+            if (isEnospcError(error)) {
+                throw new PackDiskFullError(
+                    'Not enough temporary disk space while creating the pack archive',
+                );
+            }
             logger.error('Failed to create pack zip via 7-Zip', {
                 error: error instanceof Error ? error.message : String(error),
                 extractRoot,
@@ -1600,11 +1662,12 @@ async function generatePackDownloadZip(
 
         return response;
     } catch (error) {
-        // Update progress: failed
+        const failure = toPackDownloadFailure(error);
+
         if (downloadId) {
             await updateProgress(downloadId, cacheKey, {
                 status: 'failed',
-                error: error instanceof Error ? error.message : String(error),
+                error: failure.message,
                 uploadLoaded: undefined,
                 uploadTotal: undefined,
             });
@@ -1680,7 +1743,9 @@ async function validateExternalUrlsInPackTree(node: PackDownloadNode): Promise<v
 
 async function getFileSizeFromCdn(fileId: string): Promise<number | null> {
     try {
-        const cdnFile = await CdnFile.findByPk(fileId);
+        const cdnFile = await CdnFile.findByPk(fileId, {
+            attributes: [...CDN_FILE_PACK_ATTRIBUTES],
+        });
         if (!cdnFile || cdnFile.type !== 'LEVELZIP' || !cdnFile.metadata) {
             return null;
         }
@@ -1691,7 +1756,6 @@ async function getFileSizeFromCdn(fileId: string): Promise<number | null> {
             return null;
         }
 
-        // Try to get size from metadata first
         if (typeof originalZip.size === 'number' && originalZip.size > 0) {
             return originalZip.size;
         }
@@ -1762,7 +1826,11 @@ async function estimateTotalZipSize(tree: PackDownloadNode): Promise<{ totalSize
     async function traverseNode(node: PackDownloadNode): Promise<void> {
         if (node.type === 'folder') {
             if (Array.isArray(node.children)) {
-                await Promise.all(node.children.map(child => traverseNode(child)));
+                await Promise.all(
+                    node.children.map((child) =>
+                        packLevelWorkPool(() => traverseNode(child)),
+                    ),
+                );
             }
             return;
         }
@@ -1843,6 +1911,23 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             estimatedCount: sizeEstimate.estimatedCount,
             failedCount: sizeEstimate.failedCount
         });
+
+        const diskBudgetBytes = computePackDiskBudgetBytes(sizeEstimate.totalSize);
+        try {
+            await assertPackDiskHeadroom(
+                PACK_DOWNLOAD_DIR,
+                diskBudgetBytes,
+                PACK_DOWNLOAD_MIN_FREE_DISK_BYTES,
+            );
+        } catch (error) {
+            if (error instanceof PackDiskFullError) {
+                return res.status(503).json({
+                    error: error.message,
+                    code: error.code,
+                });
+            }
+            throw error;
+        }
 
         // Format zip name with pack code if provided
         let finalZipName = zipName.slice(0, 40);
@@ -1945,13 +2030,12 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
         const sanitizedZipName = sanitizePathSegment(finalZipName);
 
         if (!packGenerationPromises.has(normalizedCacheKey)) {
-            await waitForSpace(sizeEstimate.totalSize, normalizedCacheKey);
-
             inFlightPackPrimaryJobId.set(normalizedCacheKey, trimmedDownloadId);
             packGenerationJobSubscribers.set(normalizedCacheKey, new Set([trimmedDownloadId]));
 
             const generationPromise = (async () => {
                 try {
+                    await waitForSpace(sizeEstimate.totalSize, normalizedCacheKey);
                     return await generatePackDownloadZip(
                         sanitizedZipName,
                         tree,
@@ -1959,6 +2043,18 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
                         trimmedDownloadId,
                         trimFolderNames !== false,
                     );
+                } catch (error) {
+                    const failure = toPackDownloadFailure(error);
+                    const snap = packDownloadProgress.get(trimmedDownloadId);
+                    if (snap?.status !== 'failed') {
+                        await updateProgress(trimmedDownloadId, normalizedCacheKey, {
+                            status: 'failed',
+                            error: failure.message,
+                            uploadLoaded: undefined,
+                            uploadTotal: undefined,
+                        });
+                    }
+                    throw error;
                 } finally {
                     unregisterGeneration(normalizedCacheKey);
                     packGenerationPromises.delete(normalizedCacheKey);
@@ -1969,10 +2065,12 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
 
             packGenerationPromises.set(normalizedCacheKey, generationPromise);
             generationPromise.catch((err) => {
+                const failure = toPackDownloadFailure(err);
                 logger.error('Pack generation failed (background)', {
                     cacheKey: normalizedCacheKey,
                     downloadId: trimmedDownloadId,
-                    error: err instanceof Error ? err.message : String(err),
+                    code: failure.code,
+                    error: failure.message,
                 });
             });
         } else {
@@ -1999,6 +2097,13 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             cacheKey: normalizedCacheKey,
         });
     } catch (error) {
+        if (error instanceof PackDiskFullError) {
+            return res.status(503).json({
+                error: error.message,
+                code: error.code,
+            });
+        }
+
         logger.error('Failed to generate pack download zip', {
             error: error instanceof Error ? error.message : String(error)
         });
