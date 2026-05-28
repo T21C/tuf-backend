@@ -2,10 +2,11 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { Op } from 'sequelize';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import {User, RefreshToken} from '@/models/index.js';
 import { hasFlag } from './permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
+import { parseEnvBool } from '@/config/app.config.js';
 
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env
@@ -15,12 +16,40 @@ const JWT_REFRESH_EXPIRES_IN_SEC = JWT_REFRESH_EXPIRES_IN_DAYS * 24 * 60 * 60;
 
 const COOKIE_ACCESS = 'accessToken';
 const COOKIE_REFRESH = 'refreshToken';
-const COOKIE_OPTS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict' as const,
-  path: '/',
+
+type AuthCookieOptions = {
+  httpOnly: true;
+  secure: boolean;
+  sameSite: 'strict' | 'lax' | 'none';
+  path: '/';
 };
+
+/**
+ * Cookie flags for auth tokens. Honors COOKIE_SECURE / COOKIE_SAMESITE / ALLOW_INSECURE_AUTH_COOKIES.
+ * Uses `req.secure` when available so local HTTP dev can receive cookies while production stays HTTPS-only.
+ */
+export function resolveAuthCookieOptions(req?: Pick<Request, 'secure'>): AuthCookieOptions {
+  const allowInsecure = parseEnvBool(process.env.ALLOW_INSECURE_AUTH_COOKIES, false);
+  const explicitSecure = (process.env.COOKIE_SECURE ?? '').trim().toLowerCase();
+  let secure: boolean;
+  if (explicitSecure === 'true' || explicitSecure === '1') {
+    secure = true;
+  } else if (explicitSecure === 'false' || explicitSecure === '0' || allowInsecure) {
+    secure = false;
+  } else {
+    secure = Boolean(req?.secure) || process.env.NODE_ENV === 'production';
+  }
+
+  const sameSiteEnv = (process.env.COOKIE_SAMESITE ?? '').trim().toLowerCase();
+  let sameSite: AuthCookieOptions['sameSite'];
+  if (sameSiteEnv === 'strict' || sameSiteEnv === 'lax' || sameSiteEnv === 'none') {
+    sameSite = sameSiteEnv;
+  } else {
+    sameSite = 'lax';
+  }
+
+  return { httpOnly: true, secure, sameSite, path: '/' };
+}
 
 /**
  * Password utilities
@@ -259,23 +288,26 @@ export const cookieUtils = {
     accessToken: string,
     refreshToken: string | null,
     accessMaxAgeSec: number = ACCESS_COOKIE_MAX_AGE_SEC,
-    refreshMaxAgeSec: number = REFRESH_COOKIE_MAX_AGE_SEC
+    refreshMaxAgeSec: number = REFRESH_COOKIE_MAX_AGE_SEC,
+    req?: Pick<Request, 'secure'>
   ): void {
+    const cookieOpts = resolveAuthCookieOptions(req);
     res.cookie(COOKIE_ACCESS, accessToken, {
-      ...COOKIE_OPTS,
+      ...cookieOpts,
       maxAge: accessMaxAgeSec * 1000,
     });
     if (refreshToken) {
       res.cookie(COOKIE_REFRESH, refreshToken, {
-        ...COOKIE_OPTS,
+        ...cookieOpts,
         maxAge: refreshMaxAgeSec * 1000,
       });
     }
   },
 
-  clearAuthCookies(res: Response): void {
-    res.clearCookie(COOKIE_ACCESS, { ...COOKIE_OPTS, path: '/' });
-    res.clearCookie(COOKIE_REFRESH, { ...COOKIE_OPTS, path: '/' });
+  clearAuthCookies(res: Response, req?: Pick<Request, 'secure'>): void {
+    const cookieOpts = resolveAuthCookieOptions(req);
+    res.clearCookie(COOKIE_ACCESS, { ...cookieOpts, path: '/' });
+    res.clearCookie(COOKIE_REFRESH, { ...cookieOpts, path: '/' });
   },
 
   cookieNames: { access: COOKIE_ACCESS, refresh: COOKIE_REFRESH },

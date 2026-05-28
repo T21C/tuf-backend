@@ -120,13 +120,45 @@ export const stripeConfig: StripeConfig = {
   tufStellarPriceIds: readStripeTufStellarPriceIds(),
 };
 
-export const corsOptions = {
-  origin: [
+const corsOriginAllowlist = new Set(
+  [
     clientUrlEnv || 'http://localhost:5173',
     'http://localhost:5173',
+    'http://localhost:5000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5000',
     'https://tuforums.com',
+    'https://www.tuforums.com',
     'https://api.tuforums.com',
-  ],
+    'https://tufstaging.online',
+    'https://api.tufstaging.online',
+  ].filter(Boolean),
+);
+
+const localDevOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+export const corsOptions = {
+  origin: (
+    origin: string | undefined,
+    callback: (err: Error | null, allow?: boolean) => void,
+  ) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    if (corsOriginAllowlist.has(origin)) {
+      callback(null, true);
+      return;
+    }
+    if (
+      process.env.NODE_ENV === 'development' &&
+      localDevOriginPattern.test(origin)
+    ) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error(`CORS blocked origin: ${origin}`));
+  },
   methods: [
     'GET',
     'POST',

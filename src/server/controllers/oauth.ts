@@ -201,7 +201,7 @@ export const OAuthController = {
           userAgent: req.get('user-agent'),
           ip,
         });
-        cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
+        cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC, req);
         return res.json({
           user: {
             id: user.id,
