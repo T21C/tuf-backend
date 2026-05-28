@@ -48,6 +48,15 @@ import {
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 
+/** Chunk size for pass score bulk updates (large levels). */
+const PASS_SCORE_RECALC_BATCH = 500;
+
+type PassScoreRecalcResult = {
+  playerIds: number[];
+  passIds: number[];
+  updatedCount: number;
+};
+
 import {
   checkLevelOwnership,
   type OwnershipCheckResult,
@@ -291,7 +300,7 @@ const handleScoreRecalculations = async (
   levelId: number,
   updateData: any,
   transaction: Transaction,
-): Promise<number[]> => {
+): Promise<PassScoreRecalcResult> => {
   const passes = await Pass.findAll({
     where: {levelId},
     include: [
@@ -313,7 +322,7 @@ const handleScoreRecalculations = async (
     logger.error(
       `No difficulty found for level ${levelId} with diffId ${updateData.diffId}`,
     );
-    return [];
+    return { playerIds: [], passIds: [], updatedCount: 0 };
   }
 
   // Collect all updates for bulk operation
@@ -363,24 +372,93 @@ const handleScoreRecalculations = async (
     });
   }
 
-  // Perform bulk update if there are any updates
   if (passUpdates.length > 0) {
-    // Update each pass using a bulk update query
-    await Pass.bulkCreate(
-      passUpdates,
-      {
+    for (let i = 0; i < passUpdates.length; i += PASS_SCORE_RECALC_BATCH) {
+      const chunk = passUpdates.slice(i, i + PASS_SCORE_RECALC_BATCH);
+      await Pass.bulkCreate(chunk, {
         updateOnDuplicate: ['accuracy', 'scoreV2'],
         transaction,
-      },
-    );
-    await elasticsearchService.reindexPasses(passUpdates.map(pass => pass.id));
+      });
+    }
     await updateWorldsFirstPPStatus(levelId, transaction);
-
     logger.debug(`Bulk updated ${passUpdates.length} passes for level ${levelId}`);
   }
 
-  return passes.map(pass => pass.playerId);
+  return {
+    playerIds: passes.map(pass => pass.playerId),
+    passIds: passUpdates.map(pass => pass.id),
+    updatedCount: passUpdates.length,
+  };
 };
+
+/** Reindex + cache + SSE after pass rows are committed. */
+async function finalizePassScoreRecalc(
+  levelId: number,
+  result: PassScoreRecalcResult,
+): Promise<void> {
+  if (result.passIds.length > 0) {
+    await elasticsearchService.reindexPasses(result.passIds);
+  }
+  if (result.playerIds.length > 0) {
+    await elasticsearchService.reindexPlayers(
+      Array.from(new Set(result.playerIds)),
+    );
+  }
+  await elasticsearchService.indexLevel(levelId);
+
+  try {
+    await CacheInvalidation.invalidateTags([
+      `level:${levelId}`,
+      'levels:all',
+    ]);
+  } catch (cacheErr) {
+    logger.error(
+      `Cache invalidation after pass score recalc failed for level ${levelId}:`,
+      cacheErr,
+    );
+  }
+
+  sseManager.broadcast({ type: 'ratingUpdate' });
+  sseManager.broadcast({ type: 'levelUpdate' });
+  sseManager.broadcast({
+    type: 'passUpdate',
+    data: {
+      levelId,
+      action: 'levelUpdate',
+    },
+  });
+}
+
+/** DB recalc (transaction) then search index + notifications — correct commit order. */
+async function executeLevelPassScoreRecalc(
+  levelId: number,
+  updateData: Record<string, unknown>,
+): Promise<PassScoreRecalcResult> {
+  let transaction: Transaction | null = null;
+  try {
+    transaction = await sequelize.transaction({
+      isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
+    });
+    const result = await handleScoreRecalculations(
+      levelId,
+      updateData,
+      transaction,
+    );
+    await transaction.commit();
+    transaction = null;
+    await finalizePassScoreRecalc(levelId, result);
+    return result;
+  } catch (error) {
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackErr) {
+        logger.error('Error rolling back pass score recalc:', rollbackErr);
+      }
+    }
+    throw error;
+  }
+}
 
 router.put(
   '/own/:id([0-9]{1,20})',
@@ -796,45 +874,16 @@ router.put(
     };
     res.json(response);
 
-    // Handle async operations
-    (async () => {
-      let recalcTransaction: Transaction | null = null;
+    // Handle async operations (response already sent)
+    void (async () => {
       try {
-        recalcTransaction = await sequelize.transaction({
-          isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
-        });
-
-        if (updateData.baseScore !== undefined || updateData.diffId !== undefined) {
-          const affectedPlayerIds = await handleScoreRecalculations(
-            levelId,
-            updateData,
-            recalcTransaction,
-          );
-          await elasticsearchService.reindexPlayers(
-            Array.from(new Set(affectedPlayerIds)),
-          );
+        if (
+          updateData.baseScore !== undefined ||
+          updateData.diffId !== undefined
+        ) {
+          await executeLevelPassScoreRecalc(levelId, updateData);
         }
-
-        await recalcTransaction.commit();
-
-        sseManager.broadcast({type: 'ratingUpdate'});
-        sseManager.broadcast({type: 'levelUpdate'});
-        sseManager.broadcast({
-          type: 'passUpdate',
-          data: {
-            levelId,
-            action: 'levelUpdate',
-          },
-        });
       } catch (error) {
-        if (recalcTransaction) {
-          try {
-            await recalcTransaction.rollback();
-          } catch (rollbackError) {
-            // Ignore rollback errors - transaction might already be rolled back
-            logger.warn('Transaction rollback failed:', rollbackError);
-          }
-        }
         logger.error('Error in async operations after level update:', error);
       }
     })()
@@ -1294,65 +1343,29 @@ router.patch(
             : updated?.xaccCurveMeta ?? null,
       };
 
-      void (async () => {
-        let recalcTransaction: Transaction | null = null;
-        try {
-          recalcTransaction = await sequelize.transaction({
-            isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
-          });
-
-          const affectedPlayerIds = await handleScoreRecalculations(
-            levelId,
-            recalcPayload,
-            recalcTransaction,
-          );
-
-          await recalcTransaction.commit();
-
-          await elasticsearchService.reindexPlayers(
-            Array.from(new Set(affectedPlayerIds)),
-          );
-          await elasticsearchService.indexLevel(levelId);
-
-          try {
-            await CacheInvalidation.invalidateTags([
-              `level:${levelId}`,
-              'levels:all',
-            ]);
-          } catch (cacheErr) {
-            logger.error(
-              `Cache invalidation after xacc-curve patch failed for level ${levelId}:`,
-              cacheErr,
-            );
-          }
-
-          sseManager.broadcast({ type: 'ratingUpdate' });
-          sseManager.broadcast({ type: 'levelUpdate' });
-          sseManager.broadcast({
-            type: 'passUpdate',
-            data: {
-              levelId,
-              action: 'levelUpdate',
-            },
-          });
-        } catch (error) {
-          if (recalcTransaction) {
-            try {
-              await recalcTransaction.rollback();
-            } catch (rollbackErr) {
-              logger.error('Error rolling back xacc-curve recalc:', rollbackErr);
-            }
-          }
-          logger.error(
-            `Error recalculating passes after xacc-curve patch for level ${levelId}:`,
-            error,
-          );
-        }
-      })();
+      let passesRecalculated = 0;
+      try {
+        const recalcResult = await executeLevelPassScoreRecalc(
+          levelId,
+          recalcPayload,
+        );
+        passesRecalculated = recalcResult.updatedCount;
+      } catch (recalcError) {
+        logger.error(
+          `Error recalculating passes after xacc-curve patch for level ${levelId}:`,
+          recalcError,
+        );
+        return res.status(500).json({
+          error:
+            'Xacc curve was saved but pass score recalculation failed. Retry or contact an admin.',
+          level: updated,
+        });
+      }
 
       return res.json({
         message: 'Xacc curve updated',
         level: updated,
+        passesRecalculated,
       });
     } catch (error) {
       logger.error('Error patching level xacc curve:', error);
