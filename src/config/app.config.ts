@@ -132,32 +132,43 @@ const corsOriginAllowlist = new Set(
     'https://api.tuforums.com',
     'https://tufstaging.online',
     'https://api.tufstaging.online',
-  ].filter(Boolean),
+    'https://web-adofai.impl1113.dev',
+  ]
+    .concat(
+      (process.env.CORS_EXTRA_ORIGINS ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    )
+    .filter(Boolean),
 );
 
 const localDevOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+/** Whether the browser Origin may use credentialed CORS against this API. */
+export function isAllowedCorsOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+  if (corsOriginAllowlist.has(origin)) return true;
+  if (
+    process.env.NODE_ENV === 'development' &&
+    localDevOriginPattern.test(origin)
+  ) {
+    return true;
+  }
+  return false;
+}
 
 export const corsOptions = {
   origin: (
     origin: string | undefined,
     callback: (err: Error | null, allow?: boolean) => void,
   ) => {
-    if (!origin) {
+    if (isAllowedCorsOrigin(origin)) {
       callback(null, true);
       return;
     }
-    if (corsOriginAllowlist.has(origin)) {
-      callback(null, true);
-      return;
-    }
-    if (
-      process.env.NODE_ENV === 'development' &&
-      localDevOriginPattern.test(origin)
-    ) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error(`CORS blocked origin: ${origin}`));
+    // Reject without throwing — avoids 500s from extension origins (chrome-extension://…)
+    callback(null, false);
   },
   methods: [
     'GET',

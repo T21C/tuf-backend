@@ -6,7 +6,7 @@ import type { Request, Response } from 'express';
 import {User, RefreshToken} from '@/models/index.js';
 import { hasFlag } from './permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
-import { parseEnvBool } from '@/config/app.config.js';
+import { isAllowedCorsOrigin, parseEnvBool } from '@/config/app.config.js';
 
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env
@@ -28,7 +28,9 @@ type AuthCookieOptions = {
  * Cookie flags for auth tokens. Honors COOKIE_SECURE / COOKIE_SAMESITE / ALLOW_INSECURE_AUTH_COOKIES.
  * Uses `req.secure` when available so local HTTP dev can receive cookies while production stays HTTPS-only.
  */
-export function resolveAuthCookieOptions(req?: Pick<Request, 'secure'>): AuthCookieOptions {
+export function resolveAuthCookieOptions(
+  req?: Pick<Request, 'secure' | 'headers' | 'hostname'>,
+): AuthCookieOptions {
   const allowInsecure = parseEnvBool(process.env.ALLOW_INSECURE_AUTH_COOKIES, false);
   const explicitSecure = (process.env.COOKIE_SECURE ?? '').trim().toLowerCase();
   let secure: boolean;
@@ -46,6 +48,21 @@ export function resolveAuthCookieOptions(req?: Pick<Request, 'secure'>): AuthCoo
     sameSite = sameSiteEnv;
   } else {
     sameSite = 'lax';
+  }
+
+  // SPA on tuforums.com → api.tuforums.com: cross-origin credentialed XHR needs SameSite=None; Secure.
+  const origin =
+    typeof req?.headers?.origin === 'string' ? req.headers.origin : '';
+  if (origin && isAllowedCorsOrigin(origin) && secure && sameSite !== 'strict') {
+    try {
+      const originHost = new URL(origin).hostname;
+      const apiHost = req?.hostname ?? '';
+      if (originHost && apiHost && originHost !== apiHost) {
+        sameSite = 'none';
+      }
+    } catch {
+      /* ignore malformed Origin */
+    }
   }
 
   return { httpOnly: true, secure, sameSite, path: '/' };
@@ -289,7 +306,7 @@ export const cookieUtils = {
     refreshToken: string | null,
     accessMaxAgeSec: number = ACCESS_COOKIE_MAX_AGE_SEC,
     refreshMaxAgeSec: number = REFRESH_COOKIE_MAX_AGE_SEC,
-    req?: Pick<Request, 'secure'>
+    req?: Pick<Request, 'secure' | 'headers' | 'hostname'>,
   ): void {
     const cookieOpts = resolveAuthCookieOptions(req);
     res.cookie(COOKIE_ACCESS, accessToken, {
@@ -304,7 +321,10 @@ export const cookieUtils = {
     }
   },
 
-  clearAuthCookies(res: Response, req?: Pick<Request, 'secure'>): void {
+  clearAuthCookies(
+    res: Response,
+    req?: Pick<Request, 'secure' | 'headers' | 'hostname'>,
+  ): void {
     const cookieOpts = resolveAuthCookieOptions(req);
     res.clearCookie(COOKIE_ACCESS, { ...cookieOpts, path: '/' });
     res.clearCookie(COOKIE_REFRESH, { ...cookieOpts, path: '/' });
