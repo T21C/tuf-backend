@@ -98,7 +98,7 @@ const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: N
     const permissionsValid = await tokenUtils.verifyTokenPermissions(decoded);
     if (!permissionsValid) {
       const newAccessToken = tokenUtils.generateAccessToken(user);
-      cookieUtils.setAuthCookies(res, newAccessToken, null, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC, req);
+      cookieUtils.setAuthCookies(res, newAccessToken, null, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
       res.setHeader('X-Permission-Changed', 'true');
     }
 

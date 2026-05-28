@@ -196,7 +196,7 @@ class AuthController {
         userAgent: req.get('user-agent'),
         ip,
       });
-      cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC, req);
+      cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
 
       return res.status(201).json({
         message: 'Registration successful. Please check your email for verification.',
@@ -517,7 +517,7 @@ class AuthController {
         userAgent: req.get('user-agent'),
         ip,
       });
-      cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC, req);
+      cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
 
       return res.json({
         user: {
@@ -693,7 +693,7 @@ class AuthController {
         ip: reqIp,
       });
       const accessToken = tokenUtils.generateAccessToken(user);
-      cookieUtils.setAuthCookies(res, accessToken, newRefreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC, req);
+      cookieUtils.setAuthCookies(res, accessToken, newRefreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
       return res.json({
         user: {
           id: user.id,
@@ -722,11 +722,11 @@ class AuthController {
       if (refreshTokenValue) {
         await refreshTokenService.revokeRefreshToken(refreshTokenValue);
       }
-      cookieUtils.clearAuthCookies(res, req);
+      cookieUtils.clearAuthCookies(res);
       return res.status(204).send();
     } catch (error) {
       logger.error('Logout error:', error);
-      cookieUtils.clearAuthCookies(res, req);
+      cookieUtils.clearAuthCookies(res);
       return res.status(204).send();
     }
   }
@@ -768,7 +768,7 @@ class AuthController {
         return res.status(404).json({ error: 'Session not found or already revoked' });
       }
       if (currentRecord?.id === sessionId) {
-        cookieUtils.clearAuthCookies(res, req);
+        cookieUtils.clearAuthCookies(res);
       }
       return res.status(204).send();
     } catch (error) {

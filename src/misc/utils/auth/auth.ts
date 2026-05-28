@@ -6,8 +6,6 @@ import type { Request, Response } from 'express';
 import {User, RefreshToken} from '@/models/index.js';
 import { hasFlag } from './permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
-import { parseEnvBool } from '@/config/app.config.js';
-
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env
 
@@ -17,55 +15,13 @@ const JWT_REFRESH_EXPIRES_IN_SEC = JWT_REFRESH_EXPIRES_IN_DAYS * 24 * 60 * 60;
 const COOKIE_ACCESS = 'accessToken';
 const COOKIE_REFRESH = 'refreshToken';
 
-type AuthCookieOptions = {
-  httpOnly: true;
-  secure: boolean;
-  sameSite: 'strict' | 'lax' | 'none';
-  path: '/';
+/** Fixed flags for auth cookies (SPA on tuforums.com → api.tuforums.com). Not configurable via env. */
+export const AUTH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'none' as const,
+  path: '/',
 };
-
-/**
- * Cookie flags for auth tokens. Honors COOKIE_SECURE / COOKIE_SAMESITE / ALLOW_INSECURE_AUTH_COOKIES.
- *
- * Production uses a separate API host (tuforums.com → api.tuforums.com). Browsers block
- * `Set-Cookie` with SameSite=Lax on cross-site XHR responses, so the default for HTTPS is
- * SameSite=None; Secure. Lax is only used for plain-HTTP local dev when explicitly allowed.
- */
-export function resolveAuthCookieOptions(
-  req?: Pick<Request, 'secure' | 'headers' | 'hostname'>,
-): AuthCookieOptions {
-  const allowInsecure = parseEnvBool(process.env.ALLOW_INSECURE_AUTH_COOKIES, false);
-  const explicitSecure = (process.env.COOKIE_SECURE ?? '').trim().toLowerCase();
-  let secure: boolean;
-  if (explicitSecure === 'true' || explicitSecure === '1') {
-    secure = true;
-  } else if (explicitSecure === 'false' || explicitSecure === '0' || allowInsecure) {
-    secure = false;
-  } else {
-    secure = Boolean(req?.secure) || process.env.NODE_ENV === 'production';
-  }
-
-  const sameSiteEnv = (process.env.COOKIE_SAMESITE ?? '').trim().toLowerCase();
-  let sameSite: AuthCookieOptions['sameSite'];
-  if (sameSiteEnv === 'strict' || sameSiteEnv === 'lax' || sameSiteEnv === 'none') {
-    sameSite = sameSiteEnv;
-  } else if (secure) {
-    sameSite = 'none';
-  } else {
-    sameSite = 'lax';
-  }
-
-  // Lax cannot be set on cross-site API responses (SPA on another host). Upgrade when HTTPS.
-  if (secure && sameSite === 'lax') {
-    sameSite = 'none';
-  }
-
-  if (sameSite === 'none' && !secure) {
-    secure = true;
-  }
-
-  return { httpOnly: true, secure, sameSite, path: '/' };
-}
 
 /**
  * Password utilities
@@ -305,28 +261,22 @@ export const cookieUtils = {
     refreshToken: string | null,
     accessMaxAgeSec: number = ACCESS_COOKIE_MAX_AGE_SEC,
     refreshMaxAgeSec: number = REFRESH_COOKIE_MAX_AGE_SEC,
-    req?: Pick<Request, 'secure' | 'headers' | 'hostname'>,
   ): void {
-    const cookieOpts = resolveAuthCookieOptions(req);
     res.cookie(COOKIE_ACCESS, accessToken, {
-      ...cookieOpts,
+      ...AUTH_COOKIE_OPTIONS,
       maxAge: accessMaxAgeSec * 1000,
     });
     if (refreshToken) {
       res.cookie(COOKIE_REFRESH, refreshToken, {
-        ...cookieOpts,
+        ...AUTH_COOKIE_OPTIONS,
         maxAge: refreshMaxAgeSec * 1000,
       });
     }
   },
 
-  clearAuthCookies(
-    res: Response,
-    req?: Pick<Request, 'secure' | 'headers' | 'hostname'>,
-  ): void {
-    const cookieOpts = resolveAuthCookieOptions(req);
-    res.clearCookie(COOKIE_ACCESS, { ...cookieOpts, path: '/' });
-    res.clearCookie(COOKIE_REFRESH, { ...cookieOpts, path: '/' });
+  clearAuthCookies(res: Response): void {
+    res.clearCookie(COOKIE_ACCESS, AUTH_COOKIE_OPTIONS);
+    res.clearCookie(COOKIE_REFRESH, AUTH_COOKIE_OPTIONS);
   },
 
   cookieNames: { access: COOKIE_ACCESS, refresh: COOKIE_REFRESH },
