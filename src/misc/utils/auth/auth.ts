@@ -6,7 +6,7 @@ import type { Request, Response } from 'express';
 import {User, RefreshToken} from '@/models/index.js';
 import { hasFlag } from './permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
-import { isAllowedCorsOrigin, parseEnvBool } from '@/config/app.config.js';
+import { parseEnvBool } from '@/config/app.config.js';
 
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env
@@ -26,7 +26,10 @@ type AuthCookieOptions = {
 
 /**
  * Cookie flags for auth tokens. Honors COOKIE_SECURE / COOKIE_SAMESITE / ALLOW_INSECURE_AUTH_COOKIES.
- * Uses `req.secure` when available so local HTTP dev can receive cookies while production stays HTTPS-only.
+ *
+ * Production uses a separate API host (tuforums.com → api.tuforums.com). Browsers block
+ * `Set-Cookie` with SameSite=Lax on cross-site XHR responses, so the default for HTTPS is
+ * SameSite=None; Secure. Lax is only used for plain-HTTP local dev when explicitly allowed.
  */
 export function resolveAuthCookieOptions(
   req?: Pick<Request, 'secure' | 'headers' | 'hostname'>,
@@ -46,23 +49,19 @@ export function resolveAuthCookieOptions(
   let sameSite: AuthCookieOptions['sameSite'];
   if (sameSiteEnv === 'strict' || sameSiteEnv === 'lax' || sameSiteEnv === 'none') {
     sameSite = sameSiteEnv;
+  } else if (secure) {
+    sameSite = 'none';
   } else {
     sameSite = 'lax';
   }
 
-  // SPA on tuforums.com → api.tuforums.com: cross-origin credentialed XHR needs SameSite=None; Secure.
-  const origin =
-    typeof req?.headers?.origin === 'string' ? req.headers.origin : '';
-  if (origin && isAllowedCorsOrigin(origin) && secure && sameSite !== 'strict') {
-    try {
-      const originHost = new URL(origin).hostname;
-      const apiHost = req?.hostname ?? '';
-      if (originHost && apiHost && originHost !== apiHost) {
-        sameSite = 'none';
-      }
-    } catch {
-      /* ignore malformed Origin */
-    }
+  // Lax cannot be set on cross-site API responses (SPA on another host). Upgrade when HTTPS.
+  if (secure && sameSite === 'lax') {
+    sameSite = 'none';
+  }
+
+  if (sameSite === 'none' && !secure) {
+    secure = true;
   }
 
   return { httpOnly: true, secure, sameSite, path: '/' };
