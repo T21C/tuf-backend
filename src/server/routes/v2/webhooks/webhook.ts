@@ -498,11 +498,12 @@ export async function passSubmissionHook(
   const levelLink = `${clientUrlEnv}/levels/${level?.id}`;
 
   const showAddInfo =
-    pass.flags?.is12K || pass.flags?.is16K || pass.flags?.isNoHoldTap;
+    pass.flags?.is12K || pass.flags?.is16K || pass.flags?.isNoHoldTap || pass.flags?.isAdofaiV2;
   const additionalInfo = (
     `${pass.flags?.is12K ? '12K  |  ' : ''}` +
     `${pass.flags?.is16K ? '16K  |  ' : ''}` +
-    `${pass.flags?.isNoHoldTap ? 'Alt. Tap Option  |  ' : ''}`
+    `${pass.flags?.isNoHoldTap ? 'Alt. Tap Option  |  ' : ''}` +
+    `${pass.flags?.isAdofaiV2 ? 'ADOFAI v2  |  ' : ''}`
   ).replace(/\|\s*$/, '');
   const judgementLine = sanitizedJudgements
     ? `\`\`\`ansi\n[2;31m${sanitizedJudgements.earlyDouble}[0m [2;33m${sanitizedJudgements.earlySingle}[0m [2;32m${sanitizedJudgements.ePerfect}[0m [1;32m${sanitizedJudgements.perfect}[0m [2;32m${sanitizedJudgements.lPerfect}[0m [2;33m${sanitizedJudgements.lateSingle}[0m [2;31m${sanitizedJudgements.lateDouble}[0m\n\`\`\`\n`

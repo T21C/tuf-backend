@@ -52,6 +52,7 @@ class PassSubmissionFlags extends BaseModel {
   declare is12K: boolean;
   declare isNoHoldTap: boolean;
   declare is16K: boolean;
+  declare isAdofaiV2: boolean;
 }
 
 PassSubmission.init(
@@ -226,6 +227,10 @@ PassSubmissionFlags.init(
       defaultValue: false,
     },
     is16K: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    isAdofaiV2: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
     },

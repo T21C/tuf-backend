@@ -94,6 +94,7 @@ export async function createPassSubmission(
         is12K: sanitized.is12K,
         isNoHoldTap: sanitized.isNoHoldTap,
         is16K: sanitized.is16K,
+        isAdofaiV2: sanitized.isAdofaiV2,
       },
       { transaction },
     );
@@ -202,6 +203,7 @@ async function assertNoDuplicatePassSubmission(
       is12K: sanitized.is12K,
       isNoHoldTap: sanitized.isNoHoldTap,
       is16K: sanitized.is16K,
+      isAdofaiV2: sanitized.isAdofaiV2,
     },
     transaction,
   });
@@ -235,6 +237,7 @@ async function assertNoDuplicatePass(
       is12K: sanitized.is12K,
       isNoHoldTap: sanitized.isNoHoldTap,
       is16K: sanitized.is16K,
+      isAdofaiV2: sanitized.isAdofaiV2,
     },
     transaction,
   });

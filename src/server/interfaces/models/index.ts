@@ -243,6 +243,7 @@ export interface IPassSubmissionFlags {
   is12K: boolean;
   isNoHoldTap: boolean;
   is16K: boolean;
+  isAdofaiV2: boolean;
 }
 
 export interface IPassSubmission extends IBaseModel {

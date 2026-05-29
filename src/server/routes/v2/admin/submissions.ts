@@ -247,6 +247,7 @@ async function approvePassSubmission(
     is12K: flags.is12K || false,
     is16K: flags.is16K || false,
     isNoHoldTap: flags.isNoHoldTap || false,
+    isAdofaiV2: flags.isAdofaiV2 || false,
     feelingRating: submission.feelingDifficulty || null,
     accuracy,
     scoreV2,
@@ -1408,6 +1409,7 @@ router.put(
               is12K: { type: 'boolean' },
               isNoHoldTap: { type: 'boolean' },
               is16K: { type: 'boolean' },
+              isAdofaiV2: { type: 'boolean' },
             },
           },
         },
@@ -1504,7 +1506,7 @@ router.put(
 
       if (hasFlags && body.flags && typeof body.flags === 'object') {
         const f = body.flags;
-        const patch: Partial<{ is12K: boolean; isNoHoldTap: boolean; is16K: boolean }> = {};
+        const patch: Partial<{ is12K: boolean; isNoHoldTap: boolean; is16K: boolean; isAdofaiV2: boolean }> = {};
         if (Object.prototype.hasOwnProperty.call(f, 'is12K')) {
           patch.is12K = f.is12K === true || f.is12K === 'true';
         }
@@ -1513,6 +1515,9 @@ router.put(
         }
         if (Object.prototype.hasOwnProperty.call(f, 'is16K')) {
           patch.is16K = f.is16K === true || f.is16K === 'true';
+        }
+        if (Object.prototype.hasOwnProperty.call(f, 'isAdofaiV2')) {
+          patch.isAdofaiV2 = f.isAdofaiV2 === true || f.isAdofaiV2 === 'true';
         }
         if (Object.keys(patch).length > 0) {
           await submission.flags.update(patch, { transaction });

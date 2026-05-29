@@ -16,6 +16,7 @@ export interface PassFormSanitised {
   is12K: boolean;
   isNoHoldTap: boolean;
   is16K: boolean;
+  isAdofaiV2: boolean;
   judgements: ReturnType<typeof sanitizeJudgements>;
 }
 
@@ -61,6 +62,7 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
   const is12K = asBool(body.is12K);
   const isNoHoldTap = asBool(body.isNoHoldTap);
   const is16K = asBool(body.is16K);
+  const isAdofaiV2 = asBool(body.isAdofaiV2);
   const passerRequest = asBool(body.passerRequest);
 
   let passerId: number | null = null;
@@ -87,6 +89,7 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
     is12K,
     isNoHoldTap,
     is16K,
+    isAdofaiV2,
     judgements,
   };
 }
