@@ -286,8 +286,11 @@ router.get(
         excludeAliases,
       } = req.query;
 
+      const search =
+        typeof searchQuery === 'string' ? searchQuery.trim() : '';
+
       // Use ElasticsearchService to search levels
-      const { hits, total } = await elasticsearchService.searchLevels((searchQuery as string).trim(), {
+      const { hits, total } = await elasticsearchService.searchLevels(search, {
         offset,
         limit,
         excludeAliases

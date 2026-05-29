@@ -242,12 +242,13 @@ router.get(
         order: [[literal('playerCount'), 'DESC']],
       }),
 
-      // Top players by number of passes
+      // Top players by number of passes (subQuery: false — avoid invalid COUNT(passes.id) in subselect)
       Player.findAll({
         attributes: [
+          'id',
           'name',
           'country',
-          [fn('COUNT', col('passes.id')), 'passCount'],
+          [fn('COUNT', col('passes.playerId')), 'passCount'],
         ],
         include: [
           {
@@ -255,11 +256,13 @@ router.get(
             as: 'passes',
             attributes: [],
             where: {isDeleted: false},
+            required: true,
           },
         ],
-        group: ['Player.id'],
+        group: ['Player.id', 'Player.name', 'Player.country'],
         order: [[literal('passCount'), 'DESC']],
         limit: 10,
+        subQuery: false,
       }),
     ]);
 
