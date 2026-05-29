@@ -9,7 +9,7 @@ import {
  *   u(t) = (g(t) - 1) / (topMultiplier - 1)   with u(0)=0, u(1)=1
  *   mtp  = 1 + (topMultiplier - 1) * u(t)
  *
- * Site defaults: E = 0.0054, G = 5.545 at the 95% anchor (xacc mult = 1).
+ * Site defaults: E = 0.0054017154, G = 5.51289781 at the 95% anchor (xacc mult = 1).
  */
 
 export type XaccCurveConfig = {
@@ -20,8 +20,8 @@ export type XaccCurveConfig = {
 
 export const XACC_CURVE_DEFAULTS: Required<XaccCurveConfig> = {
   cutoff: 0.95,
-  topMultiplier: 5.545,
-  poleOffset: 0.0054,
+  topMultiplier: 5.51289781,
+  poleOffset: 0.0054017154,
 };
 
 /** Site-default interior pin accuracies (fractions, not %). */
