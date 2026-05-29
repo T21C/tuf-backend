@@ -35,6 +35,7 @@ class Pass
   declare isDeleted: boolean | null;
   declare isAnnounced: boolean | null;
   declare isDuplicate: boolean | null;
+  declare isAdofaiV2: boolean | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -155,6 +156,12 @@ Pass.init(
       allowNull: true,
       defaultValue: false,
       comment: 'Indicates if this pass is a duplicate clear of another level',
+    },
+    isAdofaiV2: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      comment: 'Clear recorded on ADOFAI v2 (pre-v3 release timing)',
     },
     createdAt: {
       type: DataTypes.DATE,

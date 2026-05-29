@@ -33,7 +33,7 @@ router.put(
   ApiDoc({
     operationId: 'updatePass',
     summary: 'Update pass',
-    description: 'Update a pass by ID (super admin). Body: levelId, vidUploadTime, speed, feelingRating, vidTitle, videoLink, is12K, is16K, isNoHoldTap, accuracy, scoreV2, isDeleted, judgements, playerId, isAnnounced, isDuplicate. Recalculates accuracy/score when judgements provided.',
+    description: 'Update a pass by ID (super admin). Body: levelId, vidUploadTime, speed, feelingRating, vidTitle, videoLink, is12K, is16K, isNoHoldTap, accuracy, scoreV2, isDeleted, judgements, playerId, isAnnounced, isDuplicate, isAdofaiV2. Recalculates accuracy/score when judgements provided.',
     tags: ['Passes'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
@@ -62,6 +62,7 @@ router.put(
         playerId,
         isAnnounced,
         isDuplicate,
+        isAdofaiV2,
       } = req.body;
 
 
@@ -208,6 +209,7 @@ router.put(
             playerId: playerId || pass.playerId,
             isAnnounced: isAnnounced !== undefined ? isAnnounced : pass.isAnnounced,
             isDuplicate: isDuplicate !== undefined ? isDuplicate : pass.isDuplicate,
+            isAdofaiV2: isAdofaiV2 !== undefined ? isAdofaiV2 : pass.isAdofaiV2,
           },
           {transaction},
         );
@@ -232,6 +234,7 @@ router.put(
             playerId: playerId || pass.playerId,
             isAnnounced: isAnnounced !== undefined ? isAnnounced : pass.isAnnounced,
             isDuplicate: isDuplicate !== undefined ? isDuplicate : pass.isDuplicate,
+            isAdofaiV2: isAdofaiV2 !== undefined ? isAdofaiV2 : pass.isAdofaiV2,
           },
           {transaction},
         );

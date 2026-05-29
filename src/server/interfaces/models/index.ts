@@ -129,6 +129,7 @@ export interface IPass extends IBaseModel {
   isDeleted: boolean | null;
   isHidden: boolean | null;
   isDuplicate: boolean | null;
+  isAdofaiV2: boolean | null;
   createdAt: Date;
   updatedAt: Date;
   level?: ILevel;

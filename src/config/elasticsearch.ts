@@ -468,6 +468,7 @@ export const passMapping = {
       isDuplicate: { type: 'boolean' as const },
       isWorldsFirst: { type: 'boolean' as const },
       isWorldsFirstPP: { type: 'boolean' as const },
+      isAdofaiV2: { type: 'boolean' as const },
       player: {
         properties: {
           name: { type: 'text' as const, analyzer: 'custom_text_analyzer' },
