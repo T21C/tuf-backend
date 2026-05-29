@@ -29,6 +29,8 @@ import {
 } from '@/externalServices/cdnService/domain/pack/packDownloadConfig.js';
 import {
     PackDiskFullError,
+    PackInvalidExternalUrlError,
+    PackSizeLimitExceededError,
     assertPackDiskHeadroom,
     isEnospcError,
     toPackDownloadFailure,
@@ -104,6 +106,8 @@ interface PackDownloadProgress {
     startedAt: number;
     lastUpdated: number;
     error?: string;
+    /** Machine-readable failure code for the main API job `meta.code`. */
+    errorCode?: string;
     /** Set when status is completed — merged into main API job `meta` for the client download step. */
     packUrl?: string;
     packZipName?: string;
@@ -1668,6 +1672,7 @@ async function generatePackDownloadZip(
             await updateProgress(downloadId, cacheKey, {
                 status: 'failed',
                 error: failure.message,
+                errorCode: failure.code,
                 uploadLoaded: undefined,
                 uploadTotal: undefined,
             });
@@ -1861,6 +1866,222 @@ async function estimateTotalZipSize(tree: PackDownloadNode): Promise<{ totalSize
     return { totalSize, estimatedCount, failedCount };
 }
 
+function formatFinalZipName(zipName: string, packCode?: string | null): string {
+    let finalZipName = zipName.slice(0, 40);
+    if (packCode && typeof packCode === 'string' && packCode.trim().length > 0) {
+        if (!zipName.includes(` - ${packCode}`)) {
+            finalZipName = `${zipName} - ${packCode}`;
+        }
+    }
+    return finalZipName;
+}
+
+function resolveNormalizedCacheKey(
+    cacheKey: unknown,
+    finalZipName: string,
+    tree: PackDownloadNode,
+): string {
+    if (typeof cacheKey === 'string' && cacheKey.length > 0) {
+        return cacheKey;
+    }
+    return crypto.createHash('sha256').update(JSON.stringify({ zipName: finalZipName, tree })).digest('hex');
+}
+
+function initPackJobProgress(downloadId: string, cacheKey: string): PackDownloadProgress {
+    const initial: PackDownloadProgress = {
+        downloadId,
+        cacheKey,
+        status: 'pending',
+        totalLevels: 0,
+        processedLevels: 0,
+        currentLevel: 'Request received, preparing pack…',
+        startedAt: Date.now(),
+        lastUpdated: Date.now(),
+    };
+    packDownloadProgress.set(downloadId, initial);
+    return initial;
+}
+
+async function failPackJob(
+    downloadId: string,
+    cacheKey: string,
+    failure: { message: string; code: string },
+): Promise<void> {
+    const snap = packDownloadProgress.get(downloadId);
+    if (snap?.status === 'failed') {
+        return;
+    }
+    const failed: PackDownloadProgress = {
+        downloadId,
+        cacheKey,
+        status: 'failed',
+        totalLevels: snap?.totalLevels ?? 0,
+        processedLevels: snap?.processedLevels ?? 0,
+        startedAt: snap?.startedAt ?? Date.now(),
+        lastUpdated: Date.now(),
+        error: failure.message,
+        errorCode: failure.code,
+    };
+    packDownloadProgress.set(downloadId, failed);
+    await broadcastPackJobProgress(failed);
+}
+
+async function tryCompleteFromPackCache(
+    normalizedCacheKey: string,
+    progressJobId: string,
+): Promise<PackDownloadResponse | null> {
+    const existingDownloadId = packCacheIndex.get(normalizedCacheKey);
+    if (!existingDownloadId) {
+        return null;
+    }
+
+    const entry = packDownloadEntries.get(existingDownloadId);
+    if (!entry || entry.expiresAt <= Date.now()) {
+        packCacheIndex.delete(normalizedCacheKey);
+        if (entry) {
+            if (entry.spacesKey) {
+                spacesStorage.deleteFile(entry.spacesKey).catch((error) => {
+                    logger.warn('Failed to delete stale pack download from Spaces', {
+                        downloadId: existingDownloadId,
+                        spacesKey: entry.spacesKey,
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                });
+            }
+            if (entry.filePath && fs.existsSync(entry.filePath)) {
+                fs.promises.rm(entry.filePath, { force: true }).catch(() => undefined);
+            }
+            packDownloadEntries.delete(existingDownloadId);
+        }
+        return null;
+    }
+
+    try {
+        let url: string | null = null;
+        if (entry.spacesKey) {
+            url = await spacesStorage.getPresignedUrl(entry.spacesKey);
+        } else if (entry.filePath && fs.existsSync(entry.filePath)) {
+            url = `${CDN_CONFIG.baseUrl}/zips/packs/downloads/${existingDownloadId}`;
+        }
+
+        if (!url) {
+            return null;
+        }
+
+        const cachedProgress: PackDownloadProgress = {
+            downloadId: progressJobId,
+            cacheKey: entry.cacheKey,
+            status: 'completed',
+            totalLevels: 0,
+            processedLevels: 0,
+            startedAt: Date.now(),
+            lastUpdated: Date.now(),
+            packUrl: url,
+            packZipName: entry.zipName,
+            packExpiresAt: new Date(entry.expiresAt).toISOString(),
+        };
+        packDownloadProgress.set(progressJobId, cachedProgress);
+        await broadcastPackJobProgress(cachedProgress);
+
+        return {
+            downloadId: existingDownloadId,
+            url,
+            expiresAt: new Date(entry.expiresAt).toISOString(),
+            zipName: entry.zipName,
+            cacheKey: entry.cacheKey,
+        };
+    } catch (error) {
+        logger.error('Failed to reuse existing pack download cache entry:', {
+            cacheKey: normalizedCacheKey,
+            downloadId: existingDownloadId,
+            error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+    }
+}
+
+type RunPackDownloadJobParams = {
+    trimmedDownloadId: string;
+    normalizedCacheKey: string;
+    sanitizedZipName: string;
+    tree: PackDownloadNode;
+    trimFolderNames: boolean;
+};
+
+async function runPackDownloadJob(params: RunPackDownloadJobParams): Promise<PackDownloadResponse> {
+    const { trimmedDownloadId, normalizedCacheKey, sanitizedZipName, tree, trimFolderNames } = params;
+
+    try {
+        await updateProgress(trimmedDownloadId, normalizedCacheKey, {
+            currentLevel: 'Validating pack…',
+        });
+        try {
+            await validateExternalUrlsInPackTree(tree);
+        } catch (error) {
+            throw new PackInvalidExternalUrlError(
+                error instanceof Error ? error.message : 'Pack contains an unsafe external URL',
+            );
+        }
+
+        await updateProgress(trimmedDownloadId, normalizedCacheKey, {
+            currentLevel: 'Estimating download size…',
+        });
+        logger.debug('Estimating total zip size for pack download', { zipName: sanitizedZipName });
+        const sizeEstimate = await estimateTotalZipSize(tree);
+
+        if (sizeEstimate.totalSize > PACK_DOWNLOAD_MAX_SIZE_BYTES) {
+            const sizeGB = (sizeEstimate.totalSize / (1024 * 1024 * 1024)).toFixed(2);
+            const maxGB = (PACK_DOWNLOAD_MAX_SIZE_BYTES / (1024 * 1024 * 1024)).toFixed(0);
+            throw new PackSizeLimitExceededError(
+                `Pack download size exceeds maximum limit of ${maxGB}GB (estimated ${sizeGB}GB)`,
+            );
+        }
+
+        logger.debug('Pack download size estimate within limits', {
+            estimatedSize: sizeEstimate.totalSize,
+            estimatedSizeGB: (sizeEstimate.totalSize / (1024 * 1024 * 1024)).toFixed(2),
+            estimatedCount: sizeEstimate.estimatedCount,
+            failedCount: sizeEstimate.failedCount,
+        });
+
+        const diskBudgetBytes = computePackDiskBudgetBytes(sizeEstimate.totalSize);
+        await updateProgress(trimmedDownloadId, normalizedCacheKey, {
+            currentLevel: 'Checking server capacity…',
+        });
+        await assertPackDiskHeadroom(
+            PACK_DOWNLOAD_DIR,
+            diskBudgetBytes,
+            PACK_DOWNLOAD_MIN_FREE_DISK_BYTES,
+        );
+
+        await updateProgress(trimmedDownloadId, normalizedCacheKey, {
+            currentLevel: 'Checking cache…',
+        });
+        const cached = await tryCompleteFromPackCache(normalizedCacheKey, trimmedDownloadId);
+        if (cached) {
+            return cached;
+        }
+
+        await waitForSpace(sizeEstimate.totalSize, normalizedCacheKey);
+        return await generatePackDownloadZip(
+            sanitizedZipName,
+            tree,
+            normalizedCacheKey,
+            trimmedDownloadId,
+            trimFolderNames,
+        );
+    } catch (error) {
+        const failure = toPackDownloadFailure(error);
+        await failPackJob(trimmedDownloadId, normalizedCacheKey, failure);
+        throw error;
+    } finally {
+        unregisterGeneration(normalizedCacheKey);
+        packGenerationPromises.delete(normalizedCacheKey);
+        packGenerationJobSubscribers.delete(normalizedCacheKey);
+        inFlightPackPrimaryJobId.delete(normalizedCacheKey);
+    }
+}
+
 // Get level files in a zip
 router.post('/packs/generate', async (req: Request, res: Response) => {
     try {
@@ -1872,149 +2093,6 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
         if (!tree || !isPackDownloadNode(tree)) {
             return res.status(400).json({ error: 'Valid download tree is required' });
         }
-        try {
-            await validateExternalUrlsInPackTree(tree);
-        } catch (error) {
-            return res.status(400).json({
-                error: 'Pack contains an unsafe external URL',
-                code: 'INVALID_EXTERNAL_URL',
-                details: error instanceof Error ? error.message : String(error),
-            });
-        }
-
-        // Estimate total zip size before generation
-        logger.debug('Estimating total zip size for pack download', { zipName });
-        const sizeEstimate = await estimateTotalZipSize(tree);
-
-        if (sizeEstimate.totalSize > PACK_DOWNLOAD_MAX_SIZE_BYTES) {
-            const sizeGB = (sizeEstimate.totalSize / (1024 * 1024 * 1024)).toFixed(2);
-            const maxGB = (PACK_DOWNLOAD_MAX_SIZE_BYTES / (1024 * 1024 * 1024)).toFixed(0);
-            logger.debug('Pack download size exceeds limit', {
-                estimatedSize: sizeEstimate.totalSize,
-                estimatedSizeGB: sizeGB,
-                maxSizeGB: maxGB,
-                estimatedCount: sizeEstimate.estimatedCount,
-                failedCount: sizeEstimate.failedCount
-            });
-            return res.status(400).json({
-                error: `Pack download size exceeds maximum limit of ${maxGB}GB`,
-                estimatedSize: sizeEstimate.totalSize,
-                estimatedSizeGB: sizeGB,
-                maxSizeGB: maxGB,
-                code: 'PACK_SIZE_LIMIT_EXCEEDED'
-            });
-        }
-
-        logger.debug('Pack download size estimate within limits', {
-            estimatedSize: sizeEstimate.totalSize,
-            estimatedSizeGB: (sizeEstimate.totalSize / (1024 * 1024 * 1024)).toFixed(2),
-            estimatedCount: sizeEstimate.estimatedCount,
-            failedCount: sizeEstimate.failedCount
-        });
-
-        const diskBudgetBytes = computePackDiskBudgetBytes(sizeEstimate.totalSize);
-        try {
-            await assertPackDiskHeadroom(
-                PACK_DOWNLOAD_DIR,
-                diskBudgetBytes,
-                PACK_DOWNLOAD_MIN_FREE_DISK_BYTES,
-            );
-        } catch (error) {
-            if (error instanceof PackDiskFullError) {
-                return res.status(503).json({
-                    error: error.message,
-                    code: error.code,
-                });
-            }
-            throw error;
-        }
-
-        // Format zip name with pack code if provided
-        let finalZipName = zipName.slice(0, 40);
-        if (packCode && typeof packCode === 'string' && packCode.trim().length > 0) {
-            // Check if pack code is already in the name (to avoid duplication)
-            if (!zipName.includes(` - ${packCode}`)) {
-                finalZipName = `${zipName} - ${packCode}`;
-            }
-        }
-
-        const normalizedCacheKey = typeof cacheKey === 'string' && cacheKey.length > 0
-            ? cacheKey
-            : crypto.createHash('sha256').update(JSON.stringify({ zipName: finalZipName, tree })).digest('hex');
-
-        const existingDownloadId = packCacheIndex.get(normalizedCacheKey);
-        if (existingDownloadId) {
-            const entry = packDownloadEntries.get(existingDownloadId);
-            if (entry && entry.expiresAt > Date.now()) {
-                try {
-                    let url: string | null = null;
-                    if (entry.spacesKey) {
-                        url = await spacesStorage.getPresignedUrl(entry.spacesKey);
-                    } else if (entry.filePath && fs.existsSync(entry.filePath)) {
-                        url = `${CDN_CONFIG.baseUrl}/zips/packs/downloads/${existingDownloadId}`;
-                    }
-
-                    if (url) {
-                        // Notify the **caller's** job id (main API seeds Redis with `downloadId`); optional for legacy callers.
-                        const progressJobId =
-                            typeof clientDownloadId === 'string' && clientDownloadId.trim().length > 0
-                                ? clientDownloadId.trim()
-                                : existingDownloadId;
-                        const cachedProgress: PackDownloadProgress = {
-                            downloadId: progressJobId,
-                            cacheKey: entry.cacheKey,
-                            status: 'completed',
-                            totalLevels: 0,
-                            processedLevels: 0,
-                            startedAt: Date.now() - (entry.expiresAt - Date.now()),
-                            lastUpdated: Date.now(),
-                            packUrl: url,
-                            packZipName: entry.zipName,
-                            packExpiresAt: new Date(entry.expiresAt).toISOString(),
-                        };
-                        // Send progress update asynchronously (don't wait)
-                        broadcastPackJobProgress(cachedProgress).catch(error => {
-                            logger.debug('Failed to send cached download progress update', {
-                                downloadId: existingDownloadId,
-                                error: error instanceof Error ? error.message : String(error)
-                            });
-                        });
-
-                        return res.json({
-                            downloadId: existingDownloadId,
-                            url,
-                            expiresAt: new Date(entry.expiresAt).toISOString(),
-                            zipName: entry.zipName,
-                            cacheKey: entry.cacheKey
-                        });
-                    }
-                } catch (error) {
-                    logger.error('Failed to reuse existing pack download cache entry:', {
-                        cacheKey: normalizedCacheKey,
-                        downloadId: existingDownloadId,
-                        error: error instanceof Error ? error.message : String(error)
-                    });
-                }
-            }
-            packCacheIndex.delete(normalizedCacheKey);
-            const staleEntry = packDownloadEntries.get(existingDownloadId);
-            if (staleEntry) {
-                if (staleEntry.spacesKey) {
-                    spacesStorage.deleteFile(staleEntry.spacesKey).catch((error) => {
-                        logger.warn('Failed to delete stale pack download from Spaces', {
-                            downloadId: existingDownloadId,
-                            spacesKey: staleEntry.spacesKey,
-                            error: error instanceof Error ? error.message : String(error)
-                        });
-                    });
-                }
-                if (staleEntry.filePath && fs.existsSync(staleEntry.filePath)) {
-                    fs.promises.rm(staleEntry.filePath, { force: true }).catch(() => undefined);
-                }
-            }
-            packDownloadEntries.delete(existingDownloadId);
-        }
-
         if (
             !clientDownloadId ||
             typeof clientDownloadId !== 'string' ||
@@ -2027,41 +2105,25 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
         }
 
         const trimmedDownloadId = clientDownloadId.trim();
+        const finalZipName = formatFinalZipName(zipName, packCode);
+        const normalizedCacheKey = resolveNormalizedCacheKey(cacheKey, finalZipName, tree);
         const sanitizedZipName = sanitizePathSegment(finalZipName);
+        const trimFolderNamesFlag = trimFolderNames !== false;
 
         if (!packGenerationPromises.has(normalizedCacheKey)) {
             inFlightPackPrimaryJobId.set(normalizedCacheKey, trimmedDownloadId);
             packGenerationJobSubscribers.set(normalizedCacheKey, new Set([trimmedDownloadId]));
 
-            const generationPromise = (async () => {
-                try {
-                    await waitForSpace(sizeEstimate.totalSize, normalizedCacheKey);
-                    return await generatePackDownloadZip(
-                        sanitizedZipName,
-                        tree,
-                        normalizedCacheKey,
-                        trimmedDownloadId,
-                        trimFolderNames !== false,
-                    );
-                } catch (error) {
-                    const failure = toPackDownloadFailure(error);
-                    const snap = packDownloadProgress.get(trimmedDownloadId);
-                    if (snap?.status !== 'failed') {
-                        await updateProgress(trimmedDownloadId, normalizedCacheKey, {
-                            status: 'failed',
-                            error: failure.message,
-                            uploadLoaded: undefined,
-                            uploadTotal: undefined,
-                        });
-                    }
-                    throw error;
-                } finally {
-                    unregisterGeneration(normalizedCacheKey);
-                    packGenerationPromises.delete(normalizedCacheKey);
-                    packGenerationJobSubscribers.delete(normalizedCacheKey);
-                    inFlightPackPrimaryJobId.delete(normalizedCacheKey);
-                }
-            })();
+            const pendingProgress = initPackJobProgress(trimmedDownloadId, normalizedCacheKey);
+            void broadcastPackJobProgress(pendingProgress);
+
+            const generationPromise = runPackDownloadJob({
+                trimmedDownloadId,
+                normalizedCacheKey,
+                sanitizedZipName,
+                tree,
+                trimFolderNames: trimFolderNamesFlag,
+            });
 
             packGenerationPromises.set(normalizedCacheKey, generationPromise);
             generationPromise.catch((err) => {
@@ -2081,6 +2143,11 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             }
             subs.add(trimmedDownloadId);
 
+            if (!packDownloadProgress.has(trimmedDownloadId)) {
+                const pendingProgress = initPackJobProgress(trimmedDownloadId, normalizedCacheKey);
+                void broadcastPackJobProgress(pendingProgress);
+            }
+
             const primaryId = inFlightPackPrimaryJobId.get(normalizedCacheKey);
             if (primaryId && primaryId !== trimmedDownloadId) {
                 const snap = packDownloadProgress.get(primaryId);
@@ -2092,19 +2159,13 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
 
         return res.status(202).json({
             downloadId: trimmedDownloadId,
+            received: true,
             started: true,
             zipName: sanitizedZipName,
             cacheKey: normalizedCacheKey,
         });
     } catch (error) {
-        if (error instanceof PackDiskFullError) {
-            return res.status(503).json({
-                error: error.message,
-                code: error.code,
-            });
-        }
-
-        logger.error('Failed to generate pack download zip', {
+        logger.error('Failed to accept pack download request', {
             error: error instanceof Error ? error.message : String(error)
         });
         return res.status(500).json({

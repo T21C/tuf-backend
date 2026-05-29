@@ -18,6 +18,24 @@ export class PackQueueBusyError extends Error {
     }
 }
 
+export class PackSizeLimitExceededError extends Error {
+    readonly code = 'PACK_SIZE_LIMIT_EXCEEDED';
+
+    constructor(message: string) {
+        super(message);
+        this.name = 'PackSizeLimitExceededError';
+    }
+}
+
+export class PackInvalidExternalUrlError extends Error {
+    readonly code = 'INVALID_EXTERNAL_URL';
+
+    constructor(message: string) {
+        super(message);
+        this.name = 'PackInvalidExternalUrlError';
+    }
+}
+
 type StatFsLike = {
     bsize: number;
     bavail: number;
@@ -76,6 +94,12 @@ export function toPackDownloadFailure(error: unknown): { message: string; code: 
         };
     }
     if (error instanceof PackQueueBusyError) {
+        return { message: error.message, code: error.code };
+    }
+    if (error instanceof PackSizeLimitExceededError) {
+        return { message: error.message, code: error.code };
+    }
+    if (error instanceof PackInvalidExternalUrlError) {
         return { message: error.message, code: error.code };
     }
     return {

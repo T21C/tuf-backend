@@ -32,8 +32,8 @@ function envTimeoutMs(name: string, fallback: number): number {
 const CDN_LEVEL_ZIP_POST_TIMEOUT_MS = envTimeoutMs('CDN_LEVEL_ZIP_POST_TIMEOUT_MS', 15 * 60 * 1000);
 /** Poll main-API job progress for `cdn_ingest_done` after CDN returns 202. */
 const CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS = envTimeoutMs('CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS', 45 * 60 * 1000);
-/** Main ➔ CDN POST /zips/packs/generate: ack only (202 or cache-hit 200); must survive queue waits. */
-const CDN_PACK_GENERATE_ACK_TIMEOUT_MS = envTimeoutMs('CDN_PACK_GENERATE_ACK_TIMEOUT_MS', 120 * 1000);
+/** Main ➔ CDN POST /zips/packs/generate: immediate 202 ack; work continues via job progress. */
+const CDN_PACK_GENERATE_ACK_TIMEOUT_MS = envTimeoutMs('CDN_PACK_GENERATE_ACK_TIMEOUT_MS', 30 * 1000);
 
 async function waitForCdnZipIngestDone(jobId: string, expectedFileId: string): Promise<void> {
     const deadline = Date.now() + CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS;
@@ -707,13 +707,15 @@ class CdnService {
         zipName?: string;
         cacheKey?: string;
         started?: boolean;
+        /** CDN accepted the job; zip build continues asynchronously. */
+        received?: boolean;
         /** Approximate time after which the pack object may be removed by bucket lifecycle (display only). */
         expiresAt?: string;
     }> {
         try {
             const response = await this.client.post('/zips/packs/generate', request, {
                 timeout: CDN_PACK_GENERATE_ACK_TIMEOUT_MS,
-                validateStatus: (status) => status >= 200 && status < 300,
+                validateStatus: (status) => status === 202,
             });
             const d = response.data as Record<string, unknown>;
             const downloadId =
@@ -721,19 +723,10 @@ class CdnService {
                     ? d.downloadId
                     : request.downloadId ?? '';
 
-            if (response.status === 202) {
-                return {
-                    downloadId,
-                    started: true,
-                    zipName: typeof d.zipName === 'string' ? d.zipName : undefined,
-                    cacheKey: typeof d.cacheKey === 'string' ? d.cacheKey : request.cacheKey,
-                    expiresAt: typeof d.expiresAt === 'string' ? d.expiresAt : undefined,
-                };
-            }
-
             return {
                 downloadId,
-                url: typeof d.url === 'string' ? d.url : undefined,
+                received: d.received === true || d.started === true,
+                started: d.started === true || d.received === true,
                 zipName: typeof d.zipName === 'string' ? d.zipName : undefined,
                 cacheKey: typeof d.cacheKey === 'string' ? d.cacheKey : request.cacheKey,
                 expiresAt: typeof d.expiresAt === 'string' ? d.expiresAt : undefined,

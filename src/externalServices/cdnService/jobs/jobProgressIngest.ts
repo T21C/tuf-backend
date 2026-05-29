@@ -60,6 +60,7 @@ export interface PackDownloadProgressSnapshot {
     uploadLoaded?: number;
     uploadTotal?: number;
     error?: string;
+    errorCode?: string;
     packUrl?: string;
     packZipName?: string;
     packExpiresAt?: string;
@@ -276,6 +277,9 @@ function buildPackDownloadIngestPayload(
     }
     if (progress.packExpiresAt) {
         meta.expiresAt = progress.packExpiresAt;
+    }
+    if (progress.errorCode) {
+        meta.code = progress.errorCode;
     }
     if (
         typeof progress.uploadLoaded === 'number' &&

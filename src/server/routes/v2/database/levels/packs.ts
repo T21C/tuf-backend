@@ -941,8 +941,8 @@ router.post(
       trimFolderNames: trimFolderNames !== false
     });
 
-    // CDN responds immediately with either a cache-hit URL, or a 202 "started" ack.
-    // The client should monitor /v2/jobs/:downloadId/stream for completion and final URL.
+    // CDN responds with 202 immediately (request received); preflight, cache, and zip build
+    // run in the background. The client monitors /v2/jobs/:downloadId/stream for completion.
     return res.json({
       ...cdnResponse,
       downloadId: jobId,
