@@ -9,6 +9,8 @@ export const MIN_BLOCK_X = -STAGE_WIDTH;
 export const MIN_BLOCK_Y = -STAGE_HEIGHT;
 export const MAX_BLOCK_X = STAGE_WIDTH;
 export const MAX_BLOCK_Y = STAGE_HEIGHT;
+export const MAX_BLOCK_W = STAGE_WIDTH * 4;
+export const MAX_BLOCK_H = STAGE_HEIGHT * 4;
 export const MIN_BLOCK_ROTATION = -360;
 export const MAX_BLOCK_ROTATION = 360;
 
@@ -69,8 +71,8 @@ export function normalizeLayout(
     const o = raw as Record<string, unknown>;
 
     if (hasFreeformLayout(o) && !isLegacyLayout(o)) {
-      const w = clampInt(o.w, MIN_BLOCK_W, STAGE_WIDTH);
-      const h = clampInt(o.h, MIN_BLOCK_H, STAGE_MAX_HEIGHT);
+      const w = clampInt(o.w, MIN_BLOCK_W, MAX_BLOCK_W);
+      const h = clampInt(o.h, MIN_BLOCK_H, MAX_BLOCK_H);
       const x = clampInt(o.x, MIN_BLOCK_X, MAX_BLOCK_X);
       const y = clampInt(o.y, MIN_BLOCK_Y, MAX_BLOCK_Y);
       const locked =
@@ -98,8 +100,8 @@ export function normalizeLayout(
 
   const w = defaultW;
   const h = defaultH;
-  const x = Math.round((STAGE_WIDTH - w) / 2);
-  const y = legacyStackY;
+  const x = 0;
+  const y = 0;
   return { x, y, w, h, locked: defaultLocked(descriptor), rotation: 0 };
 }
 

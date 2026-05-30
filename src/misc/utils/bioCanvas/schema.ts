@@ -271,11 +271,10 @@ export function createBlock(
 ): BioCanvasBlock | null {
   const descriptor = getBlockDescriptor(type);
   if (!descriptor) return null;
-  const stackY = computeNextStackY(existingBlocks);
   return {
     id: id ?? createBlockId(),
     type: descriptor.type,
-    layout: createDefaultLayout(descriptor, stackY),
+    layout: createDefaultLayout(descriptor),
     data: descriptor.createDefault() as Record<string, unknown>,
   };
 }
