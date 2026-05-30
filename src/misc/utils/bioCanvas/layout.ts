@@ -7,6 +7,8 @@ export const MIN_BLOCK_W = 40;
 export const MIN_BLOCK_H = 24;
 export const MIN_BLOCK_X = -STAGE_WIDTH;
 export const MIN_BLOCK_Y = -STAGE_HEIGHT;
+export const MAX_BLOCK_X = STAGE_WIDTH;
+export const MAX_BLOCK_Y = STAGE_HEIGHT;
 export const MIN_BLOCK_ROTATION = -360;
 export const MAX_BLOCK_ROTATION = 360;
 
@@ -69,8 +71,8 @@ export function normalizeLayout(
     if (hasFreeformLayout(o) && !isLegacyLayout(o)) {
       const w = clampInt(o.w, MIN_BLOCK_W, STAGE_WIDTH);
       const h = clampInt(o.h, MIN_BLOCK_H, STAGE_MAX_HEIGHT);
-      const x = clampInt(o.x, MIN_BLOCK_X, STAGE_WIDTH - w);
-      const y = clampInt(o.y, MIN_BLOCK_Y, STAGE_MAX_HEIGHT - h);
+      const x = clampInt(o.x, MIN_BLOCK_X, MAX_BLOCK_X);
+      const y = clampInt(o.y, MIN_BLOCK_Y, MAX_BLOCK_Y);
       const locked =
         o.locked !== undefined ? o.locked !== false : descriptor?.resizeBehavior === 'aspect';
       const rotation = clampBlockRotation(o.rotation, 0);
