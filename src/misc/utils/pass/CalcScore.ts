@@ -173,14 +173,14 @@ export function getScoreV2(
     const scoreOrig = getScore(passData, levelData);
     let mtp = getScoreV2Mtp(inputs);
     if (input.flags?.isNoHoldTap === true) {
-      mtp *= 0.9;
+      mtp *= 0.95;
     }
     return scoreOrig * mtp;
   } else {
     const scoreOrig = getScore(input, levelData);
     let mtp = getScoreV2Mtp(input.judgements);
     if (input.isNoHoldTap === true) {
-      mtp *= 0.9;
+      mtp *= 0.95;
     }
     return scoreOrig * mtp;
   }
