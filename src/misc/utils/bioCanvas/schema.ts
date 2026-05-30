@@ -274,7 +274,7 @@ export function createBlock(
   return {
     id: id ?? createBlockId(),
     type: descriptor.type,
-    layout: createDefaultLayout(descriptor),
+    layout: { ...createDefaultLayout(descriptor), locked: true },
     data: descriptor.createDefault() as Record<string, unknown>,
   };
 }
