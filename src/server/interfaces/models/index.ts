@@ -151,6 +151,8 @@ export interface IPlayer extends IBaseModel {
   customBannerUrl?: string | null;
   profileHeaderSurfaceStyle?: Record<string, unknown> | null;
   profileHeaderSurfaceImageAssets?: Record<string, { assetId: string; url: string }> | null;
+  bioCanvas?: Record<string, unknown> | null;
+  bioCanvasImageAssets?: Record<string, { assetId: string; url: string }> | null;
   /** TUFStellar icon variant on player cards/profile: `1` | `2` | `3`. */
   tufStellarIconVariant?: string;
 

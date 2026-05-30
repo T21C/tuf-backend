@@ -33,6 +33,8 @@ class Player
   declare customBannerUrl: string | null;
   declare profileHeaderSurfaceStyle: Record<string, unknown> | null;
   declare profileHeaderSurfaceImageAssets: Record<string, { assetId: string; url: string }> | null;
+  declare bioCanvas: Record<string, unknown> | null;
+  declare bioCanvasImageAssets: Record<string, { assetId: string; url: string }> | null;
   /** TUFStellar subscriber icon art: `1` | `2` | `3`. */
   declare tufStellarIconVariant: string;
   declare createdAt: Date;
@@ -99,6 +101,14 @@ Player.init(
       allowNull: true,
     },
     profileHeaderSurfaceImageAssets: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
+    bioCanvas: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
+    bioCanvasImageAssets: {
       type: DataTypes.JSON,
       allowNull: true,
     },

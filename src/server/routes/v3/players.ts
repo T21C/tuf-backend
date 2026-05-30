@@ -26,6 +26,21 @@ import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufSt
 import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 import { DEFAULT_LEADERBOARD_RANK_SCORING_VERSION, RANK_HISTORY_MAX_POINTS } from '@/config/leaderboardRankHistory.js';
 import { buildRankHistorySeries } from '@/server/services/leaderboard/rankHistorySeries.js';
+import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
+import cdnService from '@/server/services/core/CdnService.js';
+import { CdnError } from '@/server/services/core/CdnService.js';
+import {
+  BioCanvasError,
+  MAX_BIO_CANVAS_BLOCK_ID_LENGTH,
+  parseBioCanvas,
+  toPlainText,
+} from '@/misc/utils/bioCanvas/index.js';
+import {
+  blockIdIsImageBlock,
+  clearBioCanvasImageAssetsWhenNoImages,
+  reconcileBioCanvasImageAssets,
+  upsertBioCanvasImageAsset,
+} from '@/server/services/bioCanvasImage.js';
 
 /**
  * v3 players routes — Elasticsearch-backed.
@@ -50,6 +65,16 @@ function parseLimit(raw: unknown, fallback = DEFAULT_LIMIT): number {
 function parseOffset(raw: unknown): number {
   const n = parseInt(String(raw ?? ''), 10);
   return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function parseBioCanvasBlockId(req: Request): string | null {
+  const raw = (req.body as { blockId?: unknown })?.blockId ?? req.query.blockId;
+  if (typeof raw !== 'string') return null;
+  const blockId = raw.trim();
+  if (!blockId.length || blockId.length > MAX_BIO_CANVAS_BLOCK_ID_LENGTH) {
+    return null;
+  }
+  return blockId;
 }
 
 function parseFilters(raw: unknown): Record<string, any> | undefined {
@@ -390,6 +415,8 @@ router.get(
         Player.findByPk(id, {
           attributes: [
             'bio',
+            'bioCanvas',
+            'bioCanvasImageAssets',
             'bannerPreset',
             'customBannerId',
             'customBannerUrl',
@@ -416,6 +443,15 @@ router.get(
       const bannerPatch = playerRow
         ? {
             bio: typeof playerRow.bio === 'string' && playerRow.bio.trim().length ? playerRow.bio : null,
+            bioCanvas:
+              playerRow.bioCanvas && typeof playerRow.bioCanvas === 'object'
+                ? playerRow.bioCanvas
+                : null,
+            bioCanvasImageAssets:
+              playerRow.bioCanvasImageAssets &&
+              typeof playerRow.bioCanvasImageAssets === 'object'
+                ? playerRow.bioCanvasImageAssets
+                : null,
             bannerPreset: playerRow.bannerPreset ?? null,
             customBannerId: playerRow.customBannerId ?? null,
             customBannerUrl: playerRow.customBannerUrl ?? null,
@@ -528,6 +564,216 @@ router.patch(
         error: 'Failed to update player bio',
         details: error instanceof Error ? error.message : String(error),
       });
+    }
+  },
+);
+
+router.patch(
+  '/me/bio-canvas',
+  Auth.tufStellarUser(),
+  ApiDoc({
+    operationId: 'v3PatchPlayerMeBioCanvas',
+    summary: 'Update my player bio canvas (v3)',
+    description:
+      'Requires TUFStellar access. Saves block document and derives plaintext bio for search.',
+    tags: ['Database', 'Players', 'v3'],
+    security: ['bearerAuth'],
+    requestBody: {
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {
+          canvas: { type: 'object', nullable: true },
+        },
+        required: ['canvas'],
+      },
+    },
+    responses: {
+      200: { description: 'Updated bio canvas' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      if (!isTufStellarFeatureEnabled()) {
+        return res.status(403).json({ error: 'TUFStellar is not available on this deployment' });
+      }
+      if (!user.playerId) {
+        return res.status(400).json({ error: 'No player profile linked to this account' });
+      }
+
+      const body = req.body as { canvas?: unknown };
+      if (!Object.prototype.hasOwnProperty.call(body, 'canvas')) {
+        return res.status(400).json({ error: 'Request body must include canvas (object or null)' });
+      }
+
+      let parsed;
+      try {
+        parsed = parseBioCanvas(body.canvas);
+      } catch (err) {
+        const msg = err instanceof BioCanvasError ? err.message : 'Invalid bio canvas';
+        return res.status(400).json({ error: msg });
+      }
+
+      const player = await Player.findByPk(user.playerId, {
+        attributes: ['id', 'bioCanvasImageAssets'],
+      });
+      if (!player) {
+        return res.status(404).json({ error: 'Player not found' });
+      }
+
+      const nextBio = toPlainText(parsed);
+      const clearedAssets = await clearBioCanvasImageAssetsWhenNoImages(
+        player.bioCanvasImageAssets,
+        parsed,
+      );
+      const reconciledAssets = await reconcileBioCanvasImageAssets(
+        player.bioCanvasImageAssets,
+        parsed,
+      );
+
+      const updatePayload: Record<string, unknown> = {
+        bioCanvas: parsed as unknown as Record<string, unknown> | null,
+        bio: nextBio,
+        ...(clearedAssets ?? {}),
+      };
+      if (reconciledAssets !== null) {
+        updatePayload.bioCanvasImageAssets = reconciledAssets;
+      }
+
+      await Player.update(updatePayload, { where: { id: user.playerId } });
+
+      const updatedPlayer = await Player.findByPk(user.playerId, {
+        attributes: ['bioCanvas', 'bioCanvasImageAssets', 'bio'],
+      });
+
+      await elasticsearchService.reindexPlayers([user.playerId]);
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({
+        bioCanvas: updatedPlayer?.bioCanvas ?? null,
+        bioCanvasImageAssets: updatedPlayer?.bioCanvasImageAssets ?? null,
+        bio: updatedPlayer?.bio ?? null,
+      });
+    } catch (error) {
+      logger.error('[v3 PATCH /players/me/bio-canvas] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update bio canvas',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.post(
+  '/me/bio-canvas/image',
+  Auth.tufStellarUser(),
+  upload.single('image'),
+  ApiDoc({
+    operationId: 'v3PostPlayerMeBioCanvasImage',
+    summary: 'Upload bio canvas image block asset',
+    tags: ['Database', 'Players', 'v3'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Uploaded' },
+      400: { description: 'No file or invalid blockId', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      403: { description: 'Forbidden', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      if (!isTufStellarFeatureEnabled()) {
+        return res.status(403).json({ error: 'TUFStellar is not available on this deployment' });
+      }
+      if (!user.playerId) {
+        return res.status(400).json({ error: 'No player profile linked to this account' });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded', code: 'NO_FILE' });
+      }
+
+      const blockId = parseBioCanvasBlockId(req);
+      if (!blockId) {
+        return res.status(400).json({ error: 'blockId is required' });
+      }
+
+      const player = await Player.findByPk(user.playerId, {
+        attributes: ['id', 'bioCanvas', 'bioCanvasImageAssets'],
+      });
+      if (!player) {
+        return res.status(404).json({ error: 'Player not found' });
+      }
+
+      let storedCanvas = null;
+      try {
+        storedCanvas = parseBioCanvas(player.bioCanvas);
+      } catch {
+        storedCanvas = null;
+      }
+
+      if (storedCanvas && !blockIdIsImageBlock(storedCanvas, blockId)) {
+        return res.status(400).json({
+          error: 'blockId does not match an image block in the saved canvas',
+        });
+      }
+
+      const result = await cdnService.uploadImage(req.file.buffer, req.file.originalname, 'BANNER');
+      const displayUrl = result.urls?.large ?? result.urls?.original ?? null;
+      if (!displayUrl) {
+        return res.status(500).json({ error: 'CDN did not return image URLs' });
+      }
+
+      const assets = upsertBioCanvasImageAsset(
+        player.bioCanvasImageAssets,
+        blockId,
+        result.fileId,
+        displayUrl,
+      );
+      const previousAssetId =
+        player.bioCanvasImageAssets &&
+        typeof player.bioCanvasImageAssets === 'object' &&
+        !Array.isArray(player.bioCanvasImageAssets)
+          ? (player.bioCanvasImageAssets as Record<string, { assetId?: string }>)[blockId]?.assetId
+          : null;
+
+      await Player.update(
+        { bioCanvasImageAssets: assets },
+        { where: { id: user.playerId } },
+      );
+
+      if (previousAssetId && previousAssetId !== result.fileId) {
+        try {
+          if (await cdnService.checkFileExists(previousAssetId)) {
+            await cdnService.deleteFile(previousAssetId);
+          }
+        } catch (delErr) {
+          logger.error('Error deleting previous bio canvas image from CDN:', delErr);
+        }
+      }
+
+      await elasticsearchService.reindexPlayers([user.playerId]);
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({
+        blockId,
+        bioCanvasImageAssets: assets,
+      });
+    } catch (error) {
+      if (error instanceof CdnError) {
+        return res.status(400).json({
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        });
+      }
+      logger.error('[v3 POST /players/me/bio-canvas/image] failure', error);
+      return res.status(500).json({ error: 'Failed to upload bio canvas image' });
     }
   },
 );
