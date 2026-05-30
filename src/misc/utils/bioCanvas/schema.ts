@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { getBlockDescriptor, BLOCK_DESCRIPTORS, type BlockType } from './registry.js';
+import { getBlockDescriptor, BLOCK_DESCRIPTORS, getBlockTypeLabel, type BlockType } from './registry.js';
 import {
   STAGE_PADDING,
   computeNextStackY,
@@ -41,6 +41,8 @@ export type BioCanvasDocument = {
 
 export type BioCanvasImageAssets = Record<string, { assetId: string; url: string }>;
 
+export { BLOCK_TYPE_LABELS, getBlockTypeLabel } from './registry.js';
+
 const BLOCK_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -65,6 +67,57 @@ function parseBlockId(raw: unknown): string | null {
   if (BLOCK_ID_RE.test(raw) || /^[a-zA-Z0-9_-]+$/.test(raw)) {
     return raw;
   }
+  return null;
+}
+
+function formatZodIssues(issues: z.ZodIssue[]): string {
+  return issues
+    .map((issue) => {
+      const path = issue.path.length ? issue.path.join('.') : 'value';
+      return `${path}: ${issue.message}`;
+    })
+    .join('; ');
+}
+
+function describeBlockError(
+  raw: unknown,
+  index: number,
+  typeCounts: Map<string, number>,
+): string | null {
+  const position = `Block ${index + 1}`;
+
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return `${position}: must be an object`;
+  }
+
+  const o = raw as Record<string, unknown>;
+  const id = parseBlockId(o.id);
+  if (!id) {
+    return `${position}: invalid or missing block id`;
+  }
+
+  if (typeof o.type !== 'string' || !o.type.trim()) {
+    return `${position}: missing block type`;
+  }
+
+  const typeLabel = getBlockTypeLabel(o.type);
+  const labeled = `${position} (${typeLabel})`;
+
+  const descriptor = getBlockDescriptor(o.type);
+  if (!descriptor) {
+    return `${position}: unknown block type "${o.type}"`;
+  }
+
+  const count = typeCounts.get(descriptor.type) ?? 0;
+  if (count >= descriptor.maxPerCanvas) {
+    return `${labeled}: too many ${typeLabel} blocks (maximum ${descriptor.maxPerCanvas})`;
+  }
+
+  const parsed = descriptor.dataSchema.safeParse(o.data ?? {});
+  if (!parsed.success) {
+    return `${labeled}: ${formatZodIssues(parsed.error.issues)}`;
+  }
+
   return null;
 }
 
@@ -99,37 +152,88 @@ function parseBlock(
   };
 }
 
-/** Parse and validate; `null` input clears stored canvas. */
-export function parseBioCanvas(input: unknown): BioCanvasDocument | null {
+function validateCanvasStructure(input: unknown): string | null {
   if (input === null || input === undefined) return null;
 
   const serialized = JSON.stringify(input);
   if (serialized.length > MAX_BIO_CANVAS_JSON_BYTES) {
-    throw new BioCanvasError('Canvas payload too large');
+    return 'Canvas payload is too large';
   }
 
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    throw new BioCanvasError('Invalid canvas object');
+    return 'Canvas must be an object';
   }
 
   const o = input as Record<string, unknown>;
   if (o.version !== BIO_CANVAS_VERSION) {
-    throw new BioCanvasError('Unsupported canvas version');
+    return `Unsupported canvas version (expected ${BIO_CANVAS_VERSION})`;
   }
 
   if (!Array.isArray(o.blocks)) {
-    throw new BioCanvasError('blocks must be an array');
+    return 'Canvas blocks must be an array';
   }
 
   if (o.blocks.length > MAX_BIO_CANVAS_BLOCKS) {
-    throw new BioCanvasError(`At most ${MAX_BIO_CANVAS_BLOCKS} blocks allowed`);
+    return `Too many blocks (maximum ${MAX_BIO_CANVAS_BLOCKS})`;
   }
 
+  return null;
+}
+
+function formatBlockErrors(errors: string[]): string {
+  if (errors.length === 1) return errors[0];
+  return `Canvas has ${errors.length} invalid blocks:\n${errors.map((err) => `• ${err}`).join('\n')}`;
+}
+
+/** Collect human-readable validation errors for each invalid block. */
+export function collectBioCanvasBlockErrors(input: unknown): string[] {
+  const structureError = validateCanvasStructure(input);
+  if (structureError) return [structureError];
+  if (input === null || input === undefined) return [];
+
+  const o = input as Record<string, unknown>;
+  const typeCounts = new Map<string, number>();
+  const errors: string[] = [];
+
+  for (let index = 0; index < (o.blocks as unknown[]).length; index += 1) {
+    const rawBlock = (o.blocks as unknown[])[index];
+    const blockError = describeBlockError(rawBlock, index, typeCounts);
+    if (blockError) {
+      errors.push(blockError);
+      continue;
+    }
+
+    const blockObj = rawBlock as Record<string, unknown>;
+    const descriptor = getBlockDescriptor(String(blockObj.type));
+    if (descriptor) {
+      const count = typeCounts.get(descriptor.type) ?? 0;
+      typeCounts.set(descriptor.type, count + 1);
+    }
+  }
+
+  return errors;
+}
+
+/** Parse and validate; `null` input clears stored canvas. */
+export function parseBioCanvas(input: unknown): BioCanvasDocument | null {
+  if (input === null || input === undefined) return null;
+
+  const structureError = validateCanvasStructure(input);
+  if (structureError) {
+    throw new BioCanvasError(structureError);
+  }
+
+  const blockErrors = collectBioCanvasBlockErrors(input);
+  if (blockErrors.length) {
+    throw new BioCanvasError(formatBlockErrors(blockErrors));
+  }
+
+  const o = input as Record<string, unknown>;
   const typeCounts = new Map<string, number>();
   const blocks: BioCanvasBlock[] = [];
   let legacyStackY = STAGE_PADDING;
 
-  for (const rawBlock of o.blocks) {
+  for (const rawBlock of o.blocks as unknown[]) {
     const parsed = parseBlock(rawBlock, typeCounts, legacyStackY);
     if (!parsed) {
       throw new BioCanvasError('Invalid block in canvas');
