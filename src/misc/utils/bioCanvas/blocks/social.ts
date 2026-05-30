@@ -43,15 +43,8 @@ export function clampSocialGap(value: unknown, fallback = DEFAULT_SOCIAL_GAP): n
   return Math.min(MAX_SOCIAL_GAP, Math.max(MIN_SOCIAL_GAP, n));
 }
 
-const zIconSize = z
-  .number()
-  .optional()
-  .transform((v) => clampSocialIconSize(v ?? DEFAULT_SOCIAL_ICON_SIZE));
-
-const zGap = z
-  .number()
-  .optional()
-  .transform((v) => clampSocialGap(v ?? DEFAULT_SOCIAL_GAP));
+const zIconSize = z.number().optional();
+const zGap = z.number().optional();
 
 const socialLinkSchema = z.object({
   platform: z.enum(SOCIAL_PLATFORMS),

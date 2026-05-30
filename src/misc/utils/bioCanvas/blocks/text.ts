@@ -24,11 +24,7 @@ export function clampTextFontSize(value: unknown, fallback = DEFAULT_TEXT_FONT_S
   return Math.min(MAX_TEXT_FONT_SIZE, Math.max(MIN_TEXT_FONT_SIZE, n));
 }
 
-const zFontSize = (fallback: number) =>
-  z
-    .number()
-    .optional()
-    .transform((v) => clampTextFontSize(v ?? fallback, fallback));
+const zFontSize = () => z.number().optional();
 
 const zBodyText = (max: number) =>
   z
@@ -39,8 +35,8 @@ const zBodyText = (max: number) =>
 export const textBlockDataSchema = z.object({
   heading: zPlainText(MAX_TEXT_HEADING_LENGTH).nullable().optional(),
   body: zBodyText(MAX_TEXT_BODY_LENGTH),
-  fontSize: zFontSize(DEFAULT_TEXT_FONT_SIZE),
-  headingFontSize: zFontSize(DEFAULT_TEXT_HEADING_FONT_SIZE),
+  fontSize: zFontSize(),
+  headingFontSize: zFontSize(),
   align: z.enum(TEXT_ALIGNMENTS).optional().default('left'),
 });
 
