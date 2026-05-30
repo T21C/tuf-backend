@@ -96,8 +96,7 @@ router.get(
         ? []
         : await AuditLog.findAll({
             where: { id: ids },
-            include: [userInclude],
-            order: [[sortCol, orderDir]],
+            include: [userInclude]
           });
 
     res.json({
