@@ -70,6 +70,13 @@ function parseHeaderSurfaceLayerId(req: Request): string | null {
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import User from '@/models/auth/User.js';
 import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
+import {
+  BioCanvasProfileError,
+  parseBioCanvasBlockId,
+  patchBioCanvasForProfile,
+  serializeBioCanvasApiFields,
+  uploadBioCanvasImageForProfile,
+} from '@/server/services/bioCanvasProfile.js';
 
 /**
  * v3 creators routes — Elasticsearch-backed.
@@ -476,6 +483,134 @@ router.patch(
 );
 
 router.patch(
+  '/me/bio-canvas',
+  Auth.tufStellarUser(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorMeBioCanvas',
+    summary: 'Update my creator bio canvas (v3)',
+    description:
+      'Requires TUFStellar access. Saves block document and derives plaintext bio for search.',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    requestBody: {
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {
+          canvas: { type: 'object', nullable: true },
+        },
+        required: ['canvas'],
+      },
+    },
+    responses: {
+      200: { description: 'Updated bio canvas' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      if (!isTufStellarFeatureEnabled()) {
+        return res.status(403).json({ error: 'TUFStellar is not available on this deployment' });
+      }
+
+      const id = Number(user.creatorId);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'No creator profile linked to this account' });
+      }
+
+      const body = req.body as { canvas?: unknown };
+      if (!Object.prototype.hasOwnProperty.call(body, 'canvas')) {
+        return res.status(400).json({ error: 'Request body must include canvas (object or null)' });
+      }
+
+      const result = await patchBioCanvasForProfile(Creator, id, body.canvas);
+
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json(result);
+    } catch (error) {
+      if (error instanceof BioCanvasProfileError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      logger.error('[v3 PATCH /creators/me/bio-canvas] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update bio canvas',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.post(
+  '/me/bio-canvas/image',
+  Auth.tufStellarUser(),
+  bannerUpload.single('image'),
+  ApiDoc({
+    operationId: 'v3PostCreatorMeBioCanvasImage',
+    summary: 'Upload creator bio canvas image block asset',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Uploaded' },
+      400: { description: 'No file or invalid blockId', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      403: { description: 'Forbidden', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      if (!isTufStellarFeatureEnabled()) {
+        return res.status(403).json({ error: 'TUFStellar is not available on this deployment' });
+      }
+
+      const id = Number(user.creatorId);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'No creator profile linked to this account' });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded', code: 'NO_FILE' });
+      }
+
+      const blockId = parseBioCanvasBlockId(req);
+      if (!blockId) {
+        return res.status(400).json({ error: 'blockId is required' });
+      }
+
+      const uploadResult = await uploadBioCanvasImageForProfile(
+        Creator,
+        id,
+        blockId,
+        req.file,
+      );
+
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json(uploadResult);
+    } catch (error) {
+      if (error instanceof BioCanvasProfileError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      if (error instanceof CdnError) {
+        return res.status(400).json({
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        });
+      }
+      logger.error('[v3 POST /creators/me/bio-canvas/image] failure', error);
+      return res.status(500).json({ error: 'Failed to upload bio canvas image' });
+    }
+  },
+);
+
+router.patch(
   '/me/upload-conditions',
   Auth.user(),
   ApiDoc({
@@ -697,6 +832,8 @@ router.get(
           attributes: [
             'id',
             'bio',
+            'bioCanvas',
+            'bioCanvasImageAssets',
             'uploadConditions',
             'displayCurationTypeIds',
             'bannerPreset',
@@ -806,7 +943,7 @@ router.get(
 
       const bannerFromRow = creatorRow
         ? {
-            bio: typeof creatorRow.bio === 'string' && creatorRow.bio.trim().length ? creatorRow.bio : null,
+            ...serializeBioCanvasApiFields(creatorRow),
             uploadConditions:
               typeof creatorRow.uploadConditions === 'string' &&
               creatorRow.uploadConditions.trim().length

@@ -33,6 +33,8 @@ export interface ICreator extends IBaseModel {
   verificationStatus: 'declined' | 'pending' | 'conditional' | 'allowed';
   userId?: string | null;
   bio?: string | null;
+  bioCanvas?: Record<string, unknown> | null;
+  bioCanvasImageAssets?: Record<string, { assetId: string; url: string }> | null;
   /** Profile header: up to 5 curation type ids chosen by the creator (or admin). */
   displayCurationTypeIds?: number[] | null;
   /** Whitelisted relative path under `client/public/banners` (e.g. `banners/default.svg`). */

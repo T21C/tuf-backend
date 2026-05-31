@@ -15,6 +15,8 @@ class Creator extends Model implements ICreator {
   declare verificationStatus: 'declined' | 'pending' | 'conditional' | 'allowed';
   declare userId: string | null;
   declare bio: string | null;
+  declare bioCanvas: Record<string, unknown> | null;
+  declare bioCanvasImageAssets: Record<string, { assetId: string; url: string }> | null;
   /** Up to 5 curation type ids to show on the creator profile header (JSON array in DB). */
   declare displayCurationTypeIds: number[] | null;
   declare bannerPreset: string | null;
@@ -73,6 +75,14 @@ Creator.init(
     },
     bio: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    bioCanvas: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
+    bioCanvasImageAssets: {
+      type: DataTypes.JSON,
       allowNull: true,
     },
     bannerPreset: {

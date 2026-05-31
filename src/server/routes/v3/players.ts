@@ -30,17 +30,12 @@ import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads
 import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError } from '@/server/services/core/CdnService.js';
 import {
-  BioCanvasError,
-  MAX_BIO_CANVAS_BLOCK_ID_LENGTH,
-  parseBioCanvas,
-  toPlainText,
-} from '@/misc/utils/bioCanvas/index.js';
-import {
-  blockIdIsImageBlock,
-  clearBioCanvasImageAssetsWhenNoImages,
-  reconcileBioCanvasImageAssets,
-  upsertBioCanvasImageAsset,
-} from '@/server/services/bioCanvasImage.js';
+  BioCanvasProfileError,
+  parseBioCanvasBlockId,
+  patchBioCanvasForProfile,
+  serializeBioCanvasApiFields,
+  uploadBioCanvasImageForProfile,
+} from '@/server/services/bioCanvasProfile.js';
 
 /**
  * v3 players routes — Elasticsearch-backed.
@@ -65,16 +60,6 @@ function parseLimit(raw: unknown, fallback = DEFAULT_LIMIT): number {
 function parseOffset(raw: unknown): number {
   const n = parseInt(String(raw ?? ''), 10);
   return Number.isFinite(n) && n >= 0 ? n : 0;
-}
-
-function parseBioCanvasBlockId(req: Request): string | null {
-  const raw = (req.body as { blockId?: unknown })?.blockId ?? req.query.blockId;
-  if (typeof raw !== 'string') return null;
-  const blockId = raw.trim();
-  if (!blockId.length || blockId.length > MAX_BIO_CANVAS_BLOCK_ID_LENGTH) {
-    return null;
-  }
-  return blockId;
 }
 
 function parseFilters(raw: unknown): Record<string, any> | undefined {
@@ -442,16 +427,7 @@ router.get(
       const stellarOn = isTufStellarFeatureEnabled();
       const bannerPatch = playerRow
         ? {
-            bio: typeof playerRow.bio === 'string' && playerRow.bio.trim().length ? playerRow.bio : null,
-            bioCanvas:
-              playerRow.bioCanvas && typeof playerRow.bioCanvas === 'object'
-                ? playerRow.bioCanvas
-                : null,
-            bioCanvasImageAssets:
-              playerRow.bioCanvasImageAssets &&
-              typeof playerRow.bioCanvasImageAssets === 'object'
-                ? playerRow.bioCanvasImageAssets
-                : null,
+            ...serializeBioCanvasApiFields(playerRow),
             bannerPreset: playerRow.bannerPreset ?? null,
             customBannerId: playerRow.customBannerId ?? null,
             customBannerUrl: playerRow.customBannerUrl ?? null,
@@ -609,55 +585,16 @@ router.patch(
         return res.status(400).json({ error: 'Request body must include canvas (object or null)' });
       }
 
-      let parsed;
-      try {
-        parsed = parseBioCanvas(body.canvas);
-      } catch (err) {
-        const msg = err instanceof BioCanvasError ? err.message : 'Invalid bio canvas';
-        return res.status(400).json({ error: msg });
-      }
-
-      const player = await Player.findByPk(user.playerId, {
-        attributes: ['id', 'bioCanvasImageAssets'],
-      });
-      if (!player) {
-        return res.status(404).json({ error: 'Player not found' });
-      }
-
-      const nextBio = toPlainText(parsed);
-      const clearedAssets = await clearBioCanvasImageAssetsWhenNoImages(
-        player.bioCanvasImageAssets,
-        parsed,
-      );
-      const reconciledAssets = await reconcileBioCanvasImageAssets(
-        player.bioCanvasImageAssets,
-        parsed,
-      );
-
-      const updatePayload: Record<string, unknown> = {
-        bioCanvas: parsed as unknown as Record<string, unknown> | null,
-        bio: nextBio,
-        ...(clearedAssets ?? {}),
-      };
-      if (reconciledAssets !== null) {
-        updatePayload.bioCanvasImageAssets = reconciledAssets;
-      }
-
-      await Player.update(updatePayload, { where: { id: user.playerId } });
-
-      const updatedPlayer = await Player.findByPk(user.playerId, {
-        attributes: ['bioCanvas', 'bioCanvasImageAssets', 'bio'],
-      });
+      const result = await patchBioCanvasForProfile(Player, user.playerId, body.canvas);
 
       await elasticsearchService.reindexPlayers([user.playerId]);
       await CacheInvalidation.invalidateUser(user.id);
 
-      return res.json({
-        bioCanvas: updatedPlayer?.bioCanvas ?? null,
-        bioCanvasImageAssets: updatedPlayer?.bioCanvasImageAssets ?? null,
-        bio: updatedPlayer?.bio ?? null,
-      });
+      return res.json(result);
     } catch (error) {
+      if (error instanceof BioCanvasProfileError) {
+        return res.status(error.status).json({ error: error.message });
+      }
       logger.error('[v3 PATCH /players/me/bio-canvas] failure', error);
       return res.status(500).json({
         error: 'Failed to update bio canvas',
@@ -703,68 +640,21 @@ router.post(
         return res.status(400).json({ error: 'blockId is required' });
       }
 
-      const player = await Player.findByPk(user.playerId, {
-        attributes: ['id', 'bioCanvas', 'bioCanvasImageAssets'],
-      });
-      if (!player) {
-        return res.status(404).json({ error: 'Player not found' });
-      }
-
-      let storedCanvas = null;
-      try {
-        storedCanvas = parseBioCanvas(player.bioCanvas);
-      } catch {
-        storedCanvas = null;
-      }
-
-      if (storedCanvas && !blockIdIsImageBlock(storedCanvas, blockId)) {
-        return res.status(400).json({
-          error: 'blockId does not match an image block in the saved canvas',
-        });
-      }
-
-      const result = await cdnService.uploadImage(req.file.buffer, req.file.originalname, 'BANNER');
-      const displayUrl = result.urls?.large ?? result.urls?.original ?? null;
-      if (!displayUrl) {
-        return res.status(500).json({ error: 'CDN did not return image URLs' });
-      }
-
-      const assets = upsertBioCanvasImageAsset(
-        player.bioCanvasImageAssets,
+      const uploadResult = await uploadBioCanvasImageForProfile(
+        Player,
+        user.playerId,
         blockId,
-        result.fileId,
-        displayUrl,
+        req.file,
       );
-      const previousAssetId =
-        player.bioCanvasImageAssets &&
-        typeof player.bioCanvasImageAssets === 'object' &&
-        !Array.isArray(player.bioCanvasImageAssets)
-          ? (player.bioCanvasImageAssets as Record<string, { assetId?: string }>)[blockId]?.assetId
-          : null;
-
-      await Player.update(
-        { bioCanvasImageAssets: assets },
-        { where: { id: user.playerId } },
-      );
-
-      if (previousAssetId && previousAssetId !== result.fileId) {
-        try {
-          if (await cdnService.checkFileExists(previousAssetId)) {
-            await cdnService.deleteFile(previousAssetId);
-          }
-        } catch (delErr) {
-          logger.error('Error deleting previous bio canvas image from CDN:', delErr);
-        }
-      }
 
       await elasticsearchService.reindexPlayers([user.playerId]);
       await CacheInvalidation.invalidateUser(user.id);
 
-      return res.json({
-        blockId,
-        bioCanvasImageAssets: assets,
-      });
+      return res.json(uploadResult);
     } catch (error) {
+      if (error instanceof BioCanvasProfileError) {
+        return res.status(error.status).json({ error: error.message });
+      }
       if (error instanceof CdnError) {
         return res.status(400).json({
           error: error.message,
