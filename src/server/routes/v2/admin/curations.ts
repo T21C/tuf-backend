@@ -28,6 +28,7 @@ import { getIO } from '@/misc/utils/server/socket.js';
 import { sseManager } from '@/misc/utils/server/sse.js';
 import { serializeCurationJson, sortCurationsByTypeOrder } from '@/misc/utils/data/curationOrdering.js';
 import { parseFacetQueryString } from '@/misc/utils/search/facetQuery.js';
+import { normalizeLevelSearchQuery } from '@/server/services/elasticsearch/search/tools/parseSearch.js';
 import {
   levelIdsForCurationFacetDomain,
   mergeFacetLevelIds,
@@ -719,22 +720,6 @@ const levelIncludeFull = [
   },
 ];
 
-const levelIncludeHashSearch = [
-  { model: CurationType, as: 'types' as const, through: { attributes: [] } },
-  {
-    model: Level,
-    as: 'level' as const,
-    include: [
-      { model: Difficulty, as: 'difficulty' as const },
-      {
-        model: LevelCredit,
-        as: 'levelCredits' as const,
-        include: [{ model: Creator, as: 'creator' as const }],
-      },
-    ],
-  },
-];
-
 function parseCurationTypeIdsFromQuery(req: Request): number[] {
   const raw: number[] = [];
   const push = (v: unknown) => {
@@ -930,40 +915,26 @@ router.get(
       where.id = { [Op.notIn]: excludeArray };
     }
 
-    type SearchMode = 'none' | 'hash' | 'text';
-    let searchMode: SearchMode = 'none';
+    let hasTextSearch = false;
     let matchingLevelIds: number[] = [];
 
     if (search) {
       const searchStr = Array.isArray(search) ? String(search[0]) : String(search);
-
-      if (searchStr && searchStr.startsWith('#') && searchStr.length > 1) {
-        const idStr = searchStr.substring(1);
-        if (!/^\d+$/.test(idStr)) {
-          return res.status(400).json({ error: 'Invalid level ID format after hashtag' });
-        }
-        searchMode = 'hash';
-        where.levelId = parseInt(idStr, 10);
-        logger.debug(`Direct level ID lookup for level ${idStr}`);
-      } else {
-        searchMode = 'text';
-        const searchWhere = {
-          [Op.or]: [
-            { song: { [Op.like]: `%${searchStr}%` } },
-            { artist: { [Op.like]: `%${searchStr}%` } },
-            { creator: { [Op.like]: `%${searchStr}%` } },
-          ],
-        };
-        const matchingLevels = await Level.findAll({
-          where: searchWhere,
-          attributes: ['id'],
-        });
-        matchingLevelIds = matchingLevels.map((level) => level.id);
+      const normalized = normalizeLevelSearchQuery(searchStr);
+      if (!normalized.ok) {
+        return res.status(400).json({ error: normalized.error });
+      }
+      if (normalized.query) {
+        hasTextSearch = true;
+        const isSuperAdmin = hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN]);
+        matchingLevelIds = await elasticsearchService.searchLevelIds(normalized.query, {
+          excludeAliases: 'false',
+        }, isSuperAdmin);
         where.levelId = { [Op.in]: matchingLevelIds };
       }
     }
 
-    if (searchMode === 'text' && matchingLevelIds.length === 0) {
+    if (hasTextSearch && matchingLevelIds.length === 0) {
       return res.json({
         curations: [],
         levelInstances: [],
@@ -1076,27 +1047,14 @@ router.get(
       });
     }
 
-    let curations;
-    const hashInclude = [typesInclude, levelIncludeHashSearch[1]];
-    if (searchMode === 'hash') {
-      curations = await Curation.findAndCountAll({
-        where: where as any,
-        include: hashInclude as any,
-        limit: Number(limit),
-        offset,
-        order: [['createdAt', 'DESC']],
-        distinct: true,
-      });
-    } else {
-      curations = await Curation.findAndCountAll({
-        where: where as any,
-        include: listIncludeBase as any,
-        limit: Number(limit),
-        offset,
-        order: [['createdAt', 'DESC']],
-        distinct: true,
-      });
-    }
+    const curations = await Curation.findAndCountAll({
+      where: where as any,
+      include: listIncludeBase as any,
+      limit: Number(limit),
+      offset,
+      order: [['createdAt', 'DESC']],
+      distinct: true,
+    });
 
     const serializedCurations = curations.rows.map(serializeCurationRow);
 

@@ -14,7 +14,7 @@ import LevelCredit from '@/models/levels/LevelCredit.js';
 import Pass from '@/models/passes/Pass.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
-import { searchLevels as runLevelSearch } from './search/levels/levelSearch.js';
+import { searchLevels as runLevelSearch, searchLevelIds as runSearchLevelIds } from './search/levels/levelSearch.js';
 import { searchPasses as runPassSearch } from './search/passes/passSearch.js';
 import { searchPlayers as runPlayerSearch, PlayerSearchOptions, PlayerSearchResult } from './search/players/playerSearch.js';
 import { searchCreators as runCreatorSearch, hydrateCreatorUsers, CreatorSearchOptions, CreatorSearchResult } from './search/creators/creatorSearch.js';
@@ -483,6 +483,10 @@ class ElasticsearchService {
 
   public async searchLevels(query: string, filters: any = {}, isSuperAdmin = false): Promise<{ hits: any[], total: number }> {
     return runLevelSearch(query, filters, isSuperAdmin);
+  }
+
+  public async searchLevelIds(query: string, filters: any = {}, isSuperAdmin = false): Promise<number[]> {
+    return runSearchLevelIds(query, filters, isSuperAdmin);
   }
 
   public async searchPasses(query: string, filters: any = {}, userPlayerId?: number, isSuperAdmin = false): Promise<{ hits: any[], total: number }> {

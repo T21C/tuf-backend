@@ -12,7 +12,10 @@ import {
   resolveTags,
 } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/filterResolvers.js';
 import { buildPrimaryDifficultySortScript } from '@/server/services/elasticsearch/search/tools/primaryDifficultySort.js';
-import { parseSearchQueryWithPUA } from '@/server/services/elasticsearch/search/tools/parseSearch.js';
+import {
+  normalizeLevelSearchQuery,
+  parseSearchQueryWithPUA,
+} from '@/server/services/elasticsearch/search/tools/parseSearch.js';
 import { buildAvailableDlHideClause, buildAvailableDlOnlyClause } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryLevelFilters.js';
 import {
   boolMust,
@@ -35,7 +38,13 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
     const must: any[] = [];
     const should: any[] = [];
 
-
+    if (query) {
+      const normalized = normalizeLevelSearchQuery(query);
+      if (!normalized.ok) {
+        return { hits: [], total: 0 };
+      }
+      query = normalized.query;
+    }
 
     // Handle text search with new parsing
     if (query) {
@@ -275,6 +284,34 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
     logger.error('Error searching levels:', error);
     throw error;
   }
+}
+
+/** Max matches when resolving level IDs for SQL `levelId IN (...)` filters (ES max_result_window). */
+const LEVEL_ID_FILTER_CAP = 10_000;
+
+/**
+ * Resolve level IDs for admin filters (e.g. curation management search).
+ * Uses the same query parsing and alias-aware field search as public level search.
+ */
+export async function searchLevelIds(
+  query: string,
+  filters: Record<string, unknown> = {},
+  isSuperAdmin = false,
+): Promise<number[]> {
+  const normalized = normalizeLevelSearchQuery(query);
+  if (!normalized.ok || !normalized.query) {
+    return [];
+  }
+
+  const { hits } = await searchLevels(normalized.query, {
+    ...filters,
+    offset: 0,
+    limit: LEVEL_ID_FILTER_CAP,
+  }, isSuperAdmin);
+
+  return hits
+    .map((hit) => Number(hit.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
 }
 
 async function searchLevelsWithScroll(

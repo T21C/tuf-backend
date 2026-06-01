@@ -201,12 +201,15 @@ function buildPlayerQuery(options: PlayerSearchOptions): any {
 }
 
 /**
- * Sort keys whose values are chunky enums rather than continuous numbers and therefore
- * produce massive ties (every player at the same top difficulty collapses together).
- * We tiebreak these with `rankedScore desc` so the ordering inside a tier reflects
- * leaderboard strength instead of insertion order.
+ * Sort keys that produce large ties (same top-difficulty tier, or many players capped at
+ * 100% average xacc). Tiebreak with `rankedScore desc` so ordering inside a tier reflects
+ * leaderboard strength instead of insertion order / document id.
  */
-const TIEBREAK_ON_RANKED_SCORE = new Set(['topDiffSortOrder', 'top12kDiffSortOrder']);
+const TIEBREAK_ON_RANKED_SCORE = new Set([
+  'topDiffSortOrder',
+  'top12kDiffSortOrder',
+  'averageXacc',
+]);
 
 function buildPlayerSort(options: PlayerSearchOptions): any[] {
   const order = options.order === 'asc' ? 'asc' : 'desc';
