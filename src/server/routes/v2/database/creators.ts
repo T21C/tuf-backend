@@ -128,6 +128,11 @@ router.get(
             attributes: ['id', 'username', 'avatarUrl'],
           },
           {
+            model: User,
+            as: 'linkedUser',
+            attributes: ['id', 'username', 'avatarUrl'],
+          },
+          {
             model: LevelCredit,
             as: 'credits',
             attributes: ['id', 'role'],
@@ -148,9 +153,19 @@ router.get(
         logger.debug(`creators filter took ${delay}ms with ${creators.length} creators`);
       }
 
+      // `user` (creators.userId) and `linkedUser` (users.creatorId) are two link columns that
+      // can drift apart. Normalize to a single `user` field, preferring the authoritative
+      // `users.creatorId` side so the UI reliably knows a creator is already assigned.
+      const results = creators.map((creator) => {
+        const plain = creator.get({ plain: true });
+        plain.user = plain.linkedUser || plain.user || null;
+        delete plain.linkedUser;
+        return plain;
+      });
+
       return res.json({
         count: totalCount,
-        results: creators,
+        results,
         page,
         offset,
         limit,

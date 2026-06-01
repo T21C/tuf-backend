@@ -96,6 +96,7 @@ router.get(
       offset: { schema: { type: 'string' } },
       showBanned: { schema: { type: 'string' } },
       filters: { schema: { type: 'string' } },
+      excludeCreatorLinked: { schema: { type: 'string' } },
     },
     responses: {
       200: { description: 'Paginated search results' },
@@ -109,6 +110,7 @@ router.get(
       const offset = parseOffset(req.query.offset);
       const showBanned = (req.query.showBanned as 'show' | 'hide' | 'only') || 'hide';
       const filters = parseFilters(req.query.filters);
+      const excludeCreatorLinked = String(req.query.excludeCreatorLinked ?? '') === 'true';
 
       const options: PlayerSearchOptions = {
         rawQuery: query || undefined,
@@ -116,6 +118,7 @@ router.get(
         filters,
         limit,
         offset,
+        excludeCreatorLinked,
       };
 
       const { total, hits } = await elasticsearchService.searchPlayers(options);

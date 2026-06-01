@@ -9,6 +9,8 @@ export interface PlayerSearchOptions {
   rawQuery?: string;
   /** When true, only players with an indexed auth user (`user.id`). */
   requireLinkedUser?: boolean;
+  /** When true, exclude players whose linked user is already tied to a creator. */
+  excludeCreatorLinked?: boolean;
   /** `show` keeps banned, `hide` removes them, `only` returns only banned. */
   showBanned?: 'show' | 'hide' | 'only';
   /** Range filters (numeric metrics + `country` exact match). */
@@ -131,6 +133,7 @@ function buildPlayerQuery(options: PlayerSearchOptions): any {
   const must: any[] = [];
   const should: any[] = [];
   const filter: any[] = [];
+  const mustNot: any[] = [];
 
   const {
     cleaned,
@@ -164,6 +167,10 @@ function buildPlayerQuery(options: PlayerSearchOptions): any {
     filter.push({ exists: { field: 'user.id' } });
   }
 
+  if (options.excludeCreatorLinked) {
+    mustNot.push({ exists: { field: 'user.creator.id' } });
+  }
+
   if (options.filters) {
     for (const [key, value] of Object.entries(options.filters)) {
       if (key === 'country' && typeof value === 'string' && value.length > 0) {
@@ -182,11 +189,12 @@ function buildPlayerQuery(options: PlayerSearchOptions): any {
   const query: any = { bool: {} };
   if (must.length > 0) query.bool.must = must;
   if (filter.length > 0) query.bool.filter = filter;
+  if (mustNot.length > 0) query.bool.must_not = mustNot;
   if (should.length > 0) {
     query.bool.should = should;
     query.bool.minimum_should_match = 1;
   }
-  if (!query.bool.must && !query.bool.should && !query.bool.filter) {
+  if (!query.bool.must && !query.bool.should && !query.bool.filter && !query.bool.must_not) {
     query.bool.must = [{ match_all: {} }];
   }
   return query;

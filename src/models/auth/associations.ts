@@ -48,6 +48,14 @@ export function initializeAuthAssociations() {
     foreignKey: 'userId',
     as: 'user',
   });
+  // Reverse link via `users.creatorId` ➔ `creators.id`. This is the authoritative
+  // "user owns this creator" link enforced by the assignment guard, so creator queries
+  // can surface the linked user even when the denormalized `creators.userId` is out of sync.
+  Creator.hasOne(User, {
+    sourceKey: 'id',
+    foreignKey: 'creatorId',
+    as: 'linkedUser',
+  });
 
   User.hasOne(UserTufStellarBilling, {
     foreignKey: 'userId',
