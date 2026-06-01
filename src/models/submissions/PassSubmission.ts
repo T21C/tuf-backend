@@ -23,6 +23,8 @@ class PassSubmission extends BaseModel {
   declare accuracy: number | null;
   declare scoreV2: number | null;
   declare feelingDifficulty: string | null;
+  declare expectedDifficulty: string | null;
+  declare keyCount: number | null;
   declare title: string | null;
   declare rawTime: Date | null;
   declare userId: string | null;
@@ -124,6 +126,14 @@ PassSubmission.init(
     },
     feelingDifficulty: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    expectedDifficulty: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    keyCount: {
+      type: DataTypes.INTEGER,
       allowNull: true,
     },
     title: {

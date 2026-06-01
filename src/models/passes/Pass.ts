@@ -21,6 +21,8 @@ class Pass
   declare speed: number | null;
   declare playerId: number;
   declare feelingRating: string | null;
+  declare expectedRating: string | null;
+  declare keyCount: number | null;
   declare vidTitle: string | null;
   declare videoLink: string | null;
   declare vidUploadTime: Date;
@@ -74,6 +76,14 @@ Pass.init(
     },
     feelingRating: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    expectedRating: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    keyCount: {
+      type: DataTypes.INTEGER,
       allowNull: true,
     },
     vidTitle: {

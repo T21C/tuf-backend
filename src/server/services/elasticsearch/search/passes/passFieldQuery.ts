@@ -1,4 +1,4 @@
-import { prepareSearchTerm } from '@/misc/utils/data/searchHelpers.js';
+import { convertFromPUA, parseNumericSearchConstraint, prepareSearchTerm } from '@/misc/utils/data/searchHelpers.js';
 import { queryParserConfigs, type FieldSearch } from '@/misc/utils/data/queryParser.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { BoolQueryBuilder } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryBuilder.js';
@@ -6,14 +6,34 @@ import {
   matchNone,
   maybeNot,
   nestedQuery,
+  rangeOnField,
   termField,
   wildcardCi,
 } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
+
+const PASS_NUMERIC_RANGE_FIELDS: Record<string, { esField: string; integerOnly: boolean }> = {
+  keycount: { esField: 'keyCount', integerOnly: true },
+};
 
 export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
   const { field, value, exact, isNot } = fieldSearch;
   const searchValue = prepareSearchTerm(value);
   logger.debug(`Building pass search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
+
+  const numericRangeConfig = PASS_NUMERIC_RANGE_FIELDS[field];
+  if (numericRangeConfig) {
+    const decoded = convertFromPUA(value).trim();
+    const parsed = parseNumericSearchConstraint(decoded, { integerOnly: numericRangeConfig.integerOnly });
+    if (!parsed) {
+      logger.debug(`No numeric constraint parsed for field: ${field}, decoded value: ${decoded}`);
+      return matchNone();
+    }
+    const { esField } = numericRangeConfig;
+    if (parsed.kind === 'term') {
+      return maybeNot(isNot, termField(esField, parsed.n));
+    }
+    return maybeNot(isNot, rangeOnField(esField, parsed.bounds));
+  }
 
   const numericFields = queryParserConfigs.pass.numericFields || [];
   const isNumericField = numericFields.includes(field);

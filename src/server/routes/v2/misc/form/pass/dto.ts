@@ -2,6 +2,7 @@ import { sanitizeTextInput, validateDateInput, validateFloatInput } from '../sha
 import { cleanVideoUrl } from '../shared/videoUrl.js';
 import { formError } from '../shared/errors.js';
 import { sanitizeJudgements } from '@/misc/utils/pass/SanitizeJudgements.js';
+import { deriveKeyFlags, normalizeKeyCount } from '@/misc/utils/pass/keyCount.js';
 
 export interface PassFormSanitised {
   levelId: number;
@@ -11,6 +12,8 @@ export interface PassFormSanitised {
   passerId: number | null;
   passerRequest: boolean;
   feelingDifficulty: string;
+  expectedDifficulty: string | null;
+  keyCount: number;
   title: string;
   rawTime: Date;
   is12K: boolean;
@@ -22,6 +25,18 @@ export interface PassFormSanitised {
 
 function asBool(v: unknown): boolean {
   return v === true || v === 'true';
+}
+
+function optionalSanitizedText(body: Record<string, unknown>, field: string): string | null {
+  const raw = body[field];
+  if (raw === undefined || raw === null || raw === '') {
+    return null;
+  }
+  if (typeof raw !== 'string') {
+    throw formError.bad(`Invalid field: ${field}`, { field });
+  }
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? sanitizeTextInput(trimmed) : null;
 }
 
 /**
@@ -59,11 +74,16 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
     });
   }
 
-  const is12K = asBool(body.is12K);
+  const keyCount = normalizeKeyCount(body.keyCount);
+  if (keyCount === null) {
+    throw formError.bad('Missing or invalid keyCount — must be a positive integer', { field: 'keyCount' });
+  }
+  const { is12K, is16K } = deriveKeyFlags(keyCount);
+
   const isNoHoldTap = asBool(body.isNoHoldTap);
-  const is16K = asBool(body.is16K);
   const isAdofaiV2 = asBool(body.isAdofaiV2);
   const passerRequest = asBool(body.passerRequest);
+  const expectedDifficulty = optionalSanitizedText(body, 'expectedDifficulty');
 
   let passerId: number | null = null;
   if (body.passerId !== undefined && body.passerId !== null && body.passerId !== '') {
@@ -84,6 +104,8 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
     passerId,
     passerRequest,
     feelingDifficulty,
+    expectedDifficulty,
+    keyCount,
     title,
     rawTime,
     is12K,

@@ -70,6 +70,8 @@ export async function createPassSubmission(
         passerId: sanitized.passerId,
         passerRequest: sanitized.passerRequest,
         feelingDifficulty: sanitized.feelingDifficulty,
+        expectedDifficulty: sanitized.expectedDifficulty,
+        keyCount: sanitized.keyCount,
         title: sanitized.title,
         videoLink: sanitized.videoLink,
         rawTime: sanitized.rawTime,

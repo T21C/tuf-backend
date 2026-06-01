@@ -117,6 +117,8 @@ export interface IPass extends IBaseModel {
   speed: number | null;
   playerId: number;
   feelingRating: string | null;
+  expectedRating: string | null;
+  keyCount: number | null;
   vidTitle: string | null;
   videoLink: string | null;
   vidUploadTime: Date | null;

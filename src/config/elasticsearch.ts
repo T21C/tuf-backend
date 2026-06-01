@@ -450,6 +450,8 @@ export const passMapping = {
       vidUploadTime: { type: 'date' as const },
       speed: { type: 'float' as const },
       feelingRating: { type: 'text' as const },
+      expectedRating: { type: 'text' as const },
+      keyCount: { type: 'integer' as const },
       vidTitle: { type: 'text' as const },
       videoLink: {
         type: 'text' as const,

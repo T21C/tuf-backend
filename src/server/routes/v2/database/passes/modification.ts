@@ -15,6 +15,7 @@ import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility
 import { calcAcc, IJudgements } from '@/misc/utils/pass/CalcAcc.js';
 import { getScoreV2 } from '@/misc/utils/pass/CalcScore.js';
 import { sanitizeJudgements } from '@/misc/utils/pass/SanitizeJudgements.js';
+import { deriveKeyFlags, normalizeKeyCount } from '@/misc/utils/pass/keyCount.js';
 import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
 import { sseManager } from '@/misc/utils/server/sse.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
@@ -26,6 +27,16 @@ import Team from '@/models/credits/Team.js';
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 const router = Router();
+
+function buildKeyCountUpdateFields(keyCountBody: unknown): {
+  keyCount: number | null;
+  is12K: boolean;
+  is16K: boolean;
+} {
+  const keyCount = normalizeKeyCount(keyCountBody);
+  const derived = deriveKeyFlags(keyCount);
+  return { keyCount, is12K: derived.is12K, is16K: derived.is16K };
+}
 
 router.put(
   '/:id([0-9]{1,20})',
@@ -50,6 +61,8 @@ router.put(
         vidUploadTime,
         speed,
         feelingRating,
+        expectedRating,
+        keyCount,
         vidTitle,
         videoLink,
         is12K,
@@ -111,6 +124,9 @@ router.put(
       }
       const oldPass = pass.dataValues;
       levelId = levelId || pass.levelId;
+
+      const keyCountFields =
+        keyCount !== undefined ? buildKeyCountUpdateFields(keyCount) : null;
 
       // If levelId is changing, fetch the new level data and check for duplicates
       let newLevel = null;
@@ -197,10 +213,27 @@ router.put(
             speed: speed || pass.speed,
             feelingRating:
               feelingRating !== undefined ? sanitizeTextInput(feelingRating) : pass.feelingRating,
+            expectedRating:
+              expectedRating !== undefined
+                ? expectedRating
+                  ? sanitizeTextInput(expectedRating)
+                  : null
+                : pass.expectedRating,
+            ...(keyCountFields ?? {}),
             vidTitle: vidTitle !== undefined ? sanitizeTextInput(vidTitle) : pass.vidTitle,
             videoLink: videoLink !== undefined ? sanitizeTextInput(videoLink) : pass.videoLink,
-            is12K: is12K !== undefined ? is12K : pass.is12K,
-            is16K: is16K !== undefined ? is16K : pass.is16K,
+            is12K:
+              keyCountFields !== null
+                ? keyCountFields.is12K
+                : is12K !== undefined
+                  ? is12K
+                  : pass.is12K,
+            is16K:
+              keyCountFields !== null
+                ? keyCountFields.is16K
+                : is16K !== undefined
+                  ? is16K
+                  : pass.is16K,
             isNoHoldTap:
               isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap,
             accuracy: calculatedAccuracy,
@@ -222,10 +255,27 @@ router.put(
             speed: speed || pass.speed,
             feelingRating:
               feelingRating !== undefined ? sanitizeTextInput(feelingRating) : pass.feelingRating,
+            expectedRating:
+              expectedRating !== undefined
+                ? expectedRating
+                  ? sanitizeTextInput(expectedRating)
+                  : null
+                : pass.expectedRating,
+            ...(keyCountFields ?? {}),
             vidTitle: vidTitle !== undefined ? sanitizeTextInput(vidTitle) : pass.vidTitle,
             videoLink: videoLink !== undefined ? sanitizeTextInput(videoLink) : pass.videoLink,
-            is12K: is12K !== undefined ? is12K : pass.is12K,
-            is16K: is16K !== undefined ? is16K : pass.is16K,
+            is12K:
+              keyCountFields !== null
+                ? keyCountFields.is12K
+                : is12K !== undefined
+                  ? is12K
+                  : pass.is12K,
+            is16K:
+              keyCountFields !== null
+                ? keyCountFields.is16K
+                : is16K !== undefined
+                  ? is16K
+                  : pass.is16K,
             isNoHoldTap:
               isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap,
             accuracy: accuracy !== undefined ? accuracy : pass.accuracy,
@@ -293,6 +343,10 @@ router.put(
 
 
       await transaction.commit();
+
+      elasticsearchService.indexPass(parseInt(id)).catch((error) => {
+        logger.error(`[Passes PUT] Error reindexing pass in ES for pass ID: ${id}:`, error);
+      });
 
       // Reindex player in Elasticsearch
       if (updatedPass?.player?.id) {

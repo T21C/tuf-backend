@@ -13,6 +13,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import Judgement from '@/models/passes/Judgement.js';
 import {calcAcc} from '@/misc/utils/pass/CalcAcc.js';
 import {getScoreV2} from '@/misc/utils/pass/CalcScore.js';
+import {deriveKeyFlags, normalizeKeyCount} from '@/misc/utils/pass/keyCount.js';
 import {getIO} from '@/misc/utils/server/socket.js';
 import sequelize from '@/config/db.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
@@ -237,6 +238,12 @@ async function approvePassSubmission(
     throw new Error('Failed to calculate valid score - check level base score and difficulty');
   }
 
+  const submissionKeyCount = normalizeKeyCount(submission.keyCount);
+  const keyFlags =
+    submissionKeyCount !== null
+      ? deriveKeyFlags(submissionKeyCount)
+      : { is12K: flags.is12K || false, is16K: flags.is16K || false };
+
   const passData = {
     levelId: submission.levelId,
     playerId: submission.assignedPlayerId,
@@ -244,11 +251,13 @@ async function approvePassSubmission(
     vidTitle: submission.title || '',
     videoLink: submission.videoLink,
     vidUploadTime: submission.rawTime || new Date(),
-    is12K: flags.is12K || false,
-    is16K: flags.is16K || false,
+    keyCount: submissionKeyCount,
+    is12K: keyFlags.is12K,
+    is16K: keyFlags.is16K,
     isNoHoldTap: flags.isNoHoldTap || false,
     isAdofaiV2: flags.isAdofaiV2 || false,
     feelingRating: submission.feelingDifficulty || null,
+    expectedRating: submission.expectedDifficulty || null,
     accuracy,
     scoreV2,
     isAnnounced: false,
