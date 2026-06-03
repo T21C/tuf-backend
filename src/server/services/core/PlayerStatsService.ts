@@ -773,6 +773,8 @@ export class PlayerStatsService {
       order?: 'ASC' | 'DESC';
       query?: string;
       showHidden?: boolean;
+      /** When true, only the highest scoreV2 pass per level is included (hides reclears). */
+      bestPerLevel?: boolean;
     } = {},
   ): Promise<{ total: number; passes: Pass[] }> {
     const limit = Math.min(100, Math.max(1, Math.floor(opts.limit ?? 50)));
@@ -782,6 +784,7 @@ export class PlayerStatsService {
 
     const isOwnProfile = Boolean(user && user.playerId && user.playerId === playerId);
     const includeHiddenPasses = isOwnProfile && opts.showHidden === true;
+    const bestPerLevel = opts.bestPerLevel === true;
 
     // --- Phase 1: resolve ordered pass ids + total count via raw SQL. ---
     //
@@ -800,6 +803,23 @@ export class PlayerStatsService {
     ];
     if (!includeHiddenPasses) {
       filterClauses.push('IFNULL(p.isHidden, 0) = 0');
+    }
+    if (bestPerLevel) {
+      filterClauses.push(`p.id IN (
+        SELECT ranked.id FROM (
+          SELECT p2.id,
+            ROW_NUMBER() OVER (
+              PARTITION BY p2.levelId
+              ORDER BY IFNULL(p2.scoreV2, 0) DESC, p2.id DESC
+            ) AS rn_level
+          FROM passes p2
+          INNER JOIN levels l2 ON l2.id = p2.levelId AND IFNULL(l2.isDeleted, 0) = 0
+          WHERE p2.playerId = :playerId
+            AND IFNULL(p2.isDeleted, 0) = 0
+            AND (:includeHidden = 1 OR IFNULL(p2.isHidden, 0) = 0)
+        ) AS ranked
+        WHERE ranked.rn_level = 1
+      )`);
     }
 
     const replacements: Record<string, unknown> = {

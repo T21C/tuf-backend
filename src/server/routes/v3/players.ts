@@ -743,7 +743,8 @@ router.patch(
  * the owning caller, and only when they explicitly opt in via `showHidden`.
  *
  * Query: limit (<=100), offset, sortBy (score|speed|date|xacc|difficulty),
- *        order (ASC|DESC), query (free text), showHidden (true|false).
+ *        order (ASC|DESC), query (free text), showHidden (true|false),
+ *        bestPerLevel (true|false) — only the highest scoreV2 pass per level.
  *        sortBy `impact` matches ranked-score contribution weights used for
  *        profile topScores / potentialTopScores (best pass per level, then
  *        score * 0.9^(rank-1) within the top 20 of each list).
@@ -769,6 +770,7 @@ router.get(
       order: { schema: { type: 'string', enum: ['ASC', 'DESC'] } },
       query: { schema: { type: 'string' } },
       showHidden: { schema: { type: 'string' } },
+      bestPerLevel: { schema: { type: 'string' } },
     },
     responses: {
       200: { description: 'Player passes (paginated)' },
@@ -796,6 +798,7 @@ router.get(
       const order = String(req.query.order || '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
       const query = typeof req.query.query === 'string' ? req.query.query : '';
       const showHidden = String(req.query.showHidden || '').toLowerCase() === 'true';
+      const bestPerLevel = String(req.query.bestPerLevel || '').toLowerCase() === 'true';
 
       const { total, passes } = await playerStatsService.getPlayerPasses(id, user, {
         limit,
@@ -804,6 +807,7 @@ router.get(
         order,
         query,
         showHidden,
+        bestPerLevel,
       });
 
       return res.json({ total, passes, limit, offset });
