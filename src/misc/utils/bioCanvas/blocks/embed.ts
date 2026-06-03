@@ -9,7 +9,7 @@ const DANGEROUS_TITLE = /url\s*\(|var\s*\(|expression\s*\(|@import|javascript:|\
 /** Allowed video hosts: YouTube and Bilibili only. */
 const EMBED_HOST_PATTERNS: Array<{ host: RegExp; label: string }> = [
   { host: /(^|\.)youtube\.com$|(^|\.)youtu\.be$/i, label: 'youtube' },
-  { host: /(^|\.)bilibili\.com$/i, label: 'bilibili' },
+  { host: /(^|\.)bilibili\.com$|(^|\.)b23\.tv$/i, label: 'bilibili' },
 ];
 
 export function getEmbedProvider(url: string): string | null {
