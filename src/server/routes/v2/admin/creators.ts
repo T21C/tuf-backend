@@ -19,7 +19,7 @@ router.delete(
     operationId: 'deleteAdminCreator',
     summary: 'Delete creator profile',
     description:
-      'Removes team memberships and aliases, strips credits or hard-deletes solo levels, deletes CDN banner, and destroys the creator row. Query unlinkOnly=1 only clears user linkage (users.creatorId and creators.userId).',
+      'Removes team memberships and aliases, strips credits, soft-deletes solo levels (chart files preserved), deletes CDN banner, and destroys the creator row. Query unlinkOnly=1 only clears user linkage (users.creatorId and creators.userId).',
     tags: ['Admin', 'Creators'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },

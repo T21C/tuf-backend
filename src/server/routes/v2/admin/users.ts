@@ -638,7 +638,7 @@ router.post(
     operationId: 'postAdminScheduleUserAccountDeletion',
     summary: 'Schedule account deletion for a user',
     description:
-      'Same grace-period flow as self-service deletion. Optional body.deletionIncludeCreator purges the linked creator profile when the job runs.',
+      'Same grace-period flow as self-service deletion. Optional body.deletionIncludeCreator strips chart credits, soft-deletes solo levels, and removes the linked creator profile when the job runs.',
     tags: ['Admin', 'Users'],
     security: ['bearerAuth'],
     params: {

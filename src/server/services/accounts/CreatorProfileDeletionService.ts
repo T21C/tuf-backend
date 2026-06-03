@@ -2,22 +2,23 @@ import LevelCredit from '@/models/levels/LevelCredit.js';
 import Creator from '@/models/credits/Creator.js';
 import TeamMember from '@/models/credits/TeamMember.js';
 import {CreatorAlias} from '@/models/credits/CreatorAlias.js';
+import Pass from '@/models/passes/Pass.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import {CacheInvalidation} from '@/server/middleware/cache.js';
-import {executePermanentLevelDeleteWithSideEffects} from '@/server/domain/levels/levelPermanentDelete.js';
 import Level from '@/models/levels/Level.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
 /**
- * Purges a creator profile: removes team memberships and aliases, strips or hard-deletes
- * levels per credit rules, deletes CDN banner, then destroys the `creators` row.
+ * Purges a creator profile: removes team memberships and aliases, strips credits,
+ * soft-deletes solo levels (preserves chart files), deletes CDN banner, then destroys
+ * the `creators` row.
  *
- * Solo level: only this creator appears on `level_credits` for the level ➔ permanent DB delete.
- * Collab: remove this creator's `LevelCredit` rows only; reindex the level.
+ * - Solo level: strip credits, then soft-delete (`isDeleted` + `isHidden`).
+ * - Collab: remove this creator's `LevelCredit` rows only; reindex the level.
  */
 export class CreatorProfileDeletionService {
   private static instance: CreatorProfileDeletionService;
@@ -27,6 +28,62 @@ export class CreatorProfileDeletionService {
       CreatorProfileDeletionService.instance = new CreatorProfileDeletionService();
     }
     return CreatorProfileDeletionService.instance;
+  }
+
+  private async stripCreatorCreditsAndReindex(
+    levelId: number,
+    creatorId: number,
+  ): Promise<void> {
+    await LevelCredit.destroy({
+      where: {levelId, creatorId},
+    });
+    try {
+      await elasticsearchService.indexLevel(levelId);
+    } catch (e) {
+      logger.warn('[CreatorProfileDeletion] indexLevel after credit strip failed', {
+        levelId,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+    await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all']).catch(() => undefined);
+  }
+
+  private async softDeleteLevelWithSideEffects(levelId: number): Promise<void> {
+    const passRows = await Pass.findAll({
+      where: {levelId},
+      attributes: ['playerId'],
+    });
+    const affectedPlayerIds = Array.from(
+      new Set(passRows.map((p) => p.playerId).filter((x): x is number => typeof x === 'number')),
+    );
+
+    await Level.update({isDeleted: true, isHidden: true}, {where: {id: levelId}});
+
+    try {
+      await elasticsearchService.indexLevel(levelId);
+    } catch (e) {
+      logger.warn('[CreatorProfileDeletion] indexLevel after soft delete failed', {
+        levelId,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+
+    sseManager.broadcast({type: 'levelUpdate'});
+    sseManager.broadcast({type: 'ratingUpdate'});
+    await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all', 'Passes']).catch(
+      () => undefined,
+    );
+
+    if (affectedPlayerIds.length > 0) {
+      try {
+        await elasticsearchService.reindexPlayers(affectedPlayerIds);
+      } catch (e) {
+        logger.warn('[CreatorProfileDeletion] reindexPlayers after soft delete failed', {
+          levelId,
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
   }
 
   public async purgeCreatorProfile(creatorId: number): Promise<void> {
@@ -48,40 +105,10 @@ export class CreatorProfileDeletionService {
       const solo = distinctCreators.size === 1 && distinctCreators.has(creatorId);
 
       if (solo) {
-        await executePermanentLevelDeleteWithSideEffects(
-          levelId,
-          {requireSoftDeleted: false},
-          {
-            elasticsearchDeleteLevel: async (id) => {
-              await elasticsearchService.deleteLevel({id} as Level);
-            },
-            broadcastAndInvalidate: async ({levelId: lid, affectedPlayerIds}) => {
-              sseManager.broadcast({type: 'levelUpdate'});
-              sseManager.broadcast({type: 'ratingUpdate'});
-              await CacheInvalidation.invalidateTags([
-                `level:${lid}`,
-                'levels:all',
-                'Passes',
-              ]);
-              if (affectedPlayerIds.length > 0) {
-                await elasticsearchService.reindexPlayers(affectedPlayerIds);
-              }
-            },
-          },
-        );
+        await this.stripCreatorCreditsAndReindex(levelId, creatorId);
+        await this.softDeleteLevelWithSideEffects(levelId);
       } else {
-        await LevelCredit.destroy({
-          where: {levelId, creatorId},
-        });
-        try {
-          await elasticsearchService.indexLevel(levelId);
-        } catch (e) {
-          logger.warn('[CreatorProfileDeletion] indexLevel after credit strip failed', {
-            levelId,
-            message: e instanceof Error ? e.message : String(e),
-          });
-        }
-        await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all']).catch(() => undefined);
+        await this.stripCreatorCreditsAndReindex(levelId, creatorId);
       }
     }
 
