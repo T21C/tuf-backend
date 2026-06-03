@@ -94,78 +94,14 @@ export function formatString(str: string): string {
 
 const placeHolder = 'https://soggy.cat/static/ssoggycat/main/images/soggycat.webp';
 
-export async function createRerateEmbed(
-  levelInfo: Level | null,
-): Promise<MessageBuilder> {
-  if (!levelInfo)
-    return new MessageBuilder().setDescription('No pass info available');
-  const level = levelInfo.dataValues;
-  const team = level?.team ? level?.team : null;
-  const charter = level?.charter ? level?.charter : null;
-  const vfxer = level?.vfxer ? level?.vfxer : null;
-  const videoInfo = await getVideoDetails(level.videoLink).then(
-    details => details,
-  );
-  const comment = level?.publicComments
-    ? level?.publicComments
-    : '(Unspecified)';
-  const rating = await Rating.findOne({
-    where: {
-      levelId: level.id,
-    },
-    order: [['confirmedAt', 'DESC']],
-  });
-
-  const embed = new MessageBuilder()
-    .setColor(level?.difficulty?.color || '#000000')
-    .setAuthor(
-      `${wrap(level?.song || 'Unknown Song', 30)} — ${wrap(level?.artist || 'Unknown Artist', 30)}`,
-      '',
-      `${clientUrlEnv}/levels/${level.id}`,
-    )
-    .setTitle(`ID: ${level.id}`)
-    .setThumbnail(level.difficulty?.icon || placeHolder)
-    .addField('', '', false);
-
-  const currentBaseScore = level.baseScore || level.difficulty?.baseScore || 0;
-  const previousBaseScore = level.previousBaseScore || level.previousDifficulty?.baseScore || 0;
-  // Check if this is a baseScore change without difficulty change
-  const isBaseScoreChange = previousBaseScore !== currentBaseScore
-                          && level.previousDiffId === level.diffId;
-
-  if (isBaseScoreChange) {
-    embed.addField(
-      'Base Score Update',
-      `**${previousBaseScore}**pp ➔ **${currentBaseScore}**pp`,
-      true,
-    );
-  } else if (level.previousDiffId) {
-    embed.addField(
-      'Rerate',
-      `${await getDifficultyEmojis(levelInfo, rating, true)}\n**${level.previousBaseScore || level.previousDifficulty?.baseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`,
-      true,
-    );
-  }
-
-  embed.addField('', '', false);
-
-  if (team) embed.addField('', `Team\n**${formatString(team)}**`, true);
-  if (vfxer) embed.addField('', `VFX\n**${formatString(vfxer)}**`, true);
-  if (charter) embed.addField('', `Chart\n**${formatString(charter)}**`, true);
-  if (comment && level.difficulty?.name === 'Censored')
-    embed.addField('Reason', `**${formatString(comment)}**`, false);
-
-  embed
-    .addField(
-      '',
-      `**${level.videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${level.videoLink})` : 'No video link'}**`,
-      false,
-    )
-    .setFooter(`ID: ${level.id}`, '')
-    .setTimestamp();
-
-  return embed;
-}
+export {
+  createRerateEmbed,
+  createRerateEmbedFromQueue,
+  buildCurveScoreSampleLines,
+  formatCurveScoreSamplesSection,
+  scoreAtAccuracyFromSnapshot,
+} from './rerateEmbedSections.js';
+export type { RerateEmbedContext, CurveScoreSampleLine } from './rerateEmbedSections.js';
 
 // DONE ############
 export async function createNewLevelEmbed(

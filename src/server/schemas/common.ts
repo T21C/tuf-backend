@@ -52,6 +52,13 @@ export const passIdsBodySchema: JsonSchema = {
   required: ['passIds'],
 };
 
+/** Request body schema: { queueRowIds: number[] } – level announcement webhooks */
+export const queueRowIdsBodySchema: JsonSchema = {
+  type: 'object',
+  properties: { queueRowIds: { type: 'array', items: { type: 'integer' } } },
+  required: ['queueRowIds'],
+};
+
 /** Request body schema: { levelIds: number[] } – webhooks and similar */
 export const levelIdsBodySchema: JsonSchema = {
   type: 'object',

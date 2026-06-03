@@ -8,18 +8,57 @@ import User from '@/models/auth/User.js';
 import Judgement from '@/models/passes/Judgement.js';
 import Player from '@/models/players/Player.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
+import LevelAnnouncementQueue from '@/models/levels/LevelAnnouncementQueue.js';
 import { getPassAnnouncementConfig, getLevelAnnouncementConfig } from '@/server/routes/v2/webhooks/channelParser.js';
 import {
   createChannelMessages,
   sendMessages,
-  UPDATE_AFTER_ANNOUNCEMENT,
   createEmbedBatchMessage,
 } from '@/server/routes/v2/webhooks/webhook.js';
-import { createRerateEmbed } from '@/server/routes/v2/webhooks/embeds.js';
+import { createRerateEmbedFromQueue } from '@/server/routes/v2/webhooks/rerateEmbedSections.js';
+import {
+  computeAnnouncementFacets,
+  hasMeaningfulAnnouncementChange,
+  markQueueRowsAnnounced,
+} from '@/server/services/announcements/levelAnnouncementQueue.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import type { ChannelMessage, ChannelMessages } from '@/server/routes/v2/webhooks/webhook.js';
 
-/** Executes the same work as POST /v2/webhooks/passes (Discord + optional isAnnounced update). */
+function parseRerateWebhookTargets(): { webhookUrl: string; ping?: string }[] {
+  const webhookUrls = (process.env.RERATE_ANNOUNCEMENT_HOOK || '')
+    .split(',')
+    .map(url => url.trim())
+    .filter(url => url.length > 0);
+
+  let pingRoleIds = (process.env.RERATE_PING_ROLE_ID || '')
+    .split(',')
+    .map(id => id.trim());
+
+  if (webhookUrls.length === 0) {
+    throw new Error('RERATE_ANNOUNCEMENT_HOOK is not configured');
+  }
+
+  if (pingRoleIds.length !== webhookUrls.length) {
+    logger.warn('[rerate-job] RERATE_ANNOUNCEMENT_HOOK and RERATE_PING_ROLE_ID count mismatch; padding missing pings', {
+      webhookCount: webhookUrls.length,
+      roleIdCount: pingRoleIds.length,
+    });
+    while (pingRoleIds.length < webhookUrls.length) {
+      pingRoleIds.push('');
+    }
+    if (pingRoleIds.length > webhookUrls.length) {
+      pingRoleIds = pingRoleIds.slice(0, webhookUrls.length);
+    }
+  }
+
+  return webhookUrls.map((webhookUrl, i) => {
+    const pingRoleId = pingRoleIds[i];
+    const ping = pingRoleId ? `<@&${pingRoleId}>` : undefined;
+    return { webhookUrl, ping };
+  });
+}
+
+/** Executes the same work as POST /v2/webhooks/passes (Discord + isAnnounced update). */
 export async function runPassAnnouncementJob(passIds: number[]): Promise<void> {
   const passes = await Pass.findAll({
     where: { id: { [Op.in]: passIds }, isAnnounced: false },
@@ -65,23 +104,43 @@ export async function runPassAnnouncementJob(passIds: number[]): Promise<void> {
     await sendMessages(channel);
   }
 
-  if (UPDATE_AFTER_ANNOUNCEMENT) {
-    await Pass.update({ isAnnounced: true }, { where: { id: { [Op.in]: passIds } } });
+  if (passes.length > 0) {
+    await Pass.update(
+      { isAnnounced: true },
+      { where: { id: { [Op.in]: passes.map(p => p.id) } } },
+    );
   }
 }
 
 /** Executes the same work as POST /v2/webhooks/levels. */
-export async function runLevelAnnouncementJob(levelIds: number[]): Promise<void> {
-  const levels = await Level.findAll({
-    where: { id: { [Op.in]: levelIds }, isAnnounced: false },
-    include: [{ model: Difficulty, as: 'difficulty' }],
+export async function runLevelAnnouncementJob(queueRowIds: number[]): Promise<void> {
+  const rows = await LevelAnnouncementQueue.findAll({
+    where: {
+      id: { [Op.in]: queueRowIds },
+      status: 'PENDING',
+      kind: 'NEW',
+    },
+    include: [
+      {
+        model: Level,
+        as: 'level',
+        where: { isDeleted: false },
+        required: true,
+        include: [{ model: Difficulty, as: 'difficulty' }],
+      },
+    ],
   });
 
-  const configs = new Map();
+  if (rows.length === 0) {
+    logger.warn('[level-announcement-job] No pending NEW queue rows matched', { queueRowIds });
+    return;
+  }
+
+  const levels = rows.map(r => r.level!).filter(Boolean);
+  const configs = new Map<number, Awaited<ReturnType<typeof getLevelAnnouncementConfig>>>();
   for (const level of levels) {
     if (!level.diffId) continue;
-    const config = await getLevelAnnouncementConfig(level);
-    configs.set(level.id, config);
+    configs.set(level.id, await getLevelAnnouncementConfig(level));
   }
 
   const channels = await createChannelMessages(levels, configs);
@@ -89,58 +148,61 @@ export async function runLevelAnnouncementJob(levelIds: number[]): Promise<void>
     await sendMessages(channel);
   }
 
-  if (UPDATE_AFTER_ANNOUNCEMENT) {
-    await Level.update({ isAnnounced: true }, { where: { id: { [Op.in]: levelIds } } });
-  }
+  const announcedRowIds = rows.map(r => r.id);
+  await markQueueRowsAnnounced(announcedRowIds);
+  await Level.update(
+    { isAnnounced: true },
+    { where: { id: { [Op.in]: levels.map(l => l.id) } } },
+  );
 }
 
 /** Executes the same work as POST /v2/webhooks/rerates. */
-export async function runRerateAnnouncementJob(levelIds: number[]): Promise<void> {
-  const rawLevels = await Level.findAll({
-    where: { id: { [Op.in]: levelIds }, isAnnounced: false },
+export async function runRerateAnnouncementJob(queueRowIds: number[]): Promise<void> {
+  const rows = await LevelAnnouncementQueue.findAll({
+    where: {
+      id: { [Op.in]: queueRowIds },
+      status: 'PENDING',
+      kind: 'RERATE',
+    },
     include: [
-      { model: Difficulty, as: 'difficulty' },
-      { model: Difficulty, as: 'previousDifficulty' },
+      {
+        model: Level,
+        as: 'level',
+        where: { isDeleted: false },
+        required: true,
+        include: [{ model: Difficulty, as: 'difficulty' }],
+      },
     ],
   });
 
-  const levels = rawLevels.filter((level) => {
-    const previousBaseScore = level.previousBaseScore || level.previousDifficulty?.baseScore || 0;
-    const currentBaseScore = level.baseScore || level.difficulty?.baseScore || 0;
-    return previousBaseScore !== currentBaseScore || level.previousDiffId !== level.diffId;
+  const eligibleRows = rows.filter(row => {
+    const facets = row.facets?.length
+      ? row.facets
+      : computeAnnouncementFacets(row.before, row.after);
+    return hasMeaningfulAnnouncementChange(facets);
   });
 
-  const embeds = await Promise.all(levels.map((level) => createRerateEmbed(level as Level)));
-
-  const webhookUrls = (process.env.RERATE_ANNOUNCEMENT_HOOK || '')
-    .split(',')
-    .map((url) => url.trim())
-    .filter((url) => url.length > 0);
-
-  const pingRoleIds = (process.env.RERATE_PING_ROLE_ID || '')
-    .split(',')
-    .map((id) => id.trim())
-    .filter((id) => id.length > 0);
-
-  if (webhookUrls.length !== pingRoleIds.length) {
-    logger.warn('[rerate-job] RERATE_ANNOUNCEMENT_HOOK and RERATE_PING_ROLE_ID count mismatch', {
-      webhookCount: webhookUrls.length,
-      roleIdCount: pingRoleIds.length,
-    });
-    throw new Error('RERATE_ANNOUNCEMENT_HOOK and RERATE_PING_ROLE_ID must have the same number of entries');
+  if (eligibleRows.length === 0) {
+    logger.warn('[rerate-job] No eligible rerate queue rows to announce', { queueRowIds });
+    return;
   }
 
-  if (webhookUrls.length === 0) {
-    throw new Error('RERATE_ANNOUNCEMENT_HOOK is not configured');
-  }
+  const embeds = await Promise.all(
+    eligibleRows.map(row =>
+      createRerateEmbedFromQueue({
+        level: row.level!,
+        facets: row.facets,
+        before: row.before,
+        after: row.after,
+      }),
+    ),
+  );
 
+  const targets = parseRerateWebhookTargets();
   const rerateChannels: ChannelMessages[] = [];
 
-  for (let i = 0; i < webhookUrls.length; i++) {
-    const webhookUrl = webhookUrls[i];
-    const pingRoleId = pingRoleIds[i];
-    const ping = pingRoleId ? `<@&${pingRoleId}>` : undefined;
-
+  for (let i = 0; i < targets.length; i++) {
+    const { webhookUrl, ping } = targets[i];
     const rerateMessages: ChannelMessage[] = [];
     for (let j = 0; j < embeds.length; j += 8) {
       rerateMessages.push(
@@ -153,7 +215,7 @@ export async function runRerateAnnouncementJob(levelIds: number[]): Promise<void
       channelConfig: {
         label: `rerates-${i}`,
         webhookUrl,
-        ping: ping,
+        ping,
       },
       messages: rerateMessages,
     });
@@ -163,7 +225,10 @@ export async function runRerateAnnouncementJob(levelIds: number[]): Promise<void
     await sendMessages(channel, channel.channelConfig.ping);
   }
 
-  if (UPDATE_AFTER_ANNOUNCEMENT) {
-    await Level.update({ isAnnounced: true }, { where: { id: { [Op.in]: levelIds } } });
-  }
+  const announcedRowIds = eligibleRows.map(r => r.id);
+  await markQueueRowsAnnounced(announcedRowIds);
+  await Level.update(
+    { isAnnounced: true },
+    { where: { id: { [Op.in]: eligibleRows.map(r => r.levelId) } } },
+  );
 }

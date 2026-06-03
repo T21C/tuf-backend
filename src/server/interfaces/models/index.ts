@@ -338,6 +338,39 @@ export interface IAnnouncementDirective {
   actions?: DirectiveAction[];
 }
 
+export type LevelAnnouncementFacet = 'DIFF' | 'BASE_SCORE' | 'PP_BASE_SCORE' | 'CURVE';
+
+export type LevelAnnouncementKind = 'NEW' | 'RERATE';
+
+export type LevelAnnouncementQueueStatus = 'PENDING' | 'ANNOUNCED' | 'SKIPPED';
+
+export type LevelAnnouncementCurveSnapshot = {
+  poleOffset: number;
+  topMultiplier: number;
+};
+
+export type LevelAnnouncementSnapshot = {
+  diffId?: number;
+  /** Level override (`levels.baseScore`); may be null when the difficulty default applies. */
+  baseScore?: number | null;
+  /** `difficulties.baseScore` captured at snapshot time for the snapshot `diffId`. */
+  difficultyBaseScore?: number | null;
+  ppBaseScore?: number | null;
+  curve?: LevelAnnouncementCurveSnapshot | null;
+};
+
+export interface ILevelAnnouncementQueue extends IBaseModel {
+  levelId: number;
+  kind: LevelAnnouncementKind;
+  facets: LevelAnnouncementFacet[];
+  before: LevelAnnouncementSnapshot;
+  after: LevelAnnouncementSnapshot;
+  status: LevelAnnouncementQueueStatus;
+  pendingUniqueKey: number | null;
+  enqueuedBy: string | null;
+  announcedAt: Date | null;
+}
+
 // LevelTag interface
 export interface ILevelTag extends IBaseModel {
   name: string;

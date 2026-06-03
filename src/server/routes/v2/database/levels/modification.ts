@@ -42,6 +42,10 @@ import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import {executePermanentLevelDeleteWithSideEffects} from '@/server/domain/levels/levelPermanentDelete.js';
 import {
+  syncAnnouncementQueueAfterLevelSave,
+  syncAnnouncementQueueAfterCurveChange,
+} from '@/server/services/announcements/levelAnnouncementQueue.js';
+import {
   validateXaccCurveParams,
   XACC_CURVE_DEFAULTS,
 } from '@/misc/utils/pass/scoreV2XaccCurve.js';
@@ -264,6 +268,7 @@ const handleLowDiffFlag = async (
 const handleFlagChanges = (level: Level, req: Request) => {
   let isDeleted = level.isDeleted;
   let isHidden = level.isHidden;
+  // Announcement queue is managed separately; isAnnounced kept for legacy reads only.
   let isAnnounced = level.isAnnounced;
 
   if (req.body.isDeleted === true) {
@@ -274,23 +279,6 @@ const handleFlagChanges = (level: Level, req: Request) => {
     isHidden = false;
   } else if (req.body.isHidden !== undefined) {
     isHidden = req.body.isHidden;
-  }
-
-  // `isAnnounced` must only change from toRate transitions (rerate workflow). Do not read
-  // `req.body.isAnnounced`: clients (e.g. edit popup) often send a stale default `false` on
-  // every save, which would clear the flag after Discord announcements.
-  if (req.body.toRate === true && level.toRate === false) {
-    isAnnounced = true;
-  } else if (req.body.toRate === false && level.toRate === true) {
-    const hasRunningChanges =
-      level.diffId !== (req.body.diffId ?? level.diffId ?? 0) ||
-      level.baseScore !== (req.body.baseScore ?? level.baseScore ?? 0);
-    const hasFrozenChanges =
-      level.diffId !== level.previousDiffId ||
-      level.baseScore !== level.previousBaseScore;
-
-    const hasChanges = hasRunningChanges || hasFrozenChanges;
-    isAnnounced = !hasChanges;
   }
 
   return {isDeleted, isHidden, isAnnounced};
@@ -631,6 +619,11 @@ router.put(
           as: 'difficulty',
           required: false,
         },
+        {
+          model: Difficulty,
+          as: 'previousDifficulty',
+          required: false,
+        },
       ],
       transaction,
       lock: true,
@@ -641,8 +634,12 @@ router.put(
       return res.status(404).json({error: 'Level not found'});
     }
 
-    // Save old level state for logging before any updates
-    const oldLevel = {...level.dataValues} as Level;
+    // Preserve associations on a plain snapshot (dataValues alone drops difficulty)
+    const oldLevel = {
+      ...level.get({plain: true}),
+      difficulty: level.difficulty,
+      previousDifficulty: level.previousDifficulty,
+    } as Level;
 
     // Check if user is super admin or creator
     const {canEdit, errorMessage} = await checkLevelOwnership(
@@ -860,6 +857,21 @@ router.put(
       transaction,
     });
     logger.debug(`Rerate history: ${JSON.stringify(rerateHistory)}`);
+
+    if (updatedLevel) {
+      const toRateTransition =
+        typeof req.body.toRate === 'boolean' && req.body.toRate !== level.toRate
+          ? req.body.toRate
+          : null;
+      await syncAnnouncementQueueAfterLevelSave({
+        oldLevel,
+        newLevel: updatedLevel,
+        toRateTransition,
+        enqueuedBy: req.user?.id ?? null,
+        transaction,
+      });
+    }
+
     await transaction.commit();
 
     // Log metadata changes (songId, suffix, etc.)
@@ -1359,6 +1371,15 @@ router.patch(
           error:
             'Xacc curve was saved but pass score recalculation failed. Retry or contact an admin.',
           level: updated,
+        });
+      }
+
+      if (updated) {
+        await syncAnnouncementQueueAfterCurveChange({
+          levelId,
+          beforeLevel: level,
+          afterLevel: updated,
+          enqueuedBy: req.user?.id ?? null,
         });
       }
 

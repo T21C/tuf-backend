@@ -19,6 +19,18 @@ export function isTufStellarFeatureEnabled(): boolean {
   return parseEnvBool(process.env.TUF_STELLAR_ENABLED, false);
 }
 
+/**
+ * Batch announcement webhooks (levels / rerates / passes) are logged only in development
+ * so local runs do not post to production Discord channels.
+ * Set `DISCORD_ANNOUNCEMENT_DELIVERY_FORCE=true` to send from development anyway.
+ */
+export function shouldDeliverDiscordAnnouncementWebhooks(): boolean {
+  if (process.env.NODE_ENV === 'development') {
+    return parseEnvBool(process.env.DISCORD_ANNOUNCEMENT_DELIVERY_FORCE, false);
+  }
+  return true;
+}
+
 export const clientUrlEnv =
   process.env.NODE_ENV === 'production'
     ? process.env.PROD_CLIENT_URL

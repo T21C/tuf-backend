@@ -29,17 +29,22 @@ import {
   docRequestBody,
   levelIdsBodySchema,
   passIdsBodySchema,
+  queueRowIdsBodySchema,
   standardErrorResponses400500,
 } from '@/server/schemas/v2/webhooks/index.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { clientUrlEnv } from '@/config/app.config.js';
+import {
+  clientUrlEnv,
+  shouldDeliverDiscordAnnouncementWebhooks,
+} from '@/config/app.config.js';
 import { User } from '@/models/index.js';
 import { formatCredits } from '@/misc/utils/Utility.js';
 import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
-import { env } from 'process';
+import { markQueueRowsSkipped } from '@/server/services/announcements/levelAnnouncementQueue.js';
 import hash from 'object-hash';
+import crypto from 'crypto';
 import { OutboxService } from '@/server/services/outbox/OutboxService.js';
 import { OUTBOX_EVENT_TYPES } from '@/server/services/outbox/events.js';
 
@@ -48,7 +53,7 @@ const router: Router = express.Router();
 const placeHolder = 'https://soggy.cat/static/ssoggycat/main/images/soggycat.webp';
 const botAvatar = process.env.BOT_AVATAR_URL || placeHolder;
 
-export const UPDATE_AFTER_ANNOUNCEMENT = env.NODE_ENV === 'production';
+export const UPDATE_AFTER_ANNOUNCEMENT = true;
 
 // Interface for individual messages in a channel
 export interface ChannelMessage {
@@ -374,9 +379,52 @@ export async function createChannelMessages(items: (Pass | Level)[], configs: Ma
   return Array.from(channelMessages.values());
 }
 
-// Helper to send embeds for a channel
+function summarizeAnnouncementPayload(
+  channel: ChannelMessages,
+  message?: string,
+): Record<string, unknown> {
+  let webhookHost = 'unknown';
+  try {
+    webhookHost = new URL(channel.webhookUrl).hostname;
+  } catch {
+    webhookHost = 'invalid-url';
+  }
+
+  return {
+    label: channel.channelConfig?.label,
+    webhookHost,
+    fallbackMessage: message,
+    messages: channel.messages.map(msg => {
+      if (msg.type === 'text') {
+        return { type: 'text', content: msg.content ?? message ?? '' };
+      }
+      const combined =
+        msg.embeds && msg.embeds.length > 0
+          ? MessageBuilder.combine(...msg.embeds)
+          : null;
+      if (msg.content && combined) {
+        combined.setText(msg.content);
+      }
+      return {
+        type: 'embeds',
+        content: msg.content,
+        embedCount: msg.embeds?.length ?? 0,
+        payload: combined?.getJSON() ?? null,
+      };
+    }),
+  };
+}
+
+// Helper to send embeds for a channel (levels / rerates / passes batch announcements)
 export async function sendMessages(channel: ChannelMessages, message?: string): Promise<void> {
-  const hook = new Webhook(channel.webhookUrl);
+  if (!shouldDeliverDiscordAnnouncementWebhooks()) {
+    logger.info('[discord-announcement] Development dry-run — skipping webhook delivery', {
+      summary: summarizeAnnouncementPayload(channel, message),
+    });
+    return;
+  }
+
+  const hook = new Webhook({ url: channel.webhookUrl, throwErrors: true });
   hook.setUsername('TUF Announcer');
   hook.setAvatar(botAvatar);
 
@@ -611,26 +659,27 @@ router.post(
   ApiDoc({
     operationId: 'postWebhooksLevels',
     summary: 'Send level webhooks',
-    description: 'Send Discord webhook announcements for new levels. Body: levelIds (array). Super admin.',
+    description: 'Send Discord webhook announcements for new levels. Body: queueRowIds (array). Super admin.',
     tags: ['Webhooks'],
     security: ['bearerAuth'],
-    requestBody: docRequestBody('levelIds', levelIdsBodySchema),
+    requestBody: docRequestBody('queueRowIds', queueRowIdsBodySchema),
     responses: { 200: { description: 'Webhooks sent' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
     try {
-      const {levelIds} = req.body;
+      const {queueRowIds} = req.body;
 
-      if (!Array.isArray(levelIds)) {
-        return res.status(400).json({error: 'levelIds must be an array'});
+      if (!Array.isArray(queueRowIds)) {
+        return res.status(400).json({error: 'queueRowIds must be an array'});
       }
 
-      const sorted = [...levelIds].sort((a, b) => a - b);
+      const sorted = [...queueRowIds].sort((a, b) => a - b);
+      const nonce = crypto.randomUUID();
       await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordLevelBatchAnnouncement, {
         aggregate: 'level_webhook',
-        aggregateId: hash(sorted),
-        dedupKey: hash(sorted),
-        payload: { levelIds: sorted },
+        aggregateId: nonce,
+        dedupKey: null,
+        payload: { queueRowIds: sorted },
       });
 
       return res.json({success: true, message: 'Webhook queued'});
@@ -650,26 +699,27 @@ router.post(
   ApiDoc({
     operationId: 'postWebhooksRerates',
     summary: 'Send rerate webhooks',
-    description: 'Send Discord webhook announcements for rerated levels. Body: levelIds (array). Uses RERATE_ANNOUNCEMENT_HOOK. Super admin.',
+    description: 'Send Discord webhook announcements for rerated levels. Body: queueRowIds (array). Uses RERATE_ANNOUNCEMENT_HOOK. Super admin.',
     tags: ['Webhooks'],
     security: ['bearerAuth'],
-    requestBody: docRequestBody('levelIds', levelIdsBodySchema),
+    requestBody: docRequestBody('queueRowIds', queueRowIdsBodySchema),
     responses: { 200: { description: 'Webhooks sent' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
     try {
-      const {levelIds} = req.body;
+      const {queueRowIds} = req.body;
 
-      if (!Array.isArray(levelIds)) {
-        return res.status(400).json({error: 'levelIds must be an array'});
+      if (!Array.isArray(queueRowIds)) {
+        return res.status(400).json({error: 'queueRowIds must be an array'});
       }
 
-      const sorted = [...levelIds].sort((a, b) => a - b);
+      const sorted = [...queueRowIds].sort((a, b) => a - b);
+      const nonce = crypto.randomUUID();
       await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement, {
         aggregate: 'rerate_webhook',
-        aggregateId: hash(sorted),
-        dedupKey: hash(sorted),
-        payload: { levelIds: sorted },
+        aggregateId: nonce,
+        dedupKey: null,
+        payload: { queueRowIds: sorted },
       });
 
       return res.json({
@@ -729,25 +779,21 @@ router.post(
   ApiDoc({
     operationId: 'postWebhooksSilentRemoveLevels',
     summary: 'Silent remove levels',
-    description: 'Mark levels as announced without sending webhooks. Body: levelIds (array). Super admin.',
+    description: 'Mark new-level queue rows as skipped without sending webhooks. Body: queueRowIds (array). Super admin.',
     tags: ['Webhooks'],
     security: ['bearerAuth'],
-    requestBody: docRequestBody('levelIds', levelIdsBodySchema),
+    requestBody: docRequestBody('queueRowIds', queueRowIdsBodySchema),
     responses: { 200: { description: 'Levels marked' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
     try {
-      const {levelIds} = req.body;
+      const {queueRowIds} = req.body;
 
-      if (!Array.isArray(levelIds)) {
-        return res.status(400).json({error: 'levelIds must be an array'});
+      if (!Array.isArray(queueRowIds)) {
+        return res.status(400).json({error: 'queueRowIds must be an array'});
       }
 
-      // Mark levels as announced without sending webhooks
-      await Level.update(
-        { isAnnounced: true },
-        { where: { id: { [Op.in]: levelIds } } }
-      );
+      await markQueueRowsSkipped(queueRowIds);
 
       return res.json({success: true, message: 'Levels silently removed from announcement list'});
     } catch (error) {
@@ -766,25 +812,21 @@ router.post(
   ApiDoc({
     operationId: 'postWebhooksSilentRemoveRerates',
     summary: 'Silent remove rerates',
-    description: 'Mark levels as announced (rerates) without sending webhooks. Body: levelIds (array). Super admin.',
+    description: 'Mark rerate queue rows as skipped without sending webhooks. Body: queueRowIds (array). Super admin.',
     tags: ['Webhooks'],
     security: ['bearerAuth'],
-    requestBody: docRequestBody('levelIds', levelIdsBodySchema),
+    requestBody: docRequestBody('queueRowIds', queueRowIdsBodySchema),
     responses: { 200: { description: 'Rerates marked' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
     try {
-      const {levelIds} = req.body;
+      const {queueRowIds} = req.body;
 
-      if (!Array.isArray(levelIds)) {
-        return res.status(400).json({error: 'levelIds must be an array'});
+      if (!Array.isArray(queueRowIds)) {
+        return res.status(400).json({error: 'queueRowIds must be an array'});
       }
 
-      // Mark levels as announced without sending webhooks
-      await Level.update(
-        { isAnnounced: true },
-        { where: { id: { [Op.in]: levelIds } } }
-      );
+      await markQueueRowsSkipped(queueRowIds);
 
       return res.json({success: true, message: 'Rerates silently removed from announcement list'});
     } catch (error) {

@@ -50,11 +50,11 @@ export type DiscordPassBatchAnnouncementPayload = {
 };
 
 export type DiscordLevelBatchAnnouncementPayload = {
-  levelIds: number[];
+  queueRowIds: number[];
 };
 
 export type DiscordRerateBatchAnnouncementPayload = {
-  levelIds: number[];
+  queueRowIds: number[];
 };
 
 export const OUTBOX_EVENT_TYPES = {

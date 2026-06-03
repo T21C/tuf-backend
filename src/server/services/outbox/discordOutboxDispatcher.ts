@@ -68,14 +68,14 @@ export function startDiscordOutboxDispatcher(): void {
           await runLevelAnnouncementJob(
             parsePayload<OutboxPayloadByType[typeof OUTBOX_EVENT_TYPES.DiscordLevelBatchAnnouncement]>(
               payloadRaw,
-            ).levelIds,
+            ).queueRowIds,
           );
           break;
         case OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement:
           await runRerateAnnouncementJob(
             parsePayload<OutboxPayloadByType[typeof OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement]>(
               payloadRaw,
-            ).levelIds,
+            ).queueRowIds,
           );
           break;
         default:
