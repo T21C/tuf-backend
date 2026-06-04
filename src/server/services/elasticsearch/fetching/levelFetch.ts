@@ -158,6 +158,12 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
         'levelId',
         'creatorId',
         'role',
+        'isOwner',
+        'sortOrder',
+      ],
+      order: [
+        ['levelId', 'ASC'],
+        ['sortOrder', 'ASC'],
       ],
       include: [
         {

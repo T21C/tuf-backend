@@ -15,6 +15,7 @@ class LevelCredit extends Model {
   declare isOwner: boolean;
   declare creatorId: number;
   declare role: CreditRole;
+  declare sortOrder: number;
 
   // Associations
   declare level: Level;
@@ -50,6 +51,11 @@ LevelCredit.init(
     role: {
       type: DataTypes.ENUM(...Object.values(CreditRole)),
     },
+    sortOrder: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
   },
   {
     sequelize,
@@ -60,6 +66,10 @@ LevelCredit.init(
         unique: true,
         fields: ['levelId', 'creatorId', 'role'],
         name: 'level_credits_levelId_creatorId_role_unique'
+      },
+      {
+        fields: ['levelId', 'sortOrder'],
+        name: 'level_credits_levelId_sortOrder'
       }
     ]
   },

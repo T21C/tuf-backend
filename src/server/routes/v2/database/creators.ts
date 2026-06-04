@@ -474,11 +474,12 @@ router.put(
       // Add new credits
       if (creators && creators.length > 0) {
         await LevelCredit.bulkCreate(
-          creators.map((c: {id: number; role: CreditRole; isOwner: boolean}) => ({
+          creators.map((c: {id: number; role: CreditRole; isOwner: boolean}, index: number) => ({
             levelId,
             creatorId: c.id,
             isOwner: c.isOwner,
             role: c.role,
+            sortOrder: index,
           })),
           {transaction},
         );

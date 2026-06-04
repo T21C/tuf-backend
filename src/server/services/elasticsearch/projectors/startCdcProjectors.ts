@@ -7,6 +7,7 @@ import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { parseCdcFields, rowId } from './cdcRowParse.js';
 import { getLevelIdsByArtistId, getLevelIdsByPlayerId, getLevelIdsBySongId } from './cdcFanout.js';
 import { cdcPassProjectorDebounce } from './cdcPassProjectorDebounce.js';
+import { cdcLevelCreditsProjectorDebounce } from './cdcLevelCreditsProjectorDebounce.js';
 import { CDC_PASSES_STREAM_BLOCK_MS } from '@/server/services/elasticsearch/misc/constants.js';
 import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
 import Curation from '@/models/curations/Curation.js';
@@ -203,17 +204,21 @@ export function startCdcProjectors(): void {
             break;
           }
           case 'ratings':
-          case 'level_aliases':
-          case 'level_credits': {
+          case 'level_aliases': {
             const lid = num(after?.levelId ?? before?.levelId);
             if (lid != null) {
               await es.indexLevel(lid);
               await invalidateLevel(lid);
             }
-            if (table === 'level_credits') {
-              const cid = num(after?.creatorId ?? before?.creatorId);
-              if (cid != null) await es.reindexCreators([cid]);
-            }
+            break;
+          }
+          case 'level_credits': {
+            // Credit edits destroy + recreate every row → a burst of events for
+            // one level. Coalesce into a single level reindex + bulk creator
+            // reindex instead of reindexing per row.
+            const lid = num(after?.levelId ?? before?.levelId);
+            const cid = num(after?.creatorId ?? before?.creatorId);
+            cdcLevelCreditsProjectorDebounce.schedule({ levelId: lid, creatorId: cid });
             break;
           }
           case 'curations': {
