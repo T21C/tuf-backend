@@ -13,7 +13,7 @@ export interface PassFormSanitised {
   passerRequest: boolean;
   feelingDifficulty: string;
   expectedDifficulty: string | null;
-  keyCount: number;
+  keyCount: number | null;
   title: string;
   rawTime: Date;
   is12K: boolean;
@@ -75,8 +75,8 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
   }
 
   const keyCount = normalizeKeyCount(body.keyCount);
-  if (keyCount === null) {
-    throw formError.bad('Missing or invalid keyCount — must be a positive integer', { field: 'keyCount' });
+  if (body.keyCount !== undefined && body.keyCount !== null && body.keyCount !== '' && keyCount === null) {
+    throw formError.bad('Invalid keyCount — must be a positive integer', { field: 'keyCount' });
   }
   const { is12K, is16K } = deriveKeyFlags(keyCount);
 

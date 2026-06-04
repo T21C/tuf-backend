@@ -18,3 +18,31 @@ export function deriveKeyFlags(keyCount: number | null): { is12K: boolean; is16K
   }
   return { is12K: true, is16K: false };
 }
+
+/** Pass submissions require keyCount only on UQ0–UQ4 and U1–U20 levels. */
+export function difficultyRequiresPassKeyCount(difficultyName: string | null | undefined): boolean {
+  if (!difficultyName || typeof difficultyName !== 'string') {
+    return false;
+  }
+  if (/^UQ[0-4]$/.test(difficultyName)) {
+    return true;
+  }
+  const uMatch = difficultyName.match(/^U(\d+)$/);
+  if (!uMatch) {
+    return false;
+  }
+  const tier = parseInt(uMatch[1], 10);
+  return tier >= 1 && tier <= 20;
+}
+
+export function assertPassKeyCountForDifficulty(
+  difficultyName: string | null | undefined,
+  keyCount: number | null,
+): void {
+  if (!difficultyRequiresPassKeyCount(difficultyName)) {
+    return;
+  }
+  if (keyCount === null) {
+    throw new Error('Missing or invalid keyCount — must be a positive integer');
+  }
+}

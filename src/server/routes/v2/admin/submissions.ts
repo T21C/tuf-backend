@@ -156,6 +156,16 @@ function validateSpeedFloatInput(input: unknown): number {
   return Math.max(1, Math.min(100, parsed));
 }
 
+function buildKeyCountUpdateFields(keyCountBody: unknown): {
+  keyCount: number | null;
+  is12K: boolean;
+  is16K: boolean;
+} {
+  const keyCount = normalizeKeyCount(keyCountBody);
+  const derived = deriveKeyFlags(keyCount);
+  return { keyCount, is12K: derived.is12K, is16K: derived.is16K };
+}
+
 interface ApprovePassSubmissionResult {
   pass: Pass;
   newPass: Pass;
@@ -1388,18 +1398,19 @@ router.put(
     operationId: 'putAdminPassSubmissionPartial',
     summary: 'Partially update pending pass submission',
     description:
-      'Update levelId, speed, judgements, and/or flags on a pending pass submission. Omitted nested keys are unchanged. Super admin.',
+      'Update levelId, speed, judgements, keyCount, and/or flags on a pending pass submission. Omitted nested keys are unchanged. keyCount syncs is12K/is16K flags. Super admin.',
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
     requestBody: {
       description:
-        'Partial fields: levelId (number), speed (number), judgements (partial object), flags (partial object). At least one required.',
+        'Partial fields: levelId (number), speed (number), keyCount (number|null), judgements (partial object), flags (partial object). At least one required.',
       schema: {
         type: 'object',
         properties: {
           levelId: { type: 'number' },
           speed: { type: 'number' },
+          keyCount: { type: ['integer', 'null'] },
           judgements: {
             type: 'object',
             properties: {
@@ -1440,19 +1451,22 @@ router.put(
       const body = req.body as {
         levelId?: unknown;
         speed?: unknown;
+        keyCount?: unknown;
         judgements?: Record<string, unknown>;
         flags?: Record<string, unknown>;
       };
 
       const hasLevelId = Object.prototype.hasOwnProperty.call(body, 'levelId');
       const hasSpeed = Object.prototype.hasOwnProperty.call(body, 'speed');
+      const hasKeyCount = Object.prototype.hasOwnProperty.call(body, 'keyCount');
       const hasJudgements = Object.prototype.hasOwnProperty.call(body, 'judgements');
       const hasFlags = Object.prototype.hasOwnProperty.call(body, 'flags');
 
-      if (!hasLevelId && !hasSpeed && !hasJudgements && !hasFlags) {
+      if (!hasLevelId && !hasSpeed && !hasKeyCount && !hasJudgements && !hasFlags) {
         await safeTransactionRollback(transaction, logger);
         return res.status(400).json({
-          error: 'Request body must include at least one of: levelId, speed, judgements, flags',
+          error:
+            'Request body must include at least one of: levelId, speed, keyCount, judgements, flags',
         });
       }
 
@@ -1497,6 +1511,15 @@ router.put(
         const speed = validateSpeedFloatInput(body.speed);
         await submission.update({ speed }, { transaction });
         touchedScoreInputs = true;
+      }
+
+      if (hasKeyCount) {
+        const keyCountFields = buildKeyCountUpdateFields(body.keyCount);
+        await submission.update({ keyCount: keyCountFields.keyCount }, { transaction });
+        await submission.flags.update(
+          { is12K: keyCountFields.is12K, is16K: keyCountFields.is16K },
+          { transaction },
+        );
       }
 
       if (hasJudgements && body.judgements && typeof body.judgements === 'object') {

@@ -1422,37 +1422,40 @@ async function processPackNode(node: PackDownloadNode, parentPath: string, conte
         const diskFolderPath = path.join(context.extractRoot, folderPath);
         await fs.promises.mkdir(diskFolderPath, { recursive: true });
 
+        // Folder recursion must not occupy a pool slot: doing so deadlocks the
+        // pool when nested/sibling folders saturate it while awaiting children.
+        // Only the leaf-level work below is gated by packLevelWorkPool.
         if (Array.isArray(node.children) && node.children.length > 0) {
             const children = node.children as PackDownloadNode[];
             await Promise.all(
-                children.map((child) =>
-                    packLevelWorkPool(() => processPackNode(child, folderPath, context)),
-                ),
+                children.map((child) => processPackNode(child, folderPath, context)),
             );
         }
         return;
     }
 
-    context.totalLevels += 1;
-    const baseName = sanitizePathSegment(node.name || `Level-${node.levelId ?? 'unknown'}`);
-    const targetBasePath = parentPath ? path.posix.join(parentPath, baseName) : baseName;
+    await packLevelWorkPool(async () => {
+        context.totalLevels += 1;
+        const baseName = sanitizePathSegment(node.name || `Level-${node.levelId ?? 'unknown'}`);
+        const targetBasePath = parentPath ? path.posix.join(parentPath, baseName) : baseName;
 
-    let successResult: { folderName: string; success: boolean; } = { folderName: targetBasePath, success: false };
-    if (node.fileId) {
-        successResult = await addLevelFromCdn(node, parentPath, context);
-    } else if (node.sourceUrl) {
-        successResult = await addLevelFromUrl(node, parentPath, context);
-    }
+        let successResult: { folderName: string; success: boolean; } = { folderName: targetBasePath, success: false };
+        if (node.fileId) {
+            successResult = await addLevelFromCdn(node, parentPath, context);
+        } else if (node.sourceUrl) {
+            successResult = await addLevelFromUrl(node, parentPath, context);
+        }
 
-    if (!successResult.success) {
-        const failedName = sanitizePathSegment(`[FAILED] ${baseName}`);
-        const failedPath = parentPath
-            ? path.posix.join(parentPath, failedName)
-            : failedName;
-        // Create failed folder on disk
-        const diskFailedPath = path.join(context.extractRoot, failedPath);
-        await fs.promises.mkdir(diskFailedPath, { recursive: true });
-    }
+        if (!successResult.success) {
+            const failedName = sanitizePathSegment(`[FAILED] ${baseName}`);
+            const failedPath = parentPath
+                ? path.posix.join(parentPath, failedName)
+                : failedName;
+            // Create failed folder on disk
+            const diskFailedPath = path.join(context.extractRoot, failedPath);
+            await fs.promises.mkdir(diskFailedPath, { recursive: true });
+        }
+    });
 }
 
 async function generatePackDownloadZip(
@@ -1829,12 +1832,13 @@ async function estimateTotalZipSize(tree: PackDownloadNode): Promise<{ totalSize
     let failedCount = 0;
 
     async function traverseNode(node: PackDownloadNode): Promise<void> {
+        // Folder recursion must not occupy a pool slot: doing so deadlocks the
+        // pool when nested/sibling folders saturate it while awaiting children.
+        // Only the leaf-level I/O below is gated by packLevelWorkPool.
         if (node.type === 'folder') {
             if (Array.isArray(node.children)) {
                 await Promise.all(
-                    node.children.map((child) =>
-                        packLevelWorkPool(() => traverseNode(child)),
-                    ),
+                    node.children.map((child) => traverseNode(child)),
                 );
             }
             return;
@@ -1842,23 +1846,25 @@ async function estimateTotalZipSize(tree: PackDownloadNode): Promise<{ totalSize
 
         // For level nodes, estimate size
         if (node.type === 'level') {
-            estimatedCount++;
-            let size: number | null = null;
+            await packLevelWorkPool(async () => {
+                estimatedCount++;
+                let size: number | null = null;
 
-            if (node.fileId) {
-                size = await getFileSizeFromCdn(node.fileId);
-            } else if (node.sourceUrl) {
-                size = await getFileSizeFromUrl(node.sourceUrl);
-            }
+                if (node.fileId) {
+                    size = await getFileSizeFromCdn(node.fileId);
+                } else if (node.sourceUrl) {
+                    size = await getFileSizeFromUrl(node.sourceUrl);
+                }
 
-            if (size !== null && size > 0) {
-                totalSize += size;
-            } else {
-                failedCount++;
-                // If we can't determine size, use a conservative estimate aligned with max parseable chart size
-                // This ensures we don't allow unlimited growth if size detection fails
-                totalSize += 10 * 1024 * 1024; // 10MB estimate
-            }
+                if (size !== null && size > 0) {
+                    totalSize += size;
+                } else {
+                    failedCount++;
+                    // If we can't determine size, use a conservative estimate aligned with max parseable chart size
+                    // This ensures we don't allow unlimited growth if size detection fails
+                    totalSize += 10 * 1024 * 1024; // 10MB estimate
+                }
+            });
         }
     }
 

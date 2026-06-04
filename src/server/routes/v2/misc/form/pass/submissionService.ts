@@ -25,6 +25,7 @@ import { calcAcc } from '@/misc/utils/pass/CalcAcc.js';
 import { passSubmissionHook } from '@/server/routes/v2/webhooks/webhook.js';
 
 import { formError } from '../shared/errors.js';
+import { assertPassKeyCountForDifficulty } from '@/misc/utils/pass/keyCount.js';
 import { parseAndSanitizePassForm, type PassFormSanitised } from './dto.js';
 
 export interface CreatePassSubmissionInput {
@@ -55,6 +56,14 @@ export async function createPassSubmission(
     transaction = await sequelize.transaction();
 
     const level = await loadLevelOr404(sanitized.levelId, transaction);
+    try {
+      assertPassKeyCountForDifficulty(level.difficulty?.name, sanitized.keyCount);
+    } catch (err) {
+      throw formError.bad(
+        err instanceof Error ? err.message : 'Missing or invalid keyCount — must be a positive integer',
+        { field: 'keyCount' },
+      );
+    }
     await assertNoDuplicatePassSubmission(sanitized, transaction);
     await assertNoDuplicatePass(sanitized, transaction);
 
