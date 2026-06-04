@@ -1385,6 +1385,195 @@ router.delete(
 
 // ==================== PACK ITEM OPERATIONS ====================
 
+type LevelInsertInvalidReason = 'not_found' | 'already_in_pack' | 'quota_exceeded';
+
+interface LevelInsertInvalidEntry {
+  levelId: number;
+  reason: LevelInsertInvalidReason;
+}
+
+function parsePackLevelIds(levelIds: unknown): number[] {
+  let parsed: number[] = [];
+
+  if (typeof levelIds === 'number') {
+    parsed = [levelIds];
+  } else if (Array.isArray(levelIds) && levelIds.every((id) => typeof id === 'number')) {
+    parsed = levelIds;
+  } else if (levelIds && typeof levelIds === 'string') {
+    const numberMatches = levelIds.match(/\d+/g);
+    if (numberMatches) {
+      parsed = numberMatches.map((match) => parseInt(match, 10)).filter((id) => !isNaN(id));
+    }
+  }
+
+  const seen = new Set<number>();
+  const result: number[] = [];
+  for (const id of parsed) {
+    if (id > 0 && !seen.has(id)) {
+      seen.add(id);
+      result.push(id);
+    }
+  }
+  return result;
+}
+
+async function resolveLevelInsertCandidates(
+  resolvedPackId: number,
+  levelIds: unknown,
+  parentId: number | undefined | null,
+  maxItems: number,
+  transaction: any,
+): Promise<{
+  validLevelIds: number[];
+  invalid: LevelInsertInvalidEntry[];
+  quota: { currentCount: number; maxAllowed: number };
+}> {
+  const levelIdsToAdd = parsePackLevelIds(levelIds);
+  const targetParentId = parentId || 0;
+
+  if (parentId) {
+    const parent = await LevelPackItem.findOne({
+      where: { id: parentId, packId: resolvedPackId, type: 'folder' },
+      transaction,
+    });
+
+    if (!parent) {
+      throw { error: 'Invalid parent folder', code: 400 };
+    }
+  }
+
+  const currentItemCount = await LevelPackItem.count({
+    where: { packId: resolvedPackId },
+    transaction,
+  });
+
+  const remainingSlots = Math.max(0, maxItems - currentItemCount);
+
+  const levels =
+    levelIdsToAdd.length > 0
+      ? await Level.findAll({
+          where: { id: { [Op.in]: levelIdsToAdd } },
+          attributes: ['id'],
+          transaction,
+        })
+      : [];
+  const foundLevelIds = new Set(levels.map((level) => level.id));
+
+  const existingItems =
+    levelIdsToAdd.length > 0
+      ? await LevelPackItem.findAll({
+          where: {
+            packId: resolvedPackId,
+            type: 'level',
+            parentId: targetParentId,
+            levelId: { [Op.in]: levelIdsToAdd },
+          },
+          attributes: ['levelId'],
+          transaction,
+        })
+      : [];
+  const existingLevelIdsInParent = new Set(existingItems.map((item) => item.levelId));
+
+  const validLevelIds: number[] = [];
+  const invalid: LevelInsertInvalidEntry[] = [];
+  let slotsUsed = 0;
+
+  for (const levelId of levelIdsToAdd) {
+    if (!foundLevelIds.has(levelId)) {
+      invalid.push({ levelId, reason: 'not_found' });
+      continue;
+    }
+    if (existingLevelIdsInParent.has(levelId)) {
+      invalid.push({ levelId, reason: 'already_in_pack' });
+      continue;
+    }
+    if (slotsUsed >= remainingSlots) {
+      invalid.push({ levelId, reason: 'quota_exceeded' });
+      continue;
+    }
+    validLevelIds.push(levelId);
+    slotsUsed += 1;
+  }
+
+  return {
+    validLevelIds,
+    invalid,
+    quota: { currentCount: currentItemCount, maxAllowed: maxItems },
+  };
+}
+
+// POST /packs/:id/items/validate-levels - Validate level IDs before insert
+router.post(
+  '/:id/items/validate-levels',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postPackItemsValidateLevels',
+    summary: 'Validate pack level insert',
+    description: 'Check which level IDs can be added to a pack at a given parent. Returns valid and invalid IDs with reasons.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: {
+      description: 'levelIds, parentId',
+      schema: { type: 'object' },
+      required: true,
+    },
+    responses: {
+      200: { description: 'Validation result' },
+      400: { schema: errorResponseSchema },
+      403: { schema: errorResponseSchema },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+
+    try {
+      transaction = await sequelize.transaction();
+      const resolvedPackId = await resolvePackId(req.params.id, transaction);
+      if (!resolvedPackId) {
+        throw { error: 'Invalid pack ID or link code', code: 400 };
+      }
+
+      const { levelIds, parentId } = req.body;
+
+      const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
+      if (!pack) {
+        throw { error: 'Pack not found', code: 404 };
+      }
+
+      if (!canEditPack(pack, req.user)) {
+        throw { error: 'Access denied', code: 403 };
+      }
+
+      if (parsePackLevelIds(levelIds).length === 0) {
+        throw { error: 'Valid level ID(s) are required', code: 400 };
+      }
+
+      const packQuota = await resolvePackQuotaForUser(req.user!);
+      const result = await resolveLevelInsertCandidates(
+        resolvedPackId,
+        levelIds,
+        parentId,
+        packQuota.maxItems,
+        transaction,
+      );
+
+      await transaction.commit();
+
+      return res.status(200).json(result);
+    } catch (error: any) {
+      await safeTransactionRollback(transaction);
+      if (error.code) {
+        if (error.code === 500) logger.error('Error validating pack level insert:', error);
+        return res.status(error.code).json(error);
+      }
+      logger.error('Error validating pack level insert:', error);
+      return res.status(500).json({ error: 'Failed to validate level insert' });
+    }
+  },
+);
+
 // POST /packs/:id/items - Add item (folder or level) to pack
 router.post(
   '/:id/items',
@@ -1493,85 +1682,23 @@ router.post(
       return res.status(201).json(item);
     } else {
       // type === 'level'
-      let levelIdsToAdd: number[] = [];
-
-      // Parse levelIds from string if provided
-      if (typeof levelIds === 'number') {
-        levelIdsToAdd = [levelIds];
-      }
-      if (Array.isArray(levelIds) && levelIds.every(id => typeof id === 'number')) {
-        levelIdsToAdd = levelIds;
-      }
-      else if (levelIds && typeof levelIds === 'string') {
-        // Extract all numbers from the string using regex
-        const numberMatches = levelIds.match(/\d+/g);
-        if (numberMatches) {
-          levelIdsToAdd = numberMatches.map(match => parseInt(match)).filter(id => !isNaN(id));
-        }
-      }
-
-      if (levelIdsToAdd.length === 0) {
+      if (parsePackLevelIds(levelIds).length === 0) {
         throw { error: 'Valid level ID(s) are required', code: 400 };
       }
 
-      // Validate parent if provided
-      if (parentId) {
-        const parent = await LevelPackItem.findOne({
-          where: { id: parentId, packId: resolvedPackId, type: 'folder' },
-          transaction
-        });
-
-        if (!parent) {
-          throw { error: 'Invalid parent folder', code: 400 };
-        }
-      }
-
-      // Validate all levels exist
-      const levels = await Level.findAll({
-        where: { id: { [Op.in]: levelIdsToAdd } },
-        transaction
-      });
-
-      if (levels.length !== levelIdsToAdd.length) {
-        throw { error: 'One or more levels not found', code: 404 };
-      }
-
-      // Check which levels are already in pack at the same parent location
-      // Allow the same level in different folders by checking both parentId and levelId
-      const targetParentId = parentId || 0;
-      const existingItems = await LevelPackItem.findAll({
-        where: {
-          packId: resolvedPackId,
-          type: 'level',
-          parentId: targetParentId,
-          levelId: { [Op.in]: levelIdsToAdd }
-        },
-        transaction
-      });
-
-      // Create a set of existing levelIds in this parent location
-      const existingLevelIdsInParent = new Set(existingItems.map(item => item.levelId));
-      const newLevelIds = levelIdsToAdd.filter(id => !existingLevelIdsInParent.has(id));
+      const { validLevelIds: newLevelIds, invalid } = await resolveLevelInsertCandidates(
+        resolvedPackId,
+        levelIds,
+        parentId,
+        packQuota.maxItems,
+        transaction,
+      );
 
       if (newLevelIds.length === 0) {
-        throw { error: 'All specified levels are already in pack at this location', code: 400 };
-      }
-
-      // Check item limit
-      const currentItemCount = await LevelPackItem.count({
-        where: { packId: resolvedPackId },
-        transaction
-      });
-
-      if (currentItemCount + newLevelIds.length > packQuota.maxItems) {
         throw {
-          error: `Adding ${newLevelIds.length} items would exceed the maximum ${packQuota.maxItems} items per pack`,
+          error: 'No levels can be added',
           code: 400,
-          details: {
-            currentCount: currentItemCount,
-            tryingToAdd: newLevelIds.length,
-            maxAllowed: packQuota.maxItems
-          }
+          details: { invalid },
         };
       }
 
