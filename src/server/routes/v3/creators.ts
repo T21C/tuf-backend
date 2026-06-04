@@ -17,6 +17,8 @@ import {
   getCreatorMaxFields,
   CreatorSearchOptions,
 } from '@/server/services/elasticsearch/search/creators/creatorSearch.js';
+import { parseFacetQueryString, type FacetQueryV1 } from '@/misc/utils/search/facetQuery.js';
+import { parseCreatorCurationCountQuery } from '@/misc/utils/search/creatorCurationCountQuery.js';
 import { CreatorStatsService } from '@/server/services/core/CreatorStatsService.js';
 import {
   computeCreatorFunFacts,
@@ -125,19 +127,44 @@ function parseFilters(raw: unknown): Record<string, any> | undefined {
   }
 }
 
+function parseCreatorFacetQueryParam(
+  raw: unknown,
+): { facetQueryV1: FacetQueryV1 | undefined } | { error: string } {
+  const parsed = parseFacetQueryString(typeof raw === 'string' ? raw : undefined);
+  if (parsed?.tags) {
+    return { error: 'facetQuery.tags is not supported for creator search' };
+  }
+  return { facetQueryV1: parsed ?? undefined };
+}
+
+/** Text, @username, facet curation filter, or manual count tokens (e.g. C3>3). */
+function creatorLeaderboardHasActiveQuery(
+  rawQuery: string | undefined,
+  facetQueryV1: FacetQueryV1 | undefined,
+): boolean {
+  if (facetQueryV1?.curationTypes) return true;
+  const raw = (rawQuery ?? '').trim();
+  if (!raw) return false;
+  if (raw.startsWith('@')) return true;
+  const { hasCountConstraints, cleanedText } = parseCreatorCurationCountQuery(raw);
+  if (hasCountConstraints) return true;
+  return cleanedText.length > 0;
+}
+
 router.get(
   '/search',
   ApiDoc({
     operationId: 'v3GetCreatorsSearch',
     summary: 'Search creators (v3)',
     description:
-      'Elasticsearch-backed creator search. Accepts text or `@username` via the `query` param. Returns a flat list sorted by relevance.',
+      'Elasticsearch-backed creator search. Accepts text, `@username`, curation count tokens (e.g. `C3>3`), and optional `facetQuery` JSON v1 (curationTypes only). Returns a flat list sorted by relevance.',
     tags: ['Database', 'Creators', 'v3'],
     query: {
       query: { schema: { type: 'string' } },
       limit: { schema: { type: 'string' } },
       offset: { schema: { type: 'string' } },
       filters: { schema: { type: 'string' } },
+      facetQuery: { description: 'Facet filter JSON v1 (curationTypes only)', schema: { type: 'string' } },
     },
     responses: {
       200: { description: 'Paginated search results' },
@@ -150,10 +177,15 @@ router.get(
       const limit = parseLimit(req.query.limit);
       const offset = parseOffset(req.query.offset);
       const filters = parseFilters(req.query.filters);
+      const facetResult = parseCreatorFacetQueryParam(req.query.facetQuery);
+      if ('error' in facetResult) {
+        return res.status(400).json({ error: facetResult.error });
+      }
 
       const options: CreatorSearchOptions = {
         rawQuery: query || undefined,
         filters,
+        facetQueryV1: facetResult.facetQueryV1,
         limit,
         offset,
       };
@@ -176,7 +208,7 @@ router.get(
     operationId: 'v3GetCreatorLeaderboard',
     summary: 'Creator leaderboard (v3)',
     description:
-      'Elasticsearch-backed creator leaderboard. Supports sort, numeric range filters, verificationStatus filter (single value or array), and text/`@username` query. Returns `maxFields` aggregations for UI filter ceilings.',
+      'Elasticsearch-backed creator leaderboard. Supports sort, numeric range filters, verificationStatus filter (single value or array), text/`@username` query, curation count tokens (e.g. `C3>3`), and optional `facetQuery` JSON v1 (curationTypes only). Returns `maxFields` aggregations for UI filter ceilings.',
     tags: ['Database', 'Creators', 'v3'],
     query: {
       sortBy: { schema: { type: 'string' } },
@@ -185,6 +217,7 @@ router.get(
       offset: { schema: { type: 'string' } },
       limit: { schema: { type: 'string' } },
       filters: { schema: { type: 'string' } },
+      facetQuery: { description: 'Facet filter JSON v1 (curationTypes only)', schema: { type: 'string' } },
       page: { schema: { type: 'string' } },
     },
     responses: {
@@ -200,6 +233,10 @@ router.get(
       const order = ((req.query.order as string) || 'desc').toLowerCase();
       const rawQuery = (req.query.query as string) || undefined;
       const filters = parseFilters(req.query.filters);
+      const facetResult = parseCreatorFacetQueryParam(req.query.facetQuery);
+      if ('error' in facetResult) {
+        return res.status(400).json({ error: facetResult.error });
+      }
 
       if (!validCreatorSortOptions.includes(sortBy)) {
         return res.status(400).json({
@@ -209,15 +246,20 @@ router.get(
 
       const effectiveLimit = parseLimit(limit);
       const effectiveOffset = parseOffset(offset);
+      const hasActiveQuery = creatorLeaderboardHasActiveQuery(
+        rawQuery,
+        facetResult.facetQueryV1,
+      );
 
       const options: CreatorSearchOptions = {
         rawQuery,
         sortBy,
         order: order === 'asc' ? 'asc' : 'desc',
         filters,
+        facetQueryV1: facetResult.facetQueryV1,
         limit: effectiveLimit,
         offset: effectiveOffset,
-        requireHasCharts: !rawQuery,
+        requireHasCharts: !hasActiveQuery,
       };
 
       const [{ total, hits }, maxFields] = await Promise.all([

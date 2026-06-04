@@ -5,17 +5,22 @@ import { rangeOnField, termField } from '@/server/services/elasticsearch/search/
 import { validCreatorVerificationStatuses } from '@/config/constants.js';
 import User from '@/models/auth/User.js';
 import { estypes } from '@elastic/elasticsearch';
+import type { FacetQueryV1 } from '@/misc/utils/search/facetQuery.js';
+import { buildFacetDomainClause } from '@/misc/utils/search/facetQuery.js';
+import { buildCreatorCurationCountFilterFromRaw } from '@/misc/utils/search/creatorCurationCountQuery.js';
 
 export interface CreatorSearchOptions {
   /** Plain text search — matches creator name, aliases, user.username. */
   text?: string;
-  /** Raw query string; reserved for future special-prefix handling (e.g. `@username`). */
+  /** Raw query string; supports `@username` and curation count tokens (e.g. `C3>3`). */
   rawQuery?: string;
   /**
    * Range filters (numeric metrics) plus `verificationStatus` exact-match filter.
    * `verificationStatus` accepts a single string or an array of strings (terms query).
    */
   filters?: Record<string, [number, number] | string | string[] | boolean>;
+  /** Facet query v1 — curation types only (tags not indexed on creators). */
+  facetQueryV1?: FacetQueryV1;
   /** Sort key (see CREATOR_SORT_FIELD_MAP below). */
   sortBy?: string;
   order?: 'asc' | 'desc';
@@ -98,19 +103,40 @@ function buildTextShould(text: string): any[] {
   ];
 }
 
-function buildCreatorQuery(options: CreatorSearchOptions): any {
+async function buildCreatorQuery(options: CreatorSearchOptions): Promise<any> {
   const must: any[] = [];
   const should: any[] = [];
   const filter: any[] = [];
 
-  const { cleaned, username } = parseSpecialPrefix(options.rawQuery ?? options.text);
+  const rawInput = (options.rawQuery ?? options.text ?? '').trim();
+  const { username } = parseSpecialPrefix(rawInput);
 
   if (username) {
     must.push(termField('user.username.lower', username.toLowerCase(), true));
   } else {
-    const text = cleaned ?? options.text;
+    const { cleanedText, filter: countFilter } = await buildCreatorCurationCountFilterFromRaw(
+      rawInput,
+    );
+    if (countFilter) {
+      filter.push(countFilter);
+    }
+
+    const { cleaned } = parseSpecialPrefix(cleanedText || undefined);
+    const text = cleaned ?? cleanedText;
     if (text && text.trim().length > 0) {
       should.push(...buildTextShould(text.trim()));
+    }
+  }
+
+  const facetQueryV1 = options.facetQueryV1;
+  if (facetQueryV1?.curationTypes) {
+    const curationClause = buildFacetDomainClause(
+      facetQueryV1.curationTypes,
+      'curationTypeCountPairs',
+      'curationTypeCountPairs.typeId',
+    );
+    if (curationClause) {
+      filter.push(curationClause);
     }
   }
 
@@ -220,7 +246,7 @@ export async function searchCreators(options: CreatorSearchOptions): Promise<Cre
     const offset = Math.max(0, Number(options.offset) || 0);
     const limit = Math.min(100, Math.max(1, Number(options.limit) || 30));
 
-    const query = buildCreatorQuery(options);
+    const query = await buildCreatorQuery(options);
     const sort = buildCreatorSort(options);
 
     const response = await client.search({
