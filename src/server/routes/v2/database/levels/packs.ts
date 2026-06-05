@@ -24,6 +24,7 @@ import Creator from '@/models/credits/Creator.js';
 import Team from '@/models/credits/Team.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import {
+  hydratePackItemRowsWithReferencedLevels,
   invalidatePackLevelsCachesForLevelIds,
   invalidatePackStructureLayers,
   packDetailLayerTagsForFullInvalidation,
@@ -1735,16 +1736,15 @@ router.post(
         return res.status(200).json({ message: 'Levels already in pack', items: [] });
       }
 
-      // Return all created items with level data
-      const result = await LevelPackItem.findAll({
+      const createdRows = await LevelPackItem.findAll({
         where: {
           id: { [Op.in]: createdItems.map(item => item.id) }
         },
-        include: [{
-          model: Level,
-          as: 'referencedLevel'
-        }]
+        attributes: ['id', 'type', 'parentId', 'sortOrder', 'name', 'levelId', 'packId'],
+        order: [['sortOrder', 'ASC']],
       });
+
+      const result = await hydratePackItemRowsWithReferencedLevels(createdRows);
 
       return res.status(201).json(result);
     }

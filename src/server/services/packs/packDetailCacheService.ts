@@ -111,6 +111,52 @@ function levelsMapToPayload(map: Map<number, Record<string, unknown>>): PackLeve
   return o;
 }
 
+type PackItemRowLike = {
+  type?: string;
+  levelId?: number | null;
+  toJSON?: () => Record<string, unknown>;
+};
+
+/**
+ * Attach ES-backed `referencedLevel` payloads to pack item rows (same shape as GET /packs/:id).
+ * Used when mutating endpoints return newly created level items without a full pack refetch.
+ */
+export async function hydratePackItemRowsWithReferencedLevels(
+  rows: PackItemRowLike[],
+): Promise<Record<string, unknown>[]> {
+  const levelIds = [
+    ...new Set(
+      rows
+        .filter((row) => row.type === 'level' && row.levelId != null && Number(row.levelId) > 0)
+        .map((row) => Number(row.levelId)),
+    ),
+  ];
+
+  const levelsById =
+    levelIds.length > 0
+      ? await fetchPackLevelsFromElasticsearch(levelIds)
+      : new Map<number, Record<string, unknown>>();
+
+  return rows.map((row) => {
+    const json =
+      typeof row.toJSON === 'function'
+        ? (row.toJSON() as Record<string, unknown>)
+        : ({ ...row } as Record<string, unknown>);
+
+    if (json.type !== 'level' || json.levelId == null) {
+      const { referencedLevel: _drop, ...rest } = json;
+      return rest;
+    }
+
+    const levelId = Number(json.levelId);
+    const { referencedLevel: _drop, ...rest } = json;
+    return {
+      ...rest,
+      referencedLevel: levelsById.get(levelId) ?? null,
+    };
+  });
+}
+
 /**
  * Resolve structure + levels layers (stacked cache), return merged flat item list
  * (folders + level rows with referencedLevel + isCleared).
