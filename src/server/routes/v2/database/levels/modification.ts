@@ -265,25 +265,6 @@ const handleLowDiffFlag = async (
   }
 };
 
-const handleFlagChanges = (level: Level, req: Request) => {
-  let isDeleted = level.isDeleted;
-  let isHidden = level.isHidden;
-  // Announcement queue is managed separately; isAnnounced kept for legacy reads only.
-  let isAnnounced = level.isAnnounced;
-
-  if (req.body.isDeleted === true) {
-    isDeleted = true;
-    isHidden = true;
-  } else if (req.body.isDeleted === false) {
-    isDeleted = false;
-    isHidden = false;
-  } else if (req.body.isHidden !== undefined) {
-    isHidden = req.body.isHidden;
-  }
-
-  return {isDeleted, isHidden, isAnnounced};
-};
-
 const handleScoreRecalculations = async (
   levelId: number,
   updateData: any,
@@ -675,9 +656,6 @@ router.put(
     await handleRatingChanges(level, req, transaction);
     await handleLowDiffFlag(level, req, transaction);
 
-    // Handle flag changes
-    const {isDeleted, isHidden, isAnnounced} = handleFlagChanges(level, req);
-
     if (
       req.body.baseScore !== undefined &&
       !isNaN(Number(req.body.baseScore))
@@ -771,9 +749,6 @@ router.put(
     updateData.rerateNum = sanitizeTextInput(req.body.rerateNum);
     updateData.toRate = req.body.toRate ?? level.toRate;
     updateData.rerateReason = sanitizeTextInput(req.body.rerateReason);
-    updateData.isDeleted = isDeleted;
-    updateData.isHidden = isHidden;
-    updateData.isAnnounced = isAnnounced;
     updateData.isExternallyAvailable = req.body.isExternallyAvailable ?? level.isExternallyAvailable;
 
     await Level.update(updateData, {
