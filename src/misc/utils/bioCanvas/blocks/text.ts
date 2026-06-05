@@ -77,6 +77,7 @@ export const textBlockDescriptor = {
     fontSize: DEFAULT_TEXT_FONT_SIZE,
     headingFontSize: DEFAULT_TEXT_HEADING_FONT_SIZE,
     align: 'left',
+    color: undefined,
   }),
   toPlainText: (data: TextBlockData): string => {
     const parts: string[] = [];

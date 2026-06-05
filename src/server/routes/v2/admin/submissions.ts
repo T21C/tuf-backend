@@ -1410,7 +1410,7 @@ router.put(
         properties: {
           levelId: { type: 'number' },
           speed: { type: 'number' },
-          keyCount: { type: ['integer', 'null'] },
+          keyCount: { type: 'integer', nullable: true },
           judgements: {
             type: 'object',
             properties: {
