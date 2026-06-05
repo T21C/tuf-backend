@@ -5,7 +5,7 @@ import { rangeOnField, termField } from '@/server/services/elasticsearch/search/
 export interface PlayerSearchOptions {
   /** Plain text search — matches player name, user.username, user.nickname. */
   text?: string;
-  /** Raw query string; if it starts with `#` treated as discord provider id, `@` as discord username. */
+  /** Raw query string; `#` = Discord provider id, `@` = Discord username, `pid:` = player id. */
   rawQuery?: string;
   /** When true, only players with an indexed auth user (`user.id`). */
   requireLinkedUser?: boolean;
@@ -71,9 +71,17 @@ function parseSpecialPrefix(raw?: string): {
   cleaned?: string;
   discordProviderId?: string;
   discordUsername?: string;
+  playerId?: number;
 } {
   if (!raw) return {};
   const q = raw.trim();
+  if (q.toLowerCase().startsWith('pid:')) {
+    const idStr = q.slice(4);
+    if (/^[0-9]+$/.test(idStr)) {
+      return { playerId: parseInt(idStr, 10) };
+    }
+    return {};
+  }
   if (q.startsWith('#')) {
     const idStr = q.slice(1);
     if (/^[0-9]+$/.test(idStr)) {
@@ -139,9 +147,12 @@ function buildPlayerQuery(options: PlayerSearchOptions): any {
     cleaned,
     discordProviderId,
     discordUsername,
+    playerId,
   } = parseSpecialPrefix(options.rawQuery ?? options.text);
 
-  if (discordProviderId) {
+  if (playerId != null) {
+    must.push(termField('id', playerId));
+  } else if (discordProviderId) {
     must.push(termField('discord.providerId', discordProviderId));
   } else if (discordUsername) {
     must.push(termField('discord.username.lower', discordUsername.toLowerCase(), true));

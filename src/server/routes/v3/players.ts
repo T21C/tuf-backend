@@ -88,7 +88,7 @@ router.get(
     operationId: 'v3GetPlayersSearch',
     summary: 'Search players (v3)',
     description:
-      'Elasticsearch-backed player search. Accepts text, `#discordId`, or `@discordUsername` via the `query` param. Returns a flat list sorted by relevance.',
+      'Elasticsearch-backed player search. Accepts text, `pid:playerId` (profile URL shortcut), `#discordId`, or `@discordUsername` via the `query` param. Returns a flat list sorted by relevance.',
     tags: ['Database', 'Players', 'v3'],
     query: {
       query: { schema: { type: 'string' } },
@@ -144,7 +144,7 @@ router.get(
     operationId: 'v3GetLeaderboard',
     summary: 'Player leaderboard (v3)',
     description:
-      'Elasticsearch-backed leaderboard. Supports sort, numeric range filters, country filter, showBanned, and text/Discord query (`#id`/`@username`). Returns `maxFields` aggregations for UI filter ceilings.',
+      'Elasticsearch-backed leaderboard. Supports sort, numeric range filters, country filter, showBanned, and text/Discord query (`pid:playerId`/`#discordId`/`@username`). Returns `maxFields` aggregations for UI filter ceilings.',
     tags: ['Database', 'Leaderboard', 'v3'],
     query: {
       sortBy: { schema: { type: 'string' } },
