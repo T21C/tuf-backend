@@ -12,6 +12,7 @@ import Artist from '@/models/artists/Artist.js';
 import Level from '@/models/levels/Level.js';
 import sequelize from '@/config/db.js';
 import {escapeForMySQL} from '@/misc/utils/data/searchHelpers.js';
+import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {safeTransactionRollback} from '@/misc/utils/Utility.js';
 import SongService from '@/server/services/data/SongService.js';
@@ -1256,14 +1257,25 @@ router.post(
       return res.status(404).json({error: 'Song not found'});
     }
 
+    const levels = await Level.findAll({
+      where: { songId },
+      attributes: ['id'],
+      transaction,
+    });
+
     // Normalize suffix: trim whitespace, set to null if empty string
     const normalizedSuffix = suffix && typeof suffix === 'string'
       ? suffix.trim() || null
       : null;
 
-    // Update all levels with this songId
+    const legacySongName = getSongDisplayName({
+      songObject: song,
+      suffix: normalizedSuffix,
+    });
+
+    // Update all levels with this songId (suffix + legacy joined song field)
     const [updatedCount] = await Level.update(
-      { suffix: normalizedSuffix },
+      { suffix: normalizedSuffix, song: legacySongName },
       {
         where: { songId },
         transaction
@@ -1271,6 +1283,11 @@ router.post(
     );
 
     await transaction.commit();
+
+    const levelIds = levels.map((level) => level.id);
+    if (levelIds.length > 0) {
+      await elasticsearchService.reindexLevels(levelIds);
+    }
     return res.json({
       success: true,
       updatedCount,

@@ -3,6 +3,7 @@ import LevelTag from '@/models/levels/LevelTag.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import { convertToPUA } from '@/misc/utils/data/searchHelpers.js';
+import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import { formatCreatorDisplay } from '@/misc/utils/Utility.js';
 import {
   pickThemeCuration,
@@ -60,6 +61,9 @@ export function buildLevelIndexDocument(level: Level): any {
 
   const songObject = l.songObject ?? null;
   const teamObject = l.teamObject ?? null;
+  const legacySongForIndex = songObject
+    ? getSongDisplayName({ songObject, suffix: l.suffix ?? null })
+    : l.song;
 
   const artists = arr<any>(songObject?.credits).map((credit) => {
     const cr = plainRow(credit as object) as any;
@@ -106,7 +110,7 @@ export function buildLevelIndexDocument(level: Level): any {
     bpm,
     tilecount,
     levelLengthInMs,
-    song: pua(l.song),
+    song: pua(legacySongForIndex),
     artist: pua(l.artist),
     songId: l.songId || null,
     suffix: puaOrNull(l.suffix),

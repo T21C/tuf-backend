@@ -1,9 +1,7 @@
-import { convertFromPUA } from '@/misc/utils/data/searchHelpers.js';
+import { convertFromPUA, decodePuaTextOrNull } from '@/misc/utils/data/searchHelpers.js';
 
 function decodeText(value: unknown): string | null {
-  if (value == null) return null;
-  if (typeof value !== 'string') return String(value);
-  return convertFromPUA(value);
+  return decodePuaTextOrNull(value);
 }
 
 /**
@@ -93,7 +91,7 @@ export function buildPackReferencedLevelFromEsSource(src: Record<string, unknown
     baseScore: src.baseScore,
     song: decodeText(src.song as string),
     artist: decodeText(src.artist as string),
-    suffix: src.suffix != null ? decodeText(src.suffix as string) : null,
+    suffix: decodePuaTextOrNull(src.suffix),
     songId: src.songId ?? null,
     songObject,
     artists,

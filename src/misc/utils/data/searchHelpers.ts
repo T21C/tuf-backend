@@ -145,6 +145,14 @@ export function convertFromPUA(str: string): string {
   return str.replace(pattern, char => PUA_CHAR_MAP[char] || char);
 }
 
+/** Decode a nullable ES text field stored with PUA encoding back to plain text. */
+export function decodePuaTextOrNull(value: unknown): string | null {
+  if (value == null) return null;
+  const str = typeof value === 'string' ? value : String(value);
+  if (str.length === 0) return null;
+  return convertFromPUA(str);
+}
+
 /**
  * Converts special characters in search terms to their PUA equivalents
  * @param str The search term to convert

@@ -1,6 +1,6 @@
 import client, { levelIndexName } from '@/config/elasticsearch.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { convertFromPUA } from '@/misc/utils/data/searchHelpers.js';
+import { convertFromPUA, decodePuaTextOrNull } from '@/misc/utils/data/searchHelpers.js';
 import type { FacetQueryV1 } from '@/misc/utils/search/facetQuery.js';
 import { buildFacetDomainClause, combineFacetClauses } from '@/misc/utils/search/facetQuery.js';
 import {
@@ -519,7 +519,7 @@ export function convertLevelSearchHit(source: Record<string, any>, diffs: Diffic
     song: convertFromPUA(source.song as string),
     artist: convertFromPUA(source.artist as string),
     creator: convertFromPUA(source.creator as string),
-    suffix: source.suffix ? convertFromPUA(source.suffix as string) : null,
+    suffix: decodePuaTextOrNull(source.suffix),
     team: convertFromPUA(source.team as string),
     videoLink: convertFromPUA(source.videoLink as string),
     dlLink: convertFromPUA(source.dlLink as string),

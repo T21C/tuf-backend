@@ -51,6 +51,7 @@ import submissionSongArtistRoutes from './submissions-song-artist.js';
 import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
 import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { resolveLevelCreatedAtFromVideoLink } from '@/misc/utils/data/levelCreatedAtFromVideoLink.js';
+import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -972,9 +973,19 @@ router.put(
           });
         }
 
+        const legacySongName =
+          submission.songObject && finalSongId
+            ? getSongDisplayName({
+                songObject: submission.songObject,
+                suffix: submission.suffix ?? null,
+              })
+            : submission.suffix
+              ? `${submission.song} ${submission.suffix}`
+              : submission.song;
+
         const newLevel = await Level.create(
           {
-            song: submission.song + (submission.suffix ? " " + submission.suffix : ''),
+            song: legacySongName,
             artist: finalArtistString || submission.artist || '',
             suffix: submission.suffix || null,
             songId: finalSongId,

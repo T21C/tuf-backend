@@ -68,6 +68,20 @@ import {
 
 export { checkLevelOwnership, type OwnershipCheckResult };
 
+async function rebuildLegacySongWhenSuffixChanges(
+  level: Level,
+  suffix: string | null | undefined,
+  transaction: Transaction,
+): Promise<string | undefined> {
+  if (level.songId == null) return undefined;
+  const song = await Song.findByPk(level.songId, {
+    transaction,
+    include: [{ model: Artist, as: 'artists', required: false }],
+  });
+  if (!song) return undefined;
+  return getSongDisplayName({ songObject: song, suffix: suffix ?? null });
+}
+
 const CHART_STATS_FIELDS = ['bpm', 'tilecount', 'levelLengthInMs'] as const;
 type ChartStatKey = (typeof CHART_STATS_FIELDS)[number];
 
@@ -512,6 +526,17 @@ router.put(
       }
     }
 
+    if (req.body.suffix !== undefined && req.body.songId === undefined && level.songId) {
+      const rebuiltSong = await rebuildLegacySongWhenSuffixChanges(
+        level,
+        updateData.suffix,
+        transaction,
+      );
+      if (rebuiltSong !== undefined) {
+        updateData.song = rebuiltSong;
+      }
+    }
+
     await level.update(updateData, {transaction});
 
     // Reload level with associations for proper return
@@ -732,6 +757,17 @@ router.put(
             updateData.artist = song.artists?.map(artist => artist.name).join(' & ') || '';
           }
         }
+      }
+    }
+
+    if (req.body.suffix !== undefined && req.body.songId === undefined && level.songId) {
+      const rebuiltSong = await rebuildLegacySongWhenSuffixChanges(
+        level,
+        updateData.suffix,
+        transaction,
+      );
+      if (rebuiltSong !== undefined) {
+        updateData.song = rebuiltSong;
       }
     }
     // Handle diffId - allow 0 as a valid value
