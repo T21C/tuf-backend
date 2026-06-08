@@ -92,7 +92,7 @@ export const playerStatsQuery = `
   WFPPScoreCalc AS (
     SELECT
       p.playerId,
-      SUM(ps.scoreV2) as wfPPScore
+      SUM(ps.ppBaseScore) as wfPPScore
     FROM PassesData p
     JOIN player_pass_summary ps ON p.playerId = ps.playerId AND p.levelId = ps.levelId
     WHERE p.isWorldsFirstPP = true

@@ -828,11 +828,12 @@ const passMappingHashPayload = {
  *       (mapping + indexer; clients read `playerData.user.creator`).
  *   6 — 2026-05-08: `user.avatarIsGif` + canonical profile GIF URLs (`*_animated` / `*_static`).
  *   7 — 2026-05-09: `tufStellarIconVariant` on player documents (keyword mapping).
+ *   8 — 2026-06-08: WF PP score sums resolved ppBaseScore (ppBaseScore → baseScore → difficulty baseScore) instead of scoreV2.
  */
 const playerMappingHashPayload = {
   settings: playerMapping.settings,
   mappings: playerMapping.mappings,
-  indexerVersion: 7,
+  indexerVersion: 8,
 };
 
 /**
