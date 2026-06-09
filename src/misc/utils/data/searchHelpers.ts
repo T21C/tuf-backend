@@ -153,6 +153,26 @@ export function decodePuaTextOrNull(value: unknown): string | null {
   return convertFromPUA(str);
 }
 
+/** Recursively decode every string leaf in an ES `_source` document (PUA → plain text). */
+export function decodePuaDeep<T>(value: T): T {
+  if (value == null) return value;
+  if (typeof value === 'string') {
+    return convertFromPUA(value) as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => decodePuaDeep(v)) as unknown as T;
+  }
+  if (typeof value === 'object') {
+    const obj = value as unknown as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      out[k] = decodePuaDeep(v);
+    }
+    return out as unknown as T;
+  }
+  return value;
+}
+
 /**
  * Converts special characters in search terms to their PUA equivalents
  * @param str The search term to convert

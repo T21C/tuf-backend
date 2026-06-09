@@ -1,4 +1,5 @@
 import client, { levelIndexName } from '@/config/elasticsearch.js';
+import { decodePuaDeep } from '@/misc/utils/data/searchHelpers.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { buildPackReferencedLevelFromEsSource } from './packReferencedLevelSerialize.js';
 
@@ -42,7 +43,7 @@ export async function fetchPackLevelsFromElasticsearch(
   }
 
   for (const [id, source] of sourcesById) {
-    out.set(id, buildPackReferencedLevelFromEsSource(source));
+    out.set(id, buildPackReferencedLevelFromEsSource(decodePuaDeep(source)));
   }
 
   if (out.size < unique.length) {

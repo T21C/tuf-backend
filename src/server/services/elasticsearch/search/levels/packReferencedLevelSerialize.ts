@@ -1,7 +1,13 @@
-import { convertFromPUA, decodePuaTextOrNull } from '@/misc/utils/data/searchHelpers.js';
+import { decodePuaTextOrNull } from '@/misc/utils/data/searchHelpers.js';
 
 function decodeText(value: unknown): string | null {
   return decodePuaTextOrNull(value);
+}
+
+function normalizeFileId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 /**
@@ -100,6 +106,7 @@ export function buildPackReferencedLevelFromEsSource(src: Record<string, unknown
     tags,
     curations,
     rating: ratingOut,
+    fileId: normalizeFileId(src.fileId),
     videoLink: decodeText(src.videoLink as string),
     dlLink: decodeText(src.dlLink as string),
     workshopLink: src.workshopLink != null ? decodeText(src.workshopLink as string) : null,
@@ -208,6 +215,7 @@ export function pruneMysqlReferencedLevelForPack(
     tags,
     curations,
     rating: ratingOut,
+    fileId: normalizeFileId(level.fileId),
     videoLink: level.videoLink,
     dlLink: level.dlLink,
     workshopLink: level.workshopLink,

@@ -25,27 +25,8 @@ import { fetchPlayersForBulkIndex } from './fetching/playerFetch.js';
 import { fetchCreatorsForBulkIndex } from './fetching/creatorFetch.js';
 import { buildLevelIndexDocument } from './indexing/levelIndexDocument.js';
 import { buildPassIndexDocument } from './indexing/passIndexDocument.js';
-import { convertFromPUA } from '@/misc/utils/data/searchHelpers.js';
+import { decodePuaDeep } from '@/misc/utils/data/searchHelpers.js';
 import { maskStellarPublicEsDoc, maskStellarPublicEsHits } from '@/misc/utils/subscriptions/tufStellarPublicGate.js';
-
-function decodePuaDeep<T>(value: T): T {
-  if (value == null) return value;
-  if (typeof value === 'string') {
-    return convertFromPUA(value) as unknown as T;
-  }
-  if (Array.isArray(value)) {
-    return value.map((v) => decodePuaDeep(v)) as unknown as T;
-  }
-  if (typeof value === 'object') {
-    const obj = value as unknown as Record<string, unknown>;
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj)) {
-      out[k] = decodePuaDeep(v);
-    }
-    return out as unknown as T;
-  }
-  return value;
-}
 
 class ElasticsearchService {
   private static instance: ElasticsearchService;

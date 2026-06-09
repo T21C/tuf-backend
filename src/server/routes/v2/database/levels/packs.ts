@@ -845,7 +845,8 @@ router.post(
           return null;
         }
 
-        const cdnFileId = level.fileId ?? null;
+        const cdnFileId =
+          level.fileId ?? getFileIdFromCdnUrl(level.dlLink ?? '') ?? null;
         const songNamePart = getSongDisplayName(level);
         const displayName = `#${level.id} ${songNamePart}`;
 
