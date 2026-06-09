@@ -684,7 +684,7 @@ router.get(
       include: [{
         model: User,
         as: 'packOwner',
-        attributes: ['id', 'nickname', 'username', 'avatarUrl']
+        attributes: ['id', 'nickname', 'username', 'avatarUrl', 'creatorId', 'playerId']
       }]
     });
 
@@ -717,6 +717,8 @@ router.get(
         nickname: po.nickname ?? null,
         username: po.username ?? null,
         avatarUrl: po.avatarUrl ?? null,
+        creatorId: po.creatorId ?? null,
+        playerId: po.playerId ?? null,
       };
     }
 
