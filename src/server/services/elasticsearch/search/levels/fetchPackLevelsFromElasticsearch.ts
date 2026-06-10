@@ -1,13 +1,19 @@
 import client, { levelIndexName } from '@/config/elasticsearch.js';
-import { decodePuaDeep } from '@/misc/utils/data/searchHelpers.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { buildPackReferencedLevelFromEsSource } from './packReferencedLevelSerialize.js';
+import { convertLevelSearchHit } from '@/server/services/elasticsearch/search/levels/levelSearch.js';
+import { pruneMysqlReferencedLevelForPack } from './packReferencedLevelSerialize.js';
 
 const MGET_CHUNK = 500;
 
 /**
  * Load many levels for pack tree/detail from Elasticsearch (denormalized doc) instead of
- * wide MySQL joins. Returns a minimal per-level payload for pack UI (see {@link buildPackReferencedLevelFromEsSource}).
+ * wide MySQL joins.
+ *
+ * Decoding is delegated to {@link convertLevelSearchHit} — the exact same PUA decode the public
+ * level search uses — so pack levels can never drift from the canonical decode (the previous
+ * bespoke deep-decode + re-decode path was double-decoding and corrupting fields like `dlLink`).
+ * The fully prepared level object is then pruned to the minimal pack-UI shape via
+ * {@link pruneMysqlReferencedLevelForPack}.
  */
 export async function fetchPackLevelsFromElasticsearch(
   levelIds: number[]
@@ -43,7 +49,12 @@ export async function fetchPackLevelsFromElasticsearch(
   }
 
   for (const [id, source] of sourcesById) {
-    out.set(id, buildPackReferencedLevelFromEsSource(decodePuaDeep(source)));
+    // Difficulty rows are unused by the pruned pack payload, so skip the extra DB round-trip.
+    const prepared = convertLevelSearchHit(source, []);
+    const pruned = pruneMysqlReferencedLevelForPack(prepared);
+    if (pruned) {
+      out.set(id, pruned);
+    }
   }
 
   if (out.size < unique.length) {
