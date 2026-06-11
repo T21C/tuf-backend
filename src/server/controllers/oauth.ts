@@ -81,6 +81,7 @@ async function handleDiscordOAuth(code: string, isLinking: boolean): Promise<{
     profile: userResponse.data,
   };
 } catch (error) {
+  logger.error("Discord bearer exchange failed", error)
   return null;
 }
 }
