@@ -53,7 +53,7 @@ export const parseFieldSearch = (term: string, config: QueryParserConfig): Field
   if (partialMatch) {
     const field = partialMatch[1].toLowerCase();
     const value = partialMatch[2].trim();
-    logger.debug(`Partial match search - Field: ${field}, Value: ${value}`);
+    //logger.debug(`Partial match search - Field: ${field}, Value: ${value}`);
     return {
       field,
       value,

@@ -1052,13 +1052,14 @@ router.get(
         };
 
         cachedVideoDetails.set(videoLink, cacheEntry);
-
+        /*
         logger.debug('Fetched and cached video details:', {
           videoLink: videoLink.substring(0, 50),
           success: !!videoDetails,
           ttl: Math.floor(ttl / 1000) + 's',
           timestamp: new Date().toISOString()
         });
+        */
 
         return videoDetails;
       } finally {

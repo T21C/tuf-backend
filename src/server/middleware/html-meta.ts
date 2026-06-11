@@ -230,7 +230,7 @@ export const htmlMetaMiddleware = async (
   res: Response,
   next: NextFunction,
 ) => {
-  logger.debug('HTML Meta Middleware', req.path);
+  //logger.debug('HTML Meta Middleware', req.path);
   try {
     const id = req.params.id;
     let metaTags = `

@@ -199,7 +199,7 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
       // This prevents cache stampede when multiple concurrent requests hit the same cache key
       const pendingPromise = pendingPromises.get(cacheKey);
       if (pendingPromise) {
-        logger.debug(`Cache MISS (awaiting pending): ${cacheKey}`);
+        //logger.debug(`Cache MISS (awaiting pending): ${cacheKey}`);
 
         // Wait for the pending request to complete and cache the result
         await pendingPromise;
@@ -223,7 +223,7 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
         logger.warn(`Cache still MISS after pending promise: ${cacheKey}`);
       }
 
-      logger.debug(`Cache MISS: ${cacheKey}`);
+      //logger.debug(`Cache MISS: ${cacheKey}`);
 
       // Create a promise that resolves when the response is cached
       let resolvePending: () => void;
@@ -369,7 +369,7 @@ export function Cached(config: CacheConfig = {}) {
         // Check if there's already a pending promise for this cache key
         const pendingPromise = pendingPromises.get(cacheKey);
         if (pendingPromise) {
-          logger.debug(`Cache MISS (awaiting pending, decorator): ${cacheKey}`);
+          //logger.debug(`Cache MISS (awaiting pending, decorator): ${cacheKey}`);
 
           // Wait for the pending request to complete and cache the result
           await pendingPromise;
@@ -391,7 +391,7 @@ export function Cached(config: CacheConfig = {}) {
           logger.warn(`Cache still MISS after pending promise (decorator): ${cacheKey}`);
         }
 
-        logger.debug(`Cache MISS (decorator): ${cacheKey}`);
+        //logger.debug(`Cache MISS (decorator): ${cacheKey}`);
 
         // Create a promise that resolves when the response is cached
         let resolvePending: () => void;
