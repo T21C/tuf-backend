@@ -33,13 +33,13 @@ const LEVEL_NUMERIC_RANGE_FIELDS: Record<string, { esField: string; integerOnly:
 export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases = false): any {
   const { field, value, exact, isNot } = fieldSearch;
   const searchValue = prepareSearchTerm(value);
-  logger.debug(`Building search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
+  //logger.debug(`Building search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
 
   if (field === 'time') {
     const decoded = convertFromPUA(value).trim();
     const parsed = parseDurationSearchConstraint(decoded);
     if (!parsed) {
-      logger.debug(`No duration constraint parsed for time:, decoded value: ${decoded}`);
+      //logger.debug(`No duration constraint parsed for time:, decoded value: ${decoded}`);
       return matchNone();
     }
     const esField = 'levelLengthInMs';
@@ -54,9 +54,11 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
     const decoded = convertFromPUA(value).trim();
     const parsed = parseNumericSearchConstraint(decoded, { integerOnly: numericRangeConfig.integerOnly });
     if (!parsed) {
+      /*
       logger.debug(
         `No numeric constraint parsed for field: ${field}, decoded value: ${decoded}`,
       );
+      */
       return matchNone();
     }
     const { esField } = numericRangeConfig;

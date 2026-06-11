@@ -18,14 +18,14 @@ const PASS_NUMERIC_RANGE_FIELDS: Record<string, { esField: string; integerOnly: 
 export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
   const { field, value, exact, isNot } = fieldSearch;
   const searchValue = prepareSearchTerm(value);
-  logger.debug(`Building pass search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
+  //logger.debug(`Building pass search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
 
   const numericRangeConfig = PASS_NUMERIC_RANGE_FIELDS[field];
   if (numericRangeConfig) {
     const decoded = convertFromPUA(value).trim();
     const parsed = parseNumericSearchConstraint(decoded, { integerOnly: numericRangeConfig.integerOnly });
     if (!parsed) {
-      logger.debug(`No numeric constraint parsed for field: ${field}, decoded value: ${decoded}`);
+      //logger.debug(`No numeric constraint parsed for field: ${field}, decoded value: ${decoded}`);
       return matchNone();
     }
     const { esField } = numericRangeConfig;

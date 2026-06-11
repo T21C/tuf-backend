@@ -81,7 +81,7 @@ async function handleDiscordOAuth(code: string, isLinking: boolean): Promise<{
     profile: userResponse.data,
   };
 } catch (error) {
-  logger.error("Discord bearer exchange failed", error)
+  //logger.error("Discord bearer exchange failed", error)
   return null;
 }
 }
@@ -147,7 +147,7 @@ export const OAuthController = {
       }
 
       const tokens = await handleDiscordOAuth(code.toString(), isLinking);
-      logger.error("Discord OAuth tokens", tokens)
+      //logger.error("Discord OAuth tokens", tokens)
       if (!tokens) {
         return res
           .status(400)
@@ -297,7 +297,7 @@ export const OAuthController = {
     try {
       if (provider === 'discord') {
         const result = await handleDiscordOAuth(code, true);
-        logger.error("Discord OAuth linking result", result)
+        //logger.error("Discord OAuth linking result", result)
         if (!result) {
           return res.status(400).json({error: 'Failed to exchange code for tokens'});
         }
