@@ -39,7 +39,7 @@ export const parseFieldSearch = (term: string, config: QueryParserConfig): Field
   if (exactMatch) {
     const field = exactMatch[1].toLowerCase();
     const value = exactMatch[2].trim();
-    logger.debug(`Exact match search - Field: ${field}, Value: ${value}`);
+    //logger.debug(`Exact match search - Field: ${field}, Value: ${value}`);
     return {
       field,
       value,
@@ -63,7 +63,7 @@ export const parseFieldSearch = (term: string, config: QueryParserConfig): Field
   }
 
   // Handle general search term with NOT operator
-  logger.debug(`General search - Value: ${searchTerm.trim()}`);
+  //logger.debug(`General search - Value: ${searchTerm.trim()}`);
   return {
     field: 'any',
     value: searchTerm.trim(),
