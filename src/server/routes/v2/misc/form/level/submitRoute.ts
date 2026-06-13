@@ -16,6 +16,14 @@ import {
   cleanupEvidenceTempfiles,
 } from '../shared/evidenceMultipart.js';
 import { createLevelSubmission } from './submissionService.js';
+import { createUserRateLimiter } from '@/server/middleware/userRateLimit.js';
+
+const levelSubmissionSubmitLimiter = createUserRateLimiter({
+  type: 'level_submission_submit',
+  windowMs: 60 * 60 * 1000,
+  maxAttempts: 15,
+  blockDuration: 2 * 60 * 60 * 1000,
+});
 
 const router: Router = Router();
 
@@ -30,6 +38,7 @@ const router: Router = Router();
 router.post(
   '/submit',
   Auth.user(),
+  levelSubmissionSubmitLimiter,
   evidenceMultipart,
   ApiDoc({
     operationId: 'postFormLevelSubmit',

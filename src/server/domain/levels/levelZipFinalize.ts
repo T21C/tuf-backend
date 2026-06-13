@@ -11,7 +11,6 @@ import { isCdnUrl } from '@/misc/utils/Utility.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
 import { jobProgressService, isUuidJobId } from '@/server/services/core/JobProgressService.js';
-import { cleanupUserUploads } from '@/server/routes/v2/misc/chunkedUpload.js';
 import UploadSession from '@/models/upload/UploadSession.js';
 import { cancelSession as cancelUploadSession } from '@/server/services/upload/UploadSessionService.js';
 import { permissionFlags } from '@/config/constants.js';
@@ -40,7 +39,6 @@ export async function finalizeLevelZipUploadFromBuffer(params: {
   fileBuffer: Buffer;
   encodedZipFileName: string;
   assembledFilePathToUnlink: string | null;
-  chunkUploadFileIdForCleanupExclude: string | null;
   /** If set, the session row (and its workspace) is destroyed after successful finalisation. */
   uploadSession?: UploadSession | null;
   canEdit: boolean;
@@ -56,7 +54,6 @@ export async function finalizeLevelZipUploadFromBuffer(params: {
     fileBuffer,
     encodedZipFileName,
     assembledFilePathToUnlink,
-    chunkUploadFileIdForCleanupExclude,
     uploadSession,
     canEdit,
     uploadJobMeta,
@@ -297,12 +294,6 @@ export async function finalizeLevelZipUploadFromBuffer(params: {
           newFileId: uploadResult.fileId,
         });
       }
-    }
-
-    try {
-      await cleanupUserUploads(req.user!.id, chunkUploadFileIdForCleanupExclude || undefined);
-    } catch (cleanupError) {
-      logger.warn('Failed to clean up user uploads after successful processing:', cleanupError);
     }
 
     try {

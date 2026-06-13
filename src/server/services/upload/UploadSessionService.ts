@@ -21,6 +21,7 @@ import UploadSession, {
   type UploadSessionAttributes,
   type UploadSessionStatus,
 } from '@/models/upload/UploadSession.js';
+import { LEVEL_ZIP_MAX_CONCURRENT_SESSIONS } from '@/server/services/upload/kinds/levelZipLimits.js';
 
 /**
  * Per-kind configuration for chunked uploads.
@@ -291,6 +292,23 @@ export async function createOrResumeSession(args: CreateSessionArgs): Promise<Cr
   const id = crypto.randomUUID();
   const workspaceDir = sessionWorkspaceDir(kind, id);
   await fs.promises.mkdir(chunksDir(workspaceDir), { recursive: true });
+
+  if (kind.id === 'level-zip') {
+    const activeCount = await UploadSession.count({
+      where: {
+        userId,
+        kind: 'level-zip',
+        status: { [Op.in]: ['uploading', 'assembling'] as UploadSessionStatus[] },
+        expiresAt: { [Op.gt]: new Date() },
+      },
+    });
+    if (activeCount >= LEVEL_ZIP_MAX_CONCURRENT_SESSIONS) {
+      throw new UploadError(
+        429,
+        'Too many active level zip uploads. Complete or cancel an existing upload first.',
+      );
+    }
+  }
 
   const session = await UploadSession.create({
     id,

@@ -398,7 +398,6 @@ async function main(): Promise<void> {
                 fileBuffer: zipBuffer,
                 encodedZipFileName,
                 assembledFilePathToUnlink: null,
-                chunkUploadFileIdForCleanupExclude: null,
                 uploadSession: null,
                 canEdit: true,
                 uploadJobId: null,

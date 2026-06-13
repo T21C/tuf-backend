@@ -30,6 +30,8 @@ import {
 } from '../infra/archive/zipUtf8FilenameRewrite.js';
 import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
 import { normalizeRelativePath, snapshotLevelSourceBytes, toSourceRelativePath } from '../domain/archive/ingestPaths.js';
+import { assertArchiveDecompressionSafe } from '../domain/archive/archiveBombGuard.js';
+import { CDN_CONFIG } from '../config.js';
 import { listArchiveEntriesForIngest } from '../domain/archive/ingestArchiveEntries.js';
 import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '../constants/levelPackAudio.js';
 import { normaliseOriginalName } from '@/server/services/upload/UploadSessionService.js';
@@ -79,7 +81,10 @@ export async function processArchiveFile(
     return withWorkspace(
         'zip-processor',
         (ws) => processArchiveFileInWorkspace(ws, archiveFilePath, archiveFileId, originalFilename, onProgress),
-        { key: archiveFileId }
+        {
+            key: archiveFileId,
+            parentSignal: AbortSignal.timeout(CDN_CONFIG.zipIngestMaxWallMs),
+        },
     );
 }
 
@@ -158,6 +163,8 @@ async function processArchiveFileInWorkspace(
     try {
         await sendProgress('processing', 10, 'Listing archive entries');
         const archiveEntries = await extractArchiveEntries(ingestArchivePath, ws.signal);
+        const archiveOnDiskSize = (await fs.promises.stat(ingestArchivePath)).size;
+        assertArchiveDecompressionSafe(archiveEntries, archiveOnDiskSize);
         const levelFiles: { [key: string]: any } = {};
         const allLevelFiles: Array<{
             name: string;

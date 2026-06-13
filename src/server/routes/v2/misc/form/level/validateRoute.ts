@@ -15,6 +15,7 @@ import { sendFormError, formError } from '../shared/errors.js';
 import { parseAndSanitizeLevelForm } from './dto.js';
 import { computeEvidenceRequirements, validateLevelReferences } from './referenceCheck.js';
 import { assertNoDuplicateLevelSubmission } from './duplicateCheck.js';
+import { LEVEL_ZIP_MAX_FILE_SIZE_BYTES } from '@/server/services/upload/kinds/levelZipLimits.js';
 
 const router: Router = Router();
 
@@ -68,7 +69,10 @@ router.post(
         ok: true,
         sanitized,
         evidence: evidenceRequirements,
-        upload: { kind: 'level-zip' },
+        upload: {
+          kind: 'level-zip',
+          maxFileSize: LEVEL_ZIP_MAX_FILE_SIZE_BYTES,
+        },
       });
     } catch (error) {
       await safeTransactionRollback(transaction);

@@ -29,7 +29,9 @@
     "cdc": "cross-env tsx src/externalServices/cdcService/app.ts",
     "cdc:prod": "cross-env NODE_ENV=production tsx src/externalServices/cdcService/app.ts",
     "reconcile:es": "cross-env tsx src/misc/scripts/reconcileElasticsearch.ts",
-    "backfill:leaderboard-ranks": "cross-env tsx src/misc/scripts/backfillLeaderboardRankHistory.ts"
+    "backfill:leaderboard-ranks": "cross-env tsx src/misc/scripts/backfillLeaderboardRankHistory.ts",
+    "pentest:zip-fixtures": "cross-env tsx src/externalServices/cdnService/scripts/security/generateZipPentestFixtures.ts",
+    "pentest:zip": "cross-env tsx src/externalServices/cdnService/scripts/security/runZipProtectionPentest.ts"
   },
   "keywords": [],
   "author": "",

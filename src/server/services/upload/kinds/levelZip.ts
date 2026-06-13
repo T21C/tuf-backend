@@ -5,6 +5,9 @@ import { checkLevelOwnership } from '@/server/domain/levels/levelOwnership.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
+import {
+  LEVEL_ZIP_MAX_FILE_SIZE_BYTES,
+} from '@/server/services/upload/kinds/levelZipLimits.js';
 
 export interface LevelZipMeta {
   /** Level being replaced. If null, the upload is for a new submission (validated at /init). */
@@ -29,8 +32,7 @@ export interface LevelZipResult {
 export const LevelZipUploadKind: UploadKind<LevelZipMeta, LevelZipResult> = {
   id: 'level-zip',
   workspaceDomain: 'chunked-upload',
-  // 2 GiB hard cap — level zips are small but the cap protects the disk.
-  maxFileSize: 2 * 1024 * 1024 * 1024,
+  maxFileSize: LEVEL_ZIP_MAX_FILE_SIZE_BYTES,
   chunkSize: { min: 64 * 1024, max: 16 * 1024 * 1024 },
   sessionTtlMs: 24 * 60 * 60 * 1000,
 

@@ -22,6 +22,14 @@ import {
   getUploadKind,
   writeChunk,
 } from '@/server/services/upload/UploadSessionService.js';
+import { createUserRateLimiter } from '@/server/middleware/userRateLimit.js';
+
+const levelZipUploadInitLimiter = createUserRateLimiter({
+  type: 'level_zip_upload_init',
+  windowMs: 60 * 60 * 1000,
+  maxAttempts: 30,
+  blockDuration: 60 * 60 * 1000,
+});
 
 const router: Router = express.Router();
 
@@ -60,6 +68,7 @@ function serialiseSession(session: import('@/models/upload/UploadSession.js').de
 
 router.post(
   '/init',
+  levelZipUploadInitLimiter,
   ApiDoc({
     operationId: 'postUploadInit',
     summary: 'Create or resume a chunked upload session',

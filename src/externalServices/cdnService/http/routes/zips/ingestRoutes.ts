@@ -102,7 +102,7 @@ async function runLevelZipIngestInBackground(args: {
 router.post('/', (req: Request, res: Response) => {
     logger.debug('Received zip upload request');
 
-    cdnLocalTemp.upload(req, res, (err) => {
+    cdnLocalTemp.zipUpload(req, res, (err) => {
         if (err) {
             logger.error('Multer error during zip upload:', {
                 error: err.message,

@@ -18,7 +18,7 @@ const SLOW_LOG_EXCLUDED_ROUTES = [
   '/v2/form/*/select-level',
   '/v2/media/thumbnail/*',
   '/v2/media/image-proxy',
-  '/v2/chunked-upload/*',
+  '/v2/upload/*',
   '/health',
   '/v2/external/autorate/*',
   '/v2/admin/submissions/auto-approve/*',

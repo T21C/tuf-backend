@@ -156,9 +156,8 @@ export async function createLevelSubmission(
     }
 
     try {
-      const fileBuffer = await fs.promises.readFile(resolvedSession.assembledPath);
       const uploadResult = await cdnService.uploadLevelZip(
-        fileBuffer,
+        resolvedSession.assembledPath,
         resolvedSession.originalName,
         uploadJobId ?? randomUUID(),
       );

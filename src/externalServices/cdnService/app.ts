@@ -34,10 +34,11 @@ if (!fs.existsSync(CDN_CONFIG.localRoot)) {
 }
 
 // Middleware
+// CDN is server-to-server; browsers do not call write routes directly.
 app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'DELETE'],
-    allowedHeaders: ['Content-Type']
+    origin: false,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'],
+    allowedHeaders: ['Content-Type', 'X-CDN-Ingest-Key', 'X-File-Type', 'X-Upload-Id'],
 }));
 app.use(express.json());
 

@@ -1,4 +1,5 @@
 import { CdnIngestUserError } from '@/externalServices/cdnService/jobs/cdnIngestErrors.js';
+import { ArchivePathError } from '@/externalServices/cdnService/domain/archive/ingestPaths.js';
 
 export type ZipIngestServerLogDisposition = 'none' | 'info' | 'error';
 
@@ -18,6 +19,10 @@ export function classifyZipIngestError(error: unknown): ZipIngestErrorClassifica
         error instanceof Error ? error.message : typeof error === 'string' ? error : String(error);
 
     if (error instanceof CdnIngestUserError) {
+        return {userMessage, serverLog: 'none'};
+    }
+
+    if (error instanceof ArchivePathError) {
         return {userMessage, serverLog: 'none'};
     }
 

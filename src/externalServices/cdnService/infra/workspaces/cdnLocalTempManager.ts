@@ -211,6 +211,13 @@ export class CdnLocalTempManager {
         }
     }).single('file'));
 
+    public zipUpload = withUtf8Filenames(multer({
+        storage: this.storage,
+        limits: {
+            fileSize: CDN_CONFIG.maxZipFileSize,
+        },
+    }).single('file'));
+
     public imageUpload = withUtf8Filenames(multer({
         storage: this.imageStorage,
         limits: {

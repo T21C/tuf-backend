@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
+import fs from 'fs';
 import { logger } from './LoggerService.js';
 import { jobProgressService } from './JobProgressService.js';
 import { ImageFileType } from '@/models/cdn/CdnFile.js';
@@ -34,6 +35,14 @@ const CDN_LEVEL_ZIP_POST_TIMEOUT_MS = envTimeoutMs('CDN_LEVEL_ZIP_POST_TIMEOUT_M
 const CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS = envTimeoutMs('CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS', 45 * 60 * 1000);
 /** Main ➔ CDN POST /zips/packs/generate: immediate 202 ack; work continues via job progress. */
 const CDN_PACK_GENERATE_ACK_TIMEOUT_MS = envTimeoutMs('CDN_PACK_GENERATE_ACK_TIMEOUT_MS', 30 * 1000);
+
+function getCdnIngestSecret(): string {
+    const secret = process.env.CDN_INGEST_SECRET?.trim();
+    if (!secret) {
+        throw new CdnError('CDN_INGEST_SECRET is not configured', 'CONFIG_ERROR');
+    }
+    return secret;
+}
 
 async function waitForCdnZipIngestDone(jobId: string, expectedFileId: string): Promise<void> {
     const deadline = Date.now() + CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS;
@@ -81,6 +90,15 @@ class CdnService {
             baseURL: CDN_BASE_URL,
             /** Default for small CDN API calls; large uploads override `timeout` per request. */
             timeout: 60 * 1000,
+        });
+
+        this.client.interceptors.request.use((config) => {
+            const method = (config.method ?? 'get').toUpperCase();
+            if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+                config.headers = config.headers ?? {};
+                (config.headers as Record<string, string>)['X-CDN-Ingest-Key'] = getCdnIngestSecret();
+            }
+            return config;
         });
 
         // Add retry interceptor for connection errors (ECONNRESET, etc.)
@@ -350,7 +368,7 @@ class CdnService {
     }
 
     async uploadLevelZip(
-        zipBuffer: Buffer,
+        zipSource: Buffer | string,
         filename: string,
         uploadId: string
     ): Promise<{
@@ -358,24 +376,39 @@ class CdnService {
         fileId: string;
         metadata: any;
     }> {
+        const sourceSizeBytes =
+            typeof zipSource === 'string'
+                ? (await fs.promises.stat(zipSource)).size
+                : zipSource.length;
+
         logger.debug('Starting level zip upload to CDN:', {
             filename,
-            bufferSize: (zipBuffer.length / 1024 / 1024).toFixed(2) + 'MB',
+            sourceSizeMb: (sourceSizeBytes / 1024 / 1024).toFixed(2) + 'MB',
+            streamingFromPath: typeof zipSource === 'string',
             uploadId,
             timestamp: new Date().toISOString()
         });
 
         try {
             const formData = new FormData();
-            formData.append('file', zipBuffer, {
-                filename,
-                contentType: 'application/zip'
-            });
+            if (typeof zipSource === 'string') {
+                formData.append('file', fs.createReadStream(zipSource), {
+                    filename,
+                    contentType: 'application/zip',
+                    knownLength: sourceSizeBytes,
+                });
+            } else {
+                formData.append('file', zipSource, {
+                    filename,
+                    contentType: 'application/zip',
+                    knownLength: sourceSizeBytes,
+                });
+            }
 
             logger.debug('FormData prepared for CDN upload:', {
                 filename,
                 contentType: 'application/zip',
-                formDataSize: formData.getLengthSync()
+                sourceSizeBytes,
             });
 
             const headers: Record<string, string> = {
