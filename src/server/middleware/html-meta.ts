@@ -91,9 +91,24 @@ const escapeMetaText = (text: string): string => {
     .replace(/'/g, '&apos;');
 };
 
+const BACKGROUND_BLURRED_MANIFEST_KEY =
+  'src/assets/important/dark/background-blurred.jpg';
+
+const getBackgroundBlurredUrl = (clientUrl: string, manifest?: Manifest) => {
+  if (process.env.NODE_ENV === 'development') {
+    return `${clientUrl}/src/assets/important/dark/background-blurred.jpg`;
+  }
+
+  const hashedPath = manifest?.[BACKGROUND_BLURRED_MANIFEST_KEY]?.file;
+  return hashedPath
+    ? `/${hashedPath}`
+    : '/src/assets/important/dark/background-blurred.jpg';
+};
+
 // Base HTML template with Vite client
 const getBaseHtml = async (clientUrl: string) => {
   if (process.env.NODE_ENV === 'development') {
+    const backgroundImageUrl = getBackgroundBlurredUrl(clientUrl);
     return `
       <!DOCTYPE html>
       <html lang="en">
@@ -116,21 +131,15 @@ const getBaseHtml = async (clientUrl: string) => {
         </head>
         <style>
           .background {
-            height: 110vh;
-            width: 120vw;
-            z-index: 1;
             position: fixed;
-            left: -30px;
+            inset: 0;
+            z-index: 1;
             opacity: 0.9;
-            background-image: url("https://images.rawpixel.com/image_social_landscape/cHJpdmF0ZS9sci9pbWFnZXMvd2Vic2l0ZS8yMDIyLTA1L3B4MTM2NjcxMC1pbWFnZS1rd3Z4eGVxcC5qcGc.jpg");
-            background-size:cover;
-            filter: blur(15px);
-            background-color: var(--color-black);
-            will-change: auto;
-            transform: translateZ(0);
+            background-image: url("${backgroundImageUrl}");
+            background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
-            image-rendering: -webkit-optimize-contrast;
+            background-color: var(--color-black);
             -webkit-user-select: none;
             -khtml-user-select: none;
             -moz-user-select: none;
@@ -175,6 +184,8 @@ const getBaseHtml = async (clientUrl: string) => {
     ? `/${manifest['src/assets/tuf-logo/logo.svg'].file}`
     : '/logo.svg';
 
+  const backgroundImageUrl = getBackgroundBlurredUrl(clientUrl, manifest);
+
   return `
     <!DOCTYPE html>
     <html lang="en">
@@ -191,21 +202,15 @@ const getBaseHtml = async (clientUrl: string) => {
       </head>
             <style>
         .background {
-          height: 110vh;
-          width: 120vw;
-          z-index: 1;
           position: fixed;
-          left: -30px;
+          inset: 0;
+          z-index: 1;
           opacity: 0.9;
-          background-image: url("https://images.rawpixel.com/image_social_landscape/cHJpdmF0ZS9sci9pbWFnZXMvd2Vic2l0ZS8yMDIyLTA1L3B4MTM2NjcxMC1pbWFnZS1rd3Z4eGVxcC5qcGc.jpg");
-          background-size:cover;
-          filter: blur(15px);
-          background-color: var(--color-black);
-          will-change: auto;
-          transform: translateZ(0);
+          background-image: url("${backgroundImageUrl}");
+          background-size: cover;
           background-position: center;
           background-repeat: no-repeat;
-          image-rendering: -webkit-optimize-contrast;
+          background-color: var(--color-black);
           -webkit-user-select: none;
           -khtml-user-select: none;
           -moz-user-select: none;
