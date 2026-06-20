@@ -70,6 +70,7 @@ export async function finalizeLevelZipUploadFromBuffer(params: {
       .patchTrusted(uploadJobId, {
         phase: 'failed',
         error: message,
+        message,
         percent: null,
       })
       .catch(() => undefined);

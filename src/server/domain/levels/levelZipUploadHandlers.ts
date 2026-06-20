@@ -155,10 +155,12 @@ export async function handlePostLevelZipUpload(req: Request, res: Response): Pro
             logger.warn('Failed to destroy session after missing assembled file:', destroyErr);
           }
         }
+        const readFailMsg = readErr instanceof Error ? readErr.message : String(readErr);
         await jobProgressService
           .patchTrusted(uploadJobId, {
             phase: 'failed',
-            error: readErr instanceof Error ? readErr.message : String(readErr),
+            error: readFailMsg,
+            message: readFailMsg,
             percent: null,
           })
           .catch(() => undefined);
@@ -451,6 +453,7 @@ export async function handlePostLevelZipUploadFromUrl(req: Request, res: Respons
         .patchTrusted(uploadJobIdErr, {
           phase: 'failed',
           error: msg,
+          message: msg,
           percent: null,
         })
         .catch(() => undefined);
