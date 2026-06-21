@@ -569,6 +569,7 @@ export async function handleDeleteLevelZipUpload(req: Request, res: Response): P
         bpm: null,
         tilecount: null,
         levelLengthInMs: null,
+        autoTileCount: null,
       },
       {
         where: { id: levelId },

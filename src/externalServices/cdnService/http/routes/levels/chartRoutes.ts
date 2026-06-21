@@ -51,7 +51,7 @@ router.get('/:fileId/chart-stats', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'File not found' });
         }
         if (file.type !== 'LEVELZIP') {
-            return res.json({ bpm: null, tilecount: null, levelLengthInMs: null });
+            return res.json({ bpm: null, tilecount: null, levelLengthInMs: null, autoTileCount: null });
         }
         const stats = parseChartStatsFromCache(file.cacheData ?? null);
         return res.json(stats);
@@ -73,7 +73,7 @@ router.post('/:fileId/chart-cache/refresh', async (req: Request, res: Response) 
             return res.status(404).json({ error: 'File not found' });
         }
         if (file.type !== 'LEVELZIP') {
-            return res.json({ bpm: null, tilecount: null, levelLengthInMs: null });
+            return res.json({ bpm: null, tilecount: null, levelLengthInMs: null, autoTileCount: null });
         }
         const metadata = file.metadata as {
             targetLevelOversized?: boolean;

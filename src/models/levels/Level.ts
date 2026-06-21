@@ -83,6 +83,7 @@ class Level
   declare songCredits?: SongCredit[];
   declare bpm: number | null;
   declare tilecount: number | null;
+  declare autoTileCount: number | null;
   declare levelLengthInMs: number | null;
   /** Per-level xacc curve configuration + pins (null = site defaults). */
   declare xaccCurveMeta: unknown | null;
@@ -229,6 +230,11 @@ Level.init(
       defaultValue: null,
     },
     tilecount: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+    },
+    autoTileCount: {
       type: DataTypes.INTEGER,
       allowNull: true,
       defaultValue: null,

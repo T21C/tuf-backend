@@ -94,6 +94,8 @@ export interface ILevel extends IBaseModel {
   bpm?: number | null;
   /** Tile count from CDN cache (denormalized). */
   tilecount?: number | null;
+  /** Auto tile count from CDN cache `analysis.autoTileCount` (denormalized). */
+  autoTileCount?: number | null;
   /** Chart length in ms from CDN cache `analysis.levelLengthInMs` (denormalized). */
   levelLengthInMs?: number | null;
   /** Per-level xacc curve configuration + pins (null = site defaults). */

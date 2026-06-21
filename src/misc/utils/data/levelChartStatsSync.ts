@@ -29,7 +29,7 @@ export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void
   const fileId = level.fileId ?? null;
   if (!level.dlLink || !isCdnUrl(level.dlLink) || !fileId) {
     await Level.update(
-      { bpm: null, tilecount: null, levelLengthInMs: null },
+      { bpm: null, tilecount: null, levelLengthInMs: null, autoTileCount: null },
       { where: { id: levelId }, hooks: false },
     );
     await elasticsearchService.indexLevel(levelId);
@@ -37,8 +37,11 @@ export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void
     return;
   }
 
-  const { bpm, tilecount, levelLengthInMs } = await cdnService.getLevelChartStats(fileId);
-  await Level.update({ bpm, tilecount, levelLengthInMs }, { where: { id: levelId }, hooks: false });
+  const { bpm, tilecount, levelLengthInMs, autoTileCount } = await cdnService.getLevelChartStats(fileId);
+  await Level.update(
+    { bpm, tilecount, levelLengthInMs, autoTileCount },
+    { where: { id: levelId }, hooks: false },
+  );
   await elasticsearchService.indexLevel(levelId);
   await invalidateLevelHttpCache(levelId);
 }

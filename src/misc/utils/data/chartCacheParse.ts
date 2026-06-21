@@ -6,7 +6,7 @@
 type CacheJson = {
   tilecount?: number;
   settings?: { bpm?: number | string };
-  analysis?: { levelLengthInMs?: number };
+  analysis?: { levelLengthInMs?: number; autoTileCount?: number };
 };
 
 function parseBpmFromSettings(bpmRaw: unknown): number | null {
@@ -25,8 +25,11 @@ export function parseChartStatsFromCache(cacheData: string | null): {
   bpm: number | null;
   tilecount: number | null;
   levelLengthInMs: number | null;
+  autoTileCount: number | null;
 } {
-  if (!cacheData) return { bpm: null, tilecount: null, levelLengthInMs: null };
+  if (!cacheData) {
+    return { bpm: null, tilecount: null, levelLengthInMs: null, autoTileCount: null };
+  }
   try {
     const parsed = JSON.parse(cacheData) as CacheJson;
     const tilecount =
@@ -37,8 +40,13 @@ export function parseChartStatsFromCache(cacheData: string | null): {
     const lenRaw = parsed.analysis?.levelLengthInMs;
     const levelLengthInMs =
       typeof lenRaw === 'number' && Number.isFinite(lenRaw) ? lenRaw : null;
-    return { bpm, tilecount, levelLengthInMs };
+    const autoRaw = parsed.analysis?.autoTileCount;
+    const autoTileCount =
+      typeof autoRaw === 'number' && Number.isFinite(autoRaw)
+        ? Math.floor(autoRaw)
+        : null;
+    return { bpm, tilecount, levelLengthInMs, autoTileCount };
   } catch {
-    return { bpm: null, tilecount: null, levelLengthInMs: null };
+    return { bpm: null, tilecount: null, levelLengthInMs: null, autoTileCount: null };
   }
 }

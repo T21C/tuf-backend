@@ -781,13 +781,14 @@ class CdnService {
         bpm: number | null;
         tilecount: number | null;
         levelLengthInMs: number | null;
+        autoTileCount: number | null;
     }> {
         try {
             const response = await this.client.get(`/levels/${fileId}/chart-stats`);
             return response.data;
         } catch (error) {
             if (error instanceof AxiosError && error.response?.status === 404) {
-                return { bpm: null, tilecount: null, levelLengthInMs: null };
+                return { bpm: null, tilecount: null, levelLengthInMs: null, autoTileCount: null };
             }
             this.handleCdnError(
                 error,
@@ -805,6 +806,7 @@ class CdnService {
         bpm: number | null;
         tilecount: number | null;
         levelLengthInMs: number | null;
+        autoTileCount: number | null;
     }> {
         try {
             const response = await this.client.post(`/levels/${fileId}/chart-cache/refresh`);

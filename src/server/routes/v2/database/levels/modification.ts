@@ -82,7 +82,7 @@ async function rebuildLegacySongWhenSuffixChanges(
   return getSongDisplayName({ songObject: song, suffix: suffix ?? null });
 }
 
-const CHART_STATS_FIELDS = ['bpm', 'tilecount', 'levelLengthInMs'] as const;
+const CHART_STATS_FIELDS = ['bpm', 'tilecount', 'levelLengthInMs', 'autoTileCount'] as const;
 type ChartStatKey = (typeof CHART_STATS_FIELDS)[number];
 
 function parseChartStatPayload(body: Record<string, unknown>): {
@@ -97,7 +97,7 @@ function parseChartStatPayload(body: Record<string, unknown>): {
       ok: false,
       code: 400,
       error:
-        'Request must include at least one of: bpm, tilecount, levelLengthInMs',
+        'Request must include at least one of: bpm, tilecount, levelLengthInMs, autoTileCount',
     };
   }
 
@@ -1413,18 +1413,19 @@ router.patch(
     operationId: 'patchLevelChartStats',
     summary: 'Update level chart stats (non-CDN)',
     description:
-      'Super admin only. Sets bpm, tilecount, and/or levelLengthInMs for levels whose download is not CDN-managed. CDN levels must use chart sync from the uploaded file.',
+      'Super admin only. Sets bpm, tilecount, levelLengthInMs, and/or autoTileCount for levels whose download is not CDN-managed. CDN levels must use chart sync from the uploaded file.',
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
     requestBody: {
-      description: 'At least one of bpm, tilecount, levelLengthInMs (null clears)',
+      description: 'At least one of bpm, tilecount, levelLengthInMs, autoTileCount (null clears)',
       schema: {
         type: 'object',
         properties: {
           bpm: { oneOf: [{ type: 'number' }, { type: 'null' }] },
           tilecount: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
           levelLengthInMs: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
+          autoTileCount: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
         },
       },
       required: true,
@@ -1465,7 +1466,7 @@ router.patch(
       );
 
       const updated = await Level.findByPk(levelId, {
-        attributes: ['id', 'bpm', 'tilecount', 'levelLengthInMs'],
+        attributes: ['id', 'bpm', 'tilecount', 'levelLengthInMs', 'autoTileCount'],
       });
 
       await elasticsearchService.indexLevel(levelId);
