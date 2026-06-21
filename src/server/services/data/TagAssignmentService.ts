@@ -238,8 +238,8 @@ class TagAssignmentService {
             tagsToAssign.push({ tagName: dlcTagsMap.containsDLC, groupName: groupNameMap.dlc });
         }
 
-        // Auto Tile tag
-        if (analysis?.autoTile) {
+        // Auto Tile tag (derive from the counter; the boolean flag is unreliable)
+        if (typeof analysis?.autoTileCount === 'number' && analysis.autoTileCount > 0) {
             tagsToAssign.push({ tagName: miscTagsMap.autoTile, groupName: groupNameMap.misc });
         }
 

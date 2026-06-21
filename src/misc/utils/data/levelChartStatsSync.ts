@@ -3,14 +3,21 @@ import cdnService from '@/server/services/core/CdnService.js';
 import { isCdnUrl } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
-/** Same tags as `invalidateLevelCache` in models/levels/hooks.ts (skipped when update uses hooks: false). */
-async function invalidateLevelHttpCache(levelId: number): Promise<void> {
+/**
+ * Clear all Redis caches that embed level data. Mirrors `invalidateLevel` in the CDC projector
+ * (startCdcProjectors.ts) so callers that update level rows with `hooks: false` — or that rebuild
+ * analysis without changing any persisted column (no binlog row event) — never leave stale entries.
+ * Always invoke this directly instead of relying on CDC to pick the change up.
+ */
+export async function invalidateLevelCaches(levelId: number): Promise<void> {
   try {
     await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all']);
+    await invalidatePackLevelsCachesForLevelIds([levelId]);
   } catch (error) {
     logger.error(`Cache invalidation after chart stats sync failed for level ${levelId}:`, error);
   }
@@ -33,7 +40,7 @@ export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void
       { where: { id: levelId }, hooks: false },
     );
     await elasticsearchService.indexLevel(levelId);
-    await invalidateLevelHttpCache(levelId);
+    await invalidateLevelCaches(levelId);
     return;
   }
 
@@ -43,5 +50,5 @@ export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void
     { where: { id: levelId }, hooks: false },
   );
   await elasticsearchService.indexLevel(levelId);
-  await invalidateLevelHttpCache(levelId);
+  await invalidateLevelCaches(levelId);
 }

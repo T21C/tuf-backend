@@ -21,7 +21,7 @@ import Level from '@/models/levels/Level.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { isCdnUrl } from '@/misc/utils/Utility.js';
-import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
+import { applyLevelChartStatsFromCdn, invalidateLevelCaches } from '@/misc/utils/data/levelChartStatsSync.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { initializeAssociations } from '@/models/associations.js';
@@ -56,6 +56,8 @@ async function rebuildCdnCacheAndApplyLevelChartStats(levelId: number): Promise<
       await cdnService.refreshLevelChartCacheAndGetStats(fileId);
     await Level.update({ bpm, tilecount, levelLengthInMs, autoTileCount }, { where: { id: levelId } });
     await elasticsearchService.indexLevel(levelId);
+    // Always clear Redis directly; do not rely on CDC (no binlog row event when values are unchanged).
+    await invalidateLevelCaches(levelId);
   } catch {
     await applyLevelChartStatsFromCdn(levelId);
   }
