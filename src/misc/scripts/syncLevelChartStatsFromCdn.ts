@@ -1,6 +1,6 @@
 /**
  * Rebuild `cdn_files.cacheData` for each level's zip (like a fresh parse), then sync
- * `levels.bpm`, `tilecount`, and `levelLengthInMs` from cache (`refresh` + DB + ES).
+ * `levels.bpm`, `tilecount`, `levelLengthInMs`, and `autoTileCount` from cache (`refresh` + DB + ES).
  *
  * Use after parsing changes, target-level fixes, or when denormalized stats drift.
  *
@@ -52,8 +52,9 @@ async function rebuildCdnCacheAndApplyLevelChartStats(levelId: number): Promise<
   }
 
   try {
-    const { bpm, tilecount, levelLengthInMs } = await cdnService.refreshLevelChartCacheAndGetStats(fileId);
-    await Level.update({ bpm, tilecount, levelLengthInMs }, { where: { id: levelId } });
+    const { bpm, tilecount, levelLengthInMs, autoTileCount } =
+      await cdnService.refreshLevelChartCacheAndGetStats(fileId);
+    await Level.update({ bpm, tilecount, levelLengthInMs, autoTileCount }, { where: { id: levelId } });
     await elasticsearchService.indexLevel(levelId);
   } catch {
     await applyLevelChartStatsFromCdn(levelId);
@@ -178,7 +179,7 @@ const program = new Command();
 
 program
   .name('sync-level-chart-stats-from-cdn')
-  .description('Rebuild CDN level zip cache and sync bpm/tilecount/levelLengthInMs on level rows')
+  .description('Rebuild CDN level zip cache and sync bpm/tilecount/levelLengthInMs/autoTileCount on level rows')
   .option('-d, --dry-run', 'List levels that would be processed', false)
   .option('--level-id <id>', 'Single level id', (v) => parseInt(v, 10))
   .option('-l, --limit <n>', 'Max number of CDN-linked levels to process', (v) => parseInt(v, 10))
