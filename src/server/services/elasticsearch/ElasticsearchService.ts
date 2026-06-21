@@ -20,7 +20,7 @@ import { searchPlayers as runPlayerSearch, PlayerSearchOptions, PlayerSearchResu
 import { searchCreators as runCreatorSearch, hydrateCreatorUsers, CreatorSearchOptions, CreatorSearchResult } from './search/creators/creatorSearch.js';
 import { ARTIST_REINDEX_DEBOUNCE_MS, BATCH_SIZE, MAX_BATCH_SIZE } from './misc/constants.js';
 import { fetchLevelWithRelations, fetchLevelsForBulkIndex, clearEsIndexRelationCaches } from './fetching/levelFetch.js';
-import { fetchPassWithRelations, fetchPassesForBulkIndex, clearEsPassIndexRelationCaches } from './fetching/passFetch.js';
+import { fetchPassWithRelations, fetchPassesForBulkIndex, clearEsPassIndexRelationCaches, invalidateEsLevelCacheForLevelIds } from './fetching/passFetch.js';
 import { fetchPlayersForBulkIndex } from './fetching/playerFetch.js';
 import { fetchCreatorsForBulkIndex } from './fetching/creatorFetch.js';
 import { buildLevelIndexDocument } from './indexing/levelIndexDocument.js';
@@ -188,6 +188,7 @@ class ElasticsearchService {
     : typeof level === 'string' ? parseInt(level)
     : level.id;
     try {
+      invalidateEsLevelCacheForLevelIds([id]);
       const processedLevel = await this.getParsedLevel(id);
       if (processedLevel) {
         await client.index({
@@ -270,6 +271,10 @@ class ElasticsearchService {
       return;
     }
     try {
+      const passMeta = await Pass.findByPk(id, { attributes: ['levelId'] });
+      if (passMeta?.levelId) {
+        invalidateEsLevelCacheForLevelIds([passMeta.levelId]);
+      }
       const loaded = await fetchPassWithRelations(id);
       if (!loaded) {
         logger.error(`Pass ${id} not found`);
@@ -422,6 +427,14 @@ class ElasticsearchService {
 
       if (passIds !== undefined && passIds.length > 0) {
         const sortedUnique = [...new Set(passIds)].sort((a, b) => a - b);
+        const passLevelRows = await Pass.findAll({
+          where: { id: { [Op.in]: sortedUnique } },
+          attributes: ['levelId'],
+          raw: true,
+        });
+        invalidateEsLevelCacheForLevelIds(
+          (passLevelRows as { levelId: number }[]).map((r) => r.levelId),
+        );
         for (let i = 0; i < sortedUnique.length; i += MAX_BATCH_SIZE) {
           const chunk = sortedUnique.slice(i, i + MAX_BATCH_SIZE);
           const passes = await fetchPassesForBulkIndex(chunk);

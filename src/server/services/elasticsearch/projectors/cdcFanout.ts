@@ -40,3 +40,14 @@ export async function getLevelIdsByPlayerId(playerId: number): Promise<number[]>
     (id) => typeof id === 'number' && Number.isFinite(id) && id > 0,
   );
 }
+
+export async function getPassIdsByLevelId(levelId: number): Promise<number[]> {
+  const rows = await Pass.findAll({
+    where: { levelId },
+    attributes: ['id'],
+    raw: true,
+  });
+  return (rows as { id: number }[])
+    .map((r) => r.id)
+    .filter((id) => typeof id === 'number' && Number.isFinite(id) && id > 0);
+}

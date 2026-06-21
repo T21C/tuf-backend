@@ -11,6 +11,15 @@ import LevelAlias from '@/models/levels/LevelAlias.js';
 const esPlayerCache = new Map<number, any>();
 const esLevelCache = new Map<number, any>();
 
+/** Drop cached level rows so pass reindex picks up fresh diffId / metadata. */
+export function invalidateEsLevelCacheForLevelIds(levelIds: Iterable<number>): void {
+  for (const levelId of levelIds) {
+    if (Number.isFinite(levelId) && levelId > 0) {
+      esLevelCache.delete(levelId);
+    }
+  }
+}
+
 export function clearEsPassIndexRelationCaches(): void {
   esPlayerCache.clear();
   esLevelCache.clear();

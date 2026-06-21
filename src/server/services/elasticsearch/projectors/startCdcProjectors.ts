@@ -5,7 +5,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { parseCdcFields, rowId } from './cdcRowParse.js';
-import { getLevelIdsByArtistId, getLevelIdsByPlayerId, getLevelIdsBySongId } from './cdcFanout.js';
+import { getLevelIdsByArtistId, getLevelIdsByPlayerId, getLevelIdsBySongId, getPassIdsByLevelId } from './cdcFanout.js';
 import { cdcPassProjectorDebounce } from './cdcPassProjectorDebounce.js';
 import { cdcLevelCreditsProjectorDebounce } from './cdcLevelCreditsProjectorDebounce.js';
 import { CDC_PASSES_STREAM_BLOCK_MS } from '@/server/services/elasticsearch/misc/constants.js';
@@ -84,6 +84,34 @@ function levelTagCdcChangeRequiresLevelReindex(
   return false;
 }
 
+/** Pass ES docs embed denormalized level fields (diffId, song, visibility, etc.). */
+function levelCdcChangeRequiresPassReindex(
+  op: CdcOp,
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown> | null,
+): boolean {
+  if (op === 'd') return true;
+  if (op === 'c') return false;
+  if (op !== 'u' || !before || !after) return true;
+  const norm = (v: unknown) => (v == null ? '' : String(v));
+  const keys = [
+    'diffId',
+    'baseScore',
+    'ppBaseScore',
+    'song',
+    'artist',
+    'suffix',
+    'songId',
+    'dlLink',
+    'isHidden',
+    'isDeleted',
+  ] as const;
+  for (const k of keys) {
+    if (norm(before[k]) !== norm(after[k])) return true;
+  }
+  return false;
+}
+
 export function startCdcProjectors(): void {
   if (cdcProjectorsDisabledByEnv()) {
     logger.info('[cdc-projectors] Disabled via CDC_PROJECTORS_DISABLED');
@@ -123,6 +151,12 @@ export function startCdcProjectors(): void {
             if (id == null) return;
             await es.indexLevel(id);
             await invalidateLevel(id);
+            if (levelCdcChangeRequiresPassReindex(op, before, after)) {
+              const passIds = await getPassIdsByLevelId(id);
+              if (passIds.length > 0) {
+                await es.reindexPasses(passIds);
+              }
+            }
             break;
           }
           case 'passes': {
