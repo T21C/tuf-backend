@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
 import { transformLevel } from '@/externalServices/cdnService/services/levelTransformer.js';
+import { convertV3ToV2 } from '@/externalServices/cdnService/services/levelV2Converter.js';
 import { repackZipFile } from '@/externalServices/cdnService/services/zipProcessor.js';
 import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
 import { getOriginalArchiveMeta } from '@/externalServices/cdnService/infra/archive/archiveService.js';
@@ -48,6 +49,91 @@ async function ingestDownloadEvent(body: { fileId: string; kind: 'levelzip' | 't
     });
   }
 }
+
+router.get('/:fileId/level-v2.adofai', async (req: Request, res: Response) => {
+    const { fileId } = req.params;
+    if (!fileId) {
+        throw { error: 'File ID is required', code: 400 };
+    }
+
+    try {
+        const file = await CdnFile.findByPk(fileId);
+
+        if (!file) {
+            throw { error: 'File not found', code: 404 };
+        }
+
+        if (file.type !== 'LEVELZIP') {
+            throw { error: 'File is not a level zip', code: 400 };
+        }
+
+        const metadata = file.metadata as {
+            allLevelFiles?: Array<{
+                name: string;
+                path: string;
+                size: number;
+            }>;
+            targetLevel?: string | null;
+            targetLevelOversized?: boolean;
+        };
+
+        if (metadata.targetLevelOversized) {
+            throw {
+                error: 'v2 conversion not available for this level (file too large to process)',
+                code: 400
+            };
+        }
+
+        if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
+            throw { error: 'No level files found in metadata', code: 400 };
+        }
+
+        if (!metadata.targetLevel) {
+            const largestLevel = metadata.allLevelFiles.reduce((largest, current) =>
+                current.size > largest.size ? current : largest
+            );
+            metadata.targetLevel = largestLevel.path;
+        }
+
+        const targetLevel = metadata.targetLevel;
+        const levelExists = await spacesStorage.fileExists(targetLevel);
+
+        if (!levelExists) {
+            throw { error: 'Target level file not found in storage', code: 400 };
+        }
+
+        const { levelData } = await levelCacheService.loadLevelData(file, targetLevel, metadata);
+        const converted = convertV3ToV2(levelData.toJSON());
+
+        await file.increment('accessCount');
+        ingestDownloadEvent({ fileId: file.id, kind: 'transform' }).catch(() => undefined);
+
+        const baseName = path.basename(targetLevel).replace(/\.[^.]+$/, '');
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', encodeContentDisposition(`${baseName}_v2.adofai`));
+        res.setHeader('Cache-Control', 'no-store');
+        return res.json(converted);
+    } catch (error) {
+        if (res.headersSent) {
+            return;
+        }
+
+        const isCustom =
+            error && typeof error === 'object' && 'code' in error && 'error' in error;
+        if (isCustom) {
+            const customError = error as { code: number; error: string };
+            logger.debug('Level v2 conversion request rejected', {
+                fileId: req.params.fileId,
+                code: customError.code,
+                error: customError.error,
+            });
+            return res.status(customError.code).json({ error: customError.error });
+        }
+
+        logger.error('Unexpected level v2 conversion error for ' + req.params.fileId + ':', error);
+        return res.status(500).json({ error: 'Level v2 conversion failed' });
+    }
+});
 
 router.get('/:fileId/transform', async (req: Request, res: Response) => {
     const { fileId } = req.params;
@@ -492,10 +578,14 @@ router.get('/transform-options', async (req: Request, res: Response) => {
         }
 
         const { cacheData } = await levelCacheService.getLevelCache(file, metadata.targetLevel!, metadata);
-        return res.json(cacheData.transformOptions || {
+        const transformOpts = cacheData.transformOptions || {
             eventTypes: [],
             filterTypes: [],
             advancedFilterTypes: []
+        };
+        return res.json({
+            ...transformOpts,
+            version: cacheData.settings?.version
         });
     } catch (error) {
         // Handle custom error objects with code

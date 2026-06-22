@@ -682,6 +682,7 @@ class CdnService {
         eventTypes: string[];
         filterTypes: string[];
         advancedFilterTypes: string[];
+        version?: number;
         transformUnavailable?: boolean;
         reason?: string;
     } | null> {

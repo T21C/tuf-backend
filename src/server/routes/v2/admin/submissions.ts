@@ -52,6 +52,7 @@ import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
 import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { resolveLevelCreatedAtFromVideoLink } from '@/misc/utils/data/levelCreatedAtFromVideoLink.js';
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import { fetchLevelWithRelations } from '@/server/services/elasticsearch/fetching/levelFetch.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -1151,8 +1152,12 @@ router.put(
           });
         }
 
+        const level = await fetchLevelWithRelations(newLevel.id);
+
         return res.json({
           message: 'Submission approved, level and rating created successfully',
+          submissionId: id,
+          level,
         });
     } catch (error) {
       await safeTransactionRollback(transaction, logger);
