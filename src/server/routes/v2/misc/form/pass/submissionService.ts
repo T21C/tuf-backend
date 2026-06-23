@@ -27,6 +27,7 @@ import { passSubmissionHook } from '@/server/routes/v2/webhooks/webhook.js';
 import { formError } from '../shared/errors.js';
 import { assertPassKeyCountForDifficulty } from '@/misc/utils/pass/keyCount.js';
 import { parseAndSanitizePassForm, type PassFormSanitised } from './dto.js';
+import { applyResolvedVideoLinkToPayload } from '../shared/videoUrl.js';
 
 export interface CreatePassSubmissionInput {
   req: Request;
@@ -49,7 +50,8 @@ export async function createPassSubmission(
 ): Promise<CreatePassSubmissionResult> {
   const { userId, formPayload } = input;
 
-  const sanitized = parseAndSanitizePassForm(formPayload);
+  const resolvedPayload = await applyResolvedVideoLinkToPayload(formPayload);
+  const sanitized = parseAndSanitizePassForm(resolvedPayload);
 
   let transaction: Transaction | undefined;
   try {

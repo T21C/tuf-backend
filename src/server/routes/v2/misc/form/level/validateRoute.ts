@@ -13,6 +13,7 @@ import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { gateSubmission } from '../shared/submissionAuth.js';
 import { sendFormError, formError } from '../shared/errors.js';
 import { parseAndSanitizeLevelForm } from './dto.js';
+import { applyResolvedVideoLinkToPayload } from '../shared/videoUrl.js';
 import { computeEvidenceRequirements, validateLevelReferences } from './referenceCheck.js';
 import { assertNoDuplicateLevelSubmission } from './duplicateCheck.js';
 import { LEVEL_ZIP_MAX_FILE_SIZE_BYTES } from '@/server/services/upload/kinds/levelZipLimits.js';
@@ -52,7 +53,8 @@ router.post(
     try {
       const { userId } = gateSubmission(req);
 
-      const { sanitized, errors } = parseAndSanitizeLevelForm(req.body ?? {});
+      const resolvedBody = await applyResolvedVideoLinkToPayload((req.body ?? {}) as Record<string, unknown>);
+      const { sanitized, errors } = parseAndSanitizeLevelForm(resolvedBody);
       if (errors.length > 0) {
         throw formError.bad('Invalid level submission payload', {
           details: { fields: errors },

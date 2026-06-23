@@ -31,6 +31,7 @@ import {
 import { formError } from '../shared/errors.js';
 import { cleanUpCdnFile } from '../shared/cdnCleanup.js';
 import { parseAndSanitizeLevelForm, type LevelFormSanitised } from './dto.js';
+import { applyResolvedVideoLinkToPayload } from '../shared/videoUrl.js';
 import { computeEvidenceRequirements, validateLevelReferences } from './referenceCheck.js';
 import { assertNoDuplicateLevelSubmission } from './duplicateCheck.js';
 import { resolveLevelZipSession, type ResolvedLevelZipSession } from './uploadSessionResolver.js';
@@ -111,7 +112,8 @@ export async function createLevelSubmission(
   };
 
   // Phase 1: Parse + pure validation (no DB).
-  const { sanitized, errors } = parseAndSanitizeLevelForm(formPayload);
+  const resolvedPayload = await applyResolvedVideoLinkToPayload(formPayload);
+  const { sanitized, errors } = parseAndSanitizeLevelForm(resolvedPayload);
   if (errors.length > 0) {
     throw formError.bad('Invalid level submission payload', { details: { fields: errors } });
   }

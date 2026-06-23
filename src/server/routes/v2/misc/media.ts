@@ -1,5 +1,6 @@
 import express, {Request, Response, Router} from 'express';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { Auth } from '@/server/middleware/auth.js';
 import { errorResponseSchema } from '@/server/schemas/v2/misc/index.js';
 import fetch from 'node-fetch';
 import axios from 'axios';
@@ -9,6 +10,9 @@ import puppeteer from 'puppeteer';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {getVideoDetails,} from '@/misc/utils/data/videoDetailParser.js';
+import { resolveSubmissionVideoUrl } from './form/shared/videoUrl.js';
+import { gateSubmission } from './form/shared/submissionAuth.js';
+import { FormError, sendFormError } from './form/shared/errors.js';
 import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
 import { effectiveAvatarForUserRow } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
@@ -966,6 +970,54 @@ setInterval(() => {
     });
   }
 }, CACHE_CLEANUP_INTERVAL);
+
+router.get(
+  '/resolve-video-url',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getMediaResolveVideoUrl',
+    summary: 'Resolve submission video URL',
+    description:
+      'Resolves opaque b23.tv short links via b23.wtf and canonicalises other video URLs for submission forms.',
+    tags: ['Media'],
+    security: ['bearerAuth'],
+    query: {
+      url: { description: 'Raw video URL from the submission form', schema: { type: 'string' }, required: true },
+    },
+    responses: {
+      200: { description: 'Normalized URL and whether b23 resolution ran' },
+      400: { description: 'Missing or invalid URL', schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
+      403: { schema: errorResponseSchema },
+      502: { description: 'b23.wtf resolution failed', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      gateSubmission(req);
+
+      const rawUrl = typeof req.query.url === 'string' ? req.query.url.trim() : '';
+      if (!rawUrl) {
+        return res.status(400).json({ error: 'Video URL is required' });
+      }
+
+      const result = await resolveSubmissionVideoUrl(rawUrl);
+      return res.json(result);
+    } catch (error) {
+      if (error instanceof FormError) {
+        sendFormError(res, error);
+        return;
+      }
+
+      const rawUrl = typeof req.query.url === 'string' ? req.query.url.trim() : '';
+      logger.warn('Failed to resolve submission video URL:', {
+        url: rawUrl.substring(0, 80),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(502).json({ error: 'Failed to resolve b23.tv short link' });
+    }
+  },
+);
 
 router.get(
   '/video-details/:videoLink',
