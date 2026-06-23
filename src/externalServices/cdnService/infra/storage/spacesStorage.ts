@@ -625,6 +625,7 @@ export class CdnSpacesStorage {
         const ext = path.extname(filename).toLowerCase();
         const contentTypes: Record<string, string> = {
             '.adofai': 'application/json',
+            '.adozip': 'application/zip',
             '.zip': 'application/zip',
             ...LEVEL_SUPPORTED_AUDIO_CONTENT_TYPE_BY_EXT,
             '.jpg': 'image/jpeg',

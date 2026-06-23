@@ -39,6 +39,9 @@ export interface ArchiveEntry {
 
 export type SupportedArchiveExt = 'zip' | 'rar' | '7z' | 'tar' | 'gz' | 'tgz';
 
+/** Game-originated or other extensions that are byte-for-byte ZIP archives. */
+export const ZIP_ALIAS_EXTENSIONS = ['.adozip'] as const;
+
 /**
  * Canonical descriptor of the original (source) archive for a CDN entry.
  *
@@ -124,6 +127,9 @@ export function detectArchiveFormat(filePathOrName: string, buffer?: Buffer): Su
     if (lower.endsWith('.tgz')) return 'tgz';
     if (lower.endsWith('.tar')) return 'tar';
     if (lower.endsWith('.gz')) return 'gz';
+    for (const alias of ZIP_ALIAS_EXTENSIONS) {
+        if (lower.endsWith(alias)) return 'zip';
+    }
     if (lower.endsWith('.zip')) return 'zip';
     if (lower.endsWith('.rar')) return 'rar';
     if (lower.endsWith('.7z')) return '7z';
