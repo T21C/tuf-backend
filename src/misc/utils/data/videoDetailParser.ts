@@ -1,6 +1,7 @@
 import twemoji from 'twemoji';
 import axios from 'axios';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { getPrimaryVideoLink } from '@/misc/utils/data/videoLinkParts.js';
 
 export interface VideoDetails {
   title: string;
@@ -187,13 +188,14 @@ async function getYouTubeVideoDetails(
 }
 
 async function getVideoDetails(url: string): Promise<VideoDetails | null> {
-  if (!url) {
+  const primary = getPrimaryVideoLink(url);
+  if (!primary) {
     return null;
   }
 
-  const details = await getYouTubeVideoDetails(url);
+  const details = await getYouTubeVideoDetails(primary);
   if (!details) {
-    return await getBilibiliVideoDetails(url);
+    return await getBilibiliVideoDetails(primary);
   }
   return details;
 }

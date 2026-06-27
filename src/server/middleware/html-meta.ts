@@ -15,6 +15,7 @@ import LevelPack from '@/models/packs/LevelPack.js';
 import { LevelPackViewModes } from '@/models/packs/index.js';
 import { Op } from 'sequelize';
 import { getArtistDisplayName, getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import { getPrimaryVideoLink } from '@/misc/utils/data/videoLinkParts.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 
@@ -312,7 +313,7 @@ export const htmlMetaMiddleware = async (
               '@type': 'VideoObject',
               name: pageTitle,
               description: pageDescription,
-              url: pass.videoLink || pageUrl,
+              url: getPrimaryVideoLink(pass.videoLink) || pageUrl,
               thumbnailUrl,
             },
           ])}`;

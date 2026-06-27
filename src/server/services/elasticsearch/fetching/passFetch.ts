@@ -6,6 +6,10 @@ import User from '@/models/auth/User.js';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import LevelAlias from '@/models/levels/LevelAlias.js';
+import LevelCredit from '@/models/levels/LevelCredit.js';
+import Creator from '@/models/credits/Creator.js';
+import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
+import Team from '@/models/credits/Team.js';
 
 /** Reuse Player/Level rows across reindex batches. */
 const esPlayerCache = new Map<number, any>();
@@ -29,6 +33,54 @@ function groupById<T extends { id: number }>(rows: T[]): Map<number, T> {
   const m = new Map<number, T>();
   for (const r of rows) m.set(r.id, r);
   return m;
+}
+
+function groupLevelCreditsByLevelId(rows: LevelCredit[]): Map<number, LevelCredit[]> {
+  const m = new Map<number, LevelCredit[]>();
+  for (const r of rows) {
+    const arr = m.get(r.levelId) ?? [];
+    arr.push(r);
+    m.set(r.levelId, arr);
+  }
+  return m;
+}
+
+async function cacheLevelsForPassIndex(levelIds: number[]): Promise<void> {
+  if (levelIds.length === 0) return;
+
+  const levels = await Level.findAll({
+    where: { id: { [Op.in]: levelIds } },
+    include: [
+      { model: Difficulty, as: 'difficulty', attributes: ['id', 'name', 'type', 'icon', 'color', 'emoji', 'sortOrder'] },
+      { model: LevelAlias, as: 'aliases', attributes: ['id', 'levelId', 'field', 'originalValue', 'alias', 'createdAt', 'updatedAt'] },
+      { model: Team, as: 'teamObject', attributes: ['id', 'name'] },
+    ],
+  });
+
+  const levelCredits = await LevelCredit.findAll({
+    where: { levelId: { [Op.in]: levelIds } },
+    attributes: ['levelId', 'creatorId', 'role', 'isOwner', 'sortOrder'],
+    order: [
+      ['levelId', 'ASC'],
+      ['sortOrder', 'ASC'],
+    ],
+    include: [
+      {
+        model: Creator,
+        as: 'creator',
+        attributes: ['id', 'name'],
+        include: [{ model: CreatorAlias, as: 'creatorAliases', attributes: ['name'] }],
+      },
+    ],
+  });
+
+  const creditsByLevel = groupLevelCreditsByLevelId(levelCredits);
+
+  for (const level of levels) {
+    const lv = level as unknown as Level & { setDataValue: (k: string, v: unknown) => void };
+    lv.setDataValue('levelCredits', creditsByLevel.get(level.id) ?? []);
+    esLevelCache.set(level.id, lv.get({ plain: true }));
+  }
 }
 
 export async function fetchPassesForBulkIndex(passIds: number[]): Promise<Pass[]> {
@@ -59,14 +111,7 @@ export async function fetchPassesForBulkIndex(passIds: number[]): Promise<Pass[]
 
   const missingLevelIds = levelIds.filter((id) => !esLevelCache.has(id));
   if (missingLevelIds.length) {
-    const levels = await Level.findAll({
-      where: { id: { [Op.in]: missingLevelIds } },
-      include: [
-        { model: Difficulty, as: 'difficulty', attributes: ['id', 'name', 'type', 'icon', 'color', 'emoji', 'sortOrder'] },
-        { model: LevelAlias, as: 'aliases', attributes: ['id', 'levelId', 'field', 'originalValue', 'alias', 'createdAt', 'updatedAt'] },
-      ],
-    });
-    for (const l of levels) esLevelCache.set(l.id, l.get({ plain: true }));
+    await cacheLevelsForPassIndex(missingLevelIds);
   }
 
   const judgements = await Judgement.findAll({

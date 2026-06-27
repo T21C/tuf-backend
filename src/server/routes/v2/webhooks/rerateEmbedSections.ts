@@ -5,6 +5,7 @@ import Pass from '@/models/passes/Pass.js';
 import Rating from '@/models/levels/Rating.js';
 import { MessageBuilder } from '@/misc/webhook/index.js';
 import { getVideoDetails } from '@/misc/utils/data/videoDetailParser.js';
+import { getPrimaryVideoLink } from '@/misc/utils/data/videoLinkParts.js';
 import { clientUrlEnv } from '@/config/app.config.js';
 import {
   type LevelAnnouncementCurveSnapshot,
@@ -282,6 +283,7 @@ export async function createRerateEmbedFromQueue(
   const videoInfo = level.videoLink
     ? await getVideoDetails(level.videoLink).catch(() => null)
     : null;
+  const primaryVideoLink = getPrimaryVideoLink(level.videoLink);
 
   const rating = await Rating.findOne({
     where: { levelId: level.id },
@@ -331,7 +333,7 @@ export async function createRerateEmbedFromQueue(
   embed
     .addField(
       '',
-      `**${level.videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${level.videoLink})` : 'No video link'}**`,
+      `**${primaryVideoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${primaryVideoLink})` : 'No video link'}**`,
       false,
     )
     .setFooter(`ID: ${level.id}`, '')

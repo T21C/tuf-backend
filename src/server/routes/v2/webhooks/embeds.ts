@@ -3,6 +3,7 @@ import Level from '@/models/levels/Level.js';
 import Pass from '@/models/passes/Pass.js';
 import {MessageBuilder} from '@/misc/webhook/index.js';
 import {getVideoDetails} from '@/misc/utils/data/videoDetailParser.js';
+import { getPrimaryVideoLink } from '@/misc/utils/data/videoLinkParts.js';
 import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
 import { OAuthProvider } from '@/models/index.js';
 import { clientUrlEnv } from '@/config/app.config.js';
@@ -120,6 +121,7 @@ export async function createNewLevelEmbed(
   const videoInfo = await getVideoDetails(level.videoLink).then(
     details => details,
   );
+  const primaryVideoLink = getPrimaryVideoLink(level.videoLink);
   const rating = await Rating.findOne({
     where: {
       levelId: level.id,
@@ -148,7 +150,7 @@ export async function createNewLevelEmbed(
   embed
     .addField(
       '',
-      `**${level.videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${level.videoLink})` : 'No video link'}**`,
+      `**${primaryVideoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${primaryVideoLink})` : 'No video link'}**`,
       false,
     )
     .setFooter(`ID: ${level.id}`, '')
@@ -180,6 +182,7 @@ export async function createClearEmbed(
   const videoInfo = pass?.videoLink
     ? await getVideoDetails(pass.videoLink).then(details => details)
     : null;
+  const primaryVideoLink = getPrimaryVideoLink(pass.videoLink);
 
   const keyCount = normalizeKeyCount(pass.keyCount);
   const keyCountLabel =
@@ -248,8 +251,8 @@ export async function createClearEmbed(
       true,
     )
     .addField(
-      `${pass.videoLink?.includes('bilibili') || pass.videoLink?.includes('b32.tv') ? '<:icons8bilibili48:1334853728905330738>' : '<:1384060:1317995999355994112>'}`,
-      `**[Go to video](${pass.videoLink})**`,
+      `${primaryVideoLink?.includes('bilibili') || primaryVideoLink?.includes('b32.tv') ? '<:icons8bilibili48:1334853728905330738>' : '<:1384060:1317995999355994112>'}`,
+      `**[Go to video](${primaryVideoLink})**`,
       true,
     )
     .addField('', '', false)
@@ -257,7 +260,7 @@ export async function createClearEmbed(
     .addField(showAddInfo ? additionalInfo : '', '', false)
     .addField(
       '',
-      `**${pass.videoLink ? `[${videoInfo?.title || 'No title'}](${pass.videoLink})` : 'No video link'}**`,
+      `**${primaryVideoLink ? `[${videoInfo?.title || 'No title'}](${primaryVideoLink})` : 'No video link'}**`,
       true,
     )
     /*.setFooter(

@@ -21,6 +21,7 @@ import {
 } from './channelParser.js';
 import {PassSubmission} from '@/models/submissions/PassSubmission.js';
 import {getVideoDetails} from '@/misc/utils/data/videoDetailParser.js';
+import { getPrimaryVideoLink } from '@/misc/utils/data/videoLinkParts.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import {calcAcc, IJudgements} from '@/misc/utils/pass/CalcAcc.js';
 import {Auth} from '@/server/middleware/auth.js';
@@ -472,6 +473,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
   const diff = level?.diff || null;
   const artist = level?.artist || null;
   const videoLink = level?.videoLink || null;
+  const primaryVideoLink = getPrimaryVideoLink(videoLink);
   const videoInfo = videoLink
     ? await getVideoDetails(videoLink).then(details => details)
     : null;
@@ -503,7 +505,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
   embed
     .addField(
       '',
-      `**${videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${videoLink})` : 'No video link'}**`,
+      `**${primaryVideoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${primaryVideoLink})` : 'No video link'}**`,
       false,
     )
     .setTimestamp();
@@ -542,6 +544,7 @@ export async function passSubmissionHook(
   const videoInfo = pass?.videoLink
     ? await getVideoDetails(pass.videoLink).then(details => details)
     : null;
+  const primaryVideoLink = getPrimaryVideoLink(pass.videoLink);
 
   const levelLink = `${clientUrlEnv}/levels/${level?.id}`;
 
@@ -596,7 +599,7 @@ export async function passSubmissionHook(
     .addField(showAddInfo ? additionalInfo : '', '', false)
     .addField(
       '',
-      `**${pass.videoLink ? `[${videoInfo?.title || 'No title'}](${pass.videoLink})` : 'No video link'}**`,
+      `**${primaryVideoLink ? `[${videoInfo?.title || 'No title'}](${primaryVideoLink})` : 'No video link'}**`,
       true,
     )
     //.setImage(videoInfo?.image || "")

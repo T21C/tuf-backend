@@ -1,3 +1,10 @@
+import {
+  cleanSingleVideoUrl,
+  cleanVideoLinks,
+  getPrimaryVideoLink,
+  splitVideoLinks,
+} from '@/misc/utils/data/videoLinkParts.js';
+
 const B23_HOSTS = new Set(['b23.tv', 'www.b23.tv']);
 const B23_PATH_CODE = /^\/([a-zA-Z0-9]+)$/;
 const ALLOWED_BILIBILI_HOSTS = new Set(['bilibili.com', 'www.bilibili.com', 'm.bilibili.com']);
@@ -45,32 +52,13 @@ function parseB23TvUrl(url: string): ParsedB23TvUrl | null {
 
 /**
  * Canonicalise user-supplied video URLs to a stable form so duplicate detection
- * can compare them exactly. Unknown URLs pass through unchanged.
+ * can compare them exactly. Multi-link strings are preserved; each token is cleaned.
  */
 export function cleanVideoUrl(url: string): string {
-  if (!url || typeof url !== 'string') return '';
-
-  const patterns = [
-    /https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/,
-    /https?:\/\/(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)/,
-    /https?:\/\/(?:www\.)?youtube\.com\/live\/([a-zA-Z0-9_-]+)/,
-    /https?:\/\/(?:www\.|m\.)?bilibili\.com\/video\/(BV[a-zA-Z0-9]+)/,
-    /https?:\/\/(?:www\.|m\.)?b23\.tv\/(BV[a-zA-Z0-9]+)/,
-    /https?:\/\/(?:www\.|m\.)?bilibili\.com\/.*?(BV[a-zA-Z0-9]+)/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match && match[1]) {
-      if (match[1].startsWith('BV')) {
-        return `https://www.bilibili.com/video/${match[1]}`;
-      }
-      return `https://www.youtube.com/watch?v=${match[1]}`;
-    }
-  }
-
-  return url;
+  return cleanVideoLinks(url);
 }
+
+export { getPrimaryVideoLink, splitVideoLinks };
 
 export function isB23ShortUrl(url: string): boolean {
   return parseB23TvUrl(url) !== null;
@@ -159,12 +147,19 @@ export async function resolveSubmissionVideoUrl(url: string): Promise<ResolveSub
     return { url: '', resolved: false };
   }
 
-  if (needsB23Resolution(trimmed)) {
-    const resolved = await resolveB23ShortUrl(trimmed);
-    return { url: resolved, resolved: true };
-  }
+  const parts = splitVideoLinks(trimmed);
+  let resolved = false;
+  const resolvedParts = await Promise.all(
+    parts.map(async (part) => {
+      if (needsB23Resolution(part)) {
+        resolved = true;
+        return resolveB23ShortUrl(part);
+      }
+      return cleanSingleVideoUrl(part);
+    }),
+  );
 
-  return { url: cleanVideoUrl(trimmed), resolved: false };
+  return { url: resolvedParts.join(' '), resolved };
 }
 
 export async function applyResolvedVideoLinkToPayload(
