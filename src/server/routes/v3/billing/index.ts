@@ -45,6 +45,7 @@ import {
 } from '@/server/services/billing/tufStellarStripeUserRefund.js';
 import { classifyBillingActivityKind } from '@/server/services/billing/billingActivityKind.js';
 import { buildBillingPricingDisplayForRequest } from '@/server/services/billing/tufStellarDisplayPricingRegion.js';
+import { stripeMinorToMajor } from '@/server/services/billing/stripeCurrencyMinorUnits.js';
 
 const router: Router = Router();
 
@@ -63,24 +64,25 @@ function summarizeStripeEnvelope(payload: Record<string, unknown>): PaymentSumma
   if (t === 'checkout.session.completed' && String(dataObj.object) === 'checkout.session') {
     const total = dataObj.amount_total;
     const cur = dataObj.currency;
+    const currency = typeof cur === 'string' ? cur.toUpperCase() : null;
     const cents = total != null ? Number(total) : NaN;
-    const amount = Number.isFinite(cents) ? cents / 100 : null;
+    const amount = Number.isFinite(cents) ? stripeMinorToMajor(cents, currency) : null;
     return {
       amount,
-      currency: typeof cur === 'string' ? cur.toUpperCase() : null,
+      currency,
     };
   }
   if (String(dataObj.object) === 'charge') {
     const cur = dataObj.currency;
     const currency = typeof cur === 'string' ? cur.toUpperCase() : null;
-    // `charge.refunded` carries cumulative refunded cents on `amount_refunded`; `amount` is the original charge.
+    // `charge.refunded` carries cumulative refunded minor units on `amount_refunded`; `amount` is the original charge.
     if (t === 'charge.refunded') {
       const refCents = dataObj.amount_refunded != null ? Number(dataObj.amount_refunded) : NaN;
-      const amount = Number.isFinite(refCents) ? refCents / 100 : null;
+      const amount = Number.isFinite(refCents) ? stripeMinorToMajor(refCents, currency) : null;
       return { amount, currency };
     }
     const amt = dataObj.amount != null ? Number(dataObj.amount) : NaN;
-    const amount = Number.isFinite(amt) ? amt / 100 : null;
+    const amount = Number.isFinite(amt) ? stripeMinorToMajor(amt, currency) : null;
     return {
       amount,
       currency,

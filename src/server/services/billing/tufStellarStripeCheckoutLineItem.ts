@@ -11,10 +11,9 @@ import {
   resolveTufStellarGiftProductId,
   type TufStellarMonths,
 } from '@/server/services/billing/tufStellarProductCatalog.js';
+import { majorToStripeMinor } from '@/server/services/billing/stripeCurrencyMinorUnits.js';
 
 export { TUF_STELLAR_DISPLAY_CURRENCIES };
-
-const ZERO_DECIMAL_CURRENCIES = new Set<string>(['JPY', 'KRW', 'VND']);
 
 export type CheckoutCurrencyResolution =
   | { ok: true; currency: TufStellarDisplayCurrency }
@@ -45,11 +44,7 @@ export function resolveCheckoutCurrency(req: Request, bodyCurrency: unknown): Ch
 
 /** Convert marketing major units to Stripe `unit_amount` minor units. */
 export function majorToStripeUnitAmount(major: number, currency: TufStellarDisplayCurrency): number {
-  const cur = currency.toUpperCase();
-  if (ZERO_DECIMAL_CURRENCIES.has(cur)) {
-    return Math.round(major);
-  }
-  return Math.round(major * 100);
+  return majorToStripeMinor(major, currency);
 }
 
 function checkoutProductName(months: TufStellarMonths): string {
