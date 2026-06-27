@@ -23,10 +23,10 @@ const PASS_NUMERIC_RANGE_FIELDS: Record<
   eperfect: { esField: 'judgements.ePerfect', integerOnly: true },
   perfect: { esField: 'judgements.perfect', integerOnly: true },
   lperfect: { esField: 'judgements.lPerfect', integerOnly: true },
-  earlysingle: { esField: 'judgements.earlySingle', integerOnly: true },
-  earlydouble: { esField: 'judgements.earlyDouble', integerOnly: true },
-  latesingle: { esField: 'judgements.lateSingle', integerOnly: true },
-  latedouble: { esField: 'judgements.lateDouble', integerOnly: true },
+  early: { esField: 'judgements.earlySingle', integerOnly: true },
+  miss: { esField: 'judgements.earlyDouble', integerOnly: true },
+  late: { esField: 'judgements.lateSingle', integerOnly: true },
+  toolate: { esField: 'judgements.lateDouble', integerOnly: true },
 };
 
 function scaleNumericConstraint(
