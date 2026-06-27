@@ -27,6 +27,10 @@ export function normalizeVerificationState(value: unknown): string | null {
   return t.length > 0 ? t : null;
 }
 
+export function isYsmodOnlyState(state: string | null | undefined): boolean {
+  return normalizeVerificationState(state) === 'ysmod_only';
+}
+
 export function songStateDoesNotRequireEvidence(state: string | null | undefined): boolean {
   const n = normalizeVerificationState(state);
   return n !== null && SONG_VERIFICATION_NO_EVIDENCE.has(n);

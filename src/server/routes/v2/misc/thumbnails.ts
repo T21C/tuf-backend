@@ -641,7 +641,9 @@ router.get(
                       alt="Difficulty Icon"
                     />
                     ${curationIconsHtml}
-                    ${averageDifficulty ? `<img class="average-diff-icon" src="${averageDifficulty.icon}" alt="Average Difficulty Icon">` : ''}
+                    ${ // removed by request
+                    // averageDifficulty ? `<img class="average-diff-icon" src="${averageDifficulty.icon}" alt="Average Difficulty Icon">` : ''}
+                    null}
                     </div>
                     <div class="song-info">
                       <div class="song-title text">${song}</div>

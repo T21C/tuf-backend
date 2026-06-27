@@ -19,6 +19,7 @@ import LevelSubmissionSongRequest from '@/models/submissions/LevelSubmissionSong
 import LevelSubmissionArtistRequest from '@/models/submissions/LevelSubmissionArtistRequest.js';
 import type Artist from '@/models/artists/Artist.js';
 import LevelSubmissionEvidence from '@/models/submissions/LevelSubmissionEvidence.js';
+import Song from '@/models/songs/Song.js';
 import { OAuthProvider, User } from '@/models/index.js';
 
 import { levelSubmissionHook } from '@/server/routes/v2/webhooks/webhook.js';
@@ -35,6 +36,7 @@ import { applyResolvedVideoLinkToPayload } from '../shared/videoUrl.js';
 import { computeEvidenceRequirements, validateLevelReferences } from './referenceCheck.js';
 import { assertNoDuplicateLevelSubmission } from './duplicateCheck.js';
 import { resolveLevelZipSession, type ResolvedLevelZipSession } from './uploadSessionResolver.js';
+import { isYsmodOnlyState } from '@/server/submissions/submissionEvidenceRules.js';
 
 const evidenceService = EvidenceService.getInstance();
 
@@ -119,10 +121,18 @@ export async function createLevelSubmission(
   }
 
   // Phase 2: DB-backed validation. Short transaction so we fail fast before uploading.
+  let songRequiresYsModFlag = false;
   {
     const preTx = await sequelize.transaction();
     try {
       await validateLevelReferences(sanitized, preTx);
+      if (sanitized.songId != null) {
+        const song = await Song.findByPk(sanitized.songId, {
+          attributes: ['verificationState'],
+          transaction: preTx,
+        });
+        songRequiresYsModFlag = isYsmodOnlyState(song?.verificationState);
+      }
       await assertNoDuplicateLevelSubmission(sanitized, userId, preTx);
       const evidence = await computeEvidenceRequirements(sanitized, preTx);
       if (evidence.requiresEvidence && evidenceFiles.length === 0) {
@@ -176,6 +186,22 @@ export async function createLevelSubmission(
       throw formError.bad('Failed to upload zip file to CDN', {
         details: { error: msg },
       });
+    }
+
+    if (
+      songRequiresYsModFlag &&
+      levelFiles.length > 0 &&
+      !levelFiles.some((f) => f.hasYouTubeStream)
+    ) {
+      await markCdnJobFailed('Level is missing the required YSMod (YouTubeStream) flag');
+      await cleanUpCdnFile(uploadedFileId);
+      if (resolvedSession) {
+        await safeCancelSession(resolvedSession);
+      }
+      throw formError.bad(
+        'This song is YSMod-only: the submitted level must require the YouTubeStream mod',
+        { field: 'directDL' },
+      );
     }
   }
 

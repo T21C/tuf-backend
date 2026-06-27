@@ -1,7 +1,9 @@
 import express, { Router, type Request, type Response } from 'express';
 
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
+import Song from '@/models/songs/Song.js';
 import cdnService, { CdnError } from '@/server/services/core/CdnService.js';
+import { isYsmodOnlyState } from '@/server/submissions/submissionEvidenceRules.js';
 import { Auth } from '@/server/middleware/auth.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import {
@@ -118,6 +120,16 @@ router.post(
           error: 'Selected level file not found',
           availableFiles: levelFiles.map((f) => f.fullPath || f.relativePath || f.name),
         });
+      }
+
+      if (submission.songId != null && !selectedFile.hasYouTubeStream) {
+        const song = await Song.findByPk(submission.songId, { attributes: ['verificationState'] });
+        if (isYsmodOnlyState(song?.verificationState)) {
+          return res.status(400).json({
+            success: false,
+            error: 'This song is YSMod-only: the selected chart must require the YouTubeStream mod',
+          });
+        }
       }
 
       await cdnService.setTargetLevel(fileId, selectedLevel);
