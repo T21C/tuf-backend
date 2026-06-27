@@ -178,7 +178,26 @@ export const queryParserConfigs = {
   },
   pass: {
     // `player.id` must appear before `player` so the regex matches the longer field first
-    allowedFields: ['player.id', 'player', 'video', 'vidtitle', 'level.song', 'level.artist', 'level.dlLink', 'keycount'],
+    allowedFields: [
+      'player.id',
+      'player',
+      'video',
+      'vidtitle',
+      'level.song',
+      'level.artist',
+      'level.dlLink',
+      'keycount',
+      'score',
+      'xacc',
+      'speed',
+      'eperfect',
+      'perfect',
+      'lperfect',
+      'earlysingle',
+      'earlydouble',
+      'latesingle',
+      'latedouble',
+    ],
     numericFields: ['player.id'],
     isPassSearch: true
   },

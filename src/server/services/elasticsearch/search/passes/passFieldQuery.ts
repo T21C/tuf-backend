@@ -10,10 +10,40 @@ import {
   termField,
   wildcardCi,
 } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
+import type { ParsedNumericSearchConstraint } from '@/misc/utils/data/searchHelpers.js';
 
-const PASS_NUMERIC_RANGE_FIELDS: Record<string, { esField: string; integerOnly: boolean }> = {
+const PASS_NUMERIC_RANGE_FIELDS: Record<
+  string,
+  { esField: string; integerOnly: boolean; scale?: number }
+> = {
   keycount: { esField: 'keyCount', integerOnly: true },
+  score: { esField: 'scoreV2', integerOnly: false },
+  xacc: { esField: 'accuracy', integerOnly: false, scale: 0.01 },
+  speed: { esField: 'speed', integerOnly: false },
+  eperfect: { esField: 'judgements.ePerfect', integerOnly: true },
+  perfect: { esField: 'judgements.perfect', integerOnly: true },
+  lperfect: { esField: 'judgements.lPerfect', integerOnly: true },
+  earlysingle: { esField: 'judgements.earlySingle', integerOnly: true },
+  earlydouble: { esField: 'judgements.earlyDouble', integerOnly: true },
+  latesingle: { esField: 'judgements.lateSingle', integerOnly: true },
+  latedouble: { esField: 'judgements.lateDouble', integerOnly: true },
 };
+
+function scaleNumericConstraint(
+  parsed: ParsedNumericSearchConstraint,
+  scale: number,
+): ParsedNumericSearchConstraint {
+  if (scale === 1) return parsed;
+  if (parsed.kind === 'term') {
+    return { kind: 'term', n: parsed.n * scale };
+  }
+  const bounds: Partial<{ gt: number; gte: number; lt: number; lte: number }> = {};
+  if (parsed.bounds.gt != null) bounds.gt = parsed.bounds.gt * scale;
+  if (parsed.bounds.gte != null) bounds.gte = parsed.bounds.gte * scale;
+  if (parsed.bounds.lt != null) bounds.lt = parsed.bounds.lt * scale;
+  if (parsed.bounds.lte != null) bounds.lte = parsed.bounds.lte * scale;
+  return { kind: 'range', bounds };
+}
 
 export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
   const { field, value, exact, isNot } = fieldSearch;
@@ -28,11 +58,12 @@ export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
       //logger.debug(`No numeric constraint parsed for field: ${field}, decoded value: ${decoded}`);
       return matchNone();
     }
-    const { esField } = numericRangeConfig;
-    if (parsed.kind === 'term') {
-      return maybeNot(isNot, termField(esField, parsed.n));
+    const { esField, scale = 1 } = numericRangeConfig;
+    const scaled = scaleNumericConstraint(parsed, scale);
+    if (scaled.kind === 'term') {
+      return maybeNot(isNot, termField(esField, scaled.n));
     }
-    return maybeNot(isNot, rangeOnField(esField, parsed.bounds));
+    return maybeNot(isNot, rangeOnField(esField, scaled.bounds));
   }
 
   const numericFields = queryParserConfigs.pass.numericFields || [];
