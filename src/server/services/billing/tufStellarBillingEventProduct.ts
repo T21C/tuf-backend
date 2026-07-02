@@ -1,12 +1,14 @@
 import { inferGiftMonthsFromXsollaPayload, isTufStellarMonths, monthsFromTufStellarGiftProductId } from '@/server/services/billing/tufStellarProductCatalog.js';
 
-export type BillingEventProductKind = 'purchase' | 'unknown';
+export type BillingEventProductKind = 'purchase' | 'admin_grant' | 'unknown';
 
 /** Parsed product hints from an Xsolla IPN `rawBody` for billing activity UI. */
 export interface BillingEventProductDescriptor {
   kind: BillingEventProductKind;
   /** Resolved term length when SKU matches the TUFStellar catalog. */
   months: number | null;
+  /** Custom-day admin grants. */
+  days: number | null;
   /** SKU / product slug from the webhook when present. */
   sku: string | null;
   /** Purchase line item id from Xsolla when present. */
@@ -107,9 +109,44 @@ export function describeProductFromXsollaWebhookRawBody(rawBody: string): Billin
   return {
     kind,
     months,
+    days: null,
     sku,
     itemId,
   };
+}
+
+/** Parsed product hints from an admin grant billing event `rawBody`. */
+export function describeProductFromAdminGrantRawBody(rawBody: string): BillingEventProductDescriptor | null {
+  try {
+    const p = JSON.parse(rawBody) as unknown;
+    if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+    const payload = p as Record<string, unknown>;
+    if (payload.type !== 'admin_grant') return null;
+    const durationKind = payload.durationKind;
+    const durationValue = Number(payload.durationValue);
+    if (!Number.isFinite(durationValue) || durationValue <= 0) return null;
+    if (durationKind === 'months') {
+      return {
+        kind: 'admin_grant',
+        months: durationValue,
+        days: null,
+        sku: null,
+        itemId: null,
+      };
+    }
+    if (durationKind === 'days') {
+      return {
+        kind: 'admin_grant',
+        months: null,
+        days: durationValue,
+        sku: null,
+        itemId: null,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /** Parsed product hints from a Stripe webhook `rawBody` (envelope JSON) for billing activity UI. */
@@ -153,6 +190,7 @@ export function describeProductFromStripeWebhookRawBody(rawBody: string): Billin
   return {
     kind,
     months,
+    days: null,
     sku: null,
     itemId,
   };

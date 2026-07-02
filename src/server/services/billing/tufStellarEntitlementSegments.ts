@@ -119,6 +119,73 @@ export async function appendPurchaseSegment(params: {
   return sequelize.transaction(run);
 }
 
+export type AdminGrantDurationKind = 'months' | 'days';
+
+/** Stack admin-granted access after the latest segment end (or now). */
+export async function appendAdminGrantSegment(params: {
+  userId: string;
+  durationKind: AdminGrantDurationKind;
+  durationValue: number;
+  idempotencyKey: string;
+  billingEventId?: number | null;
+  transaction?: Transaction;
+}): Promise<{ inserted: boolean; segmentId: number; startsAt: Date; endsAt: Date }> {
+  const { userId, durationKind, durationValue, idempotencyKey, billingEventId, transaction } = params;
+
+  const run = async (t: Transaction): Promise<{ inserted: boolean; segmentId: number; startsAt: Date; endsAt: Date }> => {
+    const nowMs = Date.now();
+    const globalTailMs = await maxSegmentEndsAtMs(userId, t);
+    const startMs = Math.max(nowMs, globalTailMs ?? 0);
+    const startsAt = new Date(startMs);
+    const endsAt =
+      durationKind === 'months'
+        ? addCalendarMonthsUtc(startsAt, durationValue)
+        : new Date(startMs + durationValue * 86_400_000);
+    const monthsStored = durationKind === 'months' ? durationValue : 0;
+
+    try {
+      const segment = await UserTufStellarEntitlementSegment.create(
+        {
+          userId,
+          kind: 'admin_grant',
+          months: monthsStored,
+          startsAt,
+          endsAt,
+          idempotencyKey,
+          xsollaTransactionId: null,
+          xsollaSubscriptionId: null,
+          stripePaymentIntentId: null,
+          billingEventId: billingEventId ?? null,
+        },
+        { transaction: t },
+      );
+      await recomputeMaterializedExpiry(userId, t);
+      return { inserted: true, segmentId: segment.id, startsAt, endsAt };
+    } catch (e: unknown) {
+      if (e instanceof UniqueConstraintError) {
+        await recomputeMaterializedExpiry(userId, t);
+        const existing = await UserTufStellarEntitlementSegment.findOne({
+          where: { idempotencyKey },
+          transaction: t,
+        });
+        const maxMs = await maxSegmentEndsAtMs(userId, t);
+        return {
+          inserted: false,
+          segmentId: existing?.id ?? 0,
+          startsAt: existing?.startsAt ?? startsAt,
+          endsAt: existing?.endsAt ?? (maxMs != null ? new Date(maxMs) : endsAt),
+        };
+      }
+      throw e;
+    }
+  };
+
+  if (transaction) {
+    return run(transaction);
+  }
+  return sequelize.transaction(run);
+}
+
 /** Remove segments paid for by a given Xsolla transaction (refund / order canceled). Returns distinct user ids touched. */
 export async function revokePurchaseSegmentsByXsollaTransactionId(
   xsollaTransactionId: number,

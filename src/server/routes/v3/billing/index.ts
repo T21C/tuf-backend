@@ -26,6 +26,7 @@ import { addCalendarMonthsUtc } from '@/misc/utils/time/addCalendarMonthsUtc.js'
 import {
   describeProductFromStripeWebhookRawBody,
   describeProductFromXsollaWebhookRawBody,
+  describeProductFromAdminGrantRawBody,
 } from '@/server/services/billing/tufStellarBillingEventProduct.js';
 import { isTufStellarFeatureEnabled, stripeConfig } from '@/config/app.config.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
@@ -46,6 +47,7 @@ import {
 import { classifyBillingActivityKind } from '@/server/services/billing/billingActivityKind.js';
 import { buildBillingPricingDisplayForRequest } from '@/server/services/billing/tufStellarDisplayPricingRegion.js';
 import { stripeMinorToMajor } from '@/server/services/billing/stripeCurrencyMinorUnits.js';
+import adminGrantsRouter from '@/server/routes/v3/billing/adminGrants.js';
 
 const router: Router = Router();
 
@@ -56,6 +58,8 @@ router.use((_req: Request, res: Response, next: NextFunction) => {
     error: { code: 'TUF_STELLAR_DISABLED', message: 'TUFStellar is not available on this deployment.' },
   });
 });
+
+router.use('/admin/grants', adminGrantsRouter);
 
 function summarizeStripeEnvelope(payload: Record<string, unknown>): PaymentSummary | null {
   const t = typeof payload.type === 'string' ? payload.type : '';
@@ -340,7 +344,7 @@ router.get(
                   startsAt: { type: 'string', format: 'date-time' },
                   endsAt: { type: 'string', format: 'date-time' },
                   remainingMs: { type: 'integer' },
-                  source: { type: 'string', enum: ['self_purchase', 'gift_received', 'unknown'] },
+                  source: { type: 'string', enum: ['self_purchase', 'gift_received', 'admin_grant', 'unknown'] },
                   giftFrom: {
                     type: 'object',
                     nullable: true,
@@ -349,6 +353,16 @@ router.get(
                       username: { type: 'string', nullable: true },
                     },
                   },
+                  grantFrom: {
+                    type: 'object',
+                    nullable: true,
+                    properties: {
+                      userId: { type: 'string', format: 'uuid' },
+                      username: { type: 'string', nullable: true },
+                    },
+                  },
+                  durationKind: { type: 'string', enum: ['months', 'days'], nullable: true },
+                  durationValue: { type: 'integer', nullable: true },
                 },
               },
             },
@@ -535,17 +549,31 @@ router.get(
             ? describeProductFromStripeWebhookRawBody(r.rawBody)
             : r.provider === 'xsolla'
               ? describeProductFromXsollaWebhookRawBody(r.rawBody)
-              : null;
+              : r.provider === 'admin'
+                ? describeProductFromAdminGrantRawBody(r.rawBody)
+                : null;
 
         let counterpartyUsername: string | null = null;
         let counterpartyNickname: string | null = null;
-        if (activityKind === 'gift_received' && r.userId) {
-          const cp = counterpartyByUserId.get(String(r.userId).toLowerCase());
-          if (cp) {
-            counterpartyUsername = cp.username;
-            counterpartyNickname = cp.nickname;
+        if (
+          (activityKind === 'gift_received' || activityKind === 'admin_grant_received') &&
+          r.userId
+        ) {
+          const isSelfAdminGrant =
+            activityKind === 'admin_grant_received' &&
+            r.beneficiaryUserId &&
+            String(r.userId).toLowerCase() === String(r.beneficiaryUserId).toLowerCase();
+          if (!isSelfAdminGrant) {
+            const cp = counterpartyByUserId.get(String(r.userId).toLowerCase());
+            if (cp) {
+              counterpartyUsername = cp.username;
+              counterpartyNickname = cp.nickname;
+            }
           }
-        } else if (activityKind === 'gift_sent' && r.beneficiaryUserId) {
+        } else if (
+          (activityKind === 'gift_sent' || activityKind === 'admin_grant_sent') &&
+          r.beneficiaryUserId
+        ) {
           const cp = counterpartyByUserId.get(String(r.beneficiaryUserId).toLowerCase());
           if (cp) {
             counterpartyUsername = cp.username;

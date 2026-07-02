@@ -50,6 +50,7 @@ import HealthLatencySample from './health/HealthLatencySample.js';
 import BillingEvent from './billing/BillingEvent.js';
 import UserTufStellarBilling from './billing/UserTufStellarBilling.js';
 import UserTufStellarEntitlementSegment from './billing/UserTufStellarEntitlementSegment.js';
+import UserTufStellarAdminGrant from './billing/UserTufStellarAdminGrant.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -106,6 +107,7 @@ export const db = {
     BillingEvent,
     UserTufStellarBilling,
     UserTufStellarEntitlementSegment,
+    UserTufStellarAdminGrant,
   },
 };
 
@@ -126,6 +128,7 @@ export {
   BillingEvent,
   UserTufStellarBilling,
   UserTufStellarEntitlementSegment,
+  UserTufStellarAdminGrant,
 };
 
 // Export Discord models

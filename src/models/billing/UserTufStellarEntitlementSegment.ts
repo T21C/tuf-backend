@@ -3,7 +3,7 @@ import { getSequelizeForModelGroup } from '@/config/db.js';
 
 const sequelize = getSequelizeForModelGroup('auth');
 
-export type TufStellarEntitlementSegmentKind = 'purchase';
+export type TufStellarEntitlementSegmentKind = 'purchase' | 'admin_grant';
 
 export interface UserTufStellarEntitlementSegmentAttributes {
   id: number;

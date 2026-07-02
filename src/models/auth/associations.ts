@@ -5,6 +5,7 @@ import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
 import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 import UserTufStellarEntitlementSegment from '@/models/billing/UserTufStellarEntitlementSegment.js';
+import UserTufStellarAdminGrant from '@/models/billing/UserTufStellarAdminGrant.js';
 
 export function initializeAuthAssociations() {
   // User <-> RefreshToken associations
@@ -73,6 +74,27 @@ export function initializeAuthAssociations() {
   UserTufStellarEntitlementSegment.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
+  });
+
+  User.hasMany(UserTufStellarAdminGrant, {
+    foreignKey: 'beneficiaryUserId',
+    as: 'tufStellarAdminGrantsReceived',
+  });
+  User.hasMany(UserTufStellarAdminGrant, {
+    foreignKey: 'grantedByUserId',
+    as: 'tufStellarAdminGrantsGiven',
+  });
+  UserTufStellarAdminGrant.belongsTo(User, {
+    foreignKey: 'beneficiaryUserId',
+    as: 'beneficiary',
+  });
+  UserTufStellarAdminGrant.belongsTo(User, {
+    foreignKey: 'grantedByUserId',
+    as: 'grantedBy',
+  });
+  UserTufStellarAdminGrant.belongsTo(User, {
+    foreignKey: 'retractedByUserId',
+    as: 'retractedBy',
   });
 
 }

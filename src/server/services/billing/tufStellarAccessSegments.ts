@@ -1,8 +1,13 @@
 import BillingEvent from '@/models/billing/BillingEvent.js';
 import User from '@/models/auth/User.js';
 import { loadSegmentsForUser } from '@/server/services/billing/tufStellarEntitlementSegments.js';
+import {
+  isAdminGrantBillingEvent,
+  parseAdminGrantBillingEventPayload,
+} from '@/server/services/billing/tufStellarAdminGrantBillingEvent.js';
+import type { AdminGrantDurationKind } from '@/server/services/billing/tufStellarEntitlementSegments.js';
 
-export type TufStellarAccessSegmentSource = 'self_purchase' | 'gift_received' | 'unknown';
+export type TufStellarAccessSegmentSource = 'self_purchase' | 'gift_received' | 'admin_grant' | 'unknown';
 
 export interface TufStellarAccessSegmentGiftFrom {
   userId: string;
@@ -17,6 +22,9 @@ export interface TufStellarAccessSegmentDto {
   remainingMs: number;
   source: TufStellarAccessSegmentSource;
   giftFrom: TufStellarAccessSegmentGiftFrom | null;
+  grantFrom: TufStellarAccessSegmentGiftFrom | null;
+  durationKind: AdminGrantDurationKind | null;
+  durationValue: number | null;
 }
 
 function normUuid(v: string | null | undefined): string | null {
@@ -27,10 +35,39 @@ function normUuid(v: string | null | undefined): string | null {
 function classifySegmentSource(
   viewerId: string,
   event: BillingEvent | null | undefined,
-): { source: TufStellarAccessSegmentSource; giftFrom: TufStellarAccessSegmentGiftFrom | null } {
+): {
+  source: TufStellarAccessSegmentSource;
+  giftFrom: TufStellarAccessSegmentGiftFrom | null;
+  grantFrom: TufStellarAccessSegmentGiftFrom | null;
+  durationKind: AdminGrantDurationKind | null;
+  durationValue: number | null;
+} {
   const me = normUuid(viewerId);
   if (!event || !me) {
-    return { source: 'unknown', giftFrom: null };
+    return { source: 'unknown', giftFrom: null, grantFrom: null, durationKind: null, durationValue: null };
+  }
+
+  if (isAdminGrantBillingEvent(event)) {
+    const payload = parseAdminGrantBillingEventPayload(event.rawBody);
+    const benId = normUuid(event.beneficiaryUserId);
+    const granterRaw = event.userId ? String(event.userId).trim() : '';
+    const granterNorm = normUuid(granterRaw);
+
+    if (benId === me) {
+      const grantFrom =
+        granterNorm && granterNorm !== me
+          ? { userId: granterRaw || granterNorm, username: null }
+          : null;
+      return {
+        source: 'admin_grant',
+        giftFrom: null,
+        grantFrom,
+        durationKind: payload?.durationKind ?? null,
+        durationValue: payload?.durationValue ?? null,
+      };
+    }
+
+    return { source: 'unknown', giftFrom: null, grantFrom: null, durationKind: null, durationValue: null };
   }
 
   const purchaserRaw = event.userId ? String(event.userId).trim() : '';
@@ -44,14 +81,17 @@ function classifySegmentSource(
         userId: purchaserRaw || purchaserNorm,
         username: null,
       },
+      grantFrom: null,
+      durationKind: null,
+      durationValue: null,
     };
   }
 
   if (purchaserNorm === me || !benId || benId === purchaserNorm) {
-    return { source: 'self_purchase', giftFrom: null };
+    return { source: 'self_purchase', giftFrom: null, grantFrom: null, durationKind: null, durationValue: null };
   }
 
-  return { source: 'unknown', giftFrom: null };
+  return { source: 'unknown', giftFrom: null, grantFrom: null, durationKind: null, durationValue: null };
 }
 
 function remainingMsForSegment(startMs: number, endMs: number, nowMs: number): number {
@@ -91,18 +131,24 @@ export async function buildTufStellarAccessSegmentsForUser(
     eventById.set(Number(e.id), e);
   }
 
-  const purchaserRawIds = [...new Set(events.map((e) => e.userId).filter((id): id is string => Boolean(id && String(id).trim())))];
+  const counterpartyRawIds = [
+    ...new Set(
+      events
+        .flatMap((e) => [e.userId, e.beneficiaryUserId])
+        .filter((id): id is string => Boolean(id && String(id).trim())),
+    ),
+  ];
 
-  const purchasers =
-    purchaserRawIds.length === 0
+  const counterparties =
+    counterpartyRawIds.length === 0
       ? []
       : await User.findAll({
-          where: { id: purchaserRawIds },
+          where: { id: counterpartyRawIds },
           attributes: ['id', 'username'],
         });
 
   const usernameById = new Map<string, string | null>();
-  for (const u of purchasers) {
+  for (const u of counterparties) {
     usernameById.set(normUuid(u.id)!, u.username ?? null);
   }
 
@@ -114,13 +160,24 @@ export async function buildTufStellarAccessSegmentsForUser(
     const rem = remainingMsForSegment(startMs, endMs, nowMs);
 
     const ev = s.billingEventId != null ? eventById.get(Number(s.billingEventId)) : undefined;
-    const { source, giftFrom } = classifySegmentSource(viewerUserId, ev ?? null);
+    const { source, giftFrom, grantFrom, durationKind, durationValue } = classifySegmentSource(
+      viewerUserId,
+      ev ?? null,
+    );
 
     let resolvedGiftFrom = giftFrom;
     if (source === 'gift_received' && giftFrom?.userId) {
       resolvedGiftFrom = {
         userId: giftFrom.userId,
         username: usernameById.get(normUuid(giftFrom.userId)!) ?? null,
+      };
+    }
+
+    let resolvedGrantFrom = grantFrom;
+    if (source === 'admin_grant' && grantFrom?.userId) {
+      resolvedGrantFrom = {
+        userId: grantFrom.userId,
+        username: usernameById.get(normUuid(grantFrom.userId)!) ?? null,
       };
     }
 
@@ -132,6 +189,9 @@ export async function buildTufStellarAccessSegmentsForUser(
       remainingMs: rem,
       source,
       giftFrom: resolvedGiftFrom,
+      grantFrom: resolvedGrantFrom,
+      durationKind,
+      durationValue,
     });
   }
 
