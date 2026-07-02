@@ -7,6 +7,7 @@ import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import {
   getPlayerMaxFields,
+  parsePlayerFlagFilter,
   PlayerSearchOptions,
 } from '@/server/services/elasticsearch/search/players/playerSearch.js';
 import { esDocToLegacyPlayerStats } from '@/server/services/elasticsearch/adapters/legacyPlayerStatsShape.js';
@@ -33,6 +34,8 @@ router.get(
       sortBy: { schema: { type: 'string' } },
       order: { schema: { type: 'string' } },
       showBanned: { schema: { type: 'string' } },
+      flagField: { schema: { type: 'string' } },
+      flagMode: { schema: { type: 'string' } },
       query: { schema: { type: 'string' } },
       offset: { schema: { type: 'string' } },
       limit: { schema: { type: 'string' } },
@@ -49,10 +52,12 @@ router.get(
       const { page, offset, limit } = req.query as unknown as PaginationQuery;
       const sortBy = (req.query.sortBy as string) || 'rankedScore';
       const order = ((req.query.order as string) || 'desc').toLowerCase();
-      const showBanned = ((req.query.showBanned as string) || 'show') as
-        | 'show'
-        | 'hide'
-        | 'only';
+      const { field: flagField, mode: flagMode } = parsePlayerFlagFilter({
+        flagField: req.query.flagField,
+        flagMode: req.query.flagMode,
+        showBanned: req.query.showBanned,
+        defaultMode: 'show',
+      });
       const rawQuery = (req.query.query as string) || undefined;
       const filtersParam = req.query.filters;
 
@@ -85,7 +90,8 @@ router.get(
         rawQuery,
         sortBy,
         order: order === 'asc' ? 'asc' : 'desc',
-        showBanned,
+        flagField,
+        flagMode,
         filters,
         limit: effectiveLimit,
         offset: effectiveOffset,

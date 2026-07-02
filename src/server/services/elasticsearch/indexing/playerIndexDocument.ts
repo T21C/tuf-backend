@@ -6,6 +6,8 @@ import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import type { PlayerStatsRow } from '@/server/services/elasticsearch/misc/playerStatsQuery.js';
 import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { permissionFlags } from '@/config/constants.js';
 
 export interface PlayerIndexDocumentInput {
   player: Player;
@@ -143,6 +145,9 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
     country: p.country ?? null,
     isBanned: Boolean(p.isBanned),
     isSubmissionsPaused: Boolean(p.isSubmissionsPaused),
+    isRatingBanned: input.user
+      ? hasFlag(input.user, permissionFlags.RATING_BANNED) || Boolean(input.user.isRatingBanned)
+      : false,
     pfp,
     bio: typeof p.bio === 'string' && p.bio.trim().length ? p.bio : null,
     bannerPreset: typeof p.bannerPreset === 'string' && p.bannerPreset.length ? p.bannerPreset : null,

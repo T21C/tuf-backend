@@ -558,6 +558,7 @@ export const playerMapping = {
       country: { type: 'keyword' as const },
       isBanned: { type: 'boolean' as const },
       isSubmissionsPaused: { type: 'boolean' as const },
+      isRatingBanned: { type: 'boolean' as const },
       pfp: { type: 'keyword' as const },
       bannerPreset: { type: 'keyword' as const },
       customBannerId: { type: 'keyword' as const },

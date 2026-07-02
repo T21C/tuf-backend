@@ -13,6 +13,7 @@ import {
   getPlayerRanks,
   getPlayerMaxFields,
   getRankedScoreRanksForHits,
+  parsePlayerFlagFilter,
   PlayerSearchOptions,
 } from '@/server/services/elasticsearch/search/players/playerSearch.js';
 import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
@@ -80,7 +81,7 @@ function parseFilters(raw: unknown): Record<string, any> | undefined {
 /**
  * Search players by text/Discord prefix. Flat shape; no ranks computed for speed.
  *
- * Query params: query, limit (<=100), offset, showBanned (show|hide|only), filters (JSON).
+ * Query params: query, limit (<=100), offset, flagField, flagMode, showBanned (deprecated), filters (JSON).
  */
 router.get(
   '/search',
@@ -95,6 +96,8 @@ router.get(
       limit: { schema: { type: 'string' } },
       offset: { schema: { type: 'string' } },
       showBanned: { schema: { type: 'string' } },
+      flagField: { schema: { type: 'string' } },
+      flagMode: { schema: { type: 'string' } },
       filters: { schema: { type: 'string' } },
       excludeCreatorLinked: { schema: { type: 'string' } },
     },
@@ -108,13 +111,19 @@ router.get(
       const query = String(req.query.query ?? '').trim();
       const limit = parseLimit(req.query.limit);
       const offset = parseOffset(req.query.offset);
-      const showBanned = (req.query.showBanned as 'show' | 'hide' | 'only') || 'hide';
+      const { field: flagField, mode: flagMode } = parsePlayerFlagFilter({
+        flagField: req.query.flagField,
+        flagMode: req.query.flagMode,
+        showBanned: req.query.showBanned,
+        defaultMode: 'hide',
+      });
       const filters = parseFilters(req.query.filters);
       const excludeCreatorLinked = String(req.query.excludeCreatorLinked ?? '') === 'true';
 
       const options: PlayerSearchOptions = {
         rawQuery: query || undefined,
-        showBanned,
+        flagField,
+        flagMode,
         filters,
         limit,
         offset,
@@ -136,7 +145,7 @@ router.get(
 /**
  * Paginated leaderboard with sort / filters / text query. ES-backed.
  *
- * Query params: query, sortBy, order, showBanned, limit, offset, filters, page (accepted for compat).
+ * Query params: query, sortBy, order, flagField, flagMode, showBanned (deprecated), limit, offset, filters, page (accepted for compat).
  */
 router.get(
   '/leaderboard',
@@ -144,12 +153,14 @@ router.get(
     operationId: 'v3GetLeaderboard',
     summary: 'Player leaderboard (v3)',
     description:
-      'Elasticsearch-backed leaderboard. Supports sort, numeric range filters, country filter, showBanned, and text/Discord query (`pid:playerId`/`#discordId`/`@username`). Returns `maxFields` aggregations for UI filter ceilings.',
+      'Elasticsearch-backed leaderboard. Supports sort, numeric range filters, country filter, player moderation flag filter (`flagField` + `flagMode`), and text/Discord query (`pid:playerId`/`#discordId`/`@username`). Returns `maxFields` aggregations for UI filter ceilings.',
     tags: ['Database', 'Leaderboard', 'v3'],
     query: {
       sortBy: { schema: { type: 'string' } },
       order: { schema: { type: 'string' } },
       showBanned: { schema: { type: 'string' } },
+      flagField: { schema: { type: 'string' } },
+      flagMode: { schema: { type: 'string' } },
       query: { schema: { type: 'string' } },
       offset: { schema: { type: 'string' } },
       limit: { schema: { type: 'string' } },
@@ -167,10 +178,12 @@ router.get(
       const { page, offset, limit } = req.query as unknown as PaginationQuery;
       const sortBy = (req.query.sortBy as string) || 'rankedScore';
       const order = ((req.query.order as string) || 'desc').toLowerCase();
-      const showBanned = ((req.query.showBanned as string) || 'show') as
-        | 'show'
-        | 'hide'
-        | 'only';
+      const { field: flagField, mode: flagMode } = parsePlayerFlagFilter({
+        flagField: req.query.flagField,
+        flagMode: req.query.flagMode,
+        showBanned: req.query.showBanned,
+        defaultMode: 'show',
+      });
       const rawQuery = (req.query.query as string) || undefined;
       const filters = parseFilters(req.query.filters);
 
@@ -187,7 +200,8 @@ router.get(
         rawQuery,
         sortBy,
         order: order === 'asc' ? 'asc' : 'desc',
-        showBanned,
+        flagField,
+        flagMode,
         filters,
         limit: effectiveLimit,
         offset: effectiveOffset,

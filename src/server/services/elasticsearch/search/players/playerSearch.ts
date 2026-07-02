@@ -2,6 +2,9 @@ import client, { playerIndexName } from '@/config/elasticsearch.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { rangeOnField, termField } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 
+export type PlayerFlagField = 'isBanned' | 'isSubmissionsPaused' | 'isRatingBanned';
+export type PlayerFlagMode = 'show' | 'hide' | 'only';
+
 export interface PlayerSearchOptions {
   /** Plain text search — matches player name, user.username, user.nickname. */
   text?: string;
@@ -11,8 +14,12 @@ export interface PlayerSearchOptions {
   requireLinkedUser?: boolean;
   /** When true, exclude players whose linked user is already tied to a creator. */
   excludeCreatorLinked?: boolean;
-  /** `show` keeps banned, `hide` removes them, `only` returns only banned. */
-  showBanned?: 'show' | 'hide' | 'only';
+  /** Player moderation flag field to filter on. */
+  flagField?: PlayerFlagField;
+  /** How to filter the selected moderation flag. */
+  flagMode?: PlayerFlagMode;
+  /** @deprecated Use `flagField` + `flagMode`. Kept for backward compatibility. */
+  showBanned?: PlayerFlagMode;
   /** Range filters (numeric metrics + `country` exact match). */
   filters?: Record<string, [number, number] | string>;
   /** Sort key (see mapping below). */
@@ -66,6 +73,57 @@ const NUMERIC_FILTER_FIELDS = new Set([
   'worldsFirstCount',
   'worldsFirstPPCount',
 ]);
+
+const ALLOWED_FLAG_FIELDS = new Set<PlayerFlagField>([
+  'isBanned',
+  'isSubmissionsPaused',
+  'isRatingBanned',
+]);
+
+const ALLOWED_FLAG_MODES = new Set<PlayerFlagMode>(['show', 'hide', 'only']);
+
+export function parsePlayerFlagFilter(input: {
+  flagField?: unknown;
+  flagMode?: unknown;
+  showBanned?: unknown;
+  defaultMode?: PlayerFlagMode;
+}): { field: PlayerFlagField; mode: PlayerFlagMode } {
+  const defaultMode = input.defaultMode ?? 'show';
+  const rawField = typeof input.flagField === 'string' ? input.flagField : undefined;
+  const rawMode = typeof input.flagMode === 'string' ? input.flagMode : undefined;
+  const legacyMode = typeof input.showBanned === 'string' ? input.showBanned : undefined;
+
+  const field: PlayerFlagField =
+    rawField && ALLOWED_FLAG_FIELDS.has(rawField as PlayerFlagField)
+      ? (rawField as PlayerFlagField)
+      : 'isBanned';
+
+  const modeCandidate = rawMode ?? legacyMode ?? defaultMode;
+  const mode: PlayerFlagMode = ALLOWED_FLAG_MODES.has(modeCandidate as PlayerFlagMode)
+    ? (modeCandidate as PlayerFlagMode)
+    : defaultMode;
+
+  return { field, mode };
+}
+
+function applyPlayerFlagFilter(
+  filter: any[],
+  options: Pick<PlayerSearchOptions, 'flagField' | 'flagMode' | 'showBanned'>,
+  defaultMode: PlayerFlagMode = 'show',
+): void {
+  const { field, mode } = parsePlayerFlagFilter({
+    flagField: options.flagField,
+    flagMode: options.flagMode,
+    showBanned: options.showBanned,
+    defaultMode,
+  });
+
+  if (mode === 'hide') {
+    filter.push(termField(field, false));
+  } else if (mode === 'only') {
+    filter.push(termField(field, true));
+  }
+}
 
 function parseSpecialPrefix(raw?: string): {
   cleaned?: string;
@@ -163,12 +221,7 @@ function buildPlayerQuery(options: PlayerSearchOptions): any {
     }
   }
 
-  const showBanned = options.showBanned ?? 'show';
-  if (showBanned === 'hide') {
-    filter.push(termField('isBanned', false));
-  } else if (showBanned === 'only') {
-    filter.push(termField('isBanned', true));
-  }
+  applyPlayerFlagFilter(filter, options);
 
   if (options.requireHasPasses) {
     filter.push({ range: { totalPasses: { gt: 0 } } });
