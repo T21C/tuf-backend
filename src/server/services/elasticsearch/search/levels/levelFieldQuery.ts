@@ -107,6 +107,10 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
       return maybeNot(isNot, wildcardCi('videoLink.keyword', wildcardValue));
     }
 
+    if (field === 'comment') {
+      return maybeNot(isNot, wildcardCi('publicComments.keyword', wildcardValue));
+    }
+
     if (field === 'song') {
       const nestedSong = specNestedDocNameWithOptionalAliases({
         rootNestedPath: 'songObject',

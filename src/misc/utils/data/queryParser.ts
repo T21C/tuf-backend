@@ -165,6 +165,7 @@ export const queryParserConfigs = {
       'team',
       'vfxer',
       'creator',
+      'comment',
       'dlLink',
       'workshopLink',
       'legacyDllink',

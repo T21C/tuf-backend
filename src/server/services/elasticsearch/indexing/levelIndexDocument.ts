@@ -136,6 +136,7 @@ export function buildLevelIndexDocument(level: Level): any {
     dlLink: puaOrNull(l.dlLink),
     legacyDllink: puaOrNull(l.legacyDllink),
     workshopLink: puaOrNull(l.workshopLink),
+    publicComments: pua(l.publicComments ?? ''),
     aliases: arr<any>(l.aliases).map((a) => {
       const row = plainRow(a as object);
       return {
