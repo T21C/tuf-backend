@@ -57,7 +57,8 @@ const accountDeletionService = AccountDeletionService.getInstance();
 
 import {
   getUsernameFormatError,
-  normalizeUsername,
+  isUsernameChanging,
+  parseUsernameFromBody,
   USERNAME_MAX_LEN,
   USERNAME_MIN_LEN,
 } from '@/misc/utils/auth/username.js';
@@ -218,10 +219,7 @@ router.put(
 
   try {
     transaction = await sequelize.transaction();
-    const username =
-      typeof req.body.username === 'string' && req.body.username.length
-        ? normalizeUsername(req.body.username)
-        : undefined;
+    const username = parseUsernameFromBody(req.body.username);
     const user = req.user;
 
     if (!user) {
@@ -253,8 +251,8 @@ router.put(
       }
     }
     const targetPlayerName = req.body.nickname || user.player?.name || user.nickname;
-    // Check if username is being changed
-    if (username && username !== user.username) {
+    // Check if username is being changed (case-insensitive)
+    if (isUsernameChanging(req.body.username, user.username) && username) {
       if (username.length > USERNAME_MAX_LEN) {
         throw {'error': `Username must be at most ${USERNAME_MAX_LEN} characters`, 'code': 400};
       }
@@ -266,9 +264,9 @@ router.put(
         throw { error: usernameFormatError, code: 400 };
       }
 
-      // Check if username is taken
+      // Check if username is taken (exclude current user)
       const existingUser = await User.findOne({
-        where: {username},
+        where: {username, id: {[Op.ne]: user.id}},
         transaction
       });
 
@@ -359,8 +357,17 @@ router.put(
       await Player.update(
         {
           name: targetPlayerName,
-          country: req.body.country
         },
+        {
+          where: {id: user.playerId},
+          transaction
+        }
+      );
+    }
+
+    if (user.playerId && typeof req.body.country === 'string' && req.body.country.length) {
+      await Player.update(
+        {country: req.body.country},
         {
           where: {id: user.playerId},
           transaction

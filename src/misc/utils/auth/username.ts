@@ -33,6 +33,21 @@ export function normalizeUsername(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
+/** True when incoming username (after normalization) differs from the stored value. */
+export function isUsernameChanging(incomingRaw: unknown, currentStored: string): boolean {
+  const incoming =
+    typeof incomingRaw === 'string' && incomingRaw.length
+      ? normalizeUsername(incomingRaw)
+      : undefined;
+  if (!incoming) return false;
+  return incoming !== normalizeUsername(currentStored);
+}
+
+/** Normalized username from request body, or undefined when absent/empty. */
+export function parseUsernameFromBody(raw: unknown): string | undefined {
+  return typeof raw === 'string' && raw.length ? normalizeUsername(raw) : undefined;
+}
+
 export function sanitizeUsername(raw: unknown): string {
   const base = typeof raw === 'string' ? normalizeUsername(raw) : '';
   let cleaned = base.replace(/[^a-z0-9_.]+/g, '_');

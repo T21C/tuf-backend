@@ -32,7 +32,8 @@
     "backfill:leaderboard-ranks": "cross-env tsx src/misc/scripts/backfillLeaderboardRankHistory.ts",
     "backfill:analysis-by-tag": "cross-env tsx src/misc/scripts/backfillAnalysisByTag.ts",
     "pentest:zip-fixtures": "cross-env tsx src/externalServices/cdnService/scripts/security/generateZipPentestFixtures.ts",
-    "pentest:zip": "cross-env tsx src/externalServices/cdnService/scripts/security/runZipProtectionPentest.ts"
+    "pentest:zip": "cross-env tsx src/externalServices/cdnService/scripts/security/runZipProtectionPentest.ts",
+    "test": "cross-env tsx --test src/misc/utils/auth/username.test.ts"
   },
   "keywords": [],
   "author": "",
