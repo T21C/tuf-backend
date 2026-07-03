@@ -9,7 +9,6 @@ import dotenv from 'dotenv';
 import { registerGlobalProcessHandlers } from '@/server/bootstrap/processHandlers.js';
 import { sweepWorkspaceRootOnBoot } from '@/server/services/core/WorkspaceService.js';
 import { cdnLocalTemp } from './infra/workspaces/cdnLocalTempManager.js';
-import { spacesStorage } from './infra/storage/spacesStorage.js';
 import { setTerminalServiceTitle } from '@/misc/utils/terminalTitle.js';
 
 dotenv.config();
@@ -26,14 +25,6 @@ sweepWorkspaceRootOnBoot();
 // writes the file before any route handler runs, so it can't live in a workspace.
 // eslint-disable-next-line @typescript-eslint/no-floating-promises
 cdnLocalTemp.sweepUploadTempOnBoot();
-
-// Public-read CORS on R2 so browser fetch can read objects after 301 redirects.
-// eslint-disable-next-line @typescript-eslint/no-floating-promises
-spacesStorage.ensurePublicReadCors().catch((error) => {
-    logger.error('Failed to configure R2 public-read CORS', {
-        error: error instanceof Error ? error.message : String(error),
-    });
-});
 
 const app = express();
 

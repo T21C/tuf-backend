@@ -586,35 +586,6 @@ export class CdnSpacesStorage {
         return `${this.publicCdnBase}/${path}/${encodeURIComponent(file)}`;
     }
 
-    /**
-     * Idempotent public-read CORS on the R2 bucket so browser `fetch` can read
-     * objects served via {@link publicCdnBase} after CDN Express 301 redirects.
-     */
-    public async ensurePublicReadCors(): Promise<void> {
-        await this.s3
-            .putBucketCors({
-                Bucket: this.bucket,
-                CORSConfiguration: {
-                    CORSRules: [
-                        {
-                            AllowedOrigins: ['*'],
-                            AllowedMethods: ['GET', 'HEAD'],
-                            AllowedHeaders: ['*'],
-                            ExposeHeaders: [
-                                'Content-Length',
-                                'Content-Type',
-                                'ETag',
-                                'Cache-Control',
-                            ],
-                            MaxAgeSeconds: 86400,
-                        },
-                    ],
-                },
-            })
-            .promise();
-        logger.info('R2 public-read CORS configured', { bucket: this.bucket });
-    }
-
 
     /**
      * Generate a unique key for level files
