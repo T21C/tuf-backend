@@ -59,6 +59,7 @@ const dlcTagsMap: Record<string, string> = {
 const requiredModsTagsMap: Record<string, string> = {
     YouTubeStream: 'Youtube Stream',
     KeyLimiter: 'Key Limiter',
+    PACL2: 'PACL2',
 };
 
 const miscTagsMap: Record<string, string> = {

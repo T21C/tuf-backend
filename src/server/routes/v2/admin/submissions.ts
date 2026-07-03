@@ -38,6 +38,7 @@ import cdnService from '@/server/services/core/CdnService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import {TeamAlias} from '@/models/credits/TeamAlias.js';
 import {tagAssignmentService} from '@/server/services/data/TagAssignmentService.js';
+import {autoraterService} from '@/server/services/data/AutoraterService.js';
 import LevelSubmissionSongRequest from '@/models/submissions/LevelSubmissionSongRequest.js';
 import LevelSubmissionArtistRequest from '@/models/submissions/LevelSubmissionArtistRequest.js';
 import LevelSubmissionEvidence from '@/models/submissions/LevelSubmissionEvidence.js';
@@ -1017,7 +1018,7 @@ router.put(
 
         const lowRatingRegex = /^[pP]\d|^[1-9]$|^1[0-9]\+?$|^([1-9]|1[0-9]\+?)(~|-)([1-9]|1[0-9]\+?)$/;
         // Create rating since toRate is true
-        await Rating.create(
+        const newRating = await Rating.create(
           {
             levelId: newLevel.id,
             lowDiff: lowRatingRegex.test(submission.diff),
@@ -1130,6 +1131,14 @@ router.put(
         }
 
         await transaction.commit();
+
+        void autoraterService.autorateRating(newRating.id).catch((err) => {
+          logger.warn('Failed to auto-autorate new level submission rating', {
+            levelId: newLevel.id,
+            ratingId: newRating.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
 
         await applyLevelChartStatsFromCdn(newLevel.id);
 
