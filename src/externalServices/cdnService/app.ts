@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import { registerGlobalProcessHandlers } from '@/server/bootstrap/processHandlers.js';
 import { sweepWorkspaceRootOnBoot } from '@/server/services/core/WorkspaceService.js';
 import { cdnLocalTemp } from './infra/workspaces/cdnLocalTempManager.js';
+import { spacesStorage } from './infra/storage/spacesStorage.js';
 import { setTerminalServiceTitle } from '@/misc/utils/terminalTitle.js';
 
 dotenv.config();
@@ -26,6 +27,14 @@ sweepWorkspaceRootOnBoot();
 // eslint-disable-next-line @typescript-eslint/no-floating-promises
 cdnLocalTemp.sweepUploadTempOnBoot();
 
+// Public-read CORS on R2 so browser fetch can read objects after 301 redirects.
+// eslint-disable-next-line @typescript-eslint/no-floating-promises
+spacesStorage.ensurePublicReadCors().catch((error) => {
+    logger.error('Failed to configure R2 public-read CORS', {
+        error: error instanceof Error ? error.message : String(error),
+    });
+});
+
 const app = express();
 
 // Ensure CDN root directory exists
@@ -33,13 +42,20 @@ if (!fs.existsSync(CDN_CONFIG.localRoot)) {
     fs.mkdirSync(CDN_CONFIG.localRoot, { recursive: true });
 }
 
-// Middleware
-// CDN is server-to-server; browsers do not call write routes directly.
-app.use(cors({
-    origin: false,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'],
-    allowedHeaders: ['Content-Type', 'X-CDN-Ingest-Key', 'X-File-Type', 'X-Upload-Id'],
-}));
+// Public CORS for browser asset delivery (img fetch, download-all zip, etc.).
+// Write routes stay server-to-server and are gated by requireCdnIngestKey.
+const publicReadCors = cors({
+    origin: '*',
+    methods: ['GET', 'HEAD', 'OPTIONS'],
+    allowedHeaders: '*',
+});
+app.use((req, res, next) => {
+    const method = req.method.toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+        return publicReadCors(req, res, next);
+    }
+    next();
+});
 app.use(express.json());
 
 // Cheap liveness probe target for the standalone health service. Mounted
