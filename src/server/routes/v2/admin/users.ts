@@ -12,6 +12,12 @@ import { permissionFlags } from '@/config/constants.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { AccountDeletionService } from '@/server/services/accounts/AccountDeletionService.js';
 import { isValidUsername, normalizeUsername } from '@/misc/utils/auth/username.js';
+import sequelize from '@/config/db.js';
+import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import { sseManager } from '@/misc/utils/server/sse.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+
+const elasticsearchService = ElasticsearchService.getInstance();
 
 const router: Router = Router();
 const accountDeletionService = AccountDeletionService.getInstance();
@@ -479,6 +485,7 @@ router.patch(
     responses: { 200: { description: 'Rating ban updated' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
+    let transaction: any;
     try {
       const {playerId} = req.params;
       const {isRatingBanned} = req.body;
@@ -487,24 +494,36 @@ router.patch(
         return res.status(400).json({error: 'isRatingBanned must be a boolean'});
       }
 
-      // Find player and their associated user
+      transaction = await sequelize.transaction();
+
       const player = await Player.findByPk(playerId, {
         include: [{
           model: User,
           as: 'user',
           required: true
-        }]
+        }],
+        transaction,
       });
 
       if (!player || !player.user) {
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Player or associated user not found'});
       }
 
-      // Update the user's rating ban status
-      await player.user.update({isRatingBanned});
+      await setUserPermissionAndSave(
+        player.user,
+        permissionFlags.RATING_BANNED,
+        isRatingBanned,
+        transaction
+      );
+      await player.user.update({isRatingBanned}, {transaction});
 
-      // Invalidate user-specific cache
+      await transaction.commit();
+      await player.user.reload();
+
       await CacheInvalidation.invalidateUser(player.user.id);
+      await elasticsearchService.reindexPlayers([player.id]);
+      sseManager.broadcast({type: 'playerUpdate'});
 
       return res.json({
         message: 'Rating ban status updated successfully',
@@ -515,6 +534,7 @@ router.patch(
         },
       });
     } catch (error: any) {
+      await safeTransactionRollback(transaction);
       logger.error('Failed to update rating ban status:', error);
       logger.error('Error details:', {
         name: error.name,

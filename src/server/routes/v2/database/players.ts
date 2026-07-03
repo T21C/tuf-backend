@@ -1063,7 +1063,11 @@ router.patch(
 
       return res.json({
         message: `Player submissions ${isSubmissionsPaused ? 'paused' : 'resumed'} successfully`,
-        player: serializePlayer(player),
+        player: {
+          ...serializePlayer(player),
+          isSubmissionsPaused:
+            hasFlag(player.user, permissionFlags.SUBMISSIONS_PAUSED) || player.isSubmissionsPaused,
+        },
       });
     } catch (error) {
       await safeTransactionRollback(transaction);

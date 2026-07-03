@@ -704,7 +704,8 @@ export class PlayerStatsService {
           name: playerData.name,
           country: playerData.country,
           isBanned: playerData.isBanned || hasFlag(userData, permissionFlags.BANNED),
-          isSubmissionsPaused: playerData.isSubmissionsPaused,
+          isSubmissionsPaused:
+            playerData.isSubmissionsPaused || hasFlag(userData, permissionFlags.SUBMISSIONS_PAUSED),
           pfp: playerData.pfp,
           avatarUrl: userData?.avatarUrl,
           username: userData?.username, // Changed from discordUsername to username
