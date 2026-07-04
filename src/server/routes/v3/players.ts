@@ -27,6 +27,11 @@ import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufSt
 import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 import { DEFAULT_LEADERBOARD_RANK_SCORING_VERSION, RANK_HISTORY_MAX_POINTS } from '@/config/leaderboardRankHistory.js';
 import { buildRankHistorySeries } from '@/server/services/leaderboard/rankHistorySeries.js';
+import {
+  fetchHistoricalLeaderboardAtDate,
+  hydrateHistoricalLeaderboardPlayers,
+  type HistoricalLeaderboardMetric,
+} from '@/server/services/leaderboard/historicalLeaderboardAtDate.js';
 import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError } from '@/server/services/core/CdnService.js';
@@ -244,6 +249,92 @@ router.get(
       logger.error('[v3 /players/leaderboard] failure', error);
       return res.status(500).json({
         error: 'Failed to fetch leaderboard',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+/**
+ * Rank-only leaderboard reconstructed at a past UTC date from player_leaderboard_rank_events.
+ *
+ * Query params: date (YYYY-MM-DD), metric (rankedScore|generalScore), order (asc|desc),
+ * query (player name), offset, limit, scoringVersion.
+ */
+router.get(
+  '/leaderboard-history',
+  ApiDoc({
+    operationId: 'v3GetLeaderboardHistory',
+    summary: 'Historical player leaderboard (v3)',
+    description:
+      'Rank-only leaderboard as of end-of-day `date` (UTC), reconstructed by forward-filling `player_leaderboard_rank_events`. Hydrates current player names/avatars from Elasticsearch. Supports metric (rankedScore|generalScore), order, name query, and pagination. Newest selectable date is yesterday.',
+    tags: ['Database', 'Leaderboard', 'v3'],
+    query: {
+      date: { schema: { type: 'string' } },
+      metric: { schema: { type: 'string' } },
+      order: { schema: { type: 'string' } },
+      query: { schema: { type: 'string' } },
+      offset: { schema: { type: 'string' } },
+      limit: { schema: { type: 'string' } },
+      scoringVersion: { schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: 'Historical leaderboard results' },
+      400: { schema: errorResponseSchema },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const dateRaw = String(req.query.date ?? '').trim();
+      if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(dateRaw)) {
+        return res.status(400).json({ error: 'date must be YYYY-MM-DD (UTC)' });
+      }
+
+      const metricRaw = String(req.query.metric ?? 'rankedScore').trim();
+      if (metricRaw !== 'rankedScore' && metricRaw !== 'generalScore') {
+        return res.status(400).json({
+          error: 'metric must be rankedScore or generalScore',
+        });
+      }
+      const metric = metricRaw as HistoricalLeaderboardMetric;
+
+      const orderRaw = ((req.query.order as string) || 'asc').toLowerCase();
+      const order = orderRaw === 'desc' ? 'desc' : 'asc';
+      const rawQuery = String(req.query.query ?? '').trim();
+      const effectiveLimit = parseLimit(req.query.limit);
+      const effectiveOffset = parseOffset(req.query.offset);
+      const scoringVersion =
+        String(req.query.scoringVersion ?? '').trim() || DEFAULT_LEADERBOARD_RANK_SCORING_VERSION;
+
+      const board = await fetchHistoricalLeaderboardAtDate({
+        date: dateRaw,
+        metric,
+        order,
+        query: rawQuery || undefined,
+        offset: effectiveOffset,
+        limit: effectiveLimit,
+        scoringVersion,
+      });
+
+      const results = await hydrateHistoricalLeaderboardPlayers(board.results);
+
+      return res.json({
+        count: board.count,
+        results,
+        offset: effectiveOffset,
+        limit: effectiveLimit,
+        minDate: board.minDate,
+        maxDate: board.maxDate,
+        date: dateRaw,
+        metric,
+        order,
+        scoringVersion,
+      });
+    } catch (error) {
+      logger.error('[v3 /players/leaderboard-history] failure', error);
+      return res.status(500).json({
+        error: 'Failed to fetch historical leaderboard',
         details: error instanceof Error ? error.message : String(error),
       });
     }
