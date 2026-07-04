@@ -402,7 +402,7 @@ async function processArchiveFileInWorkspace(
                     (k) => path.posix.basename(k.replace(/\\/g, '/')) === songBasename
                 );
                 if (sameBasenameKey) {
-                    logger.warn('Song files share basename but live under different paths (metadata keys by relative path)', {
+                    logger.debug('Song files share basename but live under different paths (metadata keys by relative path)', {
                         basename: songBasename,
                         earlierRelativePath: sameBasenameKey,
                         relativePath: normalizedSongPath
