@@ -28,6 +28,7 @@ import { getRankedScoreRanksForHits } from '@/server/services/elasticsearch/sear
 dotenv.config();
 
 type EnrichedPlayer = IPlayer & {
+  passes: Pass[];
   topScores: {id: number, impact: number}[];
   potentialTopScores: {id: number, impact: number}[];
   uniquePasses: Map<number, Pass>;
