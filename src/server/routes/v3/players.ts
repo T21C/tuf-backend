@@ -42,6 +42,7 @@ import {
   serializeBioCanvasApiFields,
   uploadBioCanvasImageForProfile,
 } from '@/server/services/bioCanvasProfile.js';
+import {PlacementUtilizationService} from '@/server/services/tournaments/PlacementUtilizationService.js';
 
 /**
  * v3 players routes — Elasticsearch-backed.
@@ -516,9 +517,26 @@ router.get(
             'profileHeaderSurfaceStyle',
             'profileHeaderSurfaceImageAssets',
             'tufStellarIconVariant',
+            'featuredPlacementIds',
+            'placementCardLayout',
+            'hiddenPlacementIds',
+            'placementOrderIds',
           ],
         }),
       ]);
+
+      const placementService = PlacementUtilizationService.getInstance();
+      const [tournamentPlacements, equippedAvatarFrame, placementEntitlements] =
+        await Promise.all([
+          placementService.getPlacementsForPlayer(id, {
+            includeProfileHidden: isOwnProfile,
+          }),
+          placementService.getEquippedCosmetic({playerId: id}, 'avatar_frame'),
+          isOwnProfile
+            ? placementService.listEntitlements({playerId: id})
+            : Promise.resolve([]),
+        ]);
+
 
       // `passes` is intentionally not forwarded here — the list is huge
       // (level/credits/judgements/difficulty all joined in) and is now
@@ -552,6 +570,21 @@ router.get(
             tufStellarIconVariant: stellarOn
               ? normalizeTufStellarIconVariant(playerRow.tufStellarIconVariant)
               : '1',
+            featuredPlacementIds: Array.isArray(playerRow.featuredPlacementIds)
+              ? playerRow.featuredPlacementIds
+              : [],
+            ...(isOwnProfile
+              ? {
+                  hiddenPlacementIds: Array.isArray(playerRow.hiddenPlacementIds)
+                    ? playerRow.hiddenPlacementIds
+                    : [],
+                  placementOrderIds: Array.isArray(playerRow.placementOrderIds)
+                    ? playerRow.placementOrderIds
+                    : [],
+                }
+              : {}),
+            placementCardLayout:
+              playerRow.placementCardLayout === 'iconRail' ? 'iconRail' : 'default',
           }
         : {};
 
@@ -574,7 +607,11 @@ router.get(
         ...plainEnriched,
         funFacts,
         aliases,
+        tournamentPlacements,
+        equippedAvatarFrame,
+        ...(isOwnProfile ? {placementEntitlements} : {}),
       });
+
     } catch (error) {
       logger.error('[v3 /players/:id/profile] failure', error);
       return res.status(500).json({
@@ -926,4 +963,112 @@ router.get(
   },
 );
 
+router.patch(
+  '/me/featured-placements',
+  Auth.user(),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.playerId) {
+        return res.status(400).json({error: 'No player profile linked to this account'});
+      }
+      const ids = Array.isArray(req.body.placementIds) ? req.body.placementIds : [];
+      const featuredPlacementIds =
+        await PlacementUtilizationService.getInstance().setFeaturedPlacementIds(
+          {playerId: user.playerId},
+          ids,
+        );
+      return res.json({featuredPlacementIds});
+    } catch (error) {
+      logger.error('[v3 PATCH /players/me/featured-placements] failure', error);
+      return res.status(500).json({error: 'Failed to update featured placements'});
+    }
+  },
+);
+
+router.patch(
+  '/me/placement-display',
+  Auth.user(),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.playerId) {
+        return res.status(400).json({error: 'No player profile linked to this account'});
+      }
+      const prefs =
+        await PlacementUtilizationService.getInstance().setPlacementDisplayPrefs(
+          {playerId: user.playerId},
+          {
+            cardLayout: req.body.cardLayout,
+            placementOrderIds: req.body.placementOrderIds,
+            hiddenPlacementIds: req.body.hiddenPlacementIds,
+          },
+        );
+      return res.json(prefs);
+    } catch (error) {
+      logger.error('[v3 PATCH /players/me/placement-display] failure', error);
+      return res.status(500).json({error: 'Failed to update placement display'});
+    }
+  },
+);
+
+router.patch(
+  '/me/equipped-cosmetic',
+  Auth.user(),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.playerId) {
+        return res.status(400).json({error: 'No player profile linked to this account'});
+      }
+      const rewardType = String(req.body.rewardType || 'avatar_frame');
+      const entitlementId =
+        req.body.entitlementId == null ? null : Number(req.body.entitlementId);
+      if (entitlementId != null && !Number.isFinite(entitlementId)) {
+        return res.status(400).json({error: 'Invalid entitlementId'});
+      }
+      const equipped = await PlacementUtilizationService.getInstance().equipCosmetic(
+        {playerId: user.playerId},
+        rewardType,
+        entitlementId,
+      );
+      return res.json(equipped);
+    } catch (error: any) {
+      if (error?.code === 404) return res.status(404).json({error: error.message});
+      if (error?.code === 403) return res.status(403).json({error: error.message});
+      if (error?.code === 400) return res.status(400).json({error: error.message});
+      logger.error('[v3 PATCH /players/me/equipped-cosmetic] failure', error);
+      return res.status(500).json({error: 'Failed to equip cosmetic'});
+    }
+  },
+);
+
+router.get(
+  '/me/placement-entitlements',
+  Auth.user(),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.playerId) {
+        return res.status(400).json({error: 'No player profile linked to this account'});
+      }
+      const rewardType =
+        typeof req.query.rewardType === 'string' ? req.query.rewardType : undefined;
+      const entitlements = await PlacementUtilizationService.getInstance().listEntitlements(
+        {playerId: user.playerId},
+        {rewardType},
+      );
+      const equipped = await PlacementUtilizationService.getInstance().getEquippedCosmetic(
+        {playerId: user.playerId},
+        rewardType || 'avatar_frame',
+      );
+      return res.json({entitlements, equipped});
+    } catch (error) {
+      logger.error('[v3 GET /players/me/placement-entitlements] failure', error);
+      return res.status(500).json({error: 'Failed to list entitlements'});
+    }
+  },
+);
+
 export default router;
+

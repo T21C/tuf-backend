@@ -10,6 +10,7 @@ import { initializePacksAssociations } from './packs/associations.js';
 import { initializeArtistsAssociations } from './artists/associations.js';
 import { initializeSongsAssociations } from './songs/associations.js';
 import { initializeDiscordAssociations } from './discord/associations.js';
+import { initializeTournamentsAssociations } from './tournaments/associations.js';
 import { initializeLevelCacheHooks } from './levels/hooks.js';
 
 export function initializeAssociations() {
@@ -26,6 +27,8 @@ export function initializeAssociations() {
   initializeArtistsAssociations();
   initializeSongsAssociations();
   initializeDiscordAssociations();
+  initializeTournamentsAssociations();
+
 
   // Initialize cache hooks after associations
   initializeLevelCacheHooks();

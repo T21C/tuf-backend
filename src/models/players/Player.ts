@@ -37,6 +37,13 @@ class Player
   declare bioCanvasImageAssets: Record<string, { assetId: string; url: string }> | null;
   /** TUFStellar subscriber icon art: `1` | `2` | `3`. */
   declare tufStellarIconVariant: string;
+  /** Placement ids pinned on the profile tournaments section (max 5). */
+  declare featuredPlacementIds: number[] | null;
+  /** Placement ids hidden from the public profile tournaments section. */
+  declare hiddenPlacementIds: number[] | null;
+  /** User-defined display order for visible placements. */
+  declare placementOrderIds: number[] | null;
+  declare placementCardLayout: string;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -117,10 +124,31 @@ Player.init(
       allowNull: false,
       defaultValue: '1',
     },
+    featuredPlacementIds: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    hiddenPlacementIds: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    placementOrderIds: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    placementCardLayout: {
+      type: DataTypes.STRING(16),
+      allowNull: false,
+      defaultValue: 'default',
+    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
     },
+
     updatedAt: {
       type: DataTypes.DATE,
       allowNull: false,

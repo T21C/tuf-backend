@@ -47,6 +47,11 @@ export interface ICreator extends IBaseModel {
   uploadConditions?: string | null;
   /** TUFStellar icon variant on creator cards/profile: `1` | `2` | `3`. */
   tufStellarIconVariant?: string;
+  featuredPlacementIds?: number[] | null;
+  hiddenPlacementIds?: number[] | null;
+  placementOrderIds?: number[] | null;
+  /** Tournament placement card layout: `default` | `iconRail`. */
+  placementCardLayout?: string;
   creatorAliases: CreatorAlias[];
   creatorTeams?: ITeam[];
   teamMemberships?: any[];
@@ -161,9 +166,13 @@ export interface IPlayer extends IBaseModel {
   bioCanvasImageAssets?: Record<string, { assetId: string; url: string }> | null;
   /** TUFStellar icon variant on player cards/profile: `1` | `2` | `3`. */
   tufStellarIconVariant?: string;
+  featuredPlacementIds?: number[] | null;
+  hiddenPlacementIds?: number[] | null;
+  placementOrderIds?: number[] | null;
+  /** Tournament placement card layout: `default` | `iconRail`. */
+  placementCardLayout?: string;
 
   // Associations
-  passes?: IPass[];
   user?: Model<UserAttributes>;
 
   // Virtual fields

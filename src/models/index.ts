@@ -51,6 +51,13 @@ import BillingEvent from './billing/BillingEvent.js';
 import UserTufStellarBilling from './billing/UserTufStellarBilling.js';
 import UserTufStellarEntitlementSegment from './billing/UserTufStellarEntitlementSegment.js';
 import UserTufStellarAdminGrant from './billing/UserTufStellarAdminGrant.js';
+import TournamentSeries from './tournaments/TournamentSeries.js';
+import Tournament from './tournaments/Tournament.js';
+import TournamentTier from './tournaments/TournamentTier.js';
+import TournamentPlacement from './tournaments/TournamentPlacement.js';
+import PlacementReward from './tournaments/PlacementReward.js';
+import PlacementEntitlement from './tournaments/PlacementEntitlement.js';
+import EquippedCosmetic from './tournaments/EquippedCosmetic.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -108,6 +115,13 @@ export const db = {
     UserTufStellarBilling,
     UserTufStellarEntitlementSegment,
     UserTufStellarAdminGrant,
+    TournamentSeries,
+    Tournament,
+    TournamentTier,
+    TournamentPlacement,
+    PlacementReward,
+    PlacementEntitlement,
+    EquippedCosmetic,
   },
 };
 

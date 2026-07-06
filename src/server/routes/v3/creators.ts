@@ -45,6 +45,7 @@ import { multerMemoryCdnImage10Mb as bannerUpload } from '@/config/multerMemoryU
 import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError } from '@/server/services/core/CdnService.js';
 import { parseBannerPresetForStorage } from '@/misc/utils/profileBannerPreset.js';
+import {PlacementUtilizationService} from '@/server/services/tournaments/PlacementUtilizationService.js';
 import {
   MAX_PROFILE_HEADER_SURFACE_STACK_ENTRY_ID_LENGTH,
   parseProfileHeaderSurfaceStyle,
@@ -846,6 +847,7 @@ router.get(
 
 router.get(
   '/:id([0-9]{1,20})/profile',
+  Auth.addUserToRequest(),
   ApiDoc({
     operationId: 'v3GetCreatorProfile',
     summary: 'Get creator profile (v3)',
@@ -864,6 +866,8 @@ router.get(
       if (!Number.isFinite(id) || id <= 0) {
         return res.status(400).json({ error: 'Invalid creator id' });
       }
+
+      const isOwnProfile = Boolean(req.user?.creatorId && req.user.creatorId === id);
 
       const [doc, enriched, funFacts, curationTypeCounts, creatorRow] = await Promise.all([
         elasticsearchService.getCreatorDocumentById(id),
@@ -884,9 +888,26 @@ router.get(
             'profileHeaderSurfaceStyle',
             'profileHeaderSurfaceImageAssets',
             'tufStellarIconVariant',
+            'featuredPlacementIds',
+            'placementCardLayout',
+            'hiddenPlacementIds',
+            'placementOrderIds',
           ],
         }),
       ]);
+
+      const placementService = PlacementUtilizationService.getInstance();
+      const [tournamentPlacements, equippedAvatarFrame, placementEntitlements] =
+        await Promise.all([
+          placementService.getPlacementsForCreator(id, {
+            includeProfileHidden: isOwnProfile,
+          }),
+          placementService.getEquippedCosmetic({creatorId: id}, 'avatar_frame'),
+          isOwnProfile
+            ? placementService.listEntitlements({creatorId: id})
+            : Promise.resolve([]),
+        ]);
+
 
       if (!doc && !enriched) return res.status(404).json({ error: 'Creator not found' });
 
@@ -1007,6 +1028,21 @@ router.get(
             tufStellarIconVariant: stellarOn
               ? normalizeTufStellarIconVariant(creatorRow.tufStellarIconVariant)
               : '1',
+            featuredPlacementIds: Array.isArray(creatorRow.featuredPlacementIds)
+              ? creatorRow.featuredPlacementIds
+              : [],
+            ...(isOwnProfile
+              ? {
+                  hiddenPlacementIds: Array.isArray(creatorRow.hiddenPlacementIds)
+                    ? creatorRow.hiddenPlacementIds
+                    : [],
+                  placementOrderIds: Array.isArray(creatorRow.placementOrderIds)
+                    ? creatorRow.placementOrderIds
+                    : [],
+                }
+              : {}),
+            placementCardLayout:
+              creatorRow.placementCardLayout === 'iconRail' ? 'iconRail' : 'default',
           }
         : {};
 
@@ -1019,7 +1055,11 @@ router.get(
         funFacts,
         curationTypeCounts,
         displayCurationTypeIds,
+        tournamentPlacements,
+        equippedAvatarFrame,
+        ...(isOwnProfile ? {placementEntitlements} : {}),
       });
+
     } catch (error) {
       logger.error('[v3 /creators/:id/profile] failure', error);
       return res.status(500).json({
@@ -1882,4 +1922,112 @@ router.delete(
   },
 );
 
+router.patch(
+  '/me/featured-placements',
+  Auth.user(),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.creatorId) {
+        return res.status(400).json({error: 'No creator profile linked to this account'});
+      }
+      const ids = Array.isArray(req.body.placementIds) ? req.body.placementIds : [];
+      const featuredPlacementIds =
+        await PlacementUtilizationService.getInstance().setFeaturedPlacementIds(
+          {creatorId: user.creatorId},
+          ids,
+        );
+      return res.json({featuredPlacementIds});
+    } catch (error) {
+      logger.error('[v3 PATCH /creators/me/featured-placements] failure', error);
+      return res.status(500).json({error: 'Failed to update featured placements'});
+    }
+  },
+);
+
+router.patch(
+  '/me/placement-display',
+  Auth.user(),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.creatorId) {
+        return res.status(400).json({error: 'No creator profile linked to this account'});
+      }
+      const prefs =
+        await PlacementUtilizationService.getInstance().setPlacementDisplayPrefs(
+          {creatorId: user.creatorId},
+          {
+            cardLayout: req.body.cardLayout,
+            placementOrderIds: req.body.placementOrderIds,
+            hiddenPlacementIds: req.body.hiddenPlacementIds,
+          },
+        );
+      return res.json(prefs);
+    } catch (error) {
+      logger.error('[v3 PATCH /creators/me/placement-display] failure', error);
+      return res.status(500).json({error: 'Failed to update placement display'});
+    }
+  },
+);
+
+router.patch(
+  '/me/equipped-cosmetic',
+  Auth.user(),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.creatorId) {
+        return res.status(400).json({error: 'No creator profile linked to this account'});
+      }
+      const rewardType = String(req.body.rewardType || 'avatar_frame');
+      const entitlementId =
+        req.body.entitlementId == null ? null : Number(req.body.entitlementId);
+      if (entitlementId != null && !Number.isFinite(entitlementId)) {
+        return res.status(400).json({error: 'Invalid entitlementId'});
+      }
+      const equipped = await PlacementUtilizationService.getInstance().equipCosmetic(
+        {creatorId: user.creatorId},
+        rewardType,
+        entitlementId,
+      );
+      return res.json(equipped);
+    } catch (error: any) {
+      if (error?.code === 404) return res.status(404).json({error: error.message});
+      if (error?.code === 403) return res.status(403).json({error: error.message});
+      if (error?.code === 400) return res.status(400).json({error: error.message});
+      logger.error('[v3 PATCH /creators/me/equipped-cosmetic] failure', error);
+      return res.status(500).json({error: 'Failed to equip cosmetic'});
+    }
+  },
+);
+
+router.get(
+  '/me/placement-entitlements',
+  Auth.user(),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.creatorId) {
+        return res.status(400).json({error: 'No creator profile linked to this account'});
+      }
+      const rewardType =
+        typeof req.query.rewardType === 'string' ? req.query.rewardType : undefined;
+      const entitlements = await PlacementUtilizationService.getInstance().listEntitlements(
+        {creatorId: user.creatorId},
+        {rewardType},
+      );
+      const equipped = await PlacementUtilizationService.getInstance().getEquippedCosmetic(
+        {creatorId: user.creatorId},
+        rewardType || 'avatar_frame',
+      );
+      return res.json({entitlements, equipped});
+    } catch (error) {
+      logger.error('[v3 GET /creators/me/placement-entitlements] failure', error);
+      return res.status(500).json({error: 'Failed to list entitlements'});
+    }
+  },
+);
+
 export default router;
+

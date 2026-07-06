@@ -748,6 +748,73 @@ router.delete(
   },
 );
 
+router.patch(
+  '/player/bio',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'patchProfilePlayerBio',
+    summary: 'Update my player bio',
+    description:
+      'Requires an authenticated user with `playerId` set. Updates that player row only.',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'Bio text (string or null). Empty string clears.',
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {
+          bio: { type: 'string', nullable: true },
+        },
+        required: ['bio'],
+      },
+    },
+    responses: {
+      200: { description: 'Updated bio' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      if (!user.playerId) {
+        return res.status(400).json({ error: 'No player profile linked to this account' });
+      }
+
+      const body = req.body as { bio?: unknown };
+      if (!Object.prototype.hasOwnProperty.call(body, 'bio')) {
+        return res.status(400).json({ error: 'Request body must include bio (string or null)' });
+      }
+
+      let nextBio: string | null;
+      if (body.bio == null) {
+        nextBio = null;
+      } else if (typeof body.bio === 'string') {
+        const trimmed = body.bio.trim();
+        if (trimmed.length > 2000) {
+          return res.status(400).json({ error: 'Bio must be at most 2000 characters' });
+        }
+        nextBio = trimmed.length ? trimmed : null;
+      } else {
+        return res.status(400).json({ error: 'Bio must be a string or null' });
+      }
+
+      await Player.update({ bio: nextBio }, { where: { id: user.playerId } });
+      await elasticsearchService.reindexPlayers([user.playerId]);
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({ bio: nextBio });
+    } catch (error) {
+      logger.error('[PATCH /auth/profile/player/bio] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update player bio',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
 router.post(
   '/player/banner-custom',
   Auth.tufStellarUser(),

@@ -367,6 +367,30 @@ class CdnService {
         }
     }
 
+    async uploadTournamentPlacementIcon(
+        iconBuffer: Buffer,
+        filename: string
+    ): Promise<{
+        success: boolean;
+        fileId: string;
+        urls: Record<string, string>;
+        metadata: any;
+    }> {
+        return this.uploadImage(iconBuffer, filename, 'TOURNAMENT_PLACEMENT_ICON');
+    }
+
+    async uploadTournamentPlacementCard(
+        imageBuffer: Buffer,
+        filename: string
+    ): Promise<{
+        success: boolean;
+        fileId: string;
+        urls: Record<string, string>;
+        metadata: any;
+    }> {
+        return this.uploadImage(imageBuffer, filename, 'TOURNAMENT_PLACEMENT_CARD');
+    }
+
     async uploadLevelZip(
         zipSource: Buffer | string,
         filename: string,

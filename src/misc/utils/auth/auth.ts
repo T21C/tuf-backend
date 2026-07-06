@@ -15,11 +15,14 @@ const JWT_REFRESH_EXPIRES_IN_SEC = JWT_REFRESH_EXPIRES_IN_DAYS * 24 * 60 * 60;
 const COOKIE_ACCESS = 'accessToken';
 const COOKIE_REFRESH = 'refreshToken';
 
+const isSecureAuthCookie = process.env.NODE_ENV !== 'development';
+
 /** Fixed flags for auth cookies (SPA on tuforums.com → api.tuforums.com). Not configurable via env. */
 export const AUTH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: true,
-  sameSite: 'none' as const,
+  secure: isSecureAuthCookie,
+  // SameSite=None requires Secure; use Lax for local HTTP dev (localhost SPA → localhost API).
+  sameSite: (isSecureAuthCookie ? 'none' : 'lax') as 'none' | 'lax',
   path: '/',
 };
 

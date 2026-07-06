@@ -2,26 +2,6 @@ import { Model, DataTypes } from 'sequelize';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('cdn');
 
-class CdnFile extends Model {
-    declare id: string;
-    declare type: 'PROFILE'
-    | 'ICON'
-    | 'BANNER'
-    | 'THUMBNAIL'
-    | 'CURATION_ICON'
-    | 'DIFFICULTY_ICON'
-    | 'LEVEL_THUMBNAIL'
-    | 'PACK_ICON'
-    | 'TAG_ICON'
-    | 'LEVELZIP'
-    | 'GENERAL'
-    | 'EVIDENCE';
-    declare filePath: string;
-    declare metadata: object;
-    declare accessCount: number;
-    declare cacheData: string | null;
-}
-
 export type ImageFileType =
 | 'PROFILE'
 | 'ICON'
@@ -32,7 +12,21 @@ export type ImageFileType =
 | 'LEVEL_THUMBNAIL'
 | 'PACK_ICON'
 | 'TAG_ICON'
-| 'EVIDENCE';
+| 'EVIDENCE'
+| 'TOURNAMENT_PLACEMENT_ICON'
+| 'TOURNAMENT_PLACEMENT_CARD';
+
+class CdnFile extends Model {
+    declare id: string;
+    declare type:
+    | 'LEVELZIP'
+    | 'GENERAL'
+    | ImageFileType;
+    declare filePath: string;
+    declare metadata: object;
+    declare accessCount: number;
+    declare cacheData: string | null;
+}
 
 CdnFile.init({
     id: {
@@ -41,7 +35,7 @@ CdnFile.init({
         primaryKey: true
     },
     type: {
-        type: DataTypes.ENUM('PROFILE', 'ICON', 'BANNER', 'THUMBNAIL', 'CURATION_ICON', 'DIFFICULTY_ICON', 'LEVEL_THUMBNAIL', 'PACK_ICON', 'TAG_ICON', 'LEVELZIP', 'GENERAL', 'EVIDENCE'),
+        type: DataTypes.STRING(255),
         allowNull: false,
         defaultValue: 'GENERAL'
     },

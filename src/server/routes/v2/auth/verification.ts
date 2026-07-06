@@ -38,8 +38,8 @@ router.post(
   Auth.user(),
   ApiDoc({
     operationId: 'postAuthChangeEmail',
-    summary: 'Change account email',
-    description: 'Change authenticated user email and send a new verification email',
+    summary: 'Set or change account email',
+    description: 'Set or change authenticated user email and send a verification email',
     tags: ['Auth'],
     security: ['bearerAuth'],
     requestBody: {

@@ -9,6 +9,7 @@ import auditLogRoutes from './auditLog.js';
 import curationRoutes from './curations.js';
 import discordRolesRoutes from './discordRoles.js';
 import adminCreatorsRoutes from './creators.js';
+import tournamentsRoutes from './tournaments.js';
 // Import other admin routes here
 
 const router: Router = Router();
@@ -23,6 +24,7 @@ router.use('/audit-log', auditLogRoutes);
 router.use('/curations', curationRoutes);
 router.use('/discord', discordRolesRoutes);
 router.use('/creators', adminCreatorsRoutes);
+router.use('/tournaments', tournamentsRoutes);
 
 router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
       return res.status(200).send({});

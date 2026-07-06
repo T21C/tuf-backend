@@ -160,6 +160,25 @@ export const IMAGE_TYPES = {
         },
         formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
         maxSize: 15 * 1024 * 1024 // 15MB
+    },
+    TOURNAMENT_PLACEMENT_ICON: {
+        name: 'tournament_placement_icon',
+        sizes: {
+            original: { width: 256, height: 256 },
+            medium: { width: 128, height: 128 },
+            small: { width: 64, height: 64 }
+        },
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
+        maxSize: 5 * 1024 * 1024
+    },
+    TOURNAMENT_PLACEMENT_CARD: {
+        name: 'tournament_placement_card',
+        sizes: {
+            original: { width: 960, height: 320 },
+            large: { width: 480, height: 160 }
+        },
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
+        maxSize: 10 * 1024 * 1024
     }
 } as const;
 
@@ -174,6 +193,8 @@ export const MIME_TYPES = {
     'TAG_ICON': 'image/png',
     'LEVELZIP': 'application/zip',
     'EVIDENCE': 'image/png',
+    'TOURNAMENT_PLACEMENT_ICON': 'image/png',
+    'TOURNAMENT_PLACEMENT_CARD': 'image/png',
     'GENERAL': 'application/octet-stream'
 } as const;
 

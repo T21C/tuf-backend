@@ -152,7 +152,9 @@ const defaultPoolConfig: PoolConfiguration = {
     levels: 'levels',
     submissions: 'submissions',
     players: 'players',
+    tournaments: 'players',
     passes: 'passes',
+
     auth: 'auth',
     admin: 'admin',
     curations: 'curations',

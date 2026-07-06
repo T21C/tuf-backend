@@ -23,6 +23,9 @@ import { getUsernameFormatError, normalizeUsername } from '@/misc/utils/auth/use
 // Create a singleton instance of CaptchaService
 const captchaService = new CaptchaService();
 
+const hasAccountEmail = (email: string | null | undefined): email is string =>
+  Boolean(email?.trim());
+
 
 // Track failed login attempts
 const failedAttempts = new Map<string, {count: number; timestamp: number}>();
@@ -292,9 +295,11 @@ class AuthController {
       if (!user) {
         return res.status(404).json({message: 'User not found'});
       }
-      if (!user.email) {
-        return res.status(400).json({message: 'User does not have an email set'});
+      if (!hasAccountEmail(user.email)) {
+        return res.status(400).json({message: 'No email on file. Add an email in account settings first.'});
       }
+
+      const accountEmail = user.email.trim();
 
       if (hasFlag(user, permissionFlags.EMAIL_VERIFIED)) {
         return res.status(400).json({message: 'Email already verified'});
@@ -310,7 +315,7 @@ class AuthController {
       });
 
       // Send verification email
-      const emailSent = await emailService.sendVerificationEmail(user.email, verificationToken);
+      const emailSent = await emailService.sendVerificationEmail(accountEmail, verificationToken);
 
       if (!emailSent) {
         return res.status(500).json({message: 'Failed to send verification email'});
@@ -359,11 +364,8 @@ class AuthController {
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
       }
-      if (!user.email) {
-        return res.status(400).json({ message: 'User does not have an email set' });
-      }
 
-      if (user.email.toLowerCase() === nextEmail) {
+      if (hasAccountEmail(user.email) && user.email.toLowerCase() === nextEmail) {
         return res.status(200).json({
           message: 'Email is unchanged',
           user: {
