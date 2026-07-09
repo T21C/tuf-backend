@@ -168,7 +168,10 @@ router.patch(
       }
       await series.update(updates);
       return res.json(series);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.name === 'SequelizeUniqueConstraintError') {
+        return res.status(409).json({error: 'Series slug already exists'});
+      }
       logger.error('Update tournament series failed:', error);
       return res.status(500).json({error: 'Failed to update series'});
     }
