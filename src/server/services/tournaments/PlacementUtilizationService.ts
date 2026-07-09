@@ -1,19 +1,35 @@
 import {Op} from 'sequelize';
+import TournamentPlacementCredit from '@/models/tournaments/TournamentPlacementCredit.js';
 import TournamentPlacement from '@/models/tournaments/TournamentPlacement.js';
 import TournamentTier from '@/models/tournaments/TournamentTier.js';
 import Tournament from '@/models/tournaments/Tournament.js';
+import type {TournamentCardLayout} from '@/models/tournaments/Tournament.js';
 import TournamentSeries from '@/models/tournaments/TournamentSeries.js';
 import PlacementEntitlement from '@/models/tournaments/PlacementEntitlement.js';
 import PlacementReward from '@/models/tournaments/PlacementReward.js';
 import EquippedCosmetic from '@/models/tournaments/EquippedCosmetic.js';
+import PlacementDisplayNode, {
+  type PlacementDisplayMode,
+  type PlacementDisplayNodeAttributes,
+} from '@/models/tournaments/PlacementDisplayNode.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
 import type {TournamentTrack} from '@/models/tournaments/Tournament.js';
+import {
+  UNSERIESED_SORT_WEIGHT,
+  resolveEffectiveCardLayout,
+  resolveEffectiveRowMode,
+} from './placementModeUtils.js';
+import type {PlacementRowMode} from '@/models/tournaments/TournamentPlacement.js';
 
 export type PlacementCardLayout = 'default' | 'iconRail';
 
 export function normalizePlacementCardLayout(value: unknown): PlacementCardLayout {
   return value === 'iconRail' ? 'iconRail' : 'default';
+}
+
+export function normalizePlacementDisplayMode(value: unknown): PlacementDisplayMode {
+  return value === 'customLayers' ? 'customLayers' : 'defaultHierarchy';
 }
 
 export interface PlacementSubject {
@@ -28,11 +44,17 @@ export interface PlacementFilters {
   includeHidden?: boolean;
   includePending?: boolean;
   includeProfileHidden?: boolean;
-  featuredOnly?: boolean;
 }
 
 export interface PublicPlacementDto {
   id: number;
+  creditId: number;
+  placementId: number;
+  levelId: number | null;
+  cardLayout: TournamentCardLayout;
+  packRef: string | null;
+  coCreditCount: number;
+  effectiveRowMode: PlacementRowMode;
   displayName: string;
   withdrew: boolean;
   isPending: boolean;
@@ -45,8 +67,6 @@ export interface PublicPlacementDto {
     label: string;
     kind: string;
     rankWeight: number;
-    isPodium: boolean;
-    isShowcaseEligible: boolean;
     color: string | null;
     iconKey: string | null;
     iconUrl: string | null;
@@ -68,7 +88,6 @@ export interface PublicPlacementDto {
   };
   resolvedCardBackgroundUrl: string | null;
   resolvedTournamentIconUrl: string | null;
-  isFeatured: boolean;
   isProfileHidden: boolean;
 }
 
@@ -96,8 +115,10 @@ export interface PublicEquippedCosmeticDto {
 
 export interface PlacementDisplayPrefs {
   placementCardLayout: PlacementCardLayout;
+  placementDisplayMode: PlacementDisplayMode;
   hiddenPlacementIds: number[];
   placementOrderIds: number[];
+  placementDisplayNodes?: PlacementDisplayNode[];
 }
 
 function normalizeIdList(value: unknown): number[] {
@@ -105,51 +126,81 @@ function normalizeIdList(value: unknown): number[] {
   return [...new Set(value.map(Number).filter(n => Number.isFinite(n)))];
 }
 
-const placementInclude = [
+const creditInclude = [
   {
-    model: TournamentTier,
-    as: 'tier',
+    model: TournamentPlacement,
+    as: 'placement',
     required: true,
-  },
-  {
-    model: Tournament,
-    as: 'tournament',
-    required: true,
-    include: [{model: TournamentSeries, as: 'series', required: false}],
+    include: [
+      {
+        model: TournamentTier,
+        as: 'tier',
+        required: true,
+      },
+      {
+        model: Tournament,
+        as: 'tournament',
+        required: true,
+        include: [{model: TournamentSeries, as: 'series', required: false}],
+      },
+    ],
   },
 ];
 
+function getSeriesSortWeight(
+  series: TournamentSeries | null | undefined,
+): number {
+  return series?.sortWeight ?? UNSERIESED_SORT_WEIGHT;
+}
+
 function toPlacementDto(
-  row: TournamentPlacement,
-  featuredIds: Set<number>,
+  credit: TournamentPlacementCredit,
   hiddenIds: Set<number>,
+  coCreditCount: number,
 ): PublicPlacementDto {
-  const tier = (row as any).tier as TournamentTier;
-  const tournament = (row as any).tournament as Tournament & {
+  const placement = (credit as any).placement as TournamentPlacement;
+  const tier = (placement as any).tier as TournamentTier;
+  const tournament = (placement as any).tournament as Tournament & {
     series?: TournamentSeries | null;
   };
   const series = tournament.series as TournamentSeries | null | undefined;
   const tierCardBg = tier.cardBackgroundUrl ?? null;
   const tournamentCardBg = tournament.cardBackgroundUrl ?? null;
-  const tournamentIcon =
-    tournament.iconUrl ?? series?.logoUrl ?? null;
+  const tournamentIcon = tournament.iconUrl ?? series?.logoUrl ?? null;
+  const effectiveRowMode = resolveEffectiveRowMode(
+    placement.rowMode,
+    tournament.placementMode,
+  );
+  const hasLevelEvidence = placement.levelId != null;
+  const cardLayout = resolveEffectiveCardLayout(
+    null,
+    tournament,
+    null,
+    effectiveRowMode,
+    hasLevelEvidence,
+  );
 
   return {
-    id: row.id,
-    displayName: row.displayName,
-    withdrew: row.withdrew,
-    isPending: row.isPending,
-    teamKey: row.teamKey,
-    teamName: row.teamName,
-    positionInTier: row.positionInTier,
+    id: credit.id,
+    creditId: credit.id,
+    placementId: placement.id,
+    levelId: placement.levelId,
+    cardLayout,
+    packRef: tournament.packRef,
+    coCreditCount,
+    effectiveRowMode,
+    displayName: placement.displayName,
+    withdrew: placement.withdrew,
+    isPending: placement.isPending,
+    teamKey: placement.teamKey,
+    teamName: placement.teamName,
+    positionInTier: placement.positionInTier,
     tier: {
       id: tier.id,
       code: tier.code,
       label: tier.label,
       kind: tier.kind,
       rankWeight: tier.rankWeight,
-      isPodium: tier.isPodium,
-      isShowcaseEligible: tier.isShowcaseEligible,
       color: tier.color,
       iconKey: tier.iconKey,
       iconUrl: tier.iconUrl ?? null,
@@ -178,25 +229,40 @@ function toPlacementDto(
     },
     resolvedCardBackgroundUrl: tierCardBg ?? tournamentCardBg ?? null,
     resolvedTournamentIconUrl: tournamentIcon,
-    isFeatured: featuredIds.has(row.id),
-    isProfileHidden: hiddenIds.has(row.id),
+    isProfileHidden: hiddenIds.has(credit.id),
   };
 }
 
-function sortPlacementsDefault(a: PublicPlacementDto, b: PublicPlacementDto): number {
-  if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
+type SortablePlacementDto = PublicPlacementDto & {
+  _seriesSortWeight?: number;
+  _tournamentSortWeight?: number;
+};
+
+function sortPlacementsDefault(a: SortablePlacementDto, b: SortablePlacementDto): number {
+  const seriesWeightA = a._seriesSortWeight ?? UNSERIESED_SORT_WEIGHT;
+  const seriesWeightB = b._seriesSortWeight ?? UNSERIESED_SORT_WEIGHT;
+  if (seriesWeightA !== seriesWeightB) return seriesWeightA - seriesWeightB;
+
+  const tournamentWeightA = a._tournamentSortWeight ?? 0;
+  const tournamentWeightB = b._tournamentSortWeight ?? 0;
+  if (tournamentWeightA !== tournamentWeightB) {
+    return tournamentWeightA - tournamentWeightB;
+  }
+
   if (a.tier.rankWeight !== b.tier.rankWeight) {
     return a.tier.rankWeight - b.tier.rankWeight;
   }
+
   const yearA = a.tournament.sortYear ?? 0;
   const yearB = b.tournament.sortYear ?? 0;
   if (yearA !== yearB) return yearB - yearA;
+
   return b.id - a.id;
 }
 
 function createPlacementSorter(orderIds: number[]) {
   const orderMap = new Map(orderIds.map((id, index) => [id, index]));
-  return (a: PublicPlacementDto, b: PublicPlacementDto) => {
+  return (a: SortablePlacementDto, b: SortablePlacementDto) => {
     const aOrder = orderMap.get(a.id);
     const bOrder = orderMap.get(b.id);
     if (aOrder != null && bOrder != null) return aOrder - bOrder;
@@ -206,32 +272,27 @@ function createPlacementSorter(orderIds: number[]) {
   };
 }
 
+function buildCoCreditCounts(
+  credits: TournamentPlacementCredit[],
+): Map<number, number> {
+  const totals = new Map<number, number>();
+  for (const credit of credits) {
+    totals.set(credit.placementId, (totals.get(credit.placementId) ?? 0) + 1);
+  }
+  const others = new Map<number, number>();
+  for (const credit of credits) {
+    const total = totals.get(credit.placementId) ?? 1;
+    others.set(credit.id, Math.max(0, total - 1));
+  }
+  return others;
+}
+
 export class PlacementUtilizationService {
   private static instance: PlacementUtilizationService;
 
   static getInstance(): PlacementUtilizationService {
     if (!this.instance) this.instance = new PlacementUtilizationService();
     return this.instance;
-  }
-
-  async getFeaturedPlacementIds(subject: PlacementSubject): Promise<number[]> {
-    if (subject.playerId) {
-      const player = await Player.findByPk(subject.playerId, {
-        attributes: ['featuredPlacementIds'],
-      });
-      return Array.isArray(player?.featuredPlacementIds)
-        ? player!.featuredPlacementIds!.filter(n => Number.isFinite(n))
-        : [];
-    }
-    if (subject.creatorId) {
-      const creator = await Creator.findByPk(subject.creatorId, {
-        attributes: ['featuredPlacementIds'],
-      });
-      return Array.isArray(creator?.featuredPlacementIds)
-        ? creator!.featuredPlacementIds!.filter(n => Number.isFinite(n))
-        : [];
-    }
-    return [];
   }
 
   async getHiddenPlacementIds(subject: PlacementSubject): Promise<number[]> {
@@ -266,6 +327,35 @@ export class PlacementUtilizationService {
     return [];
   }
 
+  async getPlacementDisplayMode(subject: PlacementSubject): Promise<PlacementDisplayMode> {
+    if (subject.playerId) {
+      const row = await Player.findByPk(subject.playerId, {
+        attributes: ['placementDisplayMode'],
+      });
+      return normalizePlacementDisplayMode(row?.placementDisplayMode);
+    }
+    if (subject.creatorId) {
+      const row = await Creator.findByPk(subject.creatorId, {
+        attributes: ['placementDisplayMode'],
+      });
+      return normalizePlacementDisplayMode(row?.placementDisplayMode);
+    }
+    return 'defaultHierarchy';
+  }
+
+  async setPlacementDisplayMode(
+    subject: PlacementSubject,
+    mode: unknown,
+  ): Promise<PlacementDisplayMode> {
+    const placementDisplayMode = normalizePlacementDisplayMode(mode);
+    if (subject.playerId) {
+      await Player.update({placementDisplayMode}, {where: {id: subject.playerId}});
+    } else if (subject.creatorId) {
+      await Creator.update({placementDisplayMode}, {where: {id: subject.creatorId}});
+    }
+    return placementDisplayMode;
+  }
+
   async getPlacementsForPlayer(
     playerId: number,
     filters: PlacementFilters = {},
@@ -284,13 +374,16 @@ export class PlacementUtilizationService {
     subject: PlacementSubject,
     filters: PlacementFilters = {},
   ): Promise<PublicPlacementDto[]> {
-    const where: Record<string, unknown> = {};
-    if (subject.playerId) where.playerId = subject.playerId;
-    else if (subject.creatorId) where.creatorId = subject.creatorId;
+    const creditWhere: Record<string, unknown> = {};
+    if (subject.playerId) creditWhere.playerId = subject.playerId;
+    else if (subject.creatorId) creditWhere.creatorId = subject.creatorId;
     else return [];
 
+    const placementWhere: Record<string, unknown> = {
+      withdrew: false,
+    };
     if (!filters.includePending) {
-      where.isPending = false;
+      placementWhere.isPending = false;
     }
 
     const tournamentWhere: Record<string, unknown> = {};
@@ -302,43 +395,71 @@ export class PlacementUtilizationService {
     if (filters.seriesId) tournamentWhere.seriesId = filters.seriesId;
     if (filters.tournamentId) tournamentWhere.id = filters.tournamentId;
 
-    const [featuredIdsList, hiddenIdsList, orderIds] = await Promise.all([
-      this.getFeaturedPlacementIds(subject),
+    const [hiddenIdsList, orderIds] = await Promise.all([
       this.getHiddenPlacementIds(subject),
       this.getPlacementOrderIds(subject),
     ]);
-    const featuredIds = new Set(featuredIdsList);
     const hiddenIds = new Set(hiddenIdsList);
 
-    const rows = await TournamentPlacement.findAll({
-      where,
+    const rows = await TournamentPlacementCredit.findAll({
+      where: creditWhere,
       include: [
         {
-          model: TournamentTier,
-          as: 'tier',
+          model: TournamentPlacement,
+          as: 'placement',
           required: true,
-        },
-        {
-          model: Tournament,
-          as: 'tournament',
-          required: true,
-          where: Object.keys(tournamentWhere).length ? tournamentWhere : undefined,
-          include: [{model: TournamentSeries, as: 'series', required: false}],
+          where: placementWhere,
+          include: [
+            {
+              model: TournamentTier,
+              as: 'tier',
+              required: true,
+            },
+            {
+              model: Tournament,
+              as: 'tournament',
+              required: true,
+              where: Object.keys(tournamentWhere).length ? tournamentWhere : undefined,
+              include: [{model: TournamentSeries, as: 'series', required: false}],
+            },
+          ],
         },
       ],
     });
 
-    let dtos = rows.map(r => toPlacementDto(r, featuredIds, hiddenIds));
+    const coCreditCounts = buildCoCreditCounts(rows);
+
+    let dtos: SortablePlacementDto[] = rows.map(credit => {
+      const dto = toPlacementDto(
+        credit,
+        hiddenIds,
+        coCreditCounts.get(credit.id) ?? 0,
+      ) as SortablePlacementDto;
+      const tournament = ((credit as any).placement as TournamentPlacement & {
+        tournament?: Tournament;
+      }).tournament;
+      dto._tournamentSortWeight = tournament?.sortWeight ?? 0;
+      dto._seriesSortWeight = getSeriesSortWeight(
+        (tournament as Tournament & {series?: TournamentSeries | null})?.series,
+      );
+      return dto;
+    });
+
     if (!filters.includeProfileHidden) {
       dtos = dtos.filter(d => !d.isProfileHidden);
     }
-    if (filters.featuredOnly) {
-      dtos = dtos.filter(d => d.isFeatured);
-    }
+
     const sorter =
       orderIds.length > 0 ? createPlacementSorter(orderIds) : sortPlacementsDefault;
     dtos.sort(sorter);
-    return dtos;
+
+    return dtos.map(d => {
+      const {_tournamentSortWeight, _seriesSortWeight, ...rest} = d as PublicPlacementDto & {
+        _tournamentSortWeight?: number;
+        _seriesSortWeight?: number;
+      };
+      return rest;
+    });
   }
 
   async getBestPlacement(
@@ -504,34 +625,6 @@ export class PlacementUtilizationService {
     return result ?? {rewardType, entitlementId: null, frame: null};
   }
 
-  async setFeaturedPlacementIds(
-    subject: PlacementSubject,
-    placementIds: number[],
-  ): Promise<number[]> {
-    const unique = [...new Set(placementIds.map(Number).filter(n => Number.isFinite(n)))].slice(
-      0,
-      5,
-    );
-
-    const owned = await this.getPlacements(subject, {includeHidden: true, includePending: true});
-    const ownedIds = new Set(owned.map(p => p.id));
-    const filtered = unique.filter(id => ownedIds.has(id));
-
-    if (subject.playerId) {
-      await Player.update(
-        {featuredPlacementIds: filtered.length ? filtered : null},
-        {where: {id: subject.playerId}},
-      );
-    } else if (subject.creatorId) {
-      await Creator.update(
-        {featuredPlacementIds: filtered.length ? filtered : null},
-        {where: {id: subject.creatorId}},
-      );
-    }
-
-    return filtered;
-  }
-
   async setHiddenPlacementIds(
     subject: PlacementSubject,
     placementIds: number[],
@@ -544,23 +637,14 @@ export class PlacementUtilizationService {
     const ownedIds = new Set(owned.map(p => p.id));
     const filtered = normalizeIdList(placementIds).filter(id => ownedIds.has(id));
 
-    const featuredIds = await this.getFeaturedPlacementIds(subject);
-    const nextFeatured = featuredIds.filter(id => !filtered.includes(id));
-
     if (subject.playerId) {
       await Player.update(
-        {
-          hiddenPlacementIds: filtered.length ? filtered : null,
-          featuredPlacementIds: nextFeatured.length ? nextFeatured : null,
-        },
+        {hiddenPlacementIds: filtered.length ? filtered : null},
         {where: {id: subject.playerId}},
       );
     } else if (subject.creatorId) {
       await Creator.update(
-        {
-          hiddenPlacementIds: filtered.length ? filtered : null,
-          featuredPlacementIds: nextFeatured.length ? nextFeatured : null,
-        },
+        {hiddenPlacementIds: filtered.length ? filtered : null},
         {where: {id: subject.creatorId}},
       );
     }
@@ -629,18 +713,28 @@ export class PlacementUtilizationService {
     subject: PlacementSubject,
     prefs: {
       cardLayout?: unknown;
+      placementDisplayMode?: unknown;
       placementOrderIds?: unknown;
       hiddenPlacementIds?: unknown;
+      placementDisplayNodes?: Array<Partial<PlacementDisplayNodeAttributes>>;
     },
   ): Promise<PlacementDisplayPrefs> {
     const updates: Record<string, unknown> = {};
     let placementCardLayout = await this.getPlacementCardLayout(subject);
+    let placementDisplayMode = await this.getPlacementDisplayMode(subject);
     let hiddenPlacementIds = await this.getHiddenPlacementIds(subject);
     let placementOrderIds = await this.getPlacementOrderIds(subject);
 
     if (prefs.cardLayout !== undefined) {
       placementCardLayout = normalizePlacementCardLayout(prefs.cardLayout);
       updates.placementCardLayout = placementCardLayout;
+    }
+
+    if (prefs.placementDisplayMode !== undefined) {
+      placementDisplayMode = await this.setPlacementDisplayMode(
+        subject,
+        prefs.placementDisplayMode,
+      );
     }
 
     if (prefs.hiddenPlacementIds !== undefined) {
@@ -657,6 +751,14 @@ export class PlacementUtilizationService {
       );
     }
 
+    let placementDisplayNodes: PlacementDisplayNode[] | undefined;
+    if (prefs.placementDisplayNodes !== undefined) {
+      placementDisplayNodes = await this.saveDisplayTree(
+        subject,
+        prefs.placementDisplayNodes,
+      );
+    }
+
     if (Object.keys(updates).length > 0) {
       if (subject.playerId) {
         await Player.update(updates, {where: {id: subject.playerId}});
@@ -667,10 +769,56 @@ export class PlacementUtilizationService {
 
     return {
       placementCardLayout,
+      placementDisplayMode,
       hiddenPlacementIds,
       placementOrderIds,
+      ...(placementDisplayNodes ? {placementDisplayNodes} : {}),
     };
+  }
+
+  async getDisplayTree(subject: PlacementSubject): Promise<PlacementDisplayNode[]> {
+    const where: Record<string, unknown> = {};
+    if (subject.playerId) where.playerId = subject.playerId;
+    else if (subject.creatorId) where.creatorId = subject.creatorId;
+    else return [];
+
+    return PlacementDisplayNode.findAll({
+      where,
+      order: [
+        ['sortOrder', 'ASC'],
+        ['id', 'ASC'],
+      ],
+    });
+  }
+
+  async saveDisplayTree(
+    subject: PlacementSubject,
+    nodes: Array<Partial<PlacementDisplayNodeAttributes>>,
+  ): Promise<PlacementDisplayNode[]> {
+    const where: Record<string, unknown> = {};
+    if (subject.playerId) where.playerId = subject.playerId;
+    else if (subject.creatorId) where.creatorId = subject.creatorId;
+    else return [];
+
+    await PlacementDisplayNode.destroy({where});
+
+    if (!nodes.length) return [];
+
+    const created = await PlacementDisplayNode.bulkCreate(
+      nodes.map((node, index) => ({
+        playerId: subject.playerId ?? null,
+        creatorId: subject.creatorId ?? null,
+        parentId: node.parentId ?? null,
+        sortOrder: node.sortOrder ?? index,
+        visible: node.visible !== false,
+        nodeType: node.nodeType ?? 'credit',
+        refId: node.refId ?? null,
+        label: node.label ?? null,
+      })),
+    );
+
+    return created;
   }
 }
 
-export {placementInclude};
+export {creditInclude};

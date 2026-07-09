@@ -3,62 +3,46 @@ import {getSequelizeForModelGroup} from '@/config/db.js';
 
 const sequelize = getSequelizeForModelGroup('tournaments');
 
-export interface PlacementEntitlementAttributes {
+export interface TournamentPlacementCreditAttributes {
   id: number;
-  rewardId: number;
   placementId: number;
-  creditId: number | null;
   playerId: number | null;
   creatorId: number | null;
-  grantedAt: Date;
+  isGuest: boolean;
+  sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
-type PlacementEntitlementCreationAttributes = Optional<
-  PlacementEntitlementAttributes,
-  | 'id'
-  | 'creditId'
-  | 'playerId'
-  | 'creatorId'
-  | 'grantedAt'
-  | 'createdAt'
-  | 'updatedAt'
+type TournamentPlacementCreditCreationAttributes = Optional<
+  TournamentPlacementCreditAttributes,
+  'id' | 'playerId' | 'creatorId' | 'isGuest' | 'sortOrder' | 'createdAt' | 'updatedAt'
 >;
 
-class PlacementEntitlement
-  extends Model<PlacementEntitlementAttributes, PlacementEntitlementCreationAttributes>
-  implements PlacementEntitlementAttributes
+class TournamentPlacementCredit
+  extends Model<TournamentPlacementCreditAttributes, TournamentPlacementCreditCreationAttributes>
+  implements TournamentPlacementCreditAttributes
 {
   declare id: number;
-  declare rewardId: number;
   declare placementId: number;
-  declare creditId: number | null;
   declare playerId: number | null;
   declare creatorId: number | null;
-  declare grantedAt: Date;
+  declare isGuest: boolean;
+  declare sortOrder: number;
   declare createdAt: Date;
   declare updatedAt: Date;
 }
 
-PlacementEntitlement.init(
+TournamentPlacementCredit.init(
   {
     id: {
       type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true,
     },
-    rewardId: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-    },
     placementId: {
       type: DataTypes.INTEGER,
       allowNull: false,
-    },
-    creditId: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
     },
     playerId: {
       type: DataTypes.INTEGER,
@@ -68,9 +52,15 @@ PlacementEntitlement.init(
       type: DataTypes.INTEGER,
       allowNull: true,
     },
-    grantedAt: {
-      type: DataTypes.DATE,
+    isGuest: {
+      type: DataTypes.BOOLEAN,
       allowNull: false,
+      defaultValue: false,
+    },
+    sortOrder: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
     },
     createdAt: {
       type: DataTypes.DATE,
@@ -83,8 +73,8 @@ PlacementEntitlement.init(
   },
   {
     sequelize,
-    tableName: 'placement_entitlements',
+    tableName: 'tournament_placement_credits',
   },
 );
 
-export default PlacementEntitlement;
+export default TournamentPlacementCredit;

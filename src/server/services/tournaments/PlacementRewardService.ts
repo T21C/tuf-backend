@@ -2,6 +2,7 @@ import {Op, Transaction} from 'sequelize';
 import PlacementReward from '@/models/tournaments/PlacementReward.js';
 import PlacementEntitlement from '@/models/tournaments/PlacementEntitlement.js';
 import TournamentPlacement from '@/models/tournaments/TournamentPlacement.js';
+import TournamentPlacementCredit from '@/models/tournaments/TournamentPlacementCredit.js';
 import TournamentTier from '@/models/tournaments/TournamentTier.js';
 import Tournament from '@/models/tournaments/Tournament.js';
 import EquippedCosmetic from '@/models/tournaments/EquippedCosmetic.js';
@@ -54,6 +55,21 @@ export class PlacementRewardService {
         transaction: t,
       });
 
+      const placementIds = placements.map(p => p.id);
+      const credits = placementIds.length
+        ? await TournamentPlacementCredit.findAll({
+            where: {placementId: {[Op.in]: placementIds}},
+            transaction: t,
+          })
+        : [];
+
+      const creditsByPlacement = new Map<number, TournamentPlacementCredit[]>();
+      for (const credit of credits) {
+        const list = creditsByPlacement.get(credit.placementId) ?? [];
+        list.push(credit);
+        creditsByPlacement.set(credit.placementId, list);
+      }
+
       const rewards = await PlacementReward.findAll({
         where: {
           [Op.or]: [
@@ -67,6 +83,7 @@ export class PlacementRewardService {
       const desired = new Map<string, {
         rewardId: number;
         placementId: number;
+        creditId: number;
         playerId: number | null;
         creatorId: number | null;
       }>();
@@ -74,21 +91,24 @@ export class PlacementRewardService {
       for (const placement of placements) {
         const tier = (placement as any).tier as TournamentTier | undefined;
         if (!tier) continue;
-        if (!placement.playerId && !placement.creatorId) continue;
+        const placementCredits = creditsByPlacement.get(placement.id) ?? [];
+        if (!placementCredits.length) continue;
 
-        for (const reward of rewards) {
-          if (!rewardMatchesPlacement(reward, placement, tier, tournament)) continue;
-          const key = `${reward.id}:${placement.id}`;
-          desired.set(key, {
-            rewardId: reward.id,
-            placementId: placement.id,
-            playerId: placement.playerId,
-            creatorId: placement.creatorId,
-          });
+        for (const credit of placementCredits) {
+          for (const reward of rewards) {
+            if (!rewardMatchesPlacement(reward, placement, tier, tournament)) continue;
+            const key = `${reward.id}:${credit.id}`;
+            desired.set(key, {
+              rewardId: reward.id,
+              placementId: placement.id,
+              creditId: credit.id,
+              playerId: credit.playerId,
+              creatorId: credit.creatorId,
+            });
+          }
         }
       }
 
-      const placementIds = placements.map(p => p.id);
       const existing = placementIds.length
         ? await PlacementEntitlement.findAll({
             where: {placementId: {[Op.in]: placementIds}},
@@ -96,7 +116,9 @@ export class PlacementRewardService {
           })
         : [];
 
-      const existingKeys = new Map(existing.map(e => [`${e.rewardId}:${e.placementId}`, e]));
+      const existingKeys = new Map(
+        existing.map(e => [`${e.rewardId}:${e.creditId ?? e.placementId}`, e]),
+      );
       let granted = 0;
       let revoked = 0;
 
@@ -109,6 +131,7 @@ export class PlacementRewardService {
           {
             rewardId: row.rewardId,
             placementId: row.placementId,
+            creditId: row.creditId,
             playerId: row.playerId,
             creatorId: row.creatorId,
             grantedAt: new Date(),

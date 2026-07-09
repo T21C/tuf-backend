@@ -3,6 +3,8 @@ import {getSequelizeForModelGroup} from '@/config/db.js';
 
 const sequelize = getSequelizeForModelGroup('tournaments');
 
+export type PlacementRowMode = 'profile' | 'level';
+
 export interface TournamentPlacementAttributes {
   id: number;
   tournamentId: number;
@@ -15,6 +17,9 @@ export interface TournamentPlacementAttributes {
   teamKey: string | null;
   teamName: string | null;
   positionInTier: number;
+  rowMode: PlacementRowMode | null;
+  levelId: number | null;
+  creditedCreatorIds: number[] | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,6 +34,9 @@ type TournamentPlacementCreationAttributes = Optional<
   | 'teamKey'
   | 'teamName'
   | 'positionInTier'
+  | 'rowMode'
+  | 'levelId'
+  | 'creditedCreatorIds'
   | 'createdAt'
   | 'updatedAt'
 >;
@@ -48,6 +56,9 @@ class TournamentPlacement
   declare teamKey: string | null;
   declare teamName: string | null;
   declare positionInTier: number;
+  declare rowMode: PlacementRowMode | null;
+  declare levelId: number | null;
+  declare creditedCreatorIds: number[] | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 }
@@ -101,6 +112,18 @@ TournamentPlacement.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
+    },
+    rowMode: {
+      type: DataTypes.ENUM('profile', 'level'),
+      allowNull: true,
+    },
+    levelId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    creditedCreatorIds: {
+      type: DataTypes.JSON,
+      allowNull: true,
     },
     createdAt: {
       type: DataTypes.DATE,

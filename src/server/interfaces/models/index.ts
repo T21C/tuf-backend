@@ -52,6 +52,7 @@ export interface ICreator extends IBaseModel {
   placementOrderIds?: number[] | null;
   /** Tournament placement card layout: `default` | `iconRail`. */
   placementCardLayout?: string;
+  placementDisplayMode?: 'defaultHierarchy' | 'customLayers';
   creatorAliases: CreatorAlias[];
   creatorTeams?: ITeam[];
   teamMemberships?: any[];
@@ -171,6 +172,7 @@ export interface IPlayer extends IBaseModel {
   placementOrderIds?: number[] | null;
   /** Tournament placement card layout: `default` | `iconRail`. */
   placementCardLayout?: string;
+  placementDisplayMode?: 'defaultHierarchy' | 'customLayers';
 
   // Associations
   user?: Model<UserAttributes>;

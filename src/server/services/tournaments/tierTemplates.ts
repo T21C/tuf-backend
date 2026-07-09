@@ -5,8 +5,6 @@ export interface TierTemplateEntry {
   label: string;
   kind: TournamentTierKind;
   rankWeight: number;
-  isPodium: boolean;
-  isShowcaseEligible: boolean;
   sortOrder: number;
 }
 
@@ -39,8 +37,6 @@ function ordinalTiers(count: number): TierTemplateEntry[] {
       label: ordinalLabel(n),
       kind: 'ordinal' as const,
       rankWeight: n,
-      isPodium: n <= 3,
-      isShowcaseEligible: true,
       sortOrder: i,
     };
   });
@@ -67,8 +63,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Round of 8',
         kind: 'bracket',
         rankWeight: 8,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 4,
       },
       {
@@ -76,8 +70,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Round of 16',
         kind: 'bracket',
         rankWeight: 16,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 5,
       },
       {
@@ -85,8 +77,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Group Stage',
         kind: 'stage',
         rankWeight: 32,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 6,
       },
       {
@@ -94,8 +84,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Course Stage',
         kind: 'stage',
         rankWeight: 48,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 7,
       },
       {
@@ -103,8 +91,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Qualifier',
         kind: 'qualifier',
         rankWeight: 64,
-        isPodium: false,
-        isShowcaseEligible: false,
         sortOrder: 8,
       },
     ],
@@ -119,8 +105,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Semi-Final',
         kind: 'stage',
         rankWeight: 6,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 4,
       },
       {
@@ -128,8 +112,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Round 4',
         kind: 'round',
         rankWeight: 10,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 5,
       },
       {
@@ -137,8 +119,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Round 3',
         kind: 'round',
         rankWeight: 14,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 6,
       },
       {
@@ -146,8 +126,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Round 2',
         kind: 'round',
         rankWeight: 18,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 7,
       },
       {
@@ -155,8 +133,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Round 1',
         kind: 'round',
         rankWeight: 22,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 8,
       },
     ],
@@ -171,8 +147,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Round of 6',
         kind: 'bracket',
         rankWeight: 6,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 4,
       },
       {
@@ -180,8 +154,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Round of 8',
         kind: 'bracket',
         rankWeight: 8,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 5,
       },
       {
@@ -189,8 +161,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Round of 12',
         kind: 'bracket',
         rankWeight: 12,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 6,
       },
       {
@@ -198,8 +168,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Round of 16',
         kind: 'bracket',
         rankWeight: 16,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 7,
       },
       {
@@ -207,8 +175,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Round of 24',
         kind: 'bracket',
         rankWeight: 24,
-        isPodium: false,
-        isShowcaseEligible: true,
         sortOrder: 8,
       },
       {
@@ -216,8 +182,6 @@ export const TIER_TEMPLATES: TierTemplate[] = [
         label: 'Qualifier',
         kind: 'qualifier',
         rankWeight: 48,
-        isPodium: false,
-        isShowcaseEligible: false,
         sortOrder: 9,
       },
     ],
@@ -244,8 +208,6 @@ export function inferTierFromCode(rawCode: string): TierTemplateEntry {
       label: ordinalLabel(n),
       kind: 'ordinal',
       rankWeight: n,
-      isPodium: n <= 3,
-      isShowcaseEligible: true,
       sortOrder: n,
     };
   }
@@ -258,8 +220,6 @@ export function inferTierFromCode(rawCode: string): TierTemplateEntry {
       label: `Round of ${n}`,
       kind: 'bracket',
       rankWeight: n,
-      isPodium: false,
-      isShowcaseEligible: true,
       sortOrder: n + 10,
     };
   }
@@ -272,8 +232,6 @@ export function inferTierFromCode(rawCode: string): TierTemplateEntry {
       label: `Round ${n}`,
       kind: 'round',
       rankWeight: 20 + (10 - n),
-      isPodium: false,
-      isShowcaseEligible: true,
       sortOrder: 20 + n,
     };
   }
@@ -284,8 +242,6 @@ export function inferTierFromCode(rawCode: string): TierTemplateEntry {
       label: 'Semi-Final',
       kind: 'stage',
       rankWeight: 6,
-      isPodium: false,
-      isShowcaseEligible: true,
       sortOrder: 6,
     },
     Q: {
@@ -293,8 +249,6 @@ export function inferTierFromCode(rawCode: string): TierTemplateEntry {
       label: 'Qualifier',
       kind: 'qualifier',
       rankWeight: 64,
-      isPodium: false,
-      isShowcaseEligible: false,
       sortOrder: 64,
     },
     G: {
@@ -302,8 +256,6 @@ export function inferTierFromCode(rawCode: string): TierTemplateEntry {
       label: 'Group Stage',
       kind: 'stage',
       rankWeight: 32,
-      isPodium: false,
-      isShowcaseEligible: true,
       sortOrder: 32,
     },
     C: {
@@ -311,8 +263,6 @@ export function inferTierFromCode(rawCode: string): TierTemplateEntry {
       label: 'Course Stage',
       kind: 'stage',
       rankWeight: 48,
-      isPodium: false,
-      isShowcaseEligible: true,
       sortOrder: 48,
     },
   };
@@ -324,8 +274,6 @@ export function inferTierFromCode(rawCode: string): TierTemplateEntry {
     label: code,
     kind: 'custom',
     rankWeight: 100,
-    isPodium: false,
-    isShowcaseEligible: true,
     sortOrder: 100,
   };
 }

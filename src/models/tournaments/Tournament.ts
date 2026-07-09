@@ -5,6 +5,8 @@ const sequelize = getSequelizeForModelGroup('tournaments');
 
 export type TournamentTrack = 'player' | 'creator';
 export type TournamentStatus = 'draft' | 'ongoing' | 'completed' | 'cancelled';
+export type TournamentPlacementMode = 'profile' | 'level';
+export type TournamentCardLayout = 'classic' | 'evidence' | 'levelStyle';
 
 export interface TournamentAttributes {
   id: number;
@@ -24,6 +26,10 @@ export interface TournamentAttributes {
   startsAt: Date | null;
   endsAt: Date | null;
   sortYear: number | null;
+  sortWeight: number;
+  placementMode: TournamentPlacementMode;
+  cardLayoutDefault: TournamentCardLayout;
+  creditRoleFilter: string[] | null;
   iconAssetId: string | null;
   iconUrl: string | null;
   cardBackgroundAssetId: string | null;
@@ -49,6 +55,10 @@ type TournamentCreationAttributes = Optional<
   | 'startsAt'
   | 'endsAt'
   | 'sortYear'
+  | 'sortWeight'
+  | 'placementMode'
+  | 'cardLayoutDefault'
+  | 'creditRoleFilter'
   | 'iconAssetId'
   | 'iconUrl'
   | 'cardBackgroundAssetId'
@@ -78,6 +88,10 @@ class Tournament
   declare startsAt: Date | null;
   declare endsAt: Date | null;
   declare sortYear: number | null;
+  declare sortWeight: number;
+  declare placementMode: TournamentPlacementMode;
+  declare cardLayoutDefault: TournamentCardLayout;
+  declare creditRoleFilter: string[] | null;
   declare iconAssetId: string | null;
   declare iconUrl: string | null;
   declare cardBackgroundAssetId: string | null;
@@ -96,6 +110,7 @@ Tournament.init(
     shortName: {
       type: DataTypes.STRING(128),
       allowNull: false,
+      unique: true,
     },
     fullName: {
       type: DataTypes.STRING(255),
@@ -158,6 +173,25 @@ Tournament.init(
     },
     sortYear: {
       type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    sortWeight: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    placementMode: {
+      type: DataTypes.ENUM('profile', 'level'),
+      allowNull: false,
+      defaultValue: 'profile',
+    },
+    cardLayoutDefault: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      defaultValue: 'classic',
+    },
+    creditRoleFilter: {
+      type: DataTypes.JSON,
       allowNull: true,
     },
     iconAssetId: {

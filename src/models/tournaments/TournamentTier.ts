@@ -18,8 +18,6 @@ export interface TournamentTierAttributes {
   label: string;
   kind: TournamentTierKind;
   rankWeight: number;
-  isPodium: boolean;
-  isShowcaseEligible: boolean;
   color: string | null;
   iconKey: string | null;
   iconAssetId: string | null;
@@ -36,8 +34,6 @@ type TournamentTierCreationAttributes = Optional<
   | 'id'
   | 'kind'
   | 'rankWeight'
-  | 'isPodium'
-  | 'isShowcaseEligible'
   | 'color'
   | 'iconKey'
   | 'iconAssetId'
@@ -59,8 +55,6 @@ class TournamentTier
   declare label: string;
   declare kind: TournamentTierKind;
   declare rankWeight: number;
-  declare isPodium: boolean;
-  declare isShowcaseEligible: boolean;
   declare color: string | null;
   declare iconKey: string | null;
   declare iconAssetId: string | null;
@@ -107,16 +101,6 @@ TournamentTier.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 100,
-    },
-    isPodium: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false,
-    },
-    isShowcaseEligible: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: true,
     },
     color: {
       type: DataTypes.STRING(32),

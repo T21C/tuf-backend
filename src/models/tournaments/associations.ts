@@ -2,6 +2,8 @@ import TournamentSeries from './TournamentSeries.js';
 import Tournament from './Tournament.js';
 import TournamentTier from './TournamentTier.js';
 import TournamentPlacement from './TournamentPlacement.js';
+import TournamentPlacementCredit from './TournamentPlacementCredit.js';
+import PlacementDisplayNode from './PlacementDisplayNode.js';
 import PlacementReward from './PlacementReward.js';
 import PlacementEntitlement from './PlacementEntitlement.js';
 import EquippedCosmetic from './EquippedCosmetic.js';
@@ -66,6 +68,54 @@ export function initializeTournamentsAssociations() {
     as: 'tournamentPlacements',
   });
 
+  TournamentPlacement.hasMany(TournamentPlacementCredit, {
+    foreignKey: 'placementId',
+    as: 'credits',
+    onDelete: 'CASCADE',
+  });
+  TournamentPlacementCredit.belongsTo(TournamentPlacement, {
+    foreignKey: 'placementId',
+    as: 'placement',
+  });
+
+  TournamentPlacementCredit.belongsTo(Player, {
+    foreignKey: 'playerId',
+    as: 'player',
+  });
+  Player.hasMany(TournamentPlacementCredit, {
+    foreignKey: 'playerId',
+    as: 'tournamentPlacementCredits',
+  });
+
+  TournamentPlacementCredit.belongsTo(Creator, {
+    foreignKey: 'creatorId',
+    as: 'creator',
+  });
+  Creator.hasMany(TournamentPlacementCredit, {
+    foreignKey: 'creatorId',
+    as: 'tournamentPlacementCredits',
+  });
+
+  PlacementDisplayNode.belongsTo(Player, {
+    foreignKey: 'playerId',
+    as: 'player',
+  });
+  Player.hasMany(PlacementDisplayNode, {
+    foreignKey: 'playerId',
+    as: 'placementDisplayNodes',
+    onDelete: 'CASCADE',
+  });
+
+  PlacementDisplayNode.belongsTo(Creator, {
+    foreignKey: 'creatorId',
+    as: 'creator',
+  });
+  Creator.hasMany(PlacementDisplayNode, {
+    foreignKey: 'creatorId',
+    as: 'placementDisplayNodes',
+    onDelete: 'CASCADE',
+  });
+
   Tournament.hasMany(PlacementReward, {
     foreignKey: 'tournamentId',
     as: 'rewards',
@@ -109,6 +159,16 @@ export function initializeTournamentsAssociations() {
   PlacementEntitlement.belongsTo(TournamentPlacement, {
     foreignKey: 'placementId',
     as: 'placement',
+  });
+
+  TournamentPlacementCredit.hasMany(PlacementEntitlement, {
+    foreignKey: 'creditId',
+    as: 'entitlements',
+    onDelete: 'CASCADE',
+  });
+  PlacementEntitlement.belongsTo(TournamentPlacementCredit, {
+    foreignKey: 'creditId',
+    as: 'credit',
   });
 
   PlacementEntitlement.belongsTo(Player, {

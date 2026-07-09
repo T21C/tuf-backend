@@ -32,9 +32,10 @@ class Creator extends Model implements ICreator {
   declare featuredPlacementIds: number[] | null;
   /** Placement ids hidden from the public profile tournaments section. */
   declare hiddenPlacementIds: number[] | null;
-  /** User-defined display order for visible placements. */
+  /** User-defined display order for visible placements (credit ids). */
   declare placementOrderIds: number[] | null;
   declare placementCardLayout: string;
+  declare placementDisplayMode: 'defaultHierarchy' | 'customLayers';
 
   declare user: User;
   declare credits?: LevelCredit[];
@@ -140,6 +141,11 @@ Creator.init(
       type: DataTypes.STRING(16),
       allowNull: false,
       defaultValue: 'default',
+    },
+    placementDisplayMode: {
+      type: DataTypes.ENUM('defaultHierarchy', 'customLayers'),
+      allowNull: false,
+      defaultValue: 'defaultHierarchy',
     },
   },
   {

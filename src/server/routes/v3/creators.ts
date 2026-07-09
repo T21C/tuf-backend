@@ -888,8 +888,8 @@ router.get(
             'profileHeaderSurfaceStyle',
             'profileHeaderSurfaceImageAssets',
             'tufStellarIconVariant',
-            'featuredPlacementIds',
             'placementCardLayout',
+            'placementDisplayMode',
             'hiddenPlacementIds',
             'placementOrderIds',
           ],
@@ -897,7 +897,7 @@ router.get(
       ]);
 
       const placementService = PlacementUtilizationService.getInstance();
-      const [tournamentPlacements, equippedAvatarFrame, placementEntitlements] =
+      const [tournamentPlacements, equippedAvatarFrame, placementEntitlements, placementDisplayNodes] =
         await Promise.all([
           placementService.getPlacementsForCreator(id, {
             includeProfileHidden: isOwnProfile,
@@ -905,6 +905,9 @@ router.get(
           placementService.getEquippedCosmetic({creatorId: id}, 'avatar_frame'),
           isOwnProfile
             ? placementService.listEntitlements({creatorId: id})
+            : Promise.resolve([]),
+          isOwnProfile
+            ? placementService.getDisplayTree({creatorId: id})
             : Promise.resolve([]),
         ]);
 
@@ -1028,9 +1031,10 @@ router.get(
             tufStellarIconVariant: stellarOn
               ? normalizeTufStellarIconVariant(creatorRow.tufStellarIconVariant)
               : '1',
-            featuredPlacementIds: Array.isArray(creatorRow.featuredPlacementIds)
-              ? creatorRow.featuredPlacementIds
-              : [],
+            placementDisplayMode:
+              creatorRow.placementDisplayMode === 'customLayers'
+                ? 'customLayers'
+                : 'defaultHierarchy',
             ...(isOwnProfile
               ? {
                   hiddenPlacementIds: Array.isArray(creatorRow.hiddenPlacementIds)
@@ -1057,7 +1061,7 @@ router.get(
         displayCurationTypeIds,
         tournamentPlacements,
         equippedAvatarFrame,
-        ...(isOwnProfile ? {placementEntitlements} : {}),
+        ...(isOwnProfile ? {placementEntitlements, placementDisplayNodes} : {}),
       });
 
     } catch (error) {
@@ -1923,29 +1927,6 @@ router.delete(
 );
 
 router.patch(
-  '/me/featured-placements',
-  Auth.user(),
-  async (req: Request, res: Response) => {
-    try {
-      const user = req.user;
-      if (!user?.creatorId) {
-        return res.status(400).json({error: 'No creator profile linked to this account'});
-      }
-      const ids = Array.isArray(req.body.placementIds) ? req.body.placementIds : [];
-      const featuredPlacementIds =
-        await PlacementUtilizationService.getInstance().setFeaturedPlacementIds(
-          {creatorId: user.creatorId},
-          ids,
-        );
-      return res.json({featuredPlacementIds});
-    } catch (error) {
-      logger.error('[v3 PATCH /creators/me/featured-placements] failure', error);
-      return res.status(500).json({error: 'Failed to update featured placements'});
-    }
-  },
-);
-
-router.patch(
   '/me/placement-display',
   Auth.user(),
   async (req: Request, res: Response) => {
@@ -1959,8 +1940,10 @@ router.patch(
           {creatorId: user.creatorId},
           {
             cardLayout: req.body.cardLayout,
+            placementDisplayMode: req.body.placementDisplayMode,
             placementOrderIds: req.body.placementOrderIds,
             hiddenPlacementIds: req.body.hiddenPlacementIds,
+            placementDisplayNodes: req.body.placementDisplayNodes,
           },
         );
       return res.json(prefs);

@@ -12,6 +12,7 @@ import {
   parsePrizeCode,
 } from './tierTemplates.js';
 import {PlacementRewardService} from './PlacementRewardService.js';
+import {PlacementCreditService} from './PlacementCreditService.js';
 import {getSequelizeForModelGroup} from '@/config/db.js';
 
 export interface CsvPlacementPair {
@@ -248,10 +249,19 @@ export class TournamentCsvImportService {
     if (dryRun) {
       for (const row of rows) {
         const existing = await Tournament.findOne({
-          where: {shortName: row.shortName, track},
+          where: {shortName: row.shortName},
         });
-        if (existing) report.tournamentsUpdated += 1;
-        else report.tournamentsCreated += 1;
+        if (existing) {
+          if (existing.track !== track) {
+            report.errors.push(
+              `${row.shortName}: tournament exists with track "${existing.track}"`,
+            );
+          } else {
+            report.tournamentsUpdated += 1;
+          }
+        } else {
+          report.tournamentsCreated += 1;
+        }
 
         for (const p of row.placements) {
           if (p.name === '?') {
@@ -269,6 +279,7 @@ export class TournamentCsvImportService {
     const unmatched = new Set<string>();
     const sequelize = getSequelizeForModelGroup('tournaments');
     const rewardService = PlacementRewardService.getInstance();
+    const creditService = PlacementCreditService.getInstance();
 
     for (const row of rows) {
       try {
@@ -280,9 +291,15 @@ export class TournamentCsvImportService {
           );
 
           let tournament = await Tournament.findOne({
-            where: {shortName: row.shortName, track},
+            where: {shortName: row.shortName},
             transaction,
           });
+
+          if (tournament && tournament.track !== track) {
+            throw new Error(
+              `Tournament "${row.shortName}" already exists with track "${tournament.track}"`,
+            );
+          }
 
           const payload = {
             shortName: row.shortName,
@@ -353,8 +370,6 @@ export class TournamentCsvImportService {
                   label: inferred.label,
                   kind: inferred.kind,
                   rankWeight: inferred.rankWeight,
-                  isPodium: inferred.isPodium,
-                  isShowcaseEligible: inferred.isShowcaseEligible,
                   sortOrder: inferred.sortOrder,
                 },
                 {transaction},
@@ -370,7 +385,7 @@ export class TournamentCsvImportService {
             if (linkedId) report.linked += 1;
             else unmatched.add(pair.name.trim());
 
-            await TournamentPlacement.create(
+            const placement = await TournamentPlacement.create(
               {
                 tournamentId: tournament.id,
                 tierId: tier.id,
@@ -383,12 +398,13 @@ export class TournamentCsvImportService {
               },
               {transaction},
             );
+            await creditService.ensureProfileCredit(placement, tournament, transaction);
             report.placementsCreated += 1;
           }
         });
 
         const tournament = await Tournament.findOne({
-          where: {shortName: row.shortName, track},
+          where: {shortName: row.shortName},
         });
         if (tournament) {
           await rewardService.syncEntitlementsForTournament(tournament.id);

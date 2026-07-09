@@ -23,7 +23,15 @@ import {
   resolvePlacementName,
 } from '@/server/services/tournaments/PlacementNameResolver.js';
 import {PlacementRewardService} from '@/server/services/tournaments/PlacementRewardService.js';
+import {PlacementCreditService} from '@/server/services/tournaments/PlacementCreditService.js';
+import {TournamentPackImportService} from '@/server/services/tournaments/TournamentPackImportService.js';
 import {TournamentCsvImportService} from '@/server/services/tournaments/TournamentCsvImportService.js';
+import {TournamentDeletionService} from '@/server/services/tournaments/TournamentDeletionService.js';
+import {
+  normalizeCreditRoleFilter,
+  normalizeCreditedCreatorIds,
+} from '@/server/services/tournaments/placementModeUtils.js';
+import LevelCredit, {CreditRole} from '@/models/levels/LevelCredit.js';
 import cdnService, {CdnError} from '@/server/services/core/CdnService.js';
 import type {TournamentTrack} from '@/models/tournaments/Tournament.js';
 import {getSequelizeForModelGroup} from '@/config/db.js';
@@ -36,7 +44,10 @@ const upload = multer({
 });
 
 const rewardService = PlacementRewardService.getInstance();
+const creditService = PlacementCreditService.getInstance();
 const csvImportService = TournamentCsvImportService.getInstance();
+const packImportService = TournamentPackImportService.getInstance();
+const deletionService = TournamentDeletionService.getInstance();
 
 const placementDetailInclude = [
   {model: TournamentTier, as: 'tier'},
@@ -53,6 +64,11 @@ const placementDetailInclude = [
     attributes: ['id', 'name'],
   },
 ];
+
+function parseOrderedIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(Number).filter(n => Number.isFinite(n) && n > 0);
+}
 
 function parseTrack(value: unknown): TournamentTrack | null {
   if (value === 'player' || value === 'creator') return value;
@@ -103,7 +119,7 @@ router.get(
   }),
   async (_req: Request, res: Response) => {
     try {
-      const series = await TournamentSeries.findAll({order: [['name', 'ASC']]});
+      const series = await TournamentSeries.findAll({order: [['sortWeight', 'ASC']]});
       return res.json(series);
     } catch (error) {
       logger.error('List tournament series failed:', error);
@@ -145,6 +161,30 @@ router.post(
       }
       logger.error('Create tournament series failed:', error);
       return res.status(500).json({error: 'Failed to create series'});
+    }
+  },
+);
+
+router.put(
+  '/series/reorder',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    try {
+      const orderedIds = parseOrderedIds(req.body.orderedIds);
+      if (!orderedIds.length) {
+        return res.status(400).json({error: 'orderedIds must be a non-empty array'});
+      }
+      for (let i = 0; i < orderedIds.length; i++) {
+        await TournamentSeries.update(
+          {sortWeight: i + 1},
+          {where: {id: orderedIds[i]}},
+        );
+      }
+      const series = await TournamentSeries.findAll({order: [['sortWeight', 'ASC']]});
+      return res.json(series);
+    } catch (error) {
+      logger.error('Reorder tournament series failed:', error);
+      return res.status(500).json({error: 'Failed to reorder series'});
     }
   },
 );
@@ -224,6 +264,7 @@ router.get(
         ];
       }
 
+      const sequelize = getSequelizeForModelGroup('tournaments');
       const tournaments = await Tournament.findAll({
         where,
         include: [
@@ -231,12 +272,13 @@ router.get(
           {model: TournamentTier, as: 'tiers', required: false},
         ],
         order: [
+          [sequelize.literal('COALESCE(`series`.`sortWeight`, 100)'), 'ASC'],
+          ['sortWeight', 'ASC'],
           ['sortYear', 'DESC'],
           ['shortName', 'ASC'],
         ],
       });
 
-      const sequelize = getSequelizeForModelGroup('tournaments');
       const placementCounts = await TournamentPlacement.findAll({
         attributes: [
           'tournamentId',
@@ -259,6 +301,88 @@ router.get(
     } catch (error) {
       logger.error('List tournaments failed:', error);
       return res.status(500).json({error: 'Failed to list tournaments'});
+    }
+  },
+);
+
+router.put(
+  '/reorder',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    try {
+      const orderedIds = parseOrderedIds(req.body.orderedIds);
+      if (!orderedIds.length) {
+        return res.status(400).json({error: 'orderedIds must be a non-empty array'});
+      }
+      for (let i = 0; i < orderedIds.length; i++) {
+        await Tournament.update(
+          {sortWeight: i + 1},
+          {where: {id: orderedIds[i]}},
+        );
+      }
+      const tournaments = await Tournament.findAll({
+        where: {id: {[Op.in]: orderedIds}},
+        order: [['sortWeight', 'ASC']],
+      });
+      return res.json(tournaments);
+    } catch (error) {
+      logger.error('Reorder tournaments failed:', error);
+      return res.status(500).json({error: 'Failed to reorder tournaments'});
+    }
+  },
+);
+
+router.get(
+  '/levels/:levelId([0-9]{1,20})/credit-candidates',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    try {
+      const levelId = parseInt(req.params.levelId, 10);
+      const roleFilter = normalizeCreditRoleFilter(req.query.roles);
+      const roles = roleFilter.filter(
+        (r): r is CreditRole => r === CreditRole.CHARTER || r === CreditRole.VFXER,
+      );
+
+      const credits = await LevelCredit.findAll({
+        where: {
+          levelId,
+          role: roles.length
+            ? {[Op.in]: roles}
+            : {[Op.in]: [CreditRole.CHARTER, CreditRole.VFXER]},
+        },
+        include: [
+          {
+            model: Creator,
+            as: 'creator',
+            required: true,
+            attributes: ['id', 'name'],
+          },
+        ],
+        order: [
+          ['sortOrder', 'ASC'],
+          ['creatorId', 'ASC'],
+        ],
+      });
+
+      const seen = new Set<number>();
+      const candidates = [];
+      for (const credit of credits) {
+        if (seen.has(credit.creatorId)) continue;
+        seen.add(credit.creatorId);
+        const creator = (credit as any).creator as Creator;
+        candidates.push({
+          creatorId: credit.creatorId,
+          creatorName: creator?.name ?? null,
+          role: credit.role,
+          sortOrder: credit.sortOrder,
+          isOnLevel: true,
+        });
+      }
+
+      return res.json(candidates);
+    } catch (error) {
+      logger.error('List credit candidates failed:', error);
+      return res.status(500).json({error: 'Failed to list credit candidates'});
     }
   },
 );
@@ -359,7 +483,7 @@ router.post(
       return res.status(201).json(full);
     } catch (error: any) {
       if (error?.name === 'SequelizeUniqueConstraintError') {
-        return res.status(409).json({error: 'Tournament shortName+track already exists'});
+        return res.status(409).json({error: 'Tournament short name already exists'});
       }
       logger.error('Create tournament failed:', error);
       return res.status(500).json({error: 'Failed to create tournament'});
@@ -433,7 +557,10 @@ router.patch(
         ],
       });
       return res.json(full);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.name === 'SequelizeUniqueConstraintError') {
+        return res.status(409).json({error: 'Tournament short name already exists'});
+      }
       logger.error('Update tournament failed:', error);
       return res.status(500).json({error: 'Failed to update tournament'});
     }
@@ -445,11 +572,19 @@ router.delete(
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     try {
-      const tournament = await Tournament.findByPk(req.params.id);
-      if (!tournament) return res.status(404).json({error: 'Tournament not found'});
-      await tournament.destroy();
+      const tournamentId = parseInt(String(req.params.id), 10);
+      const existing = await Tournament.findByPk(tournamentId);
+      if (!existing) return res.status(404).json({error: 'Tournament not found'});
+
+      const {assetIds} = await deletionService.deleteTournament(tournamentId);
+      for (const assetId of assetIds) {
+        await deleteCdnAssetIfExists(assetId);
+      }
       return res.json({success: true});
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.message === 'Tournament not found') {
+        return res.status(404).json({error: 'Tournament not found'});
+      }
       logger.error('Delete tournament failed:', error);
       return res.status(500).json({error: 'Failed to delete tournament'});
     }
@@ -662,8 +797,6 @@ router.put(
           rankWeight: Number.isFinite(t.rankWeight)
             ? t.rankWeight
             : inferTierFromCode(code).rankWeight,
-          isPodium: Boolean(t.isPodium),
-          isShowcaseEligible: t.isShowcaseEligible !== false,
           color: t.color ?? null,
           iconKey: t.iconKey ?? null,
           iconAssetId: t.iconAssetId ?? null,
@@ -724,6 +857,7 @@ router.put(
       if (!tournament) return res.status(404).json({error: 'Tournament not found'});
 
       const placements = Array.isArray(req.body.placements) ? req.body.placements : [];
+      const deletePlacementIds = parseOrderedIds(req.body.deletePlacementIds);
       const autoLink = req.body.autoLink !== false;
       const nameMap = autoLink
         ? await buildNameLookupMaps(tournament.track)
@@ -735,10 +869,16 @@ router.put(
       });
       for (const t of tiers) tierByCode.set(t.code.toUpperCase(), t);
 
-      await TournamentPlacement.destroy({where: {tournamentId: tournament.id}});
+      if (deletePlacementIds.length) {
+        await TournamentPlacement.destroy({
+          where: {
+            tournamentId: tournament.id,
+            id: {[Op.in]: deletePlacementIds},
+          },
+        });
+      }
 
       const positionCounters = new Map<string, number>();
-      const created = [];
 
       for (const row of placements) {
         let code = String(row.tierCode || row.code || '').trim().toUpperCase();
@@ -774,9 +914,9 @@ router.put(
           else creatorId = linked;
         }
 
-        const placement = await TournamentPlacement.create({
+        const placementPayload = {
           tournamentId: tournament.id,
-          tierId: tier.id,
+          tierId: row.tierId ?? tier.id,
           displayName,
           playerId: tournament.track === 'player' ? playerId : null,
           creatorId: tournament.track === 'creator' ? creatorId : null,
@@ -787,8 +927,27 @@ router.put(
           positionInTier: Number.isFinite(row.positionInTier)
             ? row.positionInTier
             : pos,
-        });
-        created.push(placement);
+          rowMode: row.rowMode ?? null,
+          levelId: row.levelId ?? null,
+          creditedCreatorIds: normalizeCreditedCreatorIds(row.creditedCreatorIds),
+        };
+
+        let placement: TournamentPlacement;
+        if (row.id) {
+          const existing = await TournamentPlacement.findOne({
+            where: {id: row.id, tournamentId: tournament.id},
+          });
+          if (existing) {
+            await existing.update(placementPayload);
+            placement = existing;
+          } else {
+            placement = await TournamentPlacement.create(placementPayload);
+          }
+        } else {
+          placement = await TournamentPlacement.create(placementPayload);
+        }
+
+        await creditService.ensureProfileCredit(placement, tournament);
       }
 
       await rewardService.syncEntitlementsForTournament(tournament.id);
@@ -803,8 +962,196 @@ router.put(
       });
       return res.json(full);
     } catch (error) {
-      logger.error('Replace placements failed:', error);
+      logger.error('Upsert placements failed:', error);
       return res.status(500).json({error: 'Failed to update placements'});
+    }
+  },
+);
+
+router.post(
+  '/:id([0-9]{1,20})/credits/sync/preview',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    try {
+      const tournamentId = parseInt(req.params.id, 10);
+      const tournament = await Tournament.findByPk(tournamentId);
+      if (!tournament) return res.status(404).json({error: 'Tournament not found'});
+
+      const placementIds = Array.isArray(req.body.placementIds)
+        ? parseOrderedIds(req.body.placementIds)
+        : undefined;
+      const preview = await creditService.previewSync(tournamentId, placementIds);
+      return res.json(preview);
+    } catch (error) {
+      logger.error('Preview credit sync failed:', error);
+      return res.status(500).json({error: 'Failed to preview credit sync'});
+    }
+  },
+);
+
+router.post(
+  '/:id([0-9]{1,20})/credits/sync',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    try {
+      const tournamentId = parseInt(req.params.id, 10);
+      const tournament = await Tournament.findByPk(tournamentId);
+      if (!tournament) return res.status(404).json({error: 'Tournament not found'});
+
+      const placementIds = Array.isArray(req.body.placementIds)
+        ? parseOrderedIds(req.body.placementIds)
+        : undefined;
+      const result = await creditService.applySync(tournamentId, placementIds);
+      return res.json(result);
+    } catch (error) {
+      logger.error('Apply credit sync failed:', error);
+      return res.status(500).json({error: 'Failed to sync credits'});
+    }
+  },
+);
+
+router.post(
+  '/:id([0-9]{1,20})/sync-credits',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    try {
+      const tournamentId = parseInt(req.params.id, 10);
+      const tournament = await Tournament.findByPk(tournamentId);
+      if (!tournament) return res.status(404).json({error: 'Tournament not found'});
+
+      const placementIds = Array.isArray(req.body.placementIds)
+        ? parseOrderedIds(req.body.placementIds)
+        : undefined;
+      const dryRun = req.body.dryRun === true || req.body.dryRun === 'true';
+
+      if (dryRun) {
+        const preview = await creditService.previewSync(tournamentId, placementIds);
+        return res.json(preview);
+      }
+      const result = await creditService.applySync(tournamentId, placementIds);
+      return res.json(result);
+    } catch (error) {
+      logger.error('Sync credits failed:', error);
+      return res.status(500).json({error: 'Failed to sync credits'});
+    }
+  },
+);
+
+router.post(
+  '/placements/:placementId([0-9]{1,20})/sync-credits',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    try {
+      const placementId = parseInt(req.params.placementId, 10);
+      const placement = await TournamentPlacement.findByPk(placementId);
+      if (!placement) return res.status(404).json({error: 'Placement not found'});
+
+      const dryRun = req.body.dryRun === true || req.body.dryRun === 'true';
+      if (dryRun) {
+        const preview = await creditService.previewSync(placement.tournamentId, [placementId]);
+        return res.json(preview);
+      }
+      const result = await creditService.applySync(placement.tournamentId, [placementId]);
+      return res.json(result);
+    } catch (error) {
+      logger.error('Sync placement credits failed:', error);
+      return res.status(500).json({error: 'Failed to sync placement credits'});
+    }
+  },
+);
+
+router.get(
+  '/nominee-candidates/:levelId([0-9]{1,20})',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    try {
+      const levelId = parseInt(req.params.levelId, 10);
+      const roleFilter = normalizeCreditRoleFilter(req.query.roles);
+      const roles = roleFilter.filter(
+        (r): r is CreditRole => r === CreditRole.CHARTER || r === CreditRole.VFXER,
+      );
+
+      const credits = await LevelCredit.findAll({
+        where: {
+          levelId,
+          role: roles.length
+            ? {[Op.in]: roles}
+            : {[Op.in]: [CreditRole.CHARTER, CreditRole.VFXER]},
+        },
+        include: [
+          {
+            model: Creator,
+            as: 'creator',
+            required: true,
+            attributes: ['id', 'name'],
+          },
+        ],
+        order: [
+          ['sortOrder', 'ASC'],
+          ['creatorId', 'ASC'],
+        ],
+      });
+
+      const seen = new Set<number>();
+      const candidates = [];
+      for (const credit of credits) {
+        if (seen.has(credit.creatorId)) continue;
+        seen.add(credit.creatorId);
+        const creator = (credit as any).creator as Creator;
+        candidates.push({
+          creatorId: credit.creatorId,
+          creatorName: creator?.name ?? null,
+          role: credit.role,
+          sortOrder: credit.sortOrder,
+          isOnLevel: true,
+        });
+      }
+
+      return res.json(candidates);
+    } catch (error) {
+      logger.error('List nominee candidates failed:', error);
+      return res.status(500).json({error: 'Failed to list nominee candidates'});
+    }
+  },
+);
+
+router.post(
+  '/:id([0-9]{1,20})/pack-import/diff',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    try {
+      const tournamentId = parseInt(req.params.id, 10);
+      const packRef = String(req.body.packRef || '').trim();
+      if (!packRef) return res.status(400).json({error: 'packRef is required'});
+      const diff = await packImportService.computeDiff(tournamentId, packRef);
+      return res.json(diff);
+    } catch (error: any) {
+      if (error?.code === 404) return res.status(404).json({error: error.message});
+      logger.error('Pack import diff failed:', error);
+      return res.status(500).json({error: 'Failed to compute pack diff'});
+    }
+  },
+);
+
+router.post(
+  '/:id([0-9]{1,20})/pack-import',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    try {
+      const tournamentId = parseInt(req.params.id, 10);
+      const packRef = String(req.body.packRef || '').trim();
+      if (!packRef) return res.status(400).json({error: 'packRef is required'});
+      const result = await packImportService.applyImport(tournamentId, packRef, {
+        acceptAdds: true,
+        acceptRemoves: req.body.acceptRemoves === true,
+        placementIdsToRemove: parseOrderedIds(req.body.placementIdsToRemove),
+        syncCredits: req.body.syncCredits === true,
+      });
+      return res.json(result);
+    } catch (error: any) {
+      if (error?.code === 404) return res.status(404).json({error: error.message});
+      logger.error('Pack import failed:', error);
+      return res.status(500).json({error: 'Failed to import pack'});
     }
   },
 );
@@ -835,6 +1182,10 @@ router.patch(
       }
 
       await placement.update(updates);
+      const tournament = (placement as any).tournament as Tournament | undefined;
+      if (tournament) {
+        await creditService.ensureProfileCredit(placement, tournament);
+      }
       await rewardService.syncEntitlementsForTournament(placement.tournamentId);
 
       const full = await TournamentPlacement.findByPk(placement.id, {
@@ -921,6 +1272,7 @@ router.post(
 
       let linked = 0;
       const stillUnresolved: string[] = [];
+      const entitlementSyncTournamentIds = new Set<number>();
 
       for (const placement of placements) {
         const tournament = (placement as any).tournament as Tournament;
@@ -930,15 +1282,21 @@ router.post(
         );
         if (tournament.track === 'player' && resolved.playerId) {
           await placement.update({playerId: resolved.playerId});
+          await creditService.ensureProfileCredit(placement, tournament);
           linked += 1;
-          await rewardService.syncEntitlementsForTournament(tournament.id);
+          entitlementSyncTournamentIds.add(tournament.id);
         } else if (tournament.track === 'creator' && resolved.creatorId) {
           await placement.update({creatorId: resolved.creatorId});
+          await creditService.ensureProfileCredit(placement, tournament);
           linked += 1;
-          await rewardService.syncEntitlementsForTournament(tournament.id);
+          entitlementSyncTournamentIds.add(tournament.id);
         } else {
           stillUnresolved.push(placement.displayName);
         }
+      }
+
+      for (const tournamentId of entitlementSyncTournamentIds) {
+        await rewardService.syncEntitlementsForTournament(tournamentId);
       }
 
       return res.json({

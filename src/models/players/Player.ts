@@ -41,9 +41,10 @@ class Player
   declare featuredPlacementIds: number[] | null;
   /** Placement ids hidden from the public profile tournaments section. */
   declare hiddenPlacementIds: number[] | null;
-  /** User-defined display order for visible placements. */
+  /** User-defined display order for visible placements (credit ids). */
   declare placementOrderIds: number[] | null;
   declare placementCardLayout: string;
+  declare placementDisplayMode: 'defaultHierarchy' | 'customLayers';
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -143,6 +144,11 @@ Player.init(
       type: DataTypes.STRING(16),
       allowNull: false,
       defaultValue: 'default',
+    },
+    placementDisplayMode: {
+      type: DataTypes.ENUM('defaultHierarchy', 'customLayers'),
+      allowNull: false,
+      defaultValue: 'defaultHierarchy',
     },
     createdAt: {
       type: DataTypes.DATE,

@@ -9,13 +9,14 @@ export interface TournamentSeriesAttributes {
   name: string;
   description: string | null;
   logoUrl: string | null;
+  sortWeight: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
 type TournamentSeriesCreationAttributes = Optional<
   TournamentSeriesAttributes,
-  'id' | 'description' | 'logoUrl' | 'createdAt' | 'updatedAt'
+  'id' | 'description' | 'logoUrl' | 'sortWeight' | 'createdAt' | 'updatedAt'
 >;
 
 class TournamentSeries
@@ -27,6 +28,7 @@ class TournamentSeries
   declare name: string;
   declare description: string | null;
   declare logoUrl: string | null;
+  declare sortWeight: number;
   declare createdAt: Date;
   declare updatedAt: Date;
 }
@@ -54,6 +56,11 @@ TournamentSeries.init(
     logoUrl: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    sortWeight: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
     },
     createdAt: {
       type: DataTypes.DATE,
