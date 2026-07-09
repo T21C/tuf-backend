@@ -20,8 +20,10 @@ import Judgement from '@/models/passes/Judgement.js';
 import { OAuthProvider, User } from '@/models/index.js';
 import Player from '@/models/players/Player.js';
 
-import { getScoreV2 } from '@/misc/utils/pass/CalcScore.js';
-import { calcAcc } from '@/misc/utils/pass/CalcAcc.js';
+import {
+  computePassScoreV2,
+  PassScoreCalculationError,
+} from '@/misc/utils/pass/scoreService.js';
 import { passSubmissionHook } from '@/server/routes/v2/webhooks/webhook.js';
 
 import { formError } from '../shared/errors.js';
@@ -273,32 +275,26 @@ function computeScoreAndAccuracy(
   sanitized: PassFormSanitised,
   level: Level,
 ): { score: number; accuracy: number } {
-  const levelData = {
-    baseScore: level.baseScore,
-    ppBaseScore: level.ppBaseScore,
-    difficulty: level.difficulty,
-  };
-
-  const score = getScoreV2(
-    {
-      speed: sanitized.speed,
-      judgements: sanitized.judgements,
-      isNoHoldTap: sanitized.isNoHoldTap,
-    },
-    levelData,
-  );
-  if (!Number.isFinite(score)) {
-    throw formError.bad('Invalid judgement values - could not calculate score', {
-      details: { judgements: sanitized.judgements, speed: sanitized.speed, levelId: sanitized.levelId },
-    });
+  try {
+    const { scoreV2, accuracy } = computePassScoreV2(
+      {
+        speed: sanitized.speed,
+        judgements: sanitized.judgements,
+        isNoHoldTap: sanitized.isNoHoldTap,
+      },
+      level,
+    );
+    return { score: scoreV2, accuracy };
+  } catch (err) {
+    if (err instanceof PassScoreCalculationError) {
+      throw formError.bad(err.message, {
+        details: {
+          judgements: sanitized.judgements,
+          speed: sanitized.speed,
+          levelId: sanitized.levelId,
+        },
+      });
+    }
+    throw err;
   }
-
-  const accuracy = calcAcc(sanitized.judgements);
-  if (!Number.isFinite(accuracy)) {
-    throw formError.bad('Invalid judgement values - could not calculate accuracy', {
-      details: { judgements: sanitized.judgements },
-    });
-  }
-
-  return { score, accuracy };
 }

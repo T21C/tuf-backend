@@ -9,8 +9,10 @@ import {Transaction} from 'sequelize';
 import Rating from '@/models/levels/Rating.js';
 import Pass from '@/models/passes/Pass.js';
 import Judgement from '@/models/passes/Judgement.js';
-import {calcAcc} from '@/misc/utils/pass/CalcAcc.js';
-import {getScoreV2} from '@/misc/utils/pass/CalcScore.js';
+import {
+  buildLevelScoreContext,
+  computePassScoreV2,
+} from '@/misc/utils/pass/scoreService.js';
 import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import LevelLikes from '@/models/levels/LevelLikes.js';
@@ -295,54 +297,54 @@ const handleScoreRecalculations = async (
     transaction,
   });
 
-  // Get the difficulty once for all passes
-  const currentDifficulty = await Difficulty.findByPk(
-    updateData.diffId,
-    {transaction}
-  );
+  const levelRow = await Level.findByPk(levelId, {
+    attributes: ['baseScore', 'ppBaseScore', 'xaccCurveMeta', 'diffId'],
+    transaction,
+  });
+
+  const currentDifficulty = await Difficulty.findByPk(updateData.diffId, {
+    transaction,
+  });
 
   if (!currentDifficulty) {
     logger.error(
       `No difficulty found for level ${levelId} with diffId ${updateData.diffId}`,
     );
-    return { playerIds: [], passIds: [], updatedCount: 0 };
+    return {playerIds: [], passIds: [], updatedCount: 0};
   }
 
-  // Collect all updates for bulk operation
-  const passUpdates: Array<{id: number; levelId: number; playerId: number; accuracy: number; scoreV2: number}> = [];
+  const levelContext = buildLevelScoreContext(levelRow ?? {}, {
+    baseScore: updateData.baseScore ?? levelRow?.baseScore ?? 0,
+    ppBaseScore: updateData.ppBaseScore ?? levelRow?.ppBaseScore ?? 0,
+    xaccCurveMeta:
+      updateData.xaccCurveMeta !== undefined
+        ? updateData.xaccCurveMeta
+        : (levelRow?.xaccCurveMeta ?? null),
+    difficulty: {
+      name: currentDifficulty.name,
+      baseScore: currentDifficulty.baseScore || 0,
+    },
+  });
+
+  const passUpdates: Array<{
+    id: number;
+    levelId: number;
+    playerId: number;
+    accuracy: number;
+    scoreV2: number;
+  }> = [];
 
   for (const passData of passes) {
     const pass = passData.dataValues;
     if (!pass.judgements) continue;
 
-    const accuracy = calcAcc(pass.judgements);
-    const diffToUse = currentDifficulty || pass.level?.difficulty;
-
-    if (!diffToUse) {
-      logger.warn(`No difficulty found for pass ${pass.id}, skipping score calculation`);
-      continue;
-    }
-
-    const levelData = {
-      baseScore: updateData.baseScore ?? pass.level?.baseScore ?? 0,
-      ppBaseScore: updateData.ppBaseScore ?? pass.level?.ppBaseScore ?? 0,
-      difficulty: {
-        name: diffToUse.name,
-        baseScore: diffToUse.baseScore || 0,
-      },
-      xaccCurveMeta:
-        updateData.xaccCurveMeta !== undefined
-          ? updateData.xaccCurveMeta
-          : (pass.level as any)?.xaccCurveMeta ?? null,
-    };
-
-    const scoreV2 = getScoreV2(
+    const {accuracy, scoreV2} = computePassScoreV2(
       {
         speed: pass.speed || 1,
         judgements: pass.judgements,
         isNoHoldTap: pass.isNoHoldTap || false,
       },
-      levelData,
+      levelContext,
     );
 
     logger.debug(`Pass ${pass.id} scoreV2: ${scoreV2}`);

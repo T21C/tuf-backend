@@ -17,7 +17,7 @@ import {
 import sequelize from '@/config/db.js';
 import { getIO } from '@/misc/utils/server/socket.js';
 import { sseManager } from '@/misc/utils/server/sse.js';
-import { getScoreV2 } from '@/misc/utils/pass/CalcScore.js';
+import { computePassScoreV2 } from '@/misc/utils/pass/scoreService.js';
 import { safeTransactionRollback, getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
@@ -520,7 +520,7 @@ router.put(
         // levels with an explicit non-zero baseScore aren't tied to the
         // difficulty's base value, so their scoreV2 remains correct as-is.
         const levels = await Level.findAll({
-          attributes: ['id', 'baseScore', 'ppBaseScore'],
+          attributes: ['id', 'baseScore', 'ppBaseScore', 'xaccCurveMeta'],
           where: {
             diffId: diffId,
             [Op.or]: [
@@ -538,6 +538,7 @@ router.put(
             levels.map(level => [level.id, {
               baseScore: level.baseScore,
               ppBaseScore: level.ppBaseScore,
+              xaccCurveMeta: level.xaccCurveMeta ?? null,
             }]),
           );
 
@@ -569,19 +570,18 @@ router.put(
             const level = levelDataMap.get(pass.levelId);
             if (!level) continue;
 
-            const levelData = {
-              baseScore: level.baseScore,
-              ppBaseScore: level.ppBaseScore,
-              difficulty: updatedDifficulty,
-            };
+            const {scoreV2: newScore} = computePassScoreV2(
+              {
+                speed: pass.speed || 1.0,
+                judgements: pass.judgements,
+                isNoHoldTap: pass.isNoHoldTap || false,
+              },
+              level,
+              {
+                difficulty: updatedDifficulty,
+              },
+            );
 
-            const passData = {
-              speed: pass.speed || 1.0,
-              judgements: pass.judgements,
-              isNoHoldTap: pass.isNoHoldTap || false,
-            };
-
-            const newScore = getScoreV2(passData, levelData);
             scoreUpdates.push({ id: pass.id, scoreV2: newScore });
 
             if (pass.playerId) {

@@ -12,8 +12,10 @@ import Pass from '@/models/passes/Pass.js';
 import Judgement from '@/models/passes/Judgement.js';
 import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
-import { calcAcc } from '@/misc/utils/pass/CalcAcc.js';
-import { getScoreV2 } from '@/misc/utils/pass/CalcScore.js';
+import {
+  buildLevelScoreContext,
+  computePassScoreV2,
+} from '@/misc/utils/pass/scoreService.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -44,6 +46,30 @@ const handlePassUpdates = async (levelId: number, diffId: number, baseScore: num
         transaction: recalcTransaction,
       });
 
+      const levelRow = await Level.findByPk(levelId, {
+        attributes: ['baseScore', 'ppBaseScore', 'xaccCurveMeta'],
+        transaction: recalcTransaction,
+      });
+
+      const currentDifficulty = await Difficulty.findByPk(diffId, {
+        transaction: recalcTransaction,
+      });
+
+      if (!currentDifficulty) {
+        await recalcTransaction.rollback();
+        logger.error(`No difficulty found for level ${levelId}`);
+        return;
+      }
+
+      const levelContext = buildLevelScoreContext(levelRow ?? {}, {
+        baseScore: baseScore || 0,
+        ppBaseScore: baseScore || 0,
+        difficulty: {
+          name: currentDifficulty.name,
+          baseScore: currentDifficulty.baseScore || 0,
+        },
+      });
+
       // Process passes in batches
       const batchSize = 100;
       for (let i = 0; i < passes.length; i += batchSize) {
@@ -53,33 +79,13 @@ const handlePassUpdates = async (levelId: number, diffId: number, baseScore: num
             const pass = passData.dataValues;
             if (!pass.judgements) return;
 
-            const accuracy = calcAcc(pass.judgements);
-
-            const currentDifficulty = await Difficulty.findByPk(
-              diffId,
-              {
-                transaction: recalcTransaction,
-              },
-            );
-
-            if (!currentDifficulty) {
-              logger.error(`No difficulty found for pass ${pass.id}`);
-              return;
-            }
-
-            const levelData = {
-              baseScore: baseScore || 0,
-              ppBaseScore: baseScore || 0,
-              difficulty: currentDifficulty,
-            };
-
-            const scoreV2 = getScoreV2(
+            const {accuracy, scoreV2} = computePassScoreV2(
               {
                 speed: pass.speed || 1,
                 judgements: pass.judgements,
                 isNoHoldTap: pass.isNoHoldTap || false,
               },
-              levelData,
+              levelContext,
             );
 
             await Pass.update(

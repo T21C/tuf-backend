@@ -26,7 +26,7 @@ import Judgement from '@/models/passes/Judgement.js';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {calcAcc, type IJudgements} from '@/misc/utils/pass/CalcAcc.js';
-import {getScoreV2} from '@/misc/utils/pass/CalcScore.js';
+import {computePassScoreV2} from '@/misc/utils/pass/scoreService.js';
 
 initializeAssociations();
 
@@ -332,22 +332,13 @@ async function runClamp(opts: CliOptions): Promise<void> {
             continue;
           }
 
-          const newAcc = calcAcc(cleared);
-          const levelData = {
-            baseScore: pass.level.baseScore,
-            ppBaseScore: pass.level.ppBaseScore,
-            difficulty: {
-              name: pass.level.difficulty.name,
-              baseScore: pass.level.difficulty.baseScore,
-            },
-          };
-          const newScore = getScoreV2(
+          const {accuracy: newAcc, scoreV2: newScore} = computePassScoreV2(
             {
               speed: pass.speed ?? 1,
               judgements: cleared,
               isNoHoldTap: pass.isNoHoldTap ?? false,
             },
-            levelData,
+            pass.level,
           );
 
           await pass.update(

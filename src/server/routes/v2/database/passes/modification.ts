@@ -12,8 +12,11 @@ import { getIO } from '@/misc/utils/server/socket.js';
 import sequelize from '@/config/db.js';
 import { updateWorldsFirstFlags, updateWorldsFirstPPStatus } from './index.js';
 import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
-import { calcAcc, IJudgements } from '@/misc/utils/pass/CalcAcc.js';
-import { getScoreV2 } from '@/misc/utils/pass/CalcScore.js';
+import { IJudgements } from '@/misc/utils/pass/CalcAcc.js';
+import {
+  computePassScoreV2,
+  PassScoreCalculationError,
+} from '@/misc/utils/pass/scoreService.js';
 import { sanitizeJudgements } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { deriveKeyFlags, normalizeKeyCount } from '@/misc/utils/pass/keyCount.js';
 import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
@@ -176,17 +179,6 @@ router.put(
         );
 
 
-        const calculatedAccuracy = calcAcc(updatedJudgements);
-
-        // Create pass data for score calculation with proper type handling
-        const passData = {
-          speed: speed || pass.speed || 1.0,
-          judgements: updatedJudgements,
-          isNoHoldTap:
-            isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap || false,
-        } as const;
-
-        // Use the new level data if levelId changed, otherwise use existing level data
         const levelData = newLevel || pass.level;
 
         if (!levelData || !levelData.difficulty) {
@@ -196,14 +188,28 @@ router.put(
             .json({error: 'Level or difficulty data not found'});
         }
 
-        // Create properly structured level data for score calculation
-        const levelDataForScore = {
-          baseScore: levelData.baseScore,
-          ppBaseScore: levelData.ppBaseScore,
-          difficulty: levelData.difficulty,
-        };
-
-        const calculatedScore = getScoreV2(passData, levelDataForScore);
+        let calculatedAccuracy: number;
+        let calculatedScore: number;
+        try {
+          ({ accuracy: calculatedAccuracy, scoreV2: calculatedScore } =
+            computePassScoreV2(
+              {
+                speed: speed || pass.speed || 1.0,
+                judgements: updatedJudgements,
+                isNoHoldTap:
+                  isNoHoldTap !== undefined
+                    ? isNoHoldTap
+                    : pass.isNoHoldTap || false,
+              },
+              levelData,
+            ));
+        } catch (err) {
+          await safeTransactionRollback(transaction);
+          if (err instanceof PassScoreCalculationError) {
+            return res.status(400).json({ error: err.message });
+          }
+          throw err;
+        }
 
         // Update pass with all fields including isDuplicate
         await pass.update(

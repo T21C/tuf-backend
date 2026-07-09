@@ -10,8 +10,7 @@ import User from '@/models/auth/User.js';
 import Judgement from '@/models/passes/Judgement.js';
 import sequelize from '@/config/db.js';
 import Difficulty from '@/models/levels/Difficulty.js';
-import { calcAcc } from '@/misc/utils/pass/CalcAcc.js';
-import { getScoreV2 } from '@/misc/utils/pass/CalcScore.js';
+import { computePassScoreV2 } from '@/misc/utils/pass/scoreService.js';
 import { env } from 'process';
 import { logger } from '../core/LoggerService.js';
 import { permissionFlags } from '@/config/constants.js';
@@ -366,11 +365,7 @@ export class ModifierService {
             });
 
             if (level) {
-              // Recalculate accuracy
-              const newAccuracy = calcAcc(pass.judgements);
-
-              // Recalculate score
-              const newScore = getScoreV2(
+              const {accuracy: newAccuracy, scoreV2: newScore} = computePassScoreV2(
                 {
                   speed: pass.speed || 1,
                   judgements: {
@@ -382,21 +377,15 @@ export class ModifierService {
                     lateSingle: pass.judgements.lateSingle || 0,
                     lateDouble: pass.judgements.lateDouble || 0,
                   },
-                  isNoHoldTap: pass.isNoHoldTap || false
+                  isNoHoldTap: pass.isNoHoldTap || false,
                 },
-                {
-                  baseScore: level.baseScore || 0,
-                  ppBaseScore: level.ppBaseScore || 0,
-                  difficulty: level.difficulty || { baseScore: 0, name: '' }
-                }
+                level,
               );
 
-              // Update pass with new values
               await pass.update({
                 accuracy: newAccuracy,
-                scoreV2: newScore
+                scoreV2: newScore,
               }, { transaction });
-
             }
           }
         }

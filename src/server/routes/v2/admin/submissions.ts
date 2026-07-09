@@ -11,8 +11,10 @@ import Pass from '@/models/passes/Pass.js';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import Judgement from '@/models/passes/Judgement.js';
-import {calcAcc} from '@/misc/utils/pass/CalcAcc.js';
-import {getScoreV2} from '@/misc/utils/pass/CalcScore.js';
+import {
+  computePassScoreV2,
+  PassScoreCalculationError,
+} from '@/misc/utils/pass/scoreService.js';
 import {deriveKeyFlags, normalizeKeyCount} from '@/misc/utils/pass/keyCount.js';
 import {getIO} from '@/misc/utils/server/socket.js';
 import sequelize from '@/config/db.js';
@@ -234,15 +236,23 @@ async function approvePassSubmission(
   };
 
   const speed = submission.speed || 1;
-  const accuracy = calcAcc(judgementData as IPassSubmissionJudgements);
-  const scoreV2 = getScoreV2(
-    {
-      speed,
-      judgements: judgementData as IPassSubmissionJudgements,
-      isNoHoldTap: flags.isNoHoldTap || false,
-    },
-    { baseScore: level.baseScore, ppBaseScore: level.ppBaseScore, difficulty },
-  );
+  let accuracy: number;
+  let scoreV2: number;
+  try {
+    ({ accuracy, scoreV2 } = computePassScoreV2(
+      {
+        speed,
+        judgements: judgementData as IPassSubmissionJudgements,
+        isNoHoldTap: flags.isNoHoldTap || false,
+      },
+      level,
+    ));
+  } catch (err) {
+    if (err instanceof PassScoreCalculationError) {
+      throw new Error(err.message);
+    }
+    throw err;
+  }
 
   if (!isValidNumber(accuracy)) {
     throw new Error('Failed to calculate valid accuracy from judgements');
@@ -1610,19 +1620,24 @@ router.put(
         };
 
         const speed = submission.speed ?? 1;
-        const accuracy = calcAcc(judgementData as IPassSubmissionJudgements);
-        const scoreV2 = getScoreV2(
-          {
-            speed,
-            judgements: judgementData as IPassSubmissionJudgements,
-            isNoHoldTap: flags.isNoHoldTap || false,
-          },
-          {
-            baseScore: level.baseScore,
-            ppBaseScore: level.ppBaseScore,
-            difficulty: level.difficulty,
-          },
-        );
+        let accuracy: number;
+        let scoreV2: number;
+        try {
+          ({ accuracy, scoreV2 } = computePassScoreV2(
+            {
+              speed,
+              judgements: judgementData as IPassSubmissionJudgements,
+              isNoHoldTap: flags.isNoHoldTap || false,
+            },
+            level,
+          ));
+        } catch (err) {
+          await safeTransactionRollback(transaction, logger);
+          if (err instanceof PassScoreCalculationError) {
+            return res.status(400).json({ error: err.message });
+          }
+          throw err;
+        }
 
         if (!isValidNumber(accuracy)) {
           await safeTransactionRollback(transaction, logger);
