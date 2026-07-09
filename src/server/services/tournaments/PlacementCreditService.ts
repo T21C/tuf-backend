@@ -58,11 +58,8 @@ export class PlacementCreditService {
     );
 
     if (effectiveMode === 'profile') {
-      if (tournament.track === 'player' && placement.playerId) {
+      if (placement.playerId) {
         return [{playerId: placement.playerId, creatorId: null, isGuest: false, sortOrder: 0}];
-      }
-      if (tournament.track === 'creator' && placement.creatorId) {
-        return [{playerId: null, creatorId: placement.creatorId, isGuest: false, sortOrder: 0}];
       }
       return [];
     }

@@ -14,7 +14,6 @@ import PlacementDisplayNode, {
 } from '@/models/tournaments/PlacementDisplayNode.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
-import type {TournamentTrack} from '@/models/tournaments/Tournament.js';
 import {
   UNSERIESED_SORT_WEIGHT,
   resolveEffectiveCardLayout,
@@ -38,7 +37,6 @@ export interface PlacementSubject {
 }
 
 export interface PlacementFilters {
-  track?: TournamentTrack;
   seriesId?: number;
   tournamentId?: number;
   includeHidden?: boolean;
@@ -77,7 +75,6 @@ export interface PublicPlacementDto {
     shortName: string;
     fullName: string | null;
     aka: string | null;
-    track: TournamentTrack;
     status: string;
     isResultsFinal: boolean;
     sortYear: number | null;
@@ -211,7 +208,6 @@ function toPlacementDto(
       shortName: tournament.shortName,
       fullName: tournament.fullName,
       aka: tournament.aka,
-      track: tournament.track,
       status: tournament.status,
       isResultsFinal: tournament.isResultsFinal,
       sortYear: tournament.sortYear,
@@ -360,14 +356,14 @@ export class PlacementUtilizationService {
     playerId: number,
     filters: PlacementFilters = {},
   ): Promise<PublicPlacementDto[]> {
-    return this.getPlacements({playerId}, {...filters, track: filters.track ?? 'player'});
+    return this.getPlacements({playerId}, filters);
   }
 
   async getPlacementsForCreator(
     creatorId: number,
     filters: PlacementFilters = {},
   ): Promise<PublicPlacementDto[]> {
-    return this.getPlacements({creatorId}, {...filters, track: filters.track ?? 'creator'});
+    return this.getPlacements({creatorId}, filters);
   }
 
   async getPlacements(
@@ -391,7 +387,6 @@ export class PlacementUtilizationService {
       tournamentWhere.isHidden = false;
       tournamentWhere.status = {[Op.ne]: 'draft'};
     }
-    if (filters.track) tournamentWhere.track = filters.track;
     if (filters.seriesId) tournamentWhere.seriesId = filters.seriesId;
     if (filters.tournamentId) tournamentWhere.id = filters.tournamentId;
 

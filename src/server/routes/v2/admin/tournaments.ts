@@ -11,6 +11,7 @@ import TournamentPlacement from '@/models/tournaments/TournamentPlacement.js';
 import PlacementReward from '@/models/tournaments/PlacementReward.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
+import User from '@/models/auth/User.js';
 import {
   TIER_TEMPLATES,
   getTierTemplate,
@@ -25,15 +26,17 @@ import {
 import {PlacementRewardService} from '@/server/services/tournaments/PlacementRewardService.js';
 import {PlacementCreditService} from '@/server/services/tournaments/PlacementCreditService.js';
 import {TournamentPackImportService} from '@/server/services/tournaments/TournamentPackImportService.js';
+import {TournamentPackCreateService} from '@/server/services/tournaments/TournamentPackCreateService.js';
 import {TournamentCsvImportService} from '@/server/services/tournaments/TournamentCsvImportService.js';
 import {TournamentDeletionService} from '@/server/services/tournaments/TournamentDeletionService.js';
 import {
   normalizeCreditRoleFilter,
   normalizeCreditedCreatorIds,
+  resolveEffectiveRowMode,
 } from '@/server/services/tournaments/placementModeUtils.js';
 import LevelCredit, {CreditRole} from '@/models/levels/LevelCredit.js';
+import Level from '@/models/levels/Level.js';
 import cdnService, {CdnError} from '@/server/services/core/CdnService.js';
-import type {TournamentTrack} from '@/models/tournaments/Tournament.js';
 import {getSequelizeForModelGroup} from '@/config/db.js';
 
 
@@ -47,6 +50,7 @@ const rewardService = PlacementRewardService.getInstance();
 const creditService = PlacementCreditService.getInstance();
 const csvImportService = TournamentCsvImportService.getInstance();
 const packImportService = TournamentPackImportService.getInstance();
+const packCreateService = TournamentPackCreateService.getInstance();
 const deletionService = TournamentDeletionService.getInstance();
 
 const placementDetailInclude = [
@@ -63,6 +67,27 @@ const placementDetailInclude = [
     required: false,
     attributes: ['id', 'name'],
   },
+  {
+    model: Level,
+    as: 'level',
+    required: false,
+    attributes: ['id', 'song', 'artist', 'diffId', 'team'],
+    include: [
+      {
+        model: LevelCredit,
+        as: 'levelCredits',
+        required: false,
+        include: [
+          {
+            model: Creator,
+            as: 'creator',
+            required: false,
+            attributes: ['id', 'name'],
+          },
+        ],
+      },
+    ],
+  },
 ];
 
 function parseOrderedIds(value: unknown): number[] {
@@ -70,9 +95,74 @@ function parseOrderedIds(value: unknown): number[] {
   return value.map(Number).filter(n => Number.isFinite(n) && n > 0);
 }
 
-function parseTrack(value: unknown): TournamentTrack | null {
-  if (value === 'player' || value === 'creator') return value;
-  return null;
+async function loadNomineeCandidates(
+  levelId: number,
+  roles: CreditRole[],
+): Promise<
+  Array<{
+    creatorId: number;
+    creatorName: string | null;
+    name: string | null;
+    role: string;
+    sortOrder: number;
+    isOnLevel: boolean;
+    avatarUrl: string | null;
+    username: string | null;
+    nickname: string | null;
+  }>
+> {
+  const credits = await LevelCredit.findAll({
+    where: {
+      levelId,
+      role: roles.length
+        ? {[Op.in]: roles}
+        : {[Op.in]: [CreditRole.CHARTER, CreditRole.VFXER]},
+    },
+    include: [
+      {
+        model: Creator,
+        as: 'creator',
+        required: true,
+        attributes: ['id', 'name'],
+        include: [
+          {
+            model: User,
+            as: 'user',
+            required: false,
+            attributes: ['id', 'username', 'nickname', 'avatarUrl', 'avatarIsGif'],
+          },
+        ],
+      },
+    ],
+    order: [
+      ['sortOrder', 'ASC'],
+      ['creatorId', 'ASC'],
+    ],
+  });
+
+  const seen = new Set<number>();
+  const candidates = [];
+  for (const credit of credits) {
+    if (seen.has(credit.creatorId)) continue;
+    seen.add(credit.creatorId);
+    const creator = (credit as any).creator as Creator & {
+      user?: Pick<User, 'username' | 'nickname' | 'avatarUrl' | 'avatarIsGif'> | null;
+    };
+    const user = creator?.user ?? null;
+    const creatorName = creator?.name ?? null;
+    candidates.push({
+      creatorId: credit.creatorId,
+      creatorName,
+      name: creatorName,
+      role: credit.role,
+      sortOrder: credit.sortOrder,
+      isOnLevel: true,
+      avatarUrl: user?.avatarUrl ?? null,
+      username: user?.username ?? null,
+      nickname: user?.nickname ?? null,
+    });
+  }
+  return candidates;
 }
 
 async function deleteCdnAssetIfExists(assetId: string | null | undefined): Promise<void> {
@@ -248,8 +338,6 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const where: Record<string, unknown> = {};
-      const track = parseTrack(req.query.track);
-      if (track) where.track = track;
       if (req.query.status) where.status = String(req.query.status);
       if (req.query.seriesId) where.seriesId = parseInt(String(req.query.seriesId), 10);
       if (req.query.isHidden === 'true') where.isHidden = true;
@@ -343,46 +431,48 @@ router.get(
         (r): r is CreditRole => r === CreditRole.CHARTER || r === CreditRole.VFXER,
       );
 
-      const credits = await LevelCredit.findAll({
-        where: {
-          levelId,
-          role: roles.length
-            ? {[Op.in]: roles}
-            : {[Op.in]: [CreditRole.CHARTER, CreditRole.VFXER]},
-        },
-        include: [
-          {
-            model: Creator,
-            as: 'creator',
-            required: true,
-            attributes: ['id', 'name'],
-          },
-        ],
-        order: [
-          ['sortOrder', 'ASC'],
-          ['creatorId', 'ASC'],
-        ],
-      });
-
-      const seen = new Set<number>();
-      const candidates = [];
-      for (const credit of credits) {
-        if (seen.has(credit.creatorId)) continue;
-        seen.add(credit.creatorId);
-        const creator = (credit as any).creator as Creator;
-        candidates.push({
-          creatorId: credit.creatorId,
-          creatorName: creator?.name ?? null,
-          role: credit.role,
-          sortOrder: credit.sortOrder,
-          isOnLevel: true,
-        });
-      }
-
+      const candidates = await loadNomineeCandidates(levelId, roles);
       return res.json(candidates);
     } catch (error) {
       logger.error('List credit candidates failed:', error);
       return res.status(500).json({error: 'Failed to list credit candidates'});
+    }
+  },
+);
+
+router.post(
+  '/pack-create',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    try {
+      const packRef = String(req.body.packRef || '').trim();
+      if (!packRef) return res.status(400).json({error: 'packRef is required'});
+
+      const tournament = await packCreateService.createFromPack({
+        packRef,
+        shortName: req.body.shortName != null ? String(req.body.shortName).trim() : null,
+        fullName: req.body.fullName ?? null,
+        aka: req.body.aka ?? null,
+        seriesId: req.body.seriesId ?? null,
+        status: req.body.status ?? 'draft',
+        isHidden: Boolean(req.body.isHidden),
+        isResultsFinal: Boolean(req.body.isResultsFinal),
+        youtubeUrl: req.body.youtubeUrl ?? null,
+        notes: req.body.notes ?? null,
+        externalUrl: req.body.externalUrl ?? null,
+        organizers: Array.isArray(req.body.organizers) ? req.body.organizers : null,
+        sortYear: req.body.sortYear ?? null,
+        syncCredits: req.body.syncCredits !== false,
+      });
+      return res.status(201).json(tournament);
+    } catch (error: any) {
+      if (error?.code === 404) return res.status(404).json({error: error.message});
+      if (error?.code === 400) return res.status(400).json({error: error.message});
+      if (error?.name === 'SequelizeUniqueConstraintError') {
+        return res.status(409).json({error: 'Tournament short name already exists'});
+      }
+      logger.error('Pack create failed:', error);
+      return res.status(500).json({error: 'Failed to create tournament from pack'});
     }
   },
 );
@@ -438,17 +528,20 @@ router.post(
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     try {
-      const track = parseTrack(req.body.track);
       const shortName = String(req.body.shortName || '').trim();
-      if (!track || !shortName) {
-        return res.status(400).json({error: 'shortName and track are required'});
+      if (!shortName) {
+        return res.status(400).json({error: 'shortName is required'});
       }
+
+      const placementMode =
+        req.body.placementMode === 'level' || req.body.placementMode === 'profile'
+          ? req.body.placementMode
+          : 'profile';
 
       const tournament = await Tournament.create({
         shortName,
         fullName: req.body.fullName ?? null,
         aka: req.body.aka ?? null,
-        track,
         seriesId: req.body.seriesId ?? null,
         status: req.body.status ?? 'draft',
         isHidden: Boolean(req.body.isHidden),
@@ -461,6 +554,7 @@ router.post(
         startsAt: req.body.startsAt ?? null,
         endsAt: req.body.endsAt ?? null,
         sortYear: req.body.sortYear ?? null,
+        placementMode,
       });
 
       const templateId = String(req.body.tierTemplateId || 'podium4');
@@ -521,10 +615,11 @@ router.patch(
       for (const field of fields) {
         if (req.body[field] !== undefined) updates[field] = req.body[field];
       }
-      if (req.body.track != null) {
-        const track = parseTrack(req.body.track);
-        if (!track) return res.status(400).json({error: 'Invalid track'});
-        updates.track = track;
+      if (req.body.placementMode != null) {
+        if (req.body.placementMode !== 'profile' && req.body.placementMode !== 'level') {
+          return res.status(400).json({error: 'Invalid placementMode'});
+        }
+        updates.placementMode = req.body.placementMode;
       }
 
       await tournament.update(updates);
@@ -860,7 +955,7 @@ router.put(
       const deletePlacementIds = parseOrderedIds(req.body.deletePlacementIds);
       const autoLink = req.body.autoLink !== false;
       const nameMap = autoLink
-        ? await buildNameLookupMaps(tournament.track)
+        ? await buildNameLookupMaps()
         : new Map<string, number>();
 
       const tierByCode = new Map<string, TournamentTier>();
@@ -907,19 +1002,20 @@ router.put(
         positionCounters.set(code, pos + 1);
 
         let playerId = row.playerId ?? null;
-        let creatorId = row.creatorId ?? null;
-        if (autoLink && playerId == null && creatorId == null) {
-          const linked = lookupNameId(nameMap, displayName);
-          if (tournament.track === 'player') playerId = linked;
-          else creatorId = linked;
+        const effectiveMode = resolveEffectiveRowMode(
+          row.rowMode ?? null,
+          tournament.placementMode,
+        );
+        if (autoLink && effectiveMode === 'profile' && playerId == null) {
+          playerId = lookupNameId(nameMap, displayName);
         }
 
         const placementPayload = {
           tournamentId: tournament.id,
           tierId: row.tierId ?? tier.id,
           displayName,
-          playerId: tournament.track === 'player' ? playerId : null,
-          creatorId: tournament.track === 'creator' ? creatorId : null,
+          playerId: effectiveMode === 'profile' ? playerId : null,
+          creatorId: null,
           withdrew,
           isPending: Boolean(row.isPending) || displayName === '?',
           teamKey: row.teamKey ?? null,
@@ -1071,42 +1167,7 @@ router.get(
         (r): r is CreditRole => r === CreditRole.CHARTER || r === CreditRole.VFXER,
       );
 
-      const credits = await LevelCredit.findAll({
-        where: {
-          levelId,
-          role: roles.length
-            ? {[Op.in]: roles}
-            : {[Op.in]: [CreditRole.CHARTER, CreditRole.VFXER]},
-        },
-        include: [
-          {
-            model: Creator,
-            as: 'creator',
-            required: true,
-            attributes: ['id', 'name'],
-          },
-        ],
-        order: [
-          ['sortOrder', 'ASC'],
-          ['creatorId', 'ASC'],
-        ],
-      });
-
-      const seen = new Set<number>();
-      const candidates = [];
-      for (const credit of credits) {
-        if (seen.has(credit.creatorId)) continue;
-        seen.add(credit.creatorId);
-        const creator = (credit as any).creator as Creator;
-        candidates.push({
-          creatorId: credit.creatorId,
-          creatorName: creator?.name ?? null,
-          role: credit.role,
-          sortOrder: credit.sortOrder,
-          isOnLevel: true,
-        });
-      }
-
+      const candidates = await loadNomineeCandidates(levelId, roles);
       return res.json(candidates);
     } catch (error) {
       logger.error('List nominee candidates failed:', error);
@@ -1206,7 +1267,6 @@ router.get(
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     try {
-      const track = parseTrack(req.query.track);
       const where: Record<string, unknown> = {
         isPending: false,
         [Op.and]: [
@@ -1222,7 +1282,6 @@ router.get(
             model: Tournament,
             as: 'tournament',
             required: true,
-            where: track ? {track} : undefined,
           },
           {model: TournamentTier, as: 'tier', required: true},
         ],
@@ -1246,7 +1305,6 @@ router.post(
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     try {
-      const track = parseTrack(req.body.track);
       const placementIds: number[] | null = Array.isArray(req.body.placementIds)
         ? req.body.placementIds.map(Number).filter(Number.isFinite)
         : null;
@@ -1265,7 +1323,6 @@ router.post(
             model: Tournament,
             as: 'tournament',
             required: true,
-            where: track ? {track} : undefined,
           },
         ],
       });
@@ -1276,17 +1333,9 @@ router.post(
 
       for (const placement of placements) {
         const tournament = (placement as any).tournament as Tournament;
-        const resolved = await resolvePlacementName(
-          placement.displayName,
-          tournament.track,
-        );
-        if (tournament.track === 'player' && resolved.playerId) {
-          await placement.update({playerId: resolved.playerId});
-          await creditService.ensureProfileCredit(placement, tournament);
-          linked += 1;
-          entitlementSyncTournamentIds.add(tournament.id);
-        } else if (tournament.track === 'creator' && resolved.creatorId) {
-          await placement.update({creatorId: resolved.creatorId});
+        const resolved = await resolvePlacementName(placement.displayName);
+        if (resolved.playerId) {
+          await placement.update({playerId: resolved.playerId, creatorId: null});
           await creditService.ensureProfileCredit(placement, tournament);
           linked += 1;
           entitlementSyncTournamentIds.add(tournament.id);
@@ -1348,7 +1397,6 @@ router.post(
         seriesId: req.body.seriesId ?? null,
         tierId: req.body.tierId ?? null,
         maxRankWeight: req.body.maxRankWeight ?? null,
-        track: req.body.track ?? tournament.track,
         requireNotWithdrew: req.body.requireNotWithdrew !== false,
         requireFinalResults: req.body.requireFinalResults !== false,
         rewardType: req.body.rewardType || 'avatar_frame',
@@ -1380,7 +1428,6 @@ router.patch(
         'seriesId',
         'tierId',
         'maxRankWeight',
-        'track',
         'requireNotWithdrew',
         'requireFinalResults',
         'rewardType',
@@ -1493,9 +1540,6 @@ router.post(
   upload.single('file'),
   async (req: Request, res: Response) => {
     try {
-      const track = parseTrack(req.body.track);
-      if (!track) return res.status(400).json({error: 'track is required'});
-
       let csvText = '';
       if (req.file?.buffer) {
         csvText = req.file.buffer.toString('utf8');
@@ -1505,7 +1549,7 @@ router.post(
         return res.status(400).json({error: 'CSV file or csv body required'});
       }
 
-      const report = await csvImportService.importCsv(csvText, track, {
+      const report = await csvImportService.importCsv(csvText, {
         dryRun: req.body.dryRun === 'true' || req.body.dryRun === true,
         replacePlacements:
           req.body.replacePlacements !== 'false' &&

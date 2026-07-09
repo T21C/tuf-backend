@@ -9,6 +9,7 @@ import PlacementEntitlement from './PlacementEntitlement.js';
 import EquippedCosmetic from './EquippedCosmetic.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
+import Level from '@/models/levels/Level.js';
 
 export function initializeTournamentsAssociations() {
   TournamentSeries.hasMany(Tournament, {
@@ -65,6 +66,15 @@ export function initializeTournamentsAssociations() {
   });
   Creator.hasMany(TournamentPlacement, {
     foreignKey: 'creatorId',
+    as: 'tournamentPlacements',
+  });
+
+  TournamentPlacement.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+  });
+  Level.hasMany(TournamentPlacement, {
+    foreignKey: 'levelId',
     as: 'tournamentPlacements',
   });
 

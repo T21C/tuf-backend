@@ -17,7 +17,6 @@ function rewardMatchesPlacement(
   if (reward.requireFinalResults && !tournament.isResultsFinal) return false;
   if (reward.requireNotWithdrew && placement.withdrew) return false;
   if (placement.isPending) return false;
-  if (reward.track && reward.track !== tournament.track) return false;
 
   if (reward.tournamentId != null && reward.tournamentId !== tournament.id) return false;
   if (reward.seriesId != null && reward.seriesId !== tournament.seriesId) return false;

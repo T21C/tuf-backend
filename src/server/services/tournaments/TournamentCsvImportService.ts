@@ -2,7 +2,6 @@ import Tournament from '@/models/tournaments/Tournament.js';
 import TournamentTier from '@/models/tournaments/TournamentTier.js';
 import TournamentPlacement from '@/models/tournaments/TournamentPlacement.js';
 import TournamentSeries from '@/models/tournaments/TournamentSeries.js';
-import type {TournamentTrack} from '@/models/tournaments/Tournament.js';
 import {
   buildNameLookupMaps,
   lookupNameId,
@@ -223,7 +222,6 @@ export class TournamentCsvImportService {
 
   async importCsv(
     csvText: string,
-    track: TournamentTrack,
     options: {dryRun?: boolean; replacePlacements?: boolean} = {},
   ): Promise<ImportReport> {
     const dryRun = Boolean(options.dryRun);
@@ -252,13 +250,7 @@ export class TournamentCsvImportService {
           where: {shortName: row.shortName},
         });
         if (existing) {
-          if (existing.track !== track) {
-            report.errors.push(
-              `${row.shortName}: tournament exists with track "${existing.track}"`,
-            );
-          } else {
-            report.tournamentsUpdated += 1;
-          }
+          report.tournamentsUpdated += 1;
         } else {
           report.tournamentsCreated += 1;
         }
@@ -274,7 +266,7 @@ export class TournamentCsvImportService {
       return report;
     }
 
-    const nameMap = await buildNameLookupMaps(track);
+    const nameMap = await buildNameLookupMaps();
     const seriesCache = new Map<string, number>();
     const unmatched = new Set<string>();
     const sequelize = getSequelizeForModelGroup('tournaments');
@@ -295,17 +287,10 @@ export class TournamentCsvImportService {
             transaction,
           });
 
-          if (tournament && tournament.track !== track) {
-            throw new Error(
-              `Tournament "${row.shortName}" already exists with track "${tournament.track}"`,
-            );
-          }
-
           const payload = {
             shortName: row.shortName,
             fullName: row.fullName || null,
             aka: row.aka || null,
-            track,
             seriesId,
             status: row.isResultsFinal
               ? ('completed' as const)
@@ -390,8 +375,8 @@ export class TournamentCsvImportService {
                 tournamentId: tournament.id,
                 tierId: tier.id,
                 displayName: pair.name.trim(),
-                playerId: track === 'player' ? linkedId : null,
-                creatorId: track === 'creator' ? linkedId : null,
+                playerId: linkedId,
+                creatorId: null,
                 withdrew,
                 isPending: false,
                 positionInTier: pos,

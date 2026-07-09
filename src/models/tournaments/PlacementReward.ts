@@ -1,6 +1,5 @@
 import {DataTypes, Model, Optional} from 'sequelize';
 import {getSequelizeForModelGroup} from '@/config/db.js';
-import type {TournamentTrack} from './Tournament.js';
 
 const sequelize = getSequelizeForModelGroup('tournaments');
 
@@ -10,7 +9,6 @@ export interface PlacementRewardAttributes {
   seriesId: number | null;
   tierId: number | null;
   maxRankWeight: number | null;
-  track: TournamentTrack | null;
   requireNotWithdrew: boolean;
   requireFinalResults: boolean;
   rewardType: string;
@@ -30,7 +28,6 @@ type PlacementRewardCreationAttributes = Optional<
   | 'seriesId'
   | 'tierId'
   | 'maxRankWeight'
-  | 'track'
   | 'requireNotWithdrew'
   | 'requireFinalResults'
   | 'rewardType'
@@ -51,7 +48,6 @@ class PlacementReward
   declare seriesId: number | null;
   declare tierId: number | null;
   declare maxRankWeight: number | null;
-  declare track: TournamentTrack | null;
   declare requireNotWithdrew: boolean;
   declare requireFinalResults: boolean;
   declare rewardType: string;
@@ -85,10 +81,6 @@ PlacementReward.init(
     },
     maxRankWeight: {
       type: DataTypes.INTEGER,
-      allowNull: true,
-    },
-    track: {
-      type: DataTypes.ENUM('player', 'creator'),
       allowNull: true,
     },
     requireNotWithdrew: {

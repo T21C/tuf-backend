@@ -3,7 +3,6 @@ import {getSequelizeForModelGroup} from '@/config/db.js';
 
 const sequelize = getSequelizeForModelGroup('tournaments');
 
-export type TournamentTrack = 'player' | 'creator';
 export type TournamentStatus = 'draft' | 'ongoing' | 'completed' | 'cancelled';
 export type TournamentPlacementMode = 'profile' | 'level';
 export type TournamentCardLayout = 'classic' | 'evidence' | 'levelStyle';
@@ -13,7 +12,6 @@ export interface TournamentAttributes {
   shortName: string;
   fullName: string | null;
   aka: string | null;
-  track: TournamentTrack;
   seriesId: number | null;
   status: TournamentStatus;
   isHidden: boolean;
@@ -75,7 +73,6 @@ class Tournament
   declare shortName: string;
   declare fullName: string | null;
   declare aka: string | null;
-  declare track: TournamentTrack;
   declare seriesId: number | null;
   declare status: TournamentStatus;
   declare isHidden: boolean;
@@ -119,10 +116,6 @@ Tournament.init(
     aka: {
       type: DataTypes.STRING(255),
       allowNull: true,
-    },
-    track: {
-      type: DataTypes.ENUM('player', 'creator'),
-      allowNull: false,
     },
     seriesId: {
       type: DataTypes.INTEGER,
