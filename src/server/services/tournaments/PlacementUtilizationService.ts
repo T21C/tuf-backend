@@ -118,6 +118,82 @@ export interface PlacementDisplayPrefs {
   placementDisplayNodes?: PlacementDisplayNode[];
 }
 
+export interface LevelTournamentAppearanceDto {
+  placementId: number;
+  tier: {
+    code: string;
+    label: string;
+    iconUrl: string | null;
+  };
+  tournament: {
+    id: number;
+    shortName: string;
+    fullName: string | null;
+    sortYear: number | null;
+    packRef: string | null;
+    iconUrl: string | null;
+    externalUrl: string | null;
+    youtubeUrl: string | null;
+    series: {name: string; logoUrl: string | null} | null;
+  };
+}
+
+type SortableLevelAppearance = LevelTournamentAppearanceDto & {
+  _seriesSortWeight: number;
+  _tournamentSortWeight: number;
+  _tierRankWeight: number;
+};
+
+function toLevelAppearanceDto(placement: TournamentPlacement): LevelTournamentAppearanceDto {
+  const tier = (placement as any).tier as TournamentTier;
+  const tournament = (placement as any).tournament as Tournament & {
+    series?: TournamentSeries | null;
+  };
+  const series = tournament.series as TournamentSeries | null | undefined;
+  const tournamentIcon = tournament.iconUrl ?? series?.logoUrl ?? null;
+
+  return {
+    placementId: placement.id,
+    tier: {
+      code: tier.code,
+      label: tier.label,
+      iconUrl: tier.iconUrl ?? null,
+    },
+    tournament: {
+      id: tournament.id,
+      shortName: tournament.shortName,
+      fullName: tournament.fullName,
+      sortYear: tournament.sortYear,
+      packRef: tournament.packRef,
+      iconUrl: tournamentIcon,
+      externalUrl: tournament.externalUrl,
+      youtubeUrl: tournament.youtubeUrl,
+      series: series
+        ? {
+            name: series.name,
+            logoUrl: series.logoUrl ?? null,
+          }
+        : null,
+    },
+  };
+}
+
+function sortLevelAppearancesDefault(a: SortableLevelAppearance, b: SortableLevelAppearance): number {
+  if (a._seriesSortWeight !== b._seriesSortWeight) {
+    return a._seriesSortWeight - b._seriesSortWeight;
+  }
+  if (a._tournamentSortWeight !== b._tournamentSortWeight) {
+    return a._tournamentSortWeight - b._tournamentSortWeight;
+  }
+  if (a._tierRankWeight !== b._tierRankWeight) {
+    return a._tierRankWeight - b._tierRankWeight;
+  }
+  const yearA = a.tournament.sortYear ?? 0;
+  const yearB = b.tournament.sortYear ?? 0;
+  if (yearA !== yearB) return yearB - yearA;
+  return b.placementId - a.placementId;
+}
+
 function normalizeIdList(value: unknown): number[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.map(Number).filter(n => Number.isFinite(n)))];
@@ -364,6 +440,55 @@ export class PlacementUtilizationService {
     filters: PlacementFilters = {},
   ): Promise<PublicPlacementDto[]> {
     return this.getPlacements({creatorId}, filters);
+  }
+
+  async getAppearancesForLevel(levelId: number): Promise<LevelTournamentAppearanceDto[]> {
+    const placements = await TournamentPlacement.findAll({
+      where: {
+        levelId,
+        withdrew: false,
+        isPending: false,
+      },
+      include: [
+        {
+          model: TournamentTier,
+          as: 'tier',
+          required: true,
+        },
+        {
+          model: Tournament,
+          as: 'tournament',
+          required: true,
+          where: {
+            isHidden: false,
+            status: {[Op.ne]: 'draft'},
+          },
+          include: [{model: TournamentSeries, as: 'series', required: false}],
+        },
+      ],
+    });
+
+    const sortable: SortableLevelAppearance[] = placements.map(placement => {
+      const dto = toLevelAppearanceDto(placement);
+      const tournament = (placement as any).tournament as Tournament & {
+        series?: TournamentSeries | null;
+      };
+      const tier = (placement as any).tier as TournamentTier;
+      return {
+        ...dto,
+        _seriesSortWeight: getSeriesSortWeight(tournament.series),
+        _tournamentSortWeight: tournament.sortWeight ?? 0,
+        _tierRankWeight: tier.rankWeight ?? 0,
+      };
+    });
+
+    sortable.sort(sortLevelAppearancesDefault);
+
+    return sortable.map(({placementId, tier, tournament}) => ({
+      placementId,
+      tier,
+      tournament,
+    }));
   }
 
   async getPlacements(
