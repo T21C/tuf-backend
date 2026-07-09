@@ -25,6 +25,8 @@ import {
   parseSteamWorkshopPublishedFileId,
 } from '@/misc/utils/data/steamWorkshopLevelZip.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
+import { tagAssignmentService } from '@/server/services/data/TagAssignmentService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { checkLevelOwnership } from '@/server/domain/levels/levelOwnership.js';
 import { normalizeLevelDlLinkSnapshot } from '@/server/domain/levels/levelDlLinkSnapshot.js';
 import { encodeLevelZipFilenameForCdn } from '@/server/domain/levels/levelZipFilename.js';
@@ -36,6 +38,7 @@ import {
 import { activeLevelZipFinalizeByLevelId } from '@/server/domain/levels/levelZipUploadConcurrency.js';
 
 const getUserModel = (user: any): User => user as User;
+const elasticsearchService = ElasticsearchService.getInstance();
 
 /** Chunked session zip only (`sessionId`); optional `uploadJobId` for async job progress. */
 export async function handlePostLevelZipUpload(req: Request, res: Response): Promise<void> {
@@ -512,6 +515,23 @@ export async function handlePostLevelSelectLevel(req: Request, res: Response): P
       await logLevelTargetUpdateHook(selectedLevel.toString(), levelId, getUserModel(req.user));
     } catch (webhookError) {
       logger.warn('Failed to send webhook for level target update:', webhookError);
+    }
+
+    try {
+      const tagResult = await tagAssignmentService.refreshAutoTags(levelId);
+      if (tagResult.assignedTags.length > 0 || tagResult.removedTags.length > 0) {
+        logger.debug('Auto tags refreshed after target level change', {
+          levelId,
+          assignedTags: tagResult.assignedTags,
+          removedTags: tagResult.removedTags,
+        });
+        await elasticsearchService.reindexLevels([levelId]);
+      }
+    } catch (tagError) {
+      logger.warn('Failed to refresh auto tags after target level change:', {
+        levelId,
+        error: tagError instanceof Error ? tagError.message : String(tagError),
+      });
     }
 
     res.json({
