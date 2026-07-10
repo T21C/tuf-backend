@@ -17,6 +17,9 @@ import {
   getTierTemplate,
   inferTierFromCode,
   parsePrizeCode,
+  tierMetaFromLabel,
+  tierCodeFromLabel,
+  MAX_TIER_CODE_LENGTH,
 } from '@/server/services/tournaments/tierTemplates.js';
 import {
   buildNameLookupMaps,
@@ -880,14 +883,25 @@ router.put(
 
       const tiers = Array.isArray(req.body.tiers) ? req.body.tiers : [];
       const keepIds: number[] = [];
+      const usedCodes = new Set<string>();
 
       for (let i = 0; i < tiers.length; i++) {
         const t = tiers[i];
-        const code = String(t.code || '').trim().toUpperCase();
-        if (!code) continue;
+        const label = String(t.label || '').trim();
+        const rawCode = String(t.code || label).trim();
+        if (!rawCode) continue;
+
+        const upper = rawCode.toUpperCase();
+        let code = upper;
+        if (upper.length > MAX_TIER_CODE_LENGTH || usedCodes.has(upper)) {
+          code = tierCodeFromLabel(label || rawCode, usedCodes);
+        } else {
+          usedCodes.add(code);
+        }
+
         const payload = {
           code,
-          label: String(t.label || code).trim(),
+          label: label || code,
           kind: t.kind || inferTierFromCode(code).kind,
           rankWeight: Number.isFinite(t.rankWeight)
             ? t.rankWeight
@@ -990,12 +1004,17 @@ router.put(
 
         let tier = tierByCode.get(code);
         if (!tier) {
-          const inferred = inferTierFromCode(code);
+          const usedCodes = new Set([...tierByCode.keys()]);
+          const meta = tierMetaFromLabel(String(row.tierCode || row.code || '').trim(), usedCodes);
           tier = await TournamentTier.create({
             tournamentId: tournament.id,
-            ...inferred,
+            code: meta.code,
+            label: meta.label,
+            kind: meta.kind,
+            rankWeight: meta.rankWeight,
+            sortOrder: meta.sortOrder,
           });
-          tierByCode.set(code, tier);
+          tierByCode.set(meta.code.toUpperCase(), tier);
         }
 
         const pos = positionCounters.get(code) ?? 0;

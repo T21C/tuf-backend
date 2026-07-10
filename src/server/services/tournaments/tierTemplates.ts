@@ -197,6 +197,88 @@ export function getTierTemplate(id: string): TierTemplate | undefined {
   return TIER_TEMPLATES.find(t => t.id === id);
 }
 
+export const MAX_TIER_CODE_LENGTH = 32;
+
+/** Build a unique tier code (max 32 chars) from a human label. */
+export function tierCodeFromLabel(
+  rawLabel: string,
+  usedCodes: Set<string> = new Set(),
+): string {
+  const label = rawLabel.trim();
+  const upper = label.toUpperCase();
+  if (upper.length <= MAX_TIER_CODE_LENGTH && !usedCodes.has(upper)) {
+    usedCodes.add(upper);
+    return upper;
+  }
+
+  const slug = upper
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  let base = slug;
+  if (!base) base = 'TIER';
+  if (base.length > MAX_TIER_CODE_LENGTH) {
+    const words = label.split(/\s+/).filter(Boolean);
+    base = words
+      .map(w => w.replace(/[^A-Za-z0-9]/g, '').charAt(0))
+      .join('')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+    if (base.length < 2) base = slug.slice(0, MAX_TIER_CODE_LENGTH);
+    if (base.length > MAX_TIER_CODE_LENGTH) base = base.slice(0, MAX_TIER_CODE_LENGTH);
+  }
+
+  let code = base;
+  let suffix = 2;
+  while (usedCodes.has(code)) {
+    const tail = String(suffix);
+    code = `${base.slice(0, MAX_TIER_CODE_LENGTH - tail.length)}${tail}`;
+    suffix += 1;
+  }
+  usedCodes.add(code);
+  return code;
+}
+
+/**
+ * Resolve tier metadata from a folder name or free-form label.
+ * Short known codes (RO8, 1, etc.) use template inference; long labels get a compact code.
+ */
+export function tierMetaFromLabel(
+  rawLabel: string,
+  usedCodes: Set<string> = new Set(),
+  sortOrderHint?: number,
+): TierTemplateEntry {
+  const label = rawLabel.trim().slice(0, 128) || 'Custom';
+  const upper = label.toUpperCase();
+
+  if (upper.length <= MAX_TIER_CODE_LENGTH) {
+    const inferred = inferTierFromCode(upper);
+    const isKnownPattern = inferred.kind !== 'custom' || inferred.label !== upper;
+    if (isKnownPattern) {
+      let code = inferred.code;
+      if (usedCodes.has(code)) {
+        code = tierCodeFromLabel(label, usedCodes);
+      } else {
+        usedCodes.add(code);
+      }
+      return {
+        ...inferred,
+        code,
+        label: inferred.label,
+        sortOrder: sortOrderHint ?? inferred.sortOrder,
+      };
+    }
+  }
+
+  const code = tierCodeFromLabel(label, usedCodes);
+  return {
+    code,
+    label,
+    kind: 'custom',
+    rankWeight: 100,
+    sortOrder: sortOrderHint ?? 100,
+  };
+}
+
 /** Infer tier metadata from a free-form placement code (e.g. RO8, SF, 1, R2). */
 export function inferTierFromCode(rawCode: string): TierTemplateEntry {
   const code = rawCode.trim().toUpperCase();
@@ -269,9 +351,12 @@ export function inferTierFromCode(rawCode: string): TierTemplateEntry {
 
   if (named[code]) return named[code];
 
+  const safeCode =
+    code.length <= MAX_TIER_CODE_LENGTH ? code : code.slice(0, MAX_TIER_CODE_LENGTH);
+
   return {
-    code,
-    label: code,
+    code: safeCode,
+    label: rawCode.trim().slice(0, 128) || safeCode,
     kind: 'custom',
     rankWeight: 100,
     sortOrder: 100,

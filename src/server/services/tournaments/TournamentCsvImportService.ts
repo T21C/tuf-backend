@@ -9,6 +9,7 @@ import {
 import {
   inferTierFromCode,
   parsePrizeCode,
+  tierMetaFromLabel,
 } from './tierTemplates.js';
 import {PlacementRewardService} from './PlacementRewardService.js';
 import {PlacementCreditService} from './PlacementCreditService.js';
@@ -347,7 +348,8 @@ export class TournamentCsvImportService {
 
             let tier = tierByCode.get(code);
             if (!tier) {
-              const inferred = inferTierFromCode(code);
+              const usedCodes = new Set([...tierByCode.keys()]);
+              const inferred = tierMetaFromLabel(pair.prize.trim() || code, usedCodes);
               tier = await TournamentTier.create(
                 {
                   tournamentId: tournament.id,
@@ -359,7 +361,7 @@ export class TournamentCsvImportService {
                 },
                 {transaction},
               );
-              tierByCode.set(code, tier);
+              tierByCode.set(inferred.code.toUpperCase(), tier);
               report.tiersCreated += 1;
             }
 

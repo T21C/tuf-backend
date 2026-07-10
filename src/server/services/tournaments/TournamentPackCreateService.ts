@@ -8,7 +8,7 @@ import LevelPackItem from '@/models/packs/LevelPackItem.js';
 import Level from '@/models/levels/Level.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Creator from '@/models/credits/Creator.js';
-import {inferTierFromCode, type TierTemplateEntry} from './tierTemplates.js';
+import {inferTierFromCode, tierMetaFromLabel, type TierTemplateEntry} from './tierTemplates.js';
 import {PlacementCreditService} from './PlacementCreditService.js';
 import {getSequelizeForModelGroup} from '@/config/db.js';
 
@@ -34,12 +34,12 @@ async function resolvePackByRef(packRef: string): Promise<LevelPack | null> {
   });
 }
 
-function tierMetaFromCode(code: string): TierTemplateEntry {
-  const inferred = inferTierFromCode(code);
+function tierMetaFromCode(code: string, usedCodes?: Set<string>, sortOrderHint?: number): TierTemplateEntry {
   if (code.toUpperCase() === NOMINEE_TIER_CODE) {
+    const inferred = inferTierFromCode(code);
     return {...inferred, label: 'Nominee'};
   }
-  return inferred;
+  return tierMetaFromLabel(code, usedCodes, sortOrderHint);
 }
 
 function displayNameForItem(item: LoadedPackItem): string {
@@ -47,7 +47,7 @@ function displayNameForItem(item: LoadedPackItem): string {
   return level?.song || item.name || `Level #${item.levelId}`;
 }
 
-async function loadPackItemsWithLevels(packId: number): Promise<LoadedPackItem[]> {
+export async function loadPackItemsWithLevels(packId: number): Promise<LoadedPackItem[]> {
   return LevelPackItem.findAll({
     where: {packId},
     include: [
@@ -123,6 +123,12 @@ export function buildPlacementPlanFromItems(
   const childrenByParent = buildChildrenMap(items);
   const seenLevelIds = new Set<number>();
   const placements: PackCreatePlacementPlanItem[] = [];
+  const usedTierCodes = new Set<string>();
+  const tierPlans = new Map<string, TierTemplateEntry>();
+
+  const rememberTier = (meta: TierTemplateEntry) => {
+    tierPlans.set(meta.code.toUpperCase(), meta);
+  };
 
   const rootFolders = (childrenByParent.get(0) ?? []).filter(i => i.type === 'folder');
   const rootLevels = (childrenByParent.get(0) ?? []).filter(
@@ -130,6 +136,8 @@ export function buildPlacementPlanFromItems(
   );
 
   if (rootFolders.length === 0) {
+    rememberTier(tierMetaFromCode(NOMINEE_TIER_CODE, usedTierCodes));
+
     const levelItems = items
       .filter(i => i.type === 'level' && i.levelId != null && i.referencedLevel)
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.id - b.id);
@@ -141,13 +149,22 @@ export function buildPlacementPlanFromItems(
       if (placement) placements.push(placement);
     }
   } else {
-    for (const folder of rootFolders) {
-      const tierCode = tierMetaFromCode(folder.name ?? NOMINEE_TIER_CODE).code;
+    rootFolders.forEach((folder, folderIndex) => {
+      const meta = tierMetaFromCode(
+        folder.name ?? NOMINEE_TIER_CODE,
+        usedTierCodes,
+        folder.sortOrder ?? folderIndex,
+      );
+      rememberTier(meta);
       const descendantItems = collectDescendantLevels(folder.id, childrenByParent, seenLevelIds);
       for (const item of descendantItems) {
-        const placement = toPlacementItem(item, tierCode);
+        const placement = toPlacementItem(item, meta.code);
         if (placement) placements.push(placement);
       }
+    });
+
+    if (rootLevels.length) {
+      rememberTier(tierMetaFromCode(NOMINEE_TIER_CODE, usedTierCodes));
     }
 
     for (const item of rootLevels) {
@@ -158,10 +175,9 @@ export function buildPlacementPlanFromItems(
     }
   }
 
-  const tierCodes = new Set(placements.map(p => p.tierCode.toUpperCase()));
-  const inferredTiers = [...tierCodes]
-    .map(code => tierMetaFromCode(code))
-    .sort((a, b) => a.rankWeight - b.rankWeight || a.sortOrder - b.sortOrder);
+  const inferredTiers = [...tierPlans.values()].sort(
+    (a, b) => a.rankWeight - b.rankWeight || a.sortOrder - b.sortOrder,
+  );
 
   return {placements, inferredTiers};
 }
@@ -198,7 +214,7 @@ export class TournamentPackCreateService {
     }
 
     const items = await loadPackItemsWithLevels(pack.id);
-    const {placements: planPlacements} = buildPlacementPlanFromItems(items);
+    const {placements: planPlacements, inferredTiers} = buildPlacementPlanFromItems(items);
     if (!planPlacements.length) {
       throw Object.assign(new Error('Pack has no levels to import'), {code: 400});
     }
@@ -241,12 +257,8 @@ export class TournamentPackCreateService {
       tournamentId = tournament.id;
 
       const tierByCode = new Map<string, TournamentTier>();
-      const uniqueCodes = [
-        ...new Set(placements.map(p => String(p.tierCode || '').trim().toUpperCase()).filter(Boolean)),
-      ];
 
-      for (const code of uniqueCodes) {
-        const meta = tierMetaFromCode(code);
+      for (const meta of inferredTiers) {
         const tier = await TournamentTier.create(
           {
             tournamentId: tournament.id,
@@ -258,7 +270,7 @@ export class TournamentPackCreateService {
           },
           {transaction},
         );
-        tierByCode.set(code, tier);
+        tierByCode.set(meta.code.toUpperCase(), tier);
       }
 
       const positionCounters = new Map<string, number>();

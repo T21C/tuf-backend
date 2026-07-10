@@ -3,12 +3,12 @@ import Tournament from '@/models/tournaments/Tournament.js';
 import TournamentTier from '@/models/tournaments/TournamentTier.js';
 import TournamentPlacement from '@/models/tournaments/TournamentPlacement.js';
 import LevelPack from '@/models/packs/LevelPack.js';
-import LevelPackItem from '@/models/packs/LevelPackItem.js';
-import Level from '@/models/levels/Level.js';
-import {inferTierFromCode} from './tierTemplates.js';
 import {PlacementCreditService} from './PlacementCreditService.js';
-
-const NOMINEE_TIER_CODE = 'NOM';
+import {
+  buildPlacementPlanFromItems,
+  loadPackItemsWithLevels,
+} from './TournamentPackCreateService.js';
+import type {TierTemplateEntry} from './tierTemplates.js';
 
 export interface PackImportDiffItem {
   levelId: number;
@@ -32,59 +32,37 @@ async function resolvePackByRef(packRef: string): Promise<LevelPack | null> {
   });
 }
 
-async function loadPackLevels(packId: number): Promise<PackImportDiffItem[]> {
-  const items = await LevelPackItem.findAll({
-    where: {packId, type: 'level', levelId: {[Op.ne]: null}},
-    include: [
-      {
-        model: Level,
-        as: 'referencedLevel',
-        required: false,
-        attributes: ['id', 'song', 'artist'],
-      },
-    ],
-    order: [
-      ['sortOrder', 'ASC'],
-      ['id', 'ASC'],
-    ],
-  });
-
-  return items.map(item => {
-    const level = (item as any).referencedLevel as Level | undefined;
-    const displayName =
-      level?.song ||
-      item.name ||
-      `Level #${item.levelId}`;
-    return {
-      levelId: item.levelId!,
-      displayName,
-    };
-  });
-}
-
-async function ensureNomineeTier(tournamentId: number): Promise<TournamentTier> {
-  let tier = await TournamentTier.findOne({
-    where: {tournamentId, code: NOMINEE_TIER_CODE},
-  });
-  if (tier) return tier;
-
-  const inferred = inferTierFromCode(NOMINEE_TIER_CODE);
-  tier = await TournamentTier.create({
-    tournamentId,
-    code: NOMINEE_TIER_CODE,
-    label: inferred.label === NOMINEE_TIER_CODE ? 'Nominee' : inferred.label,
-    kind: inferred.kind,
-    rankWeight: inferred.rankWeight,
-    sortOrder: inferred.sortOrder,
-  });
-  return tier;
-}
-
 function isDiverged(placement: TournamentPlacement): boolean {
   if (placement.creditedCreatorIds != null && placement.creditedCreatorIds.length > 0) {
     return true;
   }
   return false;
+}
+
+async function ensureTiers(
+  tournamentId: number,
+  inferredTiers: TierTemplateEntry[],
+): Promise<Map<string, TournamentTier>> {
+  const tierByCode = new Map<string, TournamentTier>();
+  const existing = await TournamentTier.findAll({where: {tournamentId}});
+  for (const tier of existing) {
+    tierByCode.set(tier.code.toUpperCase(), tier);
+  }
+
+  for (const meta of inferredTiers) {
+    if (tierByCode.has(meta.code.toUpperCase())) continue;
+    const tier = await TournamentTier.create({
+      tournamentId,
+      code: meta.code,
+      label: meta.label,
+      kind: meta.kind,
+      rankWeight: meta.rankWeight,
+      sortOrder: meta.sortOrder,
+    });
+    tierByCode.set(meta.code.toUpperCase(), tier);
+  }
+
+  return tierByCode;
 }
 
 export class TournamentPackImportService {
@@ -101,8 +79,9 @@ export class TournamentPackImportService {
       throw Object.assign(new Error('Pack not found'), {code: 404});
     }
 
-    const packLevels = await loadPackLevels(pack.id);
-    const packLevelIds = new Set(packLevels.map(l => l.levelId));
+    const items = await loadPackItemsWithLevels(pack.id);
+    const {placements: planPlacements} = buildPlacementPlanFromItems(items);
+    const packLevelIds = new Set(planPlacements.map(p => p.levelId));
 
     const placements = await TournamentPlacement.findAll({
       where: {
@@ -116,9 +95,12 @@ export class TournamentPackImportService {
     const removes: PackImportDiff['removes'] = [];
     const diverged: PackImportDiff['diverged'] = [];
 
-    for (const level of packLevels) {
-      if (!byLevelId.has(level.levelId)) {
-        adds.push(level);
+    for (const planned of planPlacements) {
+      if (!byLevelId.has(planned.levelId)) {
+        adds.push({
+          levelId: planned.levelId,
+          displayName: planned.displayName,
+        });
       }
     }
 
@@ -154,7 +136,7 @@ export class TournamentPackImportService {
       placementIdsToRemove?: number[];
       syncCredits?: boolean;
     } = {},
-  ): Promise<{created: number; removed: number}> {
+  ): Promise<{created: number; removed: number; repositioned: number}> {
     const tournament = await Tournament.findByPk(tournamentId);
     if (!tournament) {
       throw Object.assign(new Error('Tournament not found'), {code: 404});
@@ -165,25 +147,42 @@ export class TournamentPackImportService {
       throw Object.assign(new Error('Pack not found'), {code: 404});
     }
 
+    const items = await loadPackItemsWithLevels(pack.id);
+    const {placements: planPlacements, inferredTiers} = buildPlacementPlanFromItems(items);
+    const tierByCode = await ensureTiers(tournamentId, inferredTiers);
+
     const diff = await this.computeDiff(tournamentId, packRef);
-    const tier = await ensureNomineeTier(tournamentId);
     let created = 0;
     let removed = 0;
+    let repositioned = 0;
+
+    const planByLevelId = new Map(planPlacements.map(p => [p.levelId, p]));
+    const positionCounters = new Map<string, number>();
 
     if (options.acceptAdds !== false) {
       for (const add of diff.adds) {
+        const planned = planByLevelId.get(add.levelId);
+        if (!planned) continue;
+
+        const code = planned.tierCode.toUpperCase();
+        const tier = tierByCode.get(code);
+        if (!tier) continue;
+
+        const positionInTier = (positionCounters.get(code) ?? 0) + 1;
+        positionCounters.set(code, positionInTier);
+
         await TournamentPlacement.create({
           tournamentId,
           tierId: tier.id,
-          displayName: add.displayName,
+          displayName: planned.displayName,
           playerId: null,
           creatorId: null,
           withdrew: false,
           isPending: false,
           rowMode: 'level',
-          levelId: add.levelId,
+          levelId: planned.levelId,
           creditedCreatorIds: null,
-          positionInTier: 0,
+          positionInTier,
         });
         created += 1;
       }
@@ -204,12 +203,44 @@ export class TournamentPackImportService {
       });
     }
 
+    const existingPlacements = await TournamentPlacement.findAll({
+      where: {
+        tournamentId,
+        levelId: {[Op.in]: planPlacements.map(p => p.levelId)},
+      },
+    });
+    const existingByLevelId = new Map(
+      existingPlacements.map(p => [p.levelId!, p]),
+    );
+
+    positionCounters.clear();
+    for (const planned of planPlacements) {
+      const placement = existingByLevelId.get(planned.levelId);
+      if (!placement) continue;
+
+      const code = planned.tierCode.toUpperCase();
+      const tier = tierByCode.get(code);
+      if (!tier) continue;
+
+      const positionInTier = (positionCounters.get(code) ?? 0) + 1;
+      positionCounters.set(code, positionInTier);
+
+      if (placement.tierId !== tier.id || placement.positionInTier !== positionInTier) {
+        await placement.update({
+          tierId: tier.id,
+          positionInTier,
+          displayName: planned.displayName,
+        });
+        repositioned += 1;
+      }
+    }
+
     await tournament.update({packRef: pack.linkCode});
 
     if (options.syncCredits) {
       await PlacementCreditService.getInstance().applySync(tournamentId);
     }
 
-    return {created, removed};
+    return {created, removed, repositioned};
   }
 }
