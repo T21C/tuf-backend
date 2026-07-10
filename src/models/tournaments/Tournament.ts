@@ -5,6 +5,7 @@ const sequelize = getSequelizeForModelGroup('tournaments');
 
 export type TournamentStatus = 'draft' | 'ongoing' | 'completed' | 'cancelled';
 export type TournamentPlacementMode = 'profile' | 'level';
+export type TournamentTrack = 'player' | 'creator';
 export type TournamentCardLayout = 'classic' | 'evidence' | 'levelStyle';
 
 export interface TournamentAttributes {
@@ -21,11 +22,14 @@ export interface TournamentAttributes {
   notes: string | null;
   externalUrl: string | null;
   organizers: string[] | null;
+  ownerUserIds: string[] | null;
   startsAt: Date | null;
   endsAt: Date | null;
   sortYear: number | null;
   sortWeight: number;
+  track: TournamentTrack;
   placementMode: TournamentPlacementMode;
+  showBestTiersOnly: boolean;
   cardLayoutDefault: TournamentCardLayout;
   creditRoleFilter: string[] | null;
   iconAssetId: string | null;
@@ -50,11 +54,14 @@ type TournamentCreationAttributes = Optional<
   | 'notes'
   | 'externalUrl'
   | 'organizers'
+  | 'ownerUserIds'
   | 'startsAt'
   | 'endsAt'
   | 'sortYear'
   | 'sortWeight'
+  | 'track'
   | 'placementMode'
+  | 'showBestTiersOnly'
   | 'cardLayoutDefault'
   | 'creditRoleFilter'
   | 'iconAssetId'
@@ -82,11 +89,14 @@ class Tournament
   declare notes: string | null;
   declare externalUrl: string | null;
   declare organizers: string[] | null;
+  declare ownerUserIds: string[] | null;
   declare startsAt: Date | null;
   declare endsAt: Date | null;
   declare sortYear: number | null;
   declare sortWeight: number;
+  declare track: TournamentTrack;
   declare placementMode: TournamentPlacementMode;
+  declare showBestTiersOnly: boolean;
   declare cardLayoutDefault: TournamentCardLayout;
   declare creditRoleFilter: string[] | null;
   declare iconAssetId: string | null;
@@ -156,6 +166,10 @@ Tournament.init(
       type: DataTypes.JSON,
       allowNull: true,
     },
+    ownerUserIds: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
     startsAt: {
       type: DataTypes.DATE,
       allowNull: true,
@@ -173,10 +187,20 @@ Tournament.init(
       allowNull: false,
       defaultValue: 0,
     },
+    track: {
+      type: DataTypes.ENUM('player', 'creator'),
+      allowNull: false,
+      defaultValue: 'player',
+    },
     placementMode: {
       type: DataTypes.ENUM('profile', 'level'),
       allowNull: false,
       defaultValue: 'profile',
+    },
+    showBestTiersOnly: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
     },
     cardLayoutDefault: {
       type: DataTypes.STRING(32),

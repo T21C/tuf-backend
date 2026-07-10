@@ -51,6 +51,7 @@ export class PlacementCreditService {
   async resolveRecipientsForPlacement(
     placement: TournamentPlacement,
     tournament: Tournament,
+    transaction?: Transaction,
   ): Promise<ResolvedRecipient[]> {
     const effectiveMode = resolveEffectiveRowMode(
       placement.rowMode,
@@ -61,6 +62,9 @@ export class PlacementCreditService {
       if (placement.playerId) {
         return [{playerId: placement.playerId, creatorId: null, isGuest: false, sortOrder: 0}];
       }
+      if (placement.creatorId) {
+        return [{playerId: null, creatorId: placement.creatorId, isGuest: false, sortOrder: 0}];
+      }
       return [];
     }
 
@@ -68,14 +72,72 @@ export class PlacementCreditService {
 
     const filterIds = normalizeCreditedCreatorIds(placement.creditedCreatorIds);
     const roleFilter = normalizeCreditRoleFilter(tournament.creditRoleFilter);
+    const roles = roleFilter.filter(
+      (r): r is CreditRole => r === CreditRole.CHARTER || r === CreditRole.VFXER,
+    );
+
+    const resolveAutoRecipients = async (): Promise<ResolvedRecipient[]> => {
+      // LevelCredit lives on the levels DB — do not pass the tournaments transaction.
+      const credits = await LevelCredit.findAll({
+        where: {
+          levelId: placement.levelId!,
+          role: roles.length
+            ? {[Op.in]: roles}
+            : {[Op.in]: [CreditRole.CHARTER, CreditRole.VFXER]},
+        },
+        include: [
+          {
+            model: Creator,
+            as: 'creator',
+            required: true,
+            attributes: ['id'],
+          },
+        ],
+        order: [
+          ['sortOrder', 'ASC'],
+          ['creatorId', 'ASC'],
+        ],
+      });
+
+      const seen = new Set<number>();
+      const recipients: ResolvedRecipient[] = [];
+      for (const credit of credits) {
+        if (seen.has(credit.creatorId)) continue;
+        seen.add(credit.creatorId);
+        recipients.push({
+          playerId: null,
+          creatorId: credit.creatorId,
+          isGuest: false,
+          sortOrder: recipients.length,
+        });
+      }
+      return recipients;
+    };
 
     if (hasExplicitRecipientFilter(filterIds)) {
+      const existingCreators = await Creator.findAll({
+        where: {id: {[Op.in]: filterIds!}},
+        attributes: ['id'],
+      });
+      const existingIds = new Set(existingCreators.map(c => c.id));
+      const sanitizedIds = filterIds!.filter(id => existingIds.has(id));
+
+      if (sanitizedIds.length !== filterIds!.length) {
+        const nextFilter = sanitizedIds.length ? sanitizedIds : null;
+        await placement.update({creditedCreatorIds: nextFilter}, {transaction});
+        placement.creditedCreatorIds = nextFilter;
+      }
+
+      if (!sanitizedIds.length) {
+        return resolveAutoRecipients();
+      }
+
       const levelCredits = await LevelCredit.findAll({
         where: {levelId: placement.levelId},
         attributes: ['creatorId', 'role'],
       });
       const onLevel = new Set(levelCredits.map(c => c.creatorId));
-      return filterIds!.map((creatorId, index) => ({
+      return sanitizedIds.map((creatorId, index) => ({
         playerId: null,
         creatorId,
         isGuest: !onLevel.has(creatorId),
@@ -83,33 +145,7 @@ export class PlacementCreditService {
       }));
     }
 
-    const roles = roleFilter.filter(
-      (r): r is CreditRole => r === CreditRole.CHARTER || r === CreditRole.VFXER,
-    );
-    const credits = await LevelCredit.findAll({
-      where: {
-        levelId: placement.levelId,
-        role: roles.length ? {[Op.in]: roles} : {[Op.in]: [CreditRole.CHARTER, CreditRole.VFXER]},
-      },
-      order: [
-        ['sortOrder', 'ASC'],
-        ['creatorId', 'ASC'],
-      ],
-    });
-
-    const seen = new Set<number>();
-    const recipients: ResolvedRecipient[] = [];
-    for (const credit of credits) {
-      if (seen.has(credit.creatorId)) continue;
-      seen.add(credit.creatorId);
-      recipients.push({
-        playerId: null,
-        creatorId: credit.creatorId,
-        isGuest: false,
-        sortOrder: recipients.length,
-      });
-    }
-    return recipients;
+    return resolveAutoRecipients();
   }
 
   async ensureProfileCredit(
@@ -123,7 +159,11 @@ export class PlacementCreditService {
     );
     if (effectiveMode !== 'profile') return;
 
-    const recipients = await this.resolveRecipientsForPlacement(placement, tournament);
+    const recipients = await this.resolveRecipientsForPlacement(
+      placement,
+      tournament,
+      transaction,
+    );
     const existing = await TournamentPlacementCredit.findAll({
       where: {placementId: placement.id},
       transaction,
@@ -179,14 +219,15 @@ export class PlacementCreditService {
   async previewSync(
     tournamentId: number,
     placementIds?: number[],
+    transaction?: Transaction,
   ): Promise<CreditSyncPreview> {
-    const tournament = await Tournament.findByPk(tournamentId);
+    const tournament = await Tournament.findByPk(tournamentId, {transaction});
     if (!tournament) return {rows: [], totalAdd: 0, totalRemove: 0};
 
     const where: Record<string, unknown> = {tournamentId};
     if (placementIds?.length) where.id = {[Op.in]: placementIds};
 
-    const placements = await TournamentPlacement.findAll({where});
+    const placements = await TournamentPlacement.findAll({where, transaction});
     const rows: CreditSyncPreviewRow[] = [];
     let totalAdd = 0;
     let totalRemove = 0;
@@ -197,9 +238,14 @@ export class PlacementCreditService {
         tournament.placementMode,
       );
       if (effectiveMode === 'profile') {
-        const desired = await this.resolveRecipientsForPlacement(placement, tournament);
+        const desired = await this.resolveRecipientsForPlacement(
+          placement,
+          tournament,
+          transaction,
+        );
         const existing = await TournamentPlacementCredit.findAll({
           where: {placementId: placement.id},
+          transaction,
         });
         const desiredKey = desired[0] ? recipientKey(desired[0]) : null;
         const existingKey = existing[0]
@@ -232,9 +278,14 @@ export class PlacementCreditService {
         continue;
       }
 
-      const desired = await this.resolveRecipientsForPlacement(placement, tournament);
+      const desired = await this.resolveRecipientsForPlacement(
+        placement,
+        tournament,
+        transaction,
+      );
       const existing = await TournamentPlacementCredit.findAll({
         where: {placementId: placement.id},
+        transaction,
       });
       const desiredMap = new Map(desired.map(r => [recipientKey(r), r]));
       const existingMap = new Map(
@@ -290,7 +341,7 @@ export class PlacementCreditService {
   ): Promise<CreditSyncPreview> {
     const sequelize = getSequelizeForModelGroup('tournaments');
     const run = async (t: Transaction) => {
-      const preview = await this.previewSync(tournamentId, placementIds);
+      const preview = await this.previewSync(tournamentId, placementIds, t);
       const removeCreditIds: number[] = [];
       for (const row of preview.rows) {
         for (const rem of row.toRemove) {

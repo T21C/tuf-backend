@@ -23,6 +23,8 @@ import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import { validCreatorVerificationStatuses, type CreatorVerificationStatus } from '@/config/constants.js';
 import {appendCreatorAliasFromRename} from '@/server/services/aliases/nameChangeAliases.js';
+import TournamentPlacement from '@/models/tournaments/TournamentPlacement.js';
+import TournamentPlacementCredit from '@/models/tournaments/TournamentPlacementCredit.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 const router: Router = Router();
@@ -635,6 +637,50 @@ router.post(
         // Also update creator.userId if source creator was linked to a user
         if (sourceCreator.userId) {
           await targetCreator.update({ userId: sourceCreator.userId }, { transaction });
+        }
+      }
+
+      // Rewrite tournament placement nominee filters that still reference the source creator
+      const placementsWithSource = await TournamentPlacement.findAll({
+        where: {
+          creditedCreatorIds: {[Op.ne]: null},
+        },
+        transaction,
+      });
+      for (const placement of placementsWithSource) {
+        const ids = Array.isArray(placement.creditedCreatorIds)
+          ? placement.creditedCreatorIds
+          : null;
+        if (!ids?.includes(sourceId)) continue;
+
+        const remapped: number[] = [];
+        const seen = new Set<number>();
+        for (const id of ids) {
+          const nextId = id === sourceId ? targetId : id;
+          if (seen.has(nextId)) continue;
+          seen.add(nextId);
+          remapped.push(nextId);
+        }
+        await placement.update({creditedCreatorIds: remapped}, {transaction});
+      }
+
+      // Remap placement credits from source → target (dedupe if target already credited)
+      const sourcePlacementCredits = await TournamentPlacementCredit.findAll({
+        where: {creatorId: sourceId},
+        transaction,
+      });
+      for (const credit of sourcePlacementCredits) {
+        const existingTarget = await TournamentPlacementCredit.findOne({
+          where: {
+            placementId: credit.placementId,
+            creatorId: targetId,
+          },
+          transaction,
+        });
+        if (existingTarget) {
+          await credit.destroy({transaction});
+        } else {
+          await credit.update({creatorId: targetId}, {transaction});
         }
       }
 

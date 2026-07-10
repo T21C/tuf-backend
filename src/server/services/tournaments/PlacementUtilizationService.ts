@@ -14,6 +14,7 @@ import PlacementDisplayNode, {
 } from '@/models/tournaments/PlacementDisplayNode.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
+import Level from '@/models/levels/Level.js';
 import {
   UNSERIESED_SORT_WEIGHT,
   resolveEffectiveCardLayout,
@@ -49,6 +50,11 @@ export interface PublicPlacementDto {
   creditId: number;
   placementId: number;
   levelId: number | null;
+  level: {
+    id: number;
+    song: string | null;
+    artist: string | null;
+  } | null;
   cardLayout: TournamentCardLayout;
   packRef: string | null;
   coCreditCount: number;
@@ -78,10 +84,19 @@ export interface PublicPlacementDto {
     status: string;
     isResultsFinal: boolean;
     sortYear: number | null;
+    sortWeight: number;
+    track: string;
+    showBestTiersOnly: boolean;
     youtubeUrl: string | null;
     iconUrl: string | null;
     cardBackgroundUrl: string | null;
-    series: {id: number; slug: string; name: string; logoUrl: string | null} | null;
+    series: {
+      id: number;
+      slug: string;
+      name: string;
+      logoUrl: string | null;
+      sortWeight: number;
+    } | null;
   };
   resolvedCardBackgroundUrl: string | null;
   resolvedTournamentIconUrl: string | null;
@@ -216,6 +231,12 @@ const creditInclude = [
         required: true,
         include: [{model: TournamentSeries, as: 'series', required: false}],
       },
+      {
+        model: Level,
+        as: 'level',
+        required: false,
+        attributes: ['id', 'song', 'artist'],
+      },
     ],
   },
 ];
@@ -231,12 +252,15 @@ function toPlacementDto(
   hiddenIds: Set<number>,
   coCreditCount: number,
 ): PublicPlacementDto {
-  const placement = (credit as any).placement as TournamentPlacement;
+  const placement = (credit as any).placement as TournamentPlacement & {
+    level?: Level | null;
+  };
   const tier = (placement as any).tier as TournamentTier;
   const tournament = (placement as any).tournament as Tournament & {
     series?: TournamentSeries | null;
   };
   const series = tournament.series as TournamentSeries | null | undefined;
+  const level = placement.level ?? null;
   const tierCardBg = tier.cardBackgroundUrl ?? null;
   const tournamentCardBg = tournament.cardBackgroundUrl ?? null;
   const tournamentIcon = tournament.iconUrl ?? series?.logoUrl ?? null;
@@ -258,6 +282,13 @@ function toPlacementDto(
     creditId: credit.id,
     placementId: placement.id,
     levelId: placement.levelId,
+    level: level
+      ? {
+          id: level.id,
+          song: level.song ?? null,
+          artist: level.artist ?? null,
+        }
+      : null,
     cardLayout,
     packRef: tournament.packRef,
     coCreditCount,
@@ -287,6 +318,9 @@ function toPlacementDto(
       status: tournament.status,
       isResultsFinal: tournament.isResultsFinal,
       sortYear: tournament.sortYear,
+      sortWeight: tournament.sortWeight ?? 0,
+      track: tournament.track ?? 'player',
+      showBestTiersOnly: tournament.showBestTiersOnly !== false,
       youtubeUrl: tournament.youtubeUrl,
       iconUrl: tournament.iconUrl ?? null,
       cardBackgroundUrl: tournamentCardBg,
@@ -296,6 +330,7 @@ function toPlacementDto(
             slug: series.slug,
             name: series.name,
             logoUrl: series.logoUrl ?? null,
+            sortWeight: series.sortWeight ?? 0,
           }
         : null,
     },
@@ -303,6 +338,46 @@ function toPlacementDto(
     resolvedTournamentIconUrl: tournamentIcon,
     isProfileHidden: hiddenIds.has(credit.id),
   };
+}
+
+/**
+ * Within each tournament, keep only credits at the best (lowest) rankWeight.
+ * Controlled per-tournament via showBestTiersOnly (default true).
+ */
+export function dedupePlacementsToBestTierPerTournament<
+  T extends {tournament: {id: number; showBestTiersOnly?: boolean}; tier: {rankWeight: number}},
+>(placements: T[]): T[] {
+  const groups = new Map<number, T[]>();
+  const passthrough: T[] = [];
+
+  for (const placement of placements) {
+    if (placement.tournament?.showBestTiersOnly === false) {
+      passthrough.push(placement);
+      continue;
+    }
+    const tournamentId = placement.tournament?.id;
+    if (tournamentId == null) {
+      passthrough.push(placement);
+      continue;
+    }
+    if (!groups.has(tournamentId)) groups.set(tournamentId, []);
+    groups.get(tournamentId)!.push(placement);
+  }
+
+  const deduped: T[] = [...passthrough];
+  for (const group of groups.values()) {
+    let bestWeight = Infinity;
+    for (const item of group) {
+      const weight = item.tier?.rankWeight ?? Infinity;
+      if (weight < bestWeight) bestWeight = weight;
+    }
+    for (const item of group) {
+      if ((item.tier?.rankWeight ?? Infinity) === bestWeight) {
+        deduped.push(item);
+      }
+    }
+  }
+  return deduped;
 }
 
 type SortablePlacementDto = PublicPlacementDto & {
@@ -484,11 +559,34 @@ export class PlacementUtilizationService {
 
     sortable.sort(sortLevelAppearancesDefault);
 
-    return sortable.map(({placementId, tier, tournament}) => ({
-      placementId,
-      tier,
-      tournament,
-    }));
+    const showBestByTournamentId = new Map<number, boolean>();
+    for (const placement of placements) {
+      const tournament = (placement as any).tournament as Tournament;
+      showBestByTournamentId.set(
+        tournament.id,
+        tournament.showBestTiersOnly !== false,
+      );
+    }
+
+    const bestWeightByTournament = new Map<number, number>();
+    for (const item of sortable) {
+      if (!showBestByTournamentId.get(item.tournament.id)) continue;
+      const current = bestWeightByTournament.get(item.tournament.id);
+      if (current == null || item._tierRankWeight < current) {
+        bestWeightByTournament.set(item.tournament.id, item._tierRankWeight);
+      }
+    }
+
+    return sortable
+      .filter(item => {
+        if (!showBestByTournamentId.get(item.tournament.id)) return true;
+        return item._tierRankWeight === bestWeightByTournament.get(item.tournament.id);
+      })
+      .map(({placementId, tier, tournament}) => ({
+        placementId,
+        tier,
+        tournament,
+      }));
   }
 
   async getPlacements(
@@ -542,6 +640,12 @@ export class PlacementUtilizationService {
               where: Object.keys(tournamentWhere).length ? tournamentWhere : undefined,
               include: [{model: TournamentSeries, as: 'series', required: false}],
             },
+            {
+              model: Level,
+              as: 'level',
+              required: false,
+              attributes: ['id', 'song', 'artist'],
+            },
           ],
         },
       ],
@@ -567,6 +671,7 @@ export class PlacementUtilizationService {
 
     if (!filters.includeProfileHidden) {
       dtos = dtos.filter(d => !d.isProfileHidden);
+      dtos = dedupePlacementsToBestTierPerTournament(dtos);
     }
 
     const sorter =

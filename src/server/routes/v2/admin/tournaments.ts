@@ -37,10 +37,16 @@ import {
   normalizeCreditedCreatorIds,
   resolveEffectiveRowMode,
 } from '@/server/services/tournaments/placementModeUtils.js';
+import {
+  canEditTournamentVisuals,
+  normalizeOwnerUserIds,
+} from '@/server/services/tournaments/tournamentOwnership.js';
 import LevelCredit, {CreditRole} from '@/models/levels/LevelCredit.js';
 import Level from '@/models/levels/Level.js';
 import cdnService, {CdnError} from '@/server/services/core/CdnService.js';
 import {getSequelizeForModelGroup} from '@/config/db.js';
+import {hasFlag} from '@/misc/utils/auth/permissionUtils.js';
+import {permissionFlags} from '@/config/constants.js';
 
 
 const router: Router = Router();
@@ -55,6 +61,42 @@ const csvImportService = TournamentCsvImportService.getInstance();
 const packImportService = TournamentPackImportService.getInstance();
 const packCreateService = TournamentPackCreateService.getInstance();
 const deletionService = TournamentDeletionService.getInstance();
+
+async function loadTournamentOwners(ownerUserIds: unknown) {
+  const ids = normalizeOwnerUserIds(ownerUserIds);
+  if (!ids.length) return [];
+  const users = await User.findAll({
+    where: {id: {[Op.in]: ids}},
+    attributes: ['id', 'username', 'nickname', 'avatarUrl'],
+  });
+  const byId = new Map(users.map(u => [String(u.id), u]));
+  return ids.map(id => {
+    const user = byId.get(id);
+    return {
+      id,
+      username: user?.username ?? null,
+      nickname: user?.nickname ?? null,
+      avatarUrl: user?.avatarUrl ?? null,
+    };
+  });
+}
+
+async function requireTournamentVisualAccess(
+  req: Request,
+  res: Response,
+  tournamentId: number,
+): Promise<Tournament | null> {
+  const tournament = await Tournament.findByPk(tournamentId);
+  if (!tournament) {
+    res.status(404).json({error: 'Tournament not found'});
+    return null;
+  }
+  if (!canEditTournamentVisuals(req.user, tournament)) {
+    res.status(403).json({error: 'Tournament visual editor access required'});
+    return null;
+  }
+  return tournament;
+}
 
 const placementDetailInclude = [
   {model: TournamentTier, as: 'tier'},
@@ -482,7 +524,7 @@ router.post(
 
 router.get(
   '/:id([0-9]{1,20})',
-  Auth.superAdmin(),
+  Auth.user(),
   async (req: Request, res: Response) => {
     try {
       const tournament = await Tournament.findByPk(req.params.id, {
@@ -518,7 +560,15 @@ router.get(
         ],
       });
       if (!tournament) return res.status(404).json({error: 'Tournament not found'});
-      return res.json(tournament);
+      const isSuperAdmin = hasFlag(req.user, permissionFlags.SUPER_ADMIN);
+      if (!isSuperAdmin && !canEditTournamentVisuals(req.user, tournament)) {
+        return res.status(403).json({error: 'Access denied'});
+      }
+      const owners = await loadTournamentOwners(tournament.ownerUserIds);
+      return res.json({
+        ...tournament.toJSON(),
+        owners,
+      });
     } catch (error) {
       logger.error('Get tournament failed:', error);
       return res.status(500).json({error: 'Failed to get tournament'});
@@ -540,6 +590,8 @@ router.post(
         req.body.placementMode === 'level' || req.body.placementMode === 'profile'
           ? req.body.placementMode
           : 'profile';
+      const track = req.body.track === 'creator' ? 'creator' : 'player';
+      const ownerUserIds = normalizeOwnerUserIds(req.body.ownerUserIds);
 
       const tournament = await Tournament.create({
         shortName,
@@ -554,10 +606,13 @@ router.post(
         notes: req.body.notes ?? null,
         externalUrl: req.body.externalUrl ?? null,
         organizers: Array.isArray(req.body.organizers) ? req.body.organizers : null,
+        ownerUserIds: ownerUserIds.length ? ownerUserIds : null,
         startsAt: req.body.startsAt ?? null,
         endsAt: req.body.endsAt ?? null,
         sortYear: req.body.sortYear ?? null,
+        track,
         placementMode,
+        showBestTiersOnly: req.body.showBestTiersOnly !== false,
       });
 
       const templateId = String(req.body.tierTemplateId || 'podium4');
@@ -617,6 +672,16 @@ router.patch(
       const updates: Record<string, unknown> = {};
       for (const field of fields) {
         if (req.body[field] !== undefined) updates[field] = req.body[field];
+      }
+      if (req.body.track === 'player' || req.body.track === 'creator') {
+        updates.track = req.body.track;
+      }
+      if (req.body.ownerUserIds !== undefined) {
+        const ownerUserIds = normalizeOwnerUserIds(req.body.ownerUserIds);
+        updates.ownerUserIds = ownerUserIds.length ? ownerUserIds : null;
+      }
+      if (req.body.showBestTiersOnly !== undefined) {
+        updates.showBestTiersOnly = Boolean(req.body.showBestTiersOnly);
       }
       if (req.body.placementMode != null) {
         if (req.body.placementMode !== 'profile' && req.body.placementMode !== 'level') {
@@ -693,12 +758,16 @@ router.delete(
 
 router.post(
   '/:id([0-9]{1,20})/icon',
-  Auth.superAdmin(),
+  Auth.user(),
   upload.single('asset'),
   async (req: Request, res: Response) => {
     try {
-      const tournament = await Tournament.findByPk(req.params.id);
-      if (!tournament) return res.status(404).json({error: 'Tournament not found'});
+      const tournament = await requireTournamentVisualAccess(
+        req,
+        res,
+        parseInt(req.params.id, 10),
+      );
+      if (!tournament) return;
       if (!req.file) return res.status(400).json({error: 'No file uploaded'});
 
       const {fileId, url} = await uploadTournamentVisual(req.file, 'icon');
@@ -718,12 +787,16 @@ router.post(
 
 router.post(
   '/:id([0-9]{1,20})/card-background',
-  Auth.superAdmin(),
+  Auth.user(),
   upload.single('asset'),
   async (req: Request, res: Response) => {
     try {
-      const tournament = await Tournament.findByPk(req.params.id);
-      if (!tournament) return res.status(404).json({error: 'Tournament not found'});
+      const tournament = await requireTournamentVisualAccess(
+        req,
+        res,
+        parseInt(req.params.id, 10),
+      );
+      if (!tournament) return;
       if (!req.file) return res.status(400).json({error: 'No file uploaded'});
 
       const {fileId, url} = await uploadTournamentVisual(req.file, 'card');
@@ -743,11 +816,15 @@ router.post(
 
 router.delete(
   '/:id([0-9]{1,20})/icon',
-  Auth.superAdmin(),
+  Auth.user(),
   async (req: Request, res: Response) => {
     try {
-      const tournament = await Tournament.findByPk(req.params.id);
-      if (!tournament) return res.status(404).json({error: 'Tournament not found'});
+      const tournament = await requireTournamentVisualAccess(
+        req,
+        res,
+        parseInt(req.params.id, 10),
+      );
+      if (!tournament) return;
       const oldId = tournament.iconAssetId;
       await tournament.update({iconAssetId: null, iconUrl: null});
       await deleteCdnAssetIfExists(oldId);
@@ -761,11 +838,15 @@ router.delete(
 
 router.delete(
   '/:id([0-9]{1,20})/card-background',
-  Auth.superAdmin(),
+  Auth.user(),
   async (req: Request, res: Response) => {
     try {
-      const tournament = await Tournament.findByPk(req.params.id);
-      if (!tournament) return res.status(404).json({error: 'Tournament not found'});
+      const tournament = await requireTournamentVisualAccess(
+        req,
+        res,
+        parseInt(req.params.id, 10),
+      );
+      if (!tournament) return;
       const oldId = tournament.cardBackgroundAssetId;
       await tournament.update({cardBackgroundAssetId: null, cardBackgroundUrl: null});
       await deleteCdnAssetIfExists(oldId);
@@ -779,12 +860,18 @@ router.delete(
 
 router.post(
   '/:id([0-9]{1,20})/tiers/:tierId([0-9]{1,20})/icon',
-  Auth.superAdmin(),
+  Auth.user(),
   upload.single('asset'),
   async (req: Request, res: Response) => {
     try {
+      const tournament = await requireTournamentVisualAccess(
+        req,
+        res,
+        parseInt(req.params.id, 10),
+      );
+      if (!tournament) return;
       const tier = await TournamentTier.findOne({
-        where: {id: req.params.tierId, tournamentId: req.params.id},
+        where: {id: req.params.tierId, tournamentId: tournament.id},
       });
       if (!tier) return res.status(404).json({error: 'Tier not found'});
       if (!req.file) return res.status(400).json({error: 'No file uploaded'});
@@ -806,12 +893,18 @@ router.post(
 
 router.post(
   '/:id([0-9]{1,20})/tiers/:tierId([0-9]{1,20})/card-background',
-  Auth.superAdmin(),
+  Auth.user(),
   upload.single('asset'),
   async (req: Request, res: Response) => {
     try {
+      const tournament = await requireTournamentVisualAccess(
+        req,
+        res,
+        parseInt(req.params.id, 10),
+      );
+      if (!tournament) return;
       const tier = await TournamentTier.findOne({
-        where: {id: req.params.tierId, tournamentId: req.params.id},
+        where: {id: req.params.tierId, tournamentId: tournament.id},
       });
       if (!tier) return res.status(404).json({error: 'Tier not found'});
       if (!req.file) return res.status(400).json({error: 'No file uploaded'});
@@ -833,11 +926,17 @@ router.post(
 
 router.delete(
   '/:id([0-9]{1,20})/tiers/:tierId([0-9]{1,20})/icon',
-  Auth.superAdmin(),
+  Auth.user(),
   async (req: Request, res: Response) => {
     try {
+      const tournament = await requireTournamentVisualAccess(
+        req,
+        res,
+        parseInt(req.params.id, 10),
+      );
+      if (!tournament) return;
       const tier = await TournamentTier.findOne({
-        where: {id: req.params.tierId, tournamentId: req.params.id},
+        where: {id: req.params.tierId, tournamentId: tournament.id},
       });
       if (!tier) return res.status(404).json({error: 'Tier not found'});
       const oldId = tier.iconAssetId;
@@ -853,11 +952,17 @@ router.delete(
 
 router.delete(
   '/:id([0-9]{1,20})/tiers/:tierId([0-9]{1,20})/card-background',
-  Auth.superAdmin(),
+  Auth.user(),
   async (req: Request, res: Response) => {
     try {
+      const tournament = await requireTournamentVisualAccess(
+        req,
+        res,
+        parseInt(req.params.id, 10),
+      );
+      if (!tournament) return;
       const tier = await TournamentTier.findOne({
-        where: {id: req.params.tierId, tournamentId: req.params.id},
+        where: {id: req.params.tierId, tournamentId: tournament.id},
       });
       if (!tier) return res.status(404).json({error: 'Tier not found'});
       const oldId = tier.cardBackgroundAssetId;
@@ -1021,20 +1126,30 @@ router.put(
         positionCounters.set(code, pos + 1);
 
         let playerId = row.playerId ?? null;
+        let creatorId = row.creatorId ?? null;
         const effectiveMode = resolveEffectiveRowMode(
           row.rowMode ?? null,
           tournament.placementMode,
         );
-        if (autoLink && effectiveMode === 'profile' && playerId == null) {
+        if (autoLink && effectiveMode === 'profile' && playerId == null && creatorId == null) {
           playerId = lookupNameId(nameMap, displayName);
+        }
+
+        if (effectiveMode !== 'profile') {
+          playerId = null;
+          creatorId = null;
+        } else if (creatorId != null) {
+          playerId = null;
+        } else {
+          creatorId = null;
         }
 
         const placementPayload = {
           tournamentId: tournament.id,
           tierId: row.tierId ?? tier.id,
           displayName,
-          playerId: effectiveMode === 'profile' ? playerId : null,
-          creatorId: null,
+          playerId,
+          creatorId,
           withdrew,
           isPending: Boolean(row.isPending) || displayName === '?',
           teamKey: row.teamKey ?? null,
@@ -1061,11 +1176,11 @@ router.put(
         } else {
           placement = await TournamentPlacement.create(placementPayload);
         }
-
-        await creditService.ensureProfileCredit(placement, tournament);
       }
 
-      await rewardService.syncEntitlementsForTournament(tournament.id);
+      // Level-mode placements need creator credits from LevelCredit; profile mode
+      // needs player/creator credits. ensureProfileCredit alone skips level mode.
+      await creditService.applySync(tournament.id);
 
       const full = await TournamentPlacement.findAll({
         where: {tournamentId: tournament.id},
@@ -1225,7 +1340,7 @@ router.post(
         acceptAdds: true,
         acceptRemoves: req.body.acceptRemoves === true,
         placementIdsToRemove: parseOrderedIds(req.body.placementIdsToRemove),
-        syncCredits: req.body.syncCredits === true,
+        syncCredits: req.body.syncCredits !== false,
       });
       return res.json(result);
     } catch (error: any) {
@@ -1264,9 +1379,10 @@ router.patch(
       await placement.update(updates);
       const tournament = (placement as any).tournament as Tournament | undefined;
       if (tournament) {
-        await creditService.ensureProfileCredit(placement, tournament);
+        await creditService.applySync(placement.tournamentId, [placement.id]);
+      } else {
+        await rewardService.syncEntitlementsForTournament(placement.tournamentId);
       }
-      await rewardService.syncEntitlementsForTournament(placement.tournamentId);
 
       const full = await TournamentPlacement.findByPk(placement.id, {
         include: placementDetailInclude,
