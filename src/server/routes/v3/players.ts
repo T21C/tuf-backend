@@ -39,10 +39,16 @@ import {
   BioCanvasProfileError,
   parseBioCanvasBlockId,
   patchBioCanvasForProfile,
+  patchPlainBioForEntity,
   serializeBioCanvasApiFields,
   uploadBioCanvasImageForProfile,
 } from '@/server/services/bioCanvasProfile.js';
+import { setStellarIconVariantForEntity } from '@/server/services/profileCustomization/presentationMutations.js';
 import {PlacementUtilizationService} from '@/server/services/tournaments/PlacementUtilizationService.js';
+import {
+  assemblePresentationForPlayer,
+  getPresentationSyncForUser,
+} from '@/server/services/profileCustomization/ProfileCustomizationService.js';
 
 /**
  * v3 players routes — Elasticsearch-backed.
@@ -499,7 +505,7 @@ router.get(
       const doc = await elasticsearchService.getPlayerDocumentById(id);
       if (!doc) return res.status(404).json({ error: 'Player not found' });
 
-      const [ranks, enriched, funFacts, playerRow] = await Promise.all([
+      const [ranks, enriched, funFacts, playerRow, presentation] = await Promise.all([
         getPlayerRanks(doc),
         playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
         computePlayerFunFacts(id, {
@@ -508,21 +514,13 @@ router.get(
         }),
         Player.findByPk(id, {
           attributes: [
-            'bio',
-            'bioCanvas',
-            'bioCanvasImageAssets',
-            'bannerPreset',
-            'customBannerId',
-            'customBannerUrl',
-            'profileHeaderSurfaceStyle',
-            'profileHeaderSurfaceImageAssets',
-            'tufStellarIconVariant',
             'placementCardLayout',
             'placementDisplayMode',
             'hiddenPlacementIds',
             'placementOrderIds',
           ],
         }),
+        assemblePresentationForPlayer(id),
       ]);
 
       const placementService = PlacementUtilizationService.getInstance();
@@ -554,43 +552,42 @@ router.get(
         : { topScores: [], potentialTopScores: [] };
 
       const stellarOn = isTufStellarFeatureEnabled();
-      const bannerPatch = playerRow
-        ? {
-            ...serializeBioCanvasApiFields(playerRow),
-            bannerPreset: playerRow.bannerPreset ?? null,
-            customBannerId: playerRow.customBannerId ?? null,
-            customBannerUrl: playerRow.customBannerUrl ?? null,
-            profileHeaderSurfaceStyle:
-              playerRow.profileHeaderSurfaceStyle &&
-              typeof playerRow.profileHeaderSurfaceStyle === 'object'
-                ? playerRow.profileHeaderSurfaceStyle
-                : null,
-            profileHeaderSurfaceImageAssets:
-              playerRow.profileHeaderSurfaceImageAssets &&
-              typeof playerRow.profileHeaderSurfaceImageAssets === 'object'
-                ? playerRow.profileHeaderSurfaceImageAssets
-                : null,
-            tufStellarIconVariant: stellarOn
-              ? normalizeTufStellarIconVariant(playerRow.tufStellarIconVariant)
-              : '1',
-            placementDisplayMode:
-              playerRow.placementDisplayMode === 'customLayers'
-                ? 'customLayers'
-                : 'defaultHierarchy',
-            ...(isOwnProfile
-              ? {
-                  hiddenPlacementIds: Array.isArray(playerRow.hiddenPlacementIds)
-                    ? playerRow.hiddenPlacementIds
-                    : [],
-                  placementOrderIds: Array.isArray(playerRow.placementOrderIds)
-                    ? playerRow.placementOrderIds
-                    : [],
-                }
-              : {}),
-            placementCardLayout:
-              playerRow.placementCardLayout === 'iconRail' ? 'iconRail' : 'default',
-          }
-        : {};
+      const presentationPatch = {
+        bio: presentation.bio,
+        bioCanvas: presentation.bioCanvas,
+        bioCanvasImageAssets: presentation.bioCanvasImageAssets,
+        bannerPreset: presentation.bannerPreset,
+        customBannerId: presentation.customBannerId,
+        customBannerUrl: presentation.customBannerUrl,
+        profileHeaderSurfaceStyle: presentation.profileHeaderSurfaceStyle,
+        profileHeaderSurfaceImageAssets: presentation.profileHeaderSurfaceImageAssets,
+        tufStellarIconVariant: stellarOn
+          ? normalizeTufStellarIconVariant(presentation.tufStellarIconVariant)
+          : '1',
+        ...(playerRow
+          ? {
+              placementDisplayMode:
+                playerRow.placementDisplayMode === 'customLayers'
+                  ? 'customLayers'
+                  : 'defaultHierarchy',
+              ...(isOwnProfile
+                ? {
+                    hiddenPlacementIds: Array.isArray(playerRow.hiddenPlacementIds)
+                      ? playerRow.hiddenPlacementIds
+                      : [],
+                    placementOrderIds: Array.isArray(playerRow.placementOrderIds)
+                      ? playerRow.placementOrderIds
+                      : [],
+                  }
+                : {}),
+              placementCardLayout:
+                playerRow.placementCardLayout === 'iconRail' ? 'iconRail' : 'default',
+            }
+          : {}),
+        ...(isOwnProfile && user?.id
+          ? { presentationSync: await getPresentationSyncForUser(user.id) }
+          : {}),
+      };
 
       let aliases = Array.isArray((doc as {aliases?: unknown}).aliases)
         ? (doc as {aliases: Array<{id?: number; name: string}>}).aliases
@@ -606,7 +603,7 @@ router.get(
 
       return res.json({
         ...doc,
-        ...bannerPatch,
+        ...presentationPatch,
         ...ranks,
         ...plainEnriched,
         funFacts,
@@ -678,11 +675,10 @@ router.patch(
         return res.status(400).json({ error: 'Bio must be a string or null' });
       }
 
-      await Player.update({ bio: nextBio }, { where: { id: user.playerId } });
-      await elasticsearchService.reindexPlayers([user.playerId]);
+      const result = await patchPlainBioForEntity('player', user.playerId, nextBio);
       await CacheInvalidation.invalidateUser(user.id);
 
-      return res.json({ bio: nextBio });
+      return res.json(result);
     } catch (error) {
       logger.error('[v3 PATCH /players/me/bio] failure', error);
       return res.status(500).json({
@@ -863,11 +859,10 @@ router.patch(
       }
       const next = normalizeTufStellarIconVariant(rawVariant);
 
-      await Player.update({ tufStellarIconVariant: next }, { where: { id: user.playerId } });
-      await elasticsearchService.reindexPlayers([user.playerId]);
+      const result = await setStellarIconVariantForEntity('player', user.playerId, next);
       await CacheInvalidation.invalidateUser(user.id);
 
-      return res.json({ tufStellarIconVariant: next });
+      return res.json(result);
     } catch (error) {
       logger.error('[v3 PATCH /players/me/tuf-stellar-icon-variant] failure', error);
       return res.status(500).json({

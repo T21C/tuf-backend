@@ -5,6 +5,8 @@ import type { CreatorStatsRow } from '@/server/services/elasticsearch/misc/creat
 import { validCreatorVerificationStatuses, type CreatorVerificationStatus } from '@/config/constants.js';
 import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 
+import type { AssembledPresentation } from '@/server/services/profileCustomization/types.js';
+
 export interface CreatorIndexDocumentInput {
   creator: Creator;
   user?: User | null;
@@ -14,6 +16,8 @@ export interface CreatorIndexDocumentInput {
   stats?: Partial<CreatorStatsRow> | null;
   /** Distinct credited levels per curation type id (string keys), same shape as profile `curationTypeCounts`. */
   curationTypeCounts?: Record<string, number> | null;
+  /** Assembled from profile_customization_pieces (bio text + stellar for ES). */
+  presentation?: AssembledPresentation | null;
 }
 
 function plain<T extends object | null | undefined>(m: T): Record<string, unknown> | null {
@@ -102,6 +106,7 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
   const c = plain(creator) as any;
   const stats = input.stats ?? null;
   const curationCounts = input.curationTypeCounts ?? {};
+  const presentation = input.presentation ?? null;
 
   const rawStatus = c.verificationStatus;
   const verificationStatus: CreatorVerificationStatus =
@@ -114,25 +119,16 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
     id: coerceNumber(c.id, 0),
     name: c.name ?? '',
     verificationStatus,
-    bio: typeof c.bio === 'string' && c.bio.trim().length ? c.bio : null,
+    bio:
+      presentation?.bio ??
+      (typeof c.bio === 'string' && c.bio.trim().length ? c.bio : null),
     uploadConditions:
       typeof c.uploadConditions === 'string' && c.uploadConditions.trim().length
         ? c.uploadConditions.trim()
         : null,
-    bannerPreset: typeof c.bannerPreset === 'string' && c.bannerPreset.length ? c.bannerPreset : null,
-    customBannerId: typeof c.customBannerId === 'string' && c.customBannerId.length ? c.customBannerId : null,
-    customBannerUrl: typeof c.customBannerUrl === 'string' && c.customBannerUrl.length ? c.customBannerUrl : null,
-    profileHeaderSurfaceStyle:
-      c.profileHeaderSurfaceStyle && typeof c.profileHeaderSurfaceStyle === 'object'
-        ? c.profileHeaderSurfaceStyle
-        : null,
-    profileHeaderSurfaceImageAssets:
-      c.profileHeaderSurfaceImageAssets &&
-      typeof c.profileHeaderSurfaceImageAssets === 'object' &&
-      !Array.isArray(c.profileHeaderSurfaceImageAssets)
-        ? c.profileHeaderSurfaceImageAssets
-        : null,
-    tufStellarIconVariant: normalizeTufStellarIconVariant(c.tufStellarIconVariant),
+    tufStellarIconVariant: normalizeTufStellarIconVariant(
+      presentation?.tufStellarIconVariant ?? c.tufStellarIconVariant,
+    ),
     aliases: serializeAliases(input.aliases ?? creator.creatorAliases ?? null),
     user: serializeUser(input.user ?? null, input.userSubscriptionExpiresAt ?? null),
 

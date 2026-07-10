@@ -12,6 +12,7 @@ import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { CreatorProfileDeletionService } from '@/server/services/accounts/CreatorProfileDeletionService.js';
+import { handleAccountDeletePieces } from '@/server/services/profileCustomization/ProfileCustomizationService.js';
 
 const GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
 
@@ -372,6 +373,8 @@ export class AccountDeletionService {
         { userId: null },
         { where: { userId: lockedAgain.id }, transaction },
       );
+
+      await handleAccountDeletePieces(lockedAgain.id);
 
       // Delete user first (users->players FK blocks deleting player while user exists).
       await User.destroy({ where: { id: lockedAgain.id }, transaction });

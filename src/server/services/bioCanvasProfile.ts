@@ -1,5 +1,4 @@
 import type { Request } from 'express';
-import type { Model } from 'sequelize';
 import {
   BioCanvasError,
   MAX_BIO_CANVAS_BLOCK_ID_LENGTH,
@@ -15,7 +14,15 @@ import {
   upsertBioCanvasImageAsset,
 } from '@/server/services/bioCanvasImage.js';
 import cdnService from '@/server/services/core/CdnService.js';
-import { logger } from '@/server/services/core/LoggerService.js';
+import {
+  getPieceForEntity,
+  patchPiecePayloadForEntity,
+  type ProfileEntityKind,
+} from '@/server/services/profileCustomization/ProfileCustomizationService.js';
+import { reindexProfilesForIds } from '@/server/services/profileCustomization/reindexProfiles.js';
+import { serializeBioCanvasApiFields } from '@/server/services/profileCustomization/serializePresentation.js';
+
+export { serializeBioCanvasApiFields };
 
 export function parseBioCanvasBlockId(req: Request): string | null {
   const raw = (req.body as { blockId?: unknown })?.blockId ?? req.query.blockId;
@@ -27,52 +34,16 @@ export function parseBioCanvasBlockId(req: Request): string | null {
   return blockId;
 }
 
-export function serializeBioCanvasApiFields(row: {
-  bio?: unknown;
-  bioCanvas?: unknown;
-  bioCanvasImageAssets?: unknown;
-}): {
-  bio: string | null;
-  bioCanvas: Record<string, unknown> | null;
-  bioCanvasImageAssets: BioCanvasImageAssets | null;
-} {
+function bioPayloadFromPiece(payload: Record<string, unknown>) {
   return {
-    bio: typeof row.bio === 'string' && row.bio.trim().length ? row.bio : null,
-    bioCanvas:
-      row.bioCanvas && typeof row.bioCanvas === 'object' && !Array.isArray(row.bioCanvas)
-        ? (row.bioCanvas as Record<string, unknown>)
-        : null,
-    bioCanvasImageAssets:
-      row.bioCanvasImageAssets &&
-      typeof row.bioCanvasImageAssets === 'object' &&
-      !Array.isArray(row.bioCanvasImageAssets)
-        ? (row.bioCanvasImageAssets as BioCanvasImageAssets)
-        : null,
+    bio: payload.bio,
+    bioCanvas: payload.bioCanvas,
+    bioCanvasImageAssets: payload.bioCanvasImageAssets,
   };
 }
 
-type BioCanvasRow = Model & {
-  id: number;
-  bioCanvas?: unknown;
-  bioCanvasImageAssets?: unknown;
-  bio?: string | null;
-};
-
-/** Player or Creator Sequelize model — shared bio canvas persistence surface. */
-export type BioCanvasOwnerModel = {
-  name: string;
-  findByPk(
-    id: number,
-    options?: { attributes?: string[] },
-  ): Promise<BioCanvasRow | null>;
-  update(
-    values: Record<string, unknown>,
-    options: { where: { id: number } },
-  ): Promise<unknown>;
-};
-
-export async function patchBioCanvasForProfile(
-  Model: BioCanvasOwnerModel,
+export async function patchBioCanvasForEntity(
+  entityKind: ProfileEntityKind,
   entityId: number,
   canvasBody: unknown,
 ): Promise<{
@@ -88,58 +59,52 @@ export async function patchBioCanvasForProfile(
     throw new BioCanvasProfileError(400, msg);
   }
 
-  const row = await Model.findByPk(entityId, {
-    attributes: ['id', 'bioCanvasImageAssets'],
-  });
-  if (!row) {
-    throw new BioCanvasProfileError(404, `${Model.name} not found`);
-  }
+  const existingPiece = await getPieceForEntity(entityKind, entityId, 'bio');
+  const existingPayload = existingPiece?.payload ?? {};
+  const existingAssets = existingPayload.bioCanvasImageAssets;
 
   const nextBio = toPlainText(parsed);
-  const clearedAssets = await clearBioCanvasImageAssetsWhenNoImages(
-    row.bioCanvasImageAssets,
-    parsed,
-  );
-  const reconciledAssets = await reconcileBioCanvasImageAssets(row.bioCanvasImageAssets, parsed);
+  const clearedAssets = await clearBioCanvasImageAssetsWhenNoImages(existingAssets, parsed);
+  const reconciledAssets = await reconcileBioCanvasImageAssets(existingAssets, parsed);
 
-  const updatePayload: Record<string, unknown> = {
-    bioCanvas: parsed as unknown as Record<string, unknown> | null,
-    bio: nextBio,
-    ...(clearedAssets ?? {}),
-  };
-  if (reconciledAssets !== null) {
-    updatePayload.bioCanvasImageAssets = reconciledAssets;
+  let nextAssets: BioCanvasImageAssets | null =
+    existingAssets && typeof existingAssets === 'object' && !Array.isArray(existingAssets)
+      ? (existingAssets as BioCanvasImageAssets)
+      : null;
+  if (clearedAssets?.bioCanvasImageAssets === null) {
+    nextAssets = null;
+  } else if (reconciledAssets !== null) {
+    nextAssets = reconciledAssets;
   }
 
-  await Model.update(updatePayload, { where: { id: entityId } });
+  const nextPayload = {
+    ...existingPayload,
+    bioCanvas: parsed as unknown as Record<string, unknown> | null,
+    bio: nextBio,
+    bioCanvasImageAssets: nextAssets,
+  };
 
-  const updated = await Model.findByPk(entityId, {
-    attributes: ['bioCanvas', 'bioCanvasImageAssets', 'bio'],
+  const piece = await patchPiecePayloadForEntity(entityKind, entityId, 'bio', () => nextPayload);
+  await reindexProfilesForIds({
+    playerIds: entityKind === 'player' || piece.playerId ? [piece.playerId ?? entityId].filter(Boolean) as number[] : [],
+    creatorIds: entityKind === 'creator' || piece.creatorId ? [piece.creatorId ?? entityId].filter(Boolean) as number[] : [],
   });
 
-  return serializeBioCanvasApiFields({
-    bio: updated?.bio,
-    bioCanvas: updated?.bioCanvas,
-    bioCanvasImageAssets: updated?.bioCanvasImageAssets,
-  });
+  return serializeBioCanvasApiFields(bioPayloadFromPiece(piece.payload));
 }
 
-export async function uploadBioCanvasImageForProfile(
-  Model: BioCanvasOwnerModel,
+export async function uploadBioCanvasImageForEntity(
+  entityKind: ProfileEntityKind,
   entityId: number,
   blockId: string,
   file: Express.Multer.File,
 ): Promise<{ blockId: string; bioCanvasImageAssets: BioCanvasImageAssets }> {
-  const row = await Model.findByPk(entityId, {
-    attributes: ['id', 'bioCanvas', 'bioCanvasImageAssets'],
-  });
-  if (!row) {
-    throw new BioCanvasProfileError(404, `${Model.name} not found`);
-  }
+  const existingPiece = await getPieceForEntity(entityKind, entityId, 'bio');
+  const existingPayload = existingPiece?.payload ?? {};
 
   let storedCanvas: BioCanvasDocument | null = null;
   try {
-    storedCanvas = parseBioCanvas(row.bioCanvas);
+    storedCanvas = parseBioCanvas(existingPayload.bioCanvas);
   } catch {
     storedCanvas = null;
   }
@@ -158,31 +123,39 @@ export async function uploadBioCanvasImageForProfile(
   }
 
   const assets = upsertBioCanvasImageAsset(
-    row.bioCanvasImageAssets,
+    existingPayload.bioCanvasImageAssets,
     blockId,
     result.fileId,
     displayUrl,
   );
-  const previousAssetId =
-    row.bioCanvasImageAssets &&
-    typeof row.bioCanvasImageAssets === 'object' &&
-    !Array.isArray(row.bioCanvasImageAssets)
-      ? (row.bioCanvasImageAssets as Record<string, { assetId?: string }>)[blockId]?.assetId
-      : null;
 
-  await Model.update({ bioCanvasImageAssets: assets }, { where: { id: entityId } });
+  const piece = await patchPiecePayloadForEntity(entityKind, entityId, 'bio', (current) => ({
+    ...current,
+    bioCanvasImageAssets: assets,
+  }));
 
-  if (previousAssetId && previousAssetId !== result.fileId) {
-    try {
-      if (await cdnService.checkFileExists(previousAssetId)) {
-        await cdnService.deleteFile(previousAssetId);
-      }
-    } catch (delErr) {
-      logger.error('Error deleting previous bio canvas image from CDN:', delErr);
-    }
-  }
+  await reindexProfilesForIds({
+    playerIds: piece.playerId != null ? [piece.playerId] : entityKind === 'player' ? [entityId] : [],
+    creatorIds: piece.creatorId != null ? [piece.creatorId] : entityKind === 'creator' ? [entityId] : [],
+  });
 
   return { blockId, bioCanvasImageAssets: assets };
+}
+
+export async function patchPlainBioForEntity(
+  entityKind: ProfileEntityKind,
+  entityId: number,
+  nextBio: string | null,
+): Promise<{ bio: string | null }> {
+  const piece = await patchPiecePayloadForEntity(entityKind, entityId, 'bio', (current) => ({
+    ...current,
+    bio: nextBio,
+  }));
+  await reindexProfilesForIds({
+    playerIds: piece.playerId != null ? [piece.playerId] : entityKind === 'player' ? [entityId] : [],
+    creatorIds: piece.creatorId != null ? [piece.creatorId] : entityKind === 'creator' ? [entityId] : [],
+  });
+  return { bio: typeof piece.payload.bio === 'string' ? piece.payload.bio : null };
 }
 
 export class BioCanvasProfileError extends Error {
@@ -193,3 +166,28 @@ export class BioCanvasProfileError extends Error {
     this.status = status;
   }
 }
+
+/** @deprecated Use patchBioCanvasForEntity */
+export async function patchBioCanvasForProfile(
+  Model: { name: string },
+  entityId: number,
+  canvasBody: unknown,
+) {
+  const kind: ProfileEntityKind = Model.name === 'Creator' ? 'creator' : 'player';
+  return patchBioCanvasForEntity(kind, entityId, canvasBody);
+}
+
+/** @deprecated Use uploadBioCanvasImageForEntity */
+export async function uploadBioCanvasImageForProfile(
+  Model: { name: string },
+  entityId: number,
+  blockId: string,
+  file: Express.Multer.File,
+) {
+  const kind: ProfileEntityKind = Model.name === 'Creator' ? 'creator' : 'player';
+  return uploadBioCanvasImageForEntity(kind, entityId, blockId, file);
+}
+
+export type BioCanvasOwnerModel = {
+  name: string;
+};

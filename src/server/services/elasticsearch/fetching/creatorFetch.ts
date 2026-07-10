@@ -10,6 +10,7 @@ import { buildCreatorIndexDocument } from '@/server/services/elasticsearch/index
 import { fetchCreatorCurationTypeCountsBulk } from '@/server/services/stats/creatorFunFacts.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
+import { loadPresentationMapForCreatorIds } from '@/server/services/profileCustomization/ProfileCustomizationService.js';
 
 export interface PreparedCreatorDocument {
   id: number;
@@ -70,6 +71,7 @@ export async function fetchCreatorsForBulkIndex(creatorIds: number[]): Promise<P
   }
 
   const curationCountsByCreatorId = await fetchCreatorCurationTypeCountsBulk(ids);
+  const presentationByCreatorId = await loadPresentationMapForCreatorIds(ids);
 
   const out: PreparedCreatorDocument[] = [];
   for (const creator of creators) {
@@ -86,6 +88,7 @@ export async function fetchCreatorsForBulkIndex(creatorIds: number[]): Promise<P
         aliases: creatorAliases,
         stats,
         curationTypeCounts,
+        presentation: presentationByCreatorId.get(creator.id) ?? null,
       });
       out.push({ id: creator.id, document: doc });
     } catch (error) {

@@ -42,24 +42,29 @@ import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils
 import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
 import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { multerMemoryCdnImage10Mb as bannerUpload } from '@/config/multerMemoryUploads.js';
-import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError } from '@/server/services/core/CdnService.js';
 import { parseBannerPresetForStorage } from '@/misc/utils/profileBannerPreset.js';
 import {PlacementUtilizationService} from '@/server/services/tournaments/PlacementUtilizationService.js';
 import {
+  assemblePresentationForCreator,
+  getPresentationSyncForUser,
+} from '@/server/services/profileCustomization/ProfileCustomizationService.js';
+import {
+  clearBannerPresetForEntity,
+  clearCustomBannerForEntity,
+  deleteHeaderSurfaceImageForEntity,
+  patchHeaderSurfaceStyleForEntity,
+  setBannerPresetForEntity,
+  setStellarIconVariantForEntity,
+  uploadCustomBannerForEntity,
+  uploadHeaderSurfaceImageForEntity,
+} from '@/server/services/profileCustomization/presentationMutations.js';
+import {
   MAX_PROFILE_HEADER_SURFACE_STACK_ENTRY_ID_LENGTH,
   parseProfileHeaderSurfaceStyle,
-  parseProfileHeaderSurfaceStyle as parseStoredSurfaceStyle,
   ProfileHeaderSurfaceStyleError,
   type ProfileHeaderSurfaceStyle,
 } from '@/misc/utils/profileHeaderSurfaceStyle.js';
-import {
-  clearSurfaceImageAssetsWhenNoImageLayers,
-  getReferencedImageLayerIds,
-  reconcileProfileHeaderSurfaceImageAssets,
-  removeSurfaceImageAsset,
-  upsertSurfaceImageAsset,
-} from '@/server/services/profileHeaderSurfaceImage.js';
 
 function parseHeaderSurfaceLayerId(req: Request): string | null {
   const raw = (req.body as { layerId?: unknown })?.layerId ?? req.query.layerId;
@@ -77,6 +82,7 @@ import {
   BioCanvasProfileError,
   parseBioCanvasBlockId,
   patchBioCanvasForProfile,
+  patchPlainBioForEntity,
   serializeBioCanvasApiFields,
   uploadBioCanvasImageForProfile,
 } from '@/server/services/bioCanvasProfile.js';
@@ -505,16 +511,10 @@ router.patch(
         return res.status(400).json({ error: 'Bio must be a string or null' });
       }
 
-      const exists = await Creator.findByPk(id, { attributes: ['id'] });
-      if (!exists) {
-        return res.status(404).json({ error: 'Creator not found' });
-      }
-
-      await Creator.update({ bio: nextBio }, { where: { id } });
-      await elasticsearchService.reindexCreators([id]);
+      const result = await patchPlainBioForEntity('creator', id, nextBio);
       await invalidateLinkedUserForCreator(id);
 
-      return res.json({ bio: nextBio });
+      return res.json(result);
     } catch (error) {
       logger.error('[v3 PATCH /creators/me/bio] failure', error);
       return res.status(500).json({
@@ -869,7 +869,7 @@ router.get(
 
       const isOwnProfile = Boolean(req.user?.creatorId && req.user.creatorId === id);
 
-      const [doc, enriched, funFacts, curationTypeCounts, creatorRow] = await Promise.all([
+      const [doc, enriched, funFacts, curationTypeCounts, creatorRow, presentation] = await Promise.all([
         elasticsearchService.getCreatorDocumentById(id),
         creatorStatsService.getEnrichedCreator(id),
         computeCreatorFunFacts(id),
@@ -877,23 +877,15 @@ router.get(
         Creator.findByPk(id, {
           attributes: [
             'id',
-            'bio',
-            'bioCanvas',
-            'bioCanvasImageAssets',
             'uploadConditions',
             'displayCurationTypeIds',
-            'bannerPreset',
-            'customBannerId',
-            'customBannerUrl',
-            'profileHeaderSurfaceStyle',
-            'profileHeaderSurfaceImageAssets',
-            'tufStellarIconVariant',
             'placementCardLayout',
             'placementDisplayMode',
             'hiddenPlacementIds',
             'placementOrderIds',
           ],
         }),
+        assemblePresentationForCreator(id),
       ]);
 
       const placementService = PlacementUtilizationService.getInstance();
@@ -939,11 +931,11 @@ router.get(
                       enriched.user.tufStellarSubscriptionExpiresAt ?? null,
                   }
                 : null,
-              bannerPreset: enriched.creator?.bannerPreset ?? null,
-              customBannerId: enriched.creator?.customBannerId ?? null,
-              customBannerUrl: enriched.creator?.customBannerUrl ?? null,
+              bannerPreset: presentation.bannerPreset ?? null,
+              customBannerId: presentation.customBannerId ?? null,
+              customBannerUrl: presentation.customBannerUrl ?? null,
               tufStellarIconVariant: stellarOn
-                ? normalizeTufStellarIconVariant(enriched.creator?.tufStellarIconVariant)
+                ? normalizeTufStellarIconVariant(presentation.tufStellarIconVariant)
                 : '1',
               chartsCharted: enriched.stats.chartsCharted,
               chartsVfxed: enriched.stats.chartsVfxed,
@@ -1007,52 +999,52 @@ router.get(
             .slice(0, 5)
         : [];
 
-      const bannerFromRow = creatorRow
-        ? {
-            ...serializeBioCanvasApiFields(creatorRow),
-            uploadConditions:
-              typeof creatorRow.uploadConditions === 'string' &&
-              creatorRow.uploadConditions.trim().length
-                ? creatorRow.uploadConditions.trim()
-                : null,
-            bannerPreset: creatorRow.bannerPreset ?? null,
-            customBannerId: creatorRow.customBannerId ?? null,
-            customBannerUrl: creatorRow.customBannerUrl ?? null,
-            profileHeaderSurfaceStyle:
-              creatorRow.profileHeaderSurfaceStyle &&
-              typeof creatorRow.profileHeaderSurfaceStyle === 'object'
-                ? creatorRow.profileHeaderSurfaceStyle
-                : null,
-            profileHeaderSurfaceImageAssets:
-              creatorRow.profileHeaderSurfaceImageAssets &&
-              typeof creatorRow.profileHeaderSurfaceImageAssets === 'object'
-                ? creatorRow.profileHeaderSurfaceImageAssets
-                : null,
-            tufStellarIconVariant: stellarOn
-              ? normalizeTufStellarIconVariant(creatorRow.tufStellarIconVariant)
-              : '1',
-            placementDisplayMode:
-              creatorRow.placementDisplayMode === 'customLayers'
-                ? 'customLayers'
-                : 'defaultHierarchy',
-            ...(isOwnProfile
-              ? {
-                  hiddenPlacementIds: Array.isArray(creatorRow.hiddenPlacementIds)
-                    ? creatorRow.hiddenPlacementIds
-                    : [],
-                  placementOrderIds: Array.isArray(creatorRow.placementOrderIds)
-                    ? creatorRow.placementOrderIds
-                    : [],
-                }
-              : {}),
-            placementCardLayout:
-              creatorRow.placementCardLayout === 'iconRail' ? 'iconRail' : 'default',
-          }
-        : {};
+      const presentationPatch = {
+        bio: presentation.bio,
+        bioCanvas: presentation.bioCanvas,
+        bioCanvasImageAssets: presentation.bioCanvasImageAssets,
+        bannerPreset: presentation.bannerPreset,
+        customBannerId: presentation.customBannerId,
+        customBannerUrl: presentation.customBannerUrl,
+        profileHeaderSurfaceStyle: presentation.profileHeaderSurfaceStyle,
+        profileHeaderSurfaceImageAssets: presentation.profileHeaderSurfaceImageAssets,
+        tufStellarIconVariant: stellarOn
+          ? normalizeTufStellarIconVariant(presentation.tufStellarIconVariant)
+          : '1',
+        uploadConditions:
+          creatorRow &&
+          typeof creatorRow.uploadConditions === 'string' &&
+          creatorRow.uploadConditions.trim().length
+            ? creatorRow.uploadConditions.trim()
+            : null,
+        ...(creatorRow
+          ? {
+              placementDisplayMode:
+                creatorRow.placementDisplayMode === 'customLayers'
+                  ? 'customLayers'
+                  : 'defaultHierarchy',
+              ...(isOwnProfile
+                ? {
+                    hiddenPlacementIds: Array.isArray(creatorRow.hiddenPlacementIds)
+                      ? creatorRow.hiddenPlacementIds
+                      : [],
+                    placementOrderIds: Array.isArray(creatorRow.placementOrderIds)
+                      ? creatorRow.placementOrderIds
+                      : [],
+                  }
+                : {}),
+              placementCardLayout:
+                creatorRow.placementCardLayout === 'iconRail' ? 'iconRail' : 'default',
+            }
+          : {}),
+        ...(isOwnProfile && req.user?.id
+          ? { presentationSync: await getPresentationSyncForUser(req.user.id) }
+          : {}),
+      };
 
       return res.json({
         ...(responseDoc as Record<string, unknown>),
-        ...bannerFromRow,
+        ...presentationPatch,
         aliases,
         creatorAliases,
         recentLevelIds,
@@ -1432,11 +1424,10 @@ router.patch(
         return res.status(400).json({ error: 'Invalid banner preset' });
       }
 
-      await Creator.update({ bannerPreset: preset }, { where: { id } });
-      await elasticsearchService.reindexCreators([id]);
+      const result = await setBannerPresetForEntity('creator', id, preset);
       await invalidateLinkedUserForCreator(id);
 
-      return res.json({ bannerPreset: preset });
+      return res.json(result);
     } catch (error) {
       logger.error('[v3 PATCH /creators/:id/banner-preset] failure', error);
       return res.status(500).json({
@@ -1466,11 +1457,10 @@ router.delete(
       const id = resolveOwnCreatorRouteId(req, res, user);
       if (id === null) return;
 
-      await Creator.update({ bannerPreset: null }, { where: { id } });
-      await elasticsearchService.reindexCreators([id]);
+      const result = await clearBannerPresetForEntity('creator', id);
       await invalidateLinkedUserForCreator(id);
 
-      return res.json({ bannerPreset: null });
+      return res.json(result);
     } catch (error) {
       logger.error('[v3 DELETE /creators/:id/banner-preset] failure', error);
       return res.status(500).json({
@@ -1526,11 +1516,10 @@ router.patch(
       }
       const next = normalizeTufStellarIconVariant(rawVariant);
 
-      await Creator.update({ tufStellarIconVariant: next }, { where: { id } });
-      await elasticsearchService.reindexCreators([id]);
+      const result = await setStellarIconVariantForEntity('creator', id, next);
       await invalidateLinkedUserForCreator(id);
 
-      return res.json({ tufStellarIconVariant: next });
+      return res.json(result);
     } catch (error) {
       logger.error('[v3 PATCH /creators/:id/tuf-stellar-icon-variant] failure', error);
       return res.status(500).json({
@@ -1568,38 +1557,10 @@ router.post(
         return res.status(400).json({ error: 'No file uploaded', code: 'NO_FILE' });
       }
 
-      const creator = await Creator.findByPk(id);
-      if (!creator) return res.status(404).json({ error: 'Creator not found' });
-
-      const result = await cdnService.uploadImage(req.file.buffer, req.file.originalname, 'BANNER');
-      const displayUrl = result.urls?.large ?? result.urls?.original ?? null;
-      if (!displayUrl) {
-        return res.status(500).json({ error: 'CDN did not return banner URLs' });
-      }
-
-      const oldId = creator.customBannerId;
-      await Creator.update(
-        { customBannerId: result.fileId, customBannerUrl: displayUrl },
-        { where: { id } },
-      );
-
-      if (oldId && oldId !== result.fileId) {
-        try {
-          if (await cdnService.checkFileExists(oldId)) {
-            await cdnService.deleteFile(oldId);
-          }
-        } catch (delErr) {
-          logger.error('[v3 POST /creators/:id/banner-custom] failed deleting previous banner file', delErr);
-        }
-      }
-
-      await elasticsearchService.reindexCreators([id]);
+      const uploaded = await uploadCustomBannerForEntity('creator', id, req.file);
       await invalidateLinkedUserForCreator(id);
 
-      return res.json({
-        customBannerId: result.fileId,
-        customBannerUrl: displayUrl,
-      });
+      return res.json(uploaded);
     } catch (error) {
       if (error instanceof CdnError) {
         return res.status(400).json({
@@ -1639,26 +1600,10 @@ router.delete(
       const id = resolveOwnCreatorRouteId(req, res, user);
       if (id === null) return;
 
-      const creator = await Creator.findByPk(id);
-      if (!creator) return res.status(404).json({ error: 'Creator not found' });
-
-      const oldId = creator.customBannerId;
-      await Creator.update({ customBannerId: null, customBannerUrl: null }, { where: { id } });
-
-      if (oldId) {
-        try {
-          if (await cdnService.checkFileExists(oldId)) {
-            await cdnService.deleteFile(oldId);
-          }
-        } catch (delErr) {
-          logger.error('[v3 DELETE /creators/:id/banner-custom] failed deleting CDN file', delErr);
-        }
-      }
-
-      await elasticsearchService.reindexCreators([id]);
+      const cleared = await clearCustomBannerForEntity('creator', id);
       await invalidateLinkedUserForCreator(id);
 
-      return res.json({ customBannerId: null, customBannerUrl: null });
+      return res.json(cleared);
     } catch (error) {
       logger.error('[v3 DELETE /creators/:id/banner-custom] failure', error);
       return res.status(500).json({
@@ -1705,46 +1650,10 @@ router.patch(
         return res.status(400).json({ error: msg });
       }
 
-      const creator = await Creator.findByPk(id, {
-        attributes: ['id', 'profileHeaderSurfaceImageAssets'],
-      });
-      if (!creator) return res.status(404).json({ error: 'Creator not found' });
-
-      const clearedAssets = await clearSurfaceImageAssetsWhenNoImageLayers(
-        creator.profileHeaderSurfaceImageAssets,
-        parsed,
-      );
-
-      const reconciledAssets =
-        clearedAssets === null
-          ? await reconcileProfileHeaderSurfaceImageAssets(
-              creator.profileHeaderSurfaceImageAssets,
-              parsed,
-            )
-          : null;
-
-      const styleUpdate: Record<string, unknown> = {
-        profileHeaderSurfaceStyle: parsed as unknown as Record<string, unknown> | null,
-        ...(clearedAssets ?? {}),
-      };
-      if (reconciledAssets !== null) {
-        styleUpdate.profileHeaderSurfaceImageAssets = Object.keys(reconciledAssets).length
-          ? reconciledAssets
-          : null;
-      }
-
-      await Creator.update(styleUpdate, { where: { id } });
-      await elasticsearchService.reindexCreators([id]);
+      const updated = await patchHeaderSurfaceStyleForEntity('creator', id, parsed);
       await invalidateLinkedUserForCreator(id);
 
-      const updatedCreator = await Creator.findByPk(id, {
-        attributes: ['profileHeaderSurfaceImageAssets'],
-      });
-
-      return res.json({
-        profileHeaderSurfaceStyle: parsed,
-        profileHeaderSurfaceImageAssets: updatedCreator?.profileHeaderSurfaceImageAssets ?? null,
-      });
+      return res.json(updated);
     } catch (error) {
       logger.error('[v3 PATCH /creators/:id/header-surface-style] failure', error);
       return res.status(500).json({
@@ -1787,55 +1696,17 @@ router.post(
         return res.status(400).json({ error: 'layerId is required' });
       }
 
-      const creator = await Creator.findByPk(id, {
-        attributes: ['id', 'profileHeaderSurfaceStyle', 'profileHeaderSurfaceImageAssets'],
-      });
-      if (!creator) return res.status(404).json({ error: 'Creator not found' });
-
-      const storedStyle = parseStoredSurfaceStyle(creator.profileHeaderSurfaceStyle);
-      if (storedStyle && !getReferencedImageLayerIds(storedStyle).has(layerId)) {
-        return res.status(400).json({ error: 'layerId does not match an image layer in the saved style' });
-      }
-
-      const result = await cdnService.uploadImage(req.file.buffer, req.file.originalname, 'BANNER');
-      const displayUrl = result.urls?.large ?? result.urls?.original ?? null;
-      if (!displayUrl) {
-        return res.status(500).json({ error: 'CDN did not return image URLs' });
-      }
-
-      const assets = upsertSurfaceImageAsset(
-        creator.profileHeaderSurfaceImageAssets,
-        layerId,
-        result.fileId,
-        displayUrl,
-      );
-      const previousAssetId =
-        creator.profileHeaderSurfaceImageAssets &&
-        typeof creator.profileHeaderSurfaceImageAssets === 'object' &&
-        !Array.isArray(creator.profileHeaderSurfaceImageAssets)
-          ? (creator.profileHeaderSurfaceImageAssets as Record<string, { assetId?: string }>)[layerId]
-              ?.assetId
-          : null;
-
-      await Creator.update({ profileHeaderSurfaceImageAssets: assets }, { where: { id } });
-
-      if (previousAssetId && previousAssetId !== result.fileId) {
-        try {
-          if (await cdnService.checkFileExists(previousAssetId)) {
-            await cdnService.deleteFile(previousAssetId);
-          }
-        } catch (delErr) {
-          logger.error('[v3 POST /creators/:id/header-surface-image] failed deleting previous file', delErr);
+      try {
+        const uploaded = await uploadHeaderSurfaceImageForEntity('creator', id, layerId, req.file);
+        await invalidateLinkedUserForCreator(id);
+        return res.json({ layerId, ...uploaded });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to upload header surface image';
+        if (msg.includes('layerId') || msg.includes('Save header surface')) {
+          return res.status(400).json({ error: msg });
         }
+        throw err;
       }
-
-      await elasticsearchService.reindexCreators([id]);
-      await invalidateLinkedUserForCreator(id);
-
-      return res.json({
-        layerId,
-        profileHeaderSurfaceImageAssets: assets,
-      });
     } catch (error) {
       if (error instanceof CdnError) {
         return res.status(400).json({
@@ -1880,42 +1751,10 @@ router.delete(
         return res.status(400).json({ error: 'layerId is required' });
       }
 
-      const creator = await Creator.findByPk(id, {
-        attributes: ['id', 'profileHeaderSurfaceImageAssets'],
-      });
-      if (!creator) return res.status(404).json({ error: 'Creator not found' });
-
-      const assets = removeSurfaceImageAsset(creator.profileHeaderSurfaceImageAssets, layerId);
-      const removedId =
-        creator.profileHeaderSurfaceImageAssets &&
-        typeof creator.profileHeaderSurfaceImageAssets === 'object' &&
-        !Array.isArray(creator.profileHeaderSurfaceImageAssets)
-          ? (creator.profileHeaderSurfaceImageAssets as Record<string, { assetId?: string }>)[layerId]
-              ?.assetId
-          : null;
-
-      await Creator.update(
-        { profileHeaderSurfaceImageAssets: Object.keys(assets).length ? assets : null },
-        { where: { id } },
-      );
-
-      if (removedId) {
-        try {
-          if (await cdnService.checkFileExists(removedId)) {
-            await cdnService.deleteFile(removedId);
-          }
-        } catch (delErr) {
-          logger.error('[v3 DELETE /creators/:id/header-surface-image] failed deleting CDN file', delErr);
-        }
-      }
-
-      await elasticsearchService.reindexCreators([id]);
+      const removed = await deleteHeaderSurfaceImageForEntity('creator', id, layerId);
       await invalidateLinkedUserForCreator(id);
 
-      return res.json({
-        layerId,
-        profileHeaderSurfaceImageAssets: Object.keys(assets).length ? assets : null,
-      });
+      return res.json({ layerId, ...removed });
     } catch (error) {
       logger.error('[v3 DELETE /creators/:id/header-surface-image] failure', error);
       return res.status(500).json({

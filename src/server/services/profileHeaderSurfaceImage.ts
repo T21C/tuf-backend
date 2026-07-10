@@ -4,8 +4,6 @@ import {
   type ProfileHeaderSurfaceImageAssets,
   type ProfileHeaderSurfaceStyle,
 } from '@/misc/utils/profileHeaderSurfaceStyle.js';
-import cdnService from '@/server/services/core/CdnService.js';
-import { logger } from '@/server/services/core/LoggerService.js';
 
 export function styleHasImageLayer(style: ProfileHeaderSurfaceStyle | null): boolean {
   return style !== null && style.stack.some((e) => e.kind === 'image');
@@ -17,19 +15,10 @@ export function getReferencedImageLayerIds(style: ProfileHeaderSurfaceStyle | nu
   return new Set(getImageStackEntryIds(style.stack));
 }
 
-async function deleteCdnAsset(assetId: string): Promise<void> {
-  try {
-    if (await cdnService.checkFileExists(assetId)) {
-      await cdnService.deleteFile(assetId);
-    }
-  } catch (err) {
-    logger.error('Failed to delete profile header surface image from CDN:', err);
-  }
-}
-
 /**
- * Drop CDN files and map entries for layers no longer in the style stack.
+ * Drop map entries for layers no longer in the style stack.
  * Returns the pruned assets map, or null if unchanged.
+ * CDN cleanup is handled by ProfileCustomizationService.releaseUnreferencedAssets.
  */
 export async function reconcileProfileHeaderSurfaceImageAssets(
   existingAssets: unknown,
@@ -45,7 +34,6 @@ export async function reconcileProfileHeaderSurfaceImageAssets(
       next[layerId] = row;
     } else {
       changed = true;
-      await deleteCdnAsset(row.assetId);
     }
   }
 
@@ -53,7 +41,7 @@ export async function reconcileProfileHeaderSurfaceImageAssets(
   return next;
 }
 
-/** When saved style has no image layers, delete all CDN assets and clear the assets map. */
+/** When saved style has no image layers, clear the assets map (no CDN delete here). */
 export async function clearSurfaceImageAssetsWhenNoImageLayers(
   existingAssets: unknown,
   parsedStyle: ProfileHeaderSurfaceStyle | null,
@@ -62,10 +50,6 @@ export async function clearSurfaceImageAssetsWhenNoImageLayers(
 
   const assets = parseProfileHeaderSurfaceImageAssets(existingAssets);
   if (Object.keys(assets).length === 0) return null;
-
-  for (const row of Object.values(assets)) {
-    await deleteCdnAsset(row.assetId);
-  }
 
   return { profileHeaderSurfaceImageAssets: null };
 }

@@ -3,12 +3,13 @@ import Creator from '@/models/credits/Creator.js';
 import TeamMember from '@/models/credits/TeamMember.js';
 import {CreatorAlias} from '@/models/credits/CreatorAlias.js';
 import Pass from '@/models/passes/Pass.js';
-import cdnService from '@/server/services/core/CdnService.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import {CacheInvalidation} from '@/server/middleware/cache.js';
 import Level from '@/models/levels/Level.js';
+import User from '@/models/auth/User.js';
+import { handleCreatorPurgePieces } from '@/server/services/profileCustomization/ProfileCustomizationService.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
@@ -115,33 +116,11 @@ export class CreatorProfileDeletionService {
     await TeamMember.destroy({where: {creatorId}});
     await CreatorAlias.destroy({where: {creatorId}});
 
-    const creator = await Creator.findByPk(creatorId);
-    const surfaceAssetIds: string[] = [];
-    if (
-      creator?.profileHeaderSurfaceImageAssets &&
-      typeof creator.profileHeaderSurfaceImageAssets === 'object' &&
-      !Array.isArray(creator.profileHeaderSurfaceImageAssets)
-    ) {
-      for (const row of Object.values(creator.profileHeaderSurfaceImageAssets)) {
-        if (row && typeof row === 'object' && typeof row.assetId === 'string' && row.assetId.length) {
-          surfaceAssetIds.push(row.assetId);
-        }
-      }
-    }
-    for (const fileId of [creator?.customBannerId, ...surfaceAssetIds]) {
-      if (!fileId) continue;
-      try {
-        if (await cdnService.checkFileExists(fileId)) {
-          await cdnService.deleteFile(fileId);
-        }
-      } catch (e) {
-        logger.warn('[CreatorProfileDeletion] CDN profile asset delete failed', {
-          creatorId,
-          fileId,
-          message: e instanceof Error ? e.message : String(e),
-        });
-      }
-    }
+    const linkedUser = await User.findOne({
+      where: { creatorId },
+      attributes: ['id'],
+    });
+    await handleCreatorPurgePieces(creatorId, linkedUser?.id ?? null);
 
     await Creator.destroy({where: {id: creatorId}});
 

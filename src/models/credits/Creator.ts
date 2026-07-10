@@ -14,20 +14,10 @@ class Creator extends Model implements ICreator {
   declare updatedAt: Date;
   declare verificationStatus: 'declined' | 'pending' | 'conditional' | 'allowed';
   declare userId: string | null;
-  declare bio: string | null;
-  declare bioCanvas: Record<string, unknown> | null;
-  declare bioCanvasImageAssets: Record<string, { assetId: string; url: string }> | null;
   /** Up to 5 curation type ids to show on the creator profile header (JSON array in DB). */
   declare displayCurationTypeIds: number[] | null;
-  declare bannerPreset: string | null;
-  declare customBannerId: string | null;
-  declare customBannerUrl: string | null;
-  declare profileHeaderSurfaceStyle: Record<string, unknown> | null;
-  declare profileHeaderSurfaceImageAssets: Record<string, { assetId: string; url: string }> | null;
   /** Free-text policy for when/how charts may be uploaded for this creator. */
   declare uploadConditions: string | null;
-  /** TUFStellar subscriber icon art on creator profile/cards: `1` | `2` | `3`. */
-  declare tufStellarIconVariant: string;
   /** Placement ids pinned on the profile tournaments section (max 5). */
   declare featuredPlacementIds: number[] | null;
   /** Placement ids hidden from the public profile tournaments section. */
@@ -81,46 +71,9 @@ Creator.init(
       allowNull: true,
       defaultValue: null,
     },
-    bio: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    bioCanvas: {
-      type: DataTypes.JSON,
-      allowNull: true,
-    },
-    bioCanvasImageAssets: {
-      type: DataTypes.JSON,
-      allowNull: true,
-    },
-    bannerPreset: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    customBannerId: {
-      type: DataTypes.STRING(64),
-      allowNull: true,
-    },
-    customBannerUrl: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    profileHeaderSurfaceStyle: {
-      type: DataTypes.JSON,
-      allowNull: true,
-    },
-    profileHeaderSurfaceImageAssets: {
-      type: DataTypes.JSON,
-      allowNull: true,
-    },
     uploadConditions: {
       type: DataTypes.TEXT,
       allowNull: true,
-    },
-    tufStellarIconVariant: {
-      type: DataTypes.STRING(1),
-      allowNull: false,
-      defaultValue: '1',
     },
     featuredPlacementIds: {
       type: DataTypes.JSON,

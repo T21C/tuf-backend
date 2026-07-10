@@ -9,6 +9,7 @@ import { runPlayerStatsQuery, PlayerStatsRow } from '@/server/services/elasticse
 import { buildPlayerIndexDocument } from '@/server/services/elasticsearch/indexing/playerIndexDocument.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
+import { loadPresentationMapForPlayerIds } from '@/server/services/profileCustomization/ProfileCustomizationService.js';
 
 export interface PreparedPlayerDocument {
   id: number;
@@ -84,6 +85,8 @@ export async function fetchPlayersForBulkIndex(playerIds: number[]): Promise<Pre
     statsById.set(Number(row.id), row);
   }
 
+  const presentationByPlayerId = await loadPresentationMapForPlayerIds(ids);
+
   const diffIds = new Set<number>();
   for (const row of statsRows) {
     if (row.topDiffId) diffIds.add(Number(row.topDiffId));
@@ -115,6 +118,7 @@ export async function fetchPlayersForBulkIndex(playerIds: number[]): Promise<Pre
         topDiff,
         top12kDiff,
         stats,
+        presentation: presentationByPlayerId.get(player.id) ?? null,
       });
       out.push({ id: player.id, document: doc });
     } catch (error) {

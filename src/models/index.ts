@@ -58,6 +58,7 @@ import TournamentPlacement from './tournaments/TournamentPlacement.js';
 import PlacementReward from './tournaments/PlacementReward.js';
 import PlacementEntitlement from './tournaments/PlacementEntitlement.js';
 import EquippedCosmetic from './tournaments/EquippedCosmetic.js';
+import ProfileCustomizationPiece from './profile/ProfileCustomizationPiece.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -122,6 +123,7 @@ export const db = {
     PlacementReward,
     PlacementEntitlement,
     EquippedCosmetic,
+    ProfileCustomizationPiece,
   },
 };
 

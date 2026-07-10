@@ -6,8 +6,6 @@ import {
   type BioCanvasDocument,
   type BioCanvasImageAssets,
 } from '@/misc/utils/bioCanvas/index.js';
-import cdnService from '@/server/services/core/CdnService.js';
-import { logger } from '@/server/services/core/LoggerService.js';
 
 export function canvasHasImageBlocks(doc: BioCanvasDocument | null): boolean {
   return getImageBlockIds(doc).length > 0;
@@ -17,19 +15,10 @@ export function getReferencedImageBlockIds(doc: BioCanvasDocument | null): Set<s
   return new Set(getImageBlockIds(doc));
 }
 
-async function deleteCdnAsset(assetId: string): Promise<void> {
-  try {
-    if (await cdnService.checkFileExists(assetId)) {
-      await cdnService.deleteFile(assetId);
-    }
-  } catch (err) {
-    logger.error('Failed to delete bio canvas image from CDN:', err);
-  }
-}
-
 /**
- * Drop CDN files and map entries for image blocks no longer in the canvas.
+ * Drop map entries for image blocks no longer in the canvas.
  * Returns the pruned assets map, or null if unchanged.
+ * CDN cleanup is handled by ProfileCustomizationService.releaseUnreferencedAssets.
  */
 export async function reconcileBioCanvasImageAssets(
   existingAssets: unknown,
@@ -45,7 +34,6 @@ export async function reconcileBioCanvasImageAssets(
       next[blockId] = row;
     } else {
       changed = true;
-      await deleteCdnAsset(row.assetId);
     }
   }
 
@@ -53,7 +41,7 @@ export async function reconcileBioCanvasImageAssets(
   return next;
 }
 
-/** When saved canvas has no image blocks, delete all CDN assets and clear the assets map. */
+/** When saved canvas has no image blocks, clear the assets map (no CDN delete here). */
 export async function clearBioCanvasImageAssetsWhenNoImages(
   existingAssets: unknown,
   parsedCanvas: BioCanvasDocument | null,
@@ -62,10 +50,6 @@ export async function clearBioCanvasImageAssetsWhenNoImages(
 
   const assets = parseBioCanvasImageAssets(existingAssets);
   if (Object.keys(assets).length === 0) return null;
-
-  for (const row of Object.values(assets)) {
-    await deleteCdnAsset(row.assetId);
-  }
 
   return { bioCanvasImageAssets: null };
 }

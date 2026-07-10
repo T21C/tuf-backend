@@ -9,6 +9,8 @@ import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufSt
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 
+import type { AssembledPresentation } from '@/server/services/profileCustomization/types.js';
+
 export interface PlayerIndexDocumentInput {
   player: Player;
   aliases?: PlayerAlias[] | null;
@@ -19,6 +21,8 @@ export interface PlayerIndexDocumentInput {
   topDiff?: Difficulty | null;
   top12kDiff?: Difficulty | null;
   stats?: Partial<PlayerStatsRow> | null;
+  /** Assembled from profile_customization_pieces (bio text + stellar for ES). */
+  presentation?: AssembledPresentation | null;
 }
 
 function plain<T extends object | null | undefined>(m: T): Record<string, unknown> | null {
@@ -129,6 +133,7 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
   const { player, topDiff, top12kDiff } = input;
   const p = plain(player) as any;
   const stats = input.stats ?? null;
+  const presentation = input.presentation ?? null;
 
   const pfp = (() => {
     if (input.user) {
@@ -149,21 +154,12 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
       ? hasFlag(input.user, permissionFlags.RATING_BANNED) || Boolean(input.user.isRatingBanned)
       : false,
     pfp,
-    bio: typeof p.bio === 'string' && p.bio.trim().length ? p.bio : null,
-    bannerPreset: typeof p.bannerPreset === 'string' && p.bannerPreset.length ? p.bannerPreset : null,
-    customBannerId: typeof p.customBannerId === 'string' && p.customBannerId.length ? p.customBannerId : null,
-    customBannerUrl: typeof p.customBannerUrl === 'string' && p.customBannerUrl.length ? p.customBannerUrl : null,
-    profileHeaderSurfaceStyle:
-      p.profileHeaderSurfaceStyle && typeof p.profileHeaderSurfaceStyle === 'object'
-        ? p.profileHeaderSurfaceStyle
-        : null,
-    profileHeaderSurfaceImageAssets:
-      p.profileHeaderSurfaceImageAssets &&
-      typeof p.profileHeaderSurfaceImageAssets === 'object' &&
-      !Array.isArray(p.profileHeaderSurfaceImageAssets)
-        ? p.profileHeaderSurfaceImageAssets
-        : null,
-    tufStellarIconVariant: normalizeTufStellarIconVariant(p.tufStellarIconVariant),
+    bio:
+      presentation?.bio ??
+      (typeof p.bio === 'string' && p.bio.trim().length ? p.bio : null),
+    tufStellarIconVariant: normalizeTufStellarIconVariant(
+      presentation?.tufStellarIconVariant ?? p.tufStellarIconVariant,
+    ),
     aliases: serializeAliases(input.aliases ?? (player as any).playerAliases ?? null),
     createdAt: p.createdAt ?? null,
     updatedAt: p.updatedAt ?? null,
