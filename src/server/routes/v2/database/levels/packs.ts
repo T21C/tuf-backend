@@ -10,6 +10,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import { mapMysqlClientError } from '@/misc/utils/db/mysqlClientError.js';
 import { parseSearchQuery,  queryParserConfigs, type SearchGroup } from '@/misc/utils/data/queryParser.js';
 import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
 import { multerMemoryCdnImage5Mb as upload } from '@/config/multerMemoryUploads.js';
@@ -2272,7 +2273,7 @@ router.put(
         }, { transaction });
       } catch (error: any) {
         // If it's a unique constraint error, the favorite already exists - that's fine
-        if (error.name !== 'SequelizeUniqueConstraintError') {
+        if (mapMysqlClientError(error)?.code !== 'ER_DUP_ENTRY') {
           throw error;
         }
         logger.debug('Favorite already exists', { packId: resolvedPackId, userId: req.user?.id });

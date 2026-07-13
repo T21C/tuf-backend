@@ -1,12 +1,8 @@
 import type { Transaction } from 'sequelize';
 import OutboxEvent from '@/models/outbox/OutboxEvent.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { mapMysqlClientError } from '@/misc/utils/db/mysqlClientError.js';
 import type { OutboxEventType, OutboxPayloadByType } from './events.js';
-
-function isDuplicateKeyError(err: unknown): boolean {
-  const e = err as { name?: string; parent?: { code?: string } };
-  return e?.name === 'SequelizeUniqueConstraintError' || e?.parent?.code === 'ER_DUP_ENTRY';
-}
 
 export class OutboxService {
   static async emit<K extends OutboxEventType>(
@@ -32,7 +28,7 @@ export class OutboxService {
         { transaction: args.transaction },
       );
     } catch (err) {
-      if (isDuplicateKeyError(err)) {
+      if (mapMysqlClientError(err)?.code === 'ER_DUP_ENTRY') {
         logger.debug(`[outbox] Dedup skip for ${eventType} ${args.dedupKey ?? ''}`);
         return;
       }

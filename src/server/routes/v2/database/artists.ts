@@ -15,6 +15,7 @@ import sequelize from '@/config/db.js';
 import {escapeForMySQL} from '@/misc/utils/data/searchHelpers.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {safeTransactionRollback, getFileIdFromCdnUrl} from '@/misc/utils/Utility.js';
+import {respondMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
 import ArtistService from '@/server/services/data/ArtistService.js';
 import EvidenceService from '@/server/services/data/EvidenceService.js';
 import cdnServiceInstance, { CdnError } from '@/server/services/core/CdnService.js';
@@ -1050,11 +1051,10 @@ router.post('/:id([0-9]{1,20})/relations', Auth.superAdmin(), async (req: Reques
     });
   } catch (error: any) {
     await safeTransactionRollback(transaction);
-    logger.error('Error adding artist relation:', error);
-    if (error.name === 'SequelizeUniqueConstraintError') {
-      return res.status(409).json({error: 'Relation already exists'});
-    }
-    return res.status(500).json({error: 'Failed to add artist relation'});
+    return respondMysqlClientError(res, error, 'Failed to add artist relation', {
+      uniqueMessage: 'Relation already exists',
+      logLabel: 'Error adding artist relation:',
+    });
   }
 });
 

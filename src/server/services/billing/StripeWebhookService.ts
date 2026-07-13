@@ -12,6 +12,7 @@ import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 import { revokePurchaseSegmentsByStripePaymentIntentId } from '@/server/services/billing/tufStellarEntitlementSegments.js';
 import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 import { applyPurchaseEntitlementToBeneficiary } from '@/server/services/billing/tufStellarPurchaseFulfillment.js';
+import { mapMysqlClientError } from '@/misc/utils/db/mysqlClientError.js';
 
 const BENEFICIARY_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -108,9 +109,11 @@ export class StripeWebhookService {
     try {
       return await BillingEvent.create(createAttrs);
     } catch (e: unknown) {
-      const name = (e as { name?: string })?.name || '';
       const msg = String((e as { message?: string })?.message || '');
-      if (name === 'SequelizeUniqueConstraintError' || msg.includes('uniq_billing_events_provider_idempotency')) {
+      if (
+        mapMysqlClientError(e)?.code === 'ER_DUP_ENTRY' ||
+        msg.includes('uniq_billing_events_provider_idempotency')
+      ) {
         return null;
       }
       throw e;

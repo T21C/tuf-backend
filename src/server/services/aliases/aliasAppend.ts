@@ -1,13 +1,7 @@
 import type {Transaction} from 'sequelize';
-import {UniqueConstraintError} from 'sequelize';
 import PlayerAlias from '@/models/players/PlayerAlias.js';
 import {CreatorAlias} from '@/models/credits/CreatorAlias.js';
-
-function isUniqueConstraintError(error: unknown): boolean {
-  if (error instanceof UniqueConstraintError) return true;
-  const e = error as {name?: string; parent?: {code?: string}};
-  return e?.name === 'SequelizeUniqueConstraintError' || e?.parent?.code === 'ER_DUP_ENTRY';
-}
+import {mapMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
 
 function namesEqual(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -24,7 +18,7 @@ export async function appendPlayerAliasSimple(
   try {
     await PlayerAlias.create({playerId, name: trimmed}, {transaction});
   } catch (error) {
-    if (isUniqueConstraintError(error)) return;
+    if (mapMysqlClientError(error)?.code === 'ER_DUP_ENTRY') return;
     throw error;
   }
 }
@@ -40,7 +34,7 @@ export async function appendCreatorAliasSimple(
   try {
     await CreatorAlias.create({creatorId, name: trimmed}, {transaction});
   } catch (error) {
-    if (isUniqueConstraintError(error)) return;
+    if (mapMysqlClientError(error)?.code === 'ER_DUP_ENTRY') return;
     throw error;
   }
 }

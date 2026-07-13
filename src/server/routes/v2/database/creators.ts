@@ -20,6 +20,7 @@ import { TeamAlias } from '@/models/credits/TeamAlias.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import { mapMysqlClientError } from '@/misc/utils/db/mysqlClientError.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import { validCreatorVerificationStatuses, type CreatorVerificationStatus } from '@/config/constants.js';
 import {appendCreatorAliasFromRename} from '@/server/services/aliases/nameChangeAliases.js';
@@ -792,7 +793,7 @@ router.post(
             );
           } catch (error: any) {
             // If it's a duplicate entry error, just continue
-            if (error.name === 'SequelizeUniqueConstraintError') {
+            if (mapMysqlClientError(error)?.code === 'ER_DUP_ENTRY') {
               continue;
             }
             throw error; // Re-throw if it's any other type of error
@@ -1165,7 +1166,7 @@ router.put(
                 );
               } catch (error: any) {
                 // If it's a duplicate entry error, just continue
-                if (error.name === 'SequelizeUniqueConstraintError') {
+                if (mapMysqlClientError(error)?.code === 'ER_DUP_ENTRY') {
                   logger.debug(`Team member ${creatorId} already exists for team ${team?.id}`);
                   continue;
                 }

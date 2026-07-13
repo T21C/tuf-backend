@@ -3,6 +3,7 @@ import {v4 as uuidv4} from 'uuid';
 import {UserAttributes} from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
 import { logger } from '../core/LoggerService.js';
+import { mapMysqlClientError } from '@/misc/utils/db/mysqlClientError.js';
 import {
   isValidUsername,
   normalizeUsername,
@@ -112,7 +113,10 @@ class OAuthService {
             playerId = player.id;
             break;
           } catch (error: any) {
-            if (error.name === 'SequelizeUniqueConstraintError' && error.errors?.[0]?.path === 'name') {
+            if (
+              mapMysqlClientError(error)?.code === 'ER_DUP_ENTRY' &&
+              error.errors?.[0]?.path === 'name'
+            ) {
               // If name is duplicate, append a random number and try again
               const suffix = String(Math.floor(Math.random() * 10000));
               playerName = `${canonicalFromDiscord.slice(0, Math.max(0, USERNAME_MAX_LEN - suffix.length))}${suffix}`;
@@ -153,7 +157,10 @@ class OAuthService {
             });
             break;
           } catch (error: any) {
-            if (error.name === 'SequelizeUniqueConstraintError' && error.errors?.[0]?.path === 'username') {
+            if (
+              mapMysqlClientError(error)?.code === 'ER_DUP_ENTRY' &&
+              error.errors?.[0]?.path === 'username'
+            ) {
               // If username is duplicate, append a random number and try again
               const suffix = String(Math.floor(Math.random() * 10000));
               username = `${canonicalFromDiscord.slice(0, Math.max(0, USERNAME_MAX_LEN - suffix.length))}${suffix}`;

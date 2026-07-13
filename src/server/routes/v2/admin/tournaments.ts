@@ -47,6 +47,7 @@ import cdnService, {CdnError} from '@/server/services/core/CdnService.js';
 import {getSequelizeForModelGroup} from '@/config/db.js';
 import {hasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import {permissionFlags} from '@/config/constants.js';
+import {respondMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
 
 
 const router: Router = Router();
@@ -257,8 +258,9 @@ router.get(
       const series = await TournamentSeries.findAll({order: [['sortWeight', 'ASC']]});
       return res.json(series);
     } catch (error) {
-      logger.error('List tournament series failed:', error);
-      return res.status(500).json({error: 'Failed to list series'});
+      return respondMysqlClientError(res, error, 'Failed to list series', {
+        logLabel: 'List tournament series failed:',
+      });
     }
   },
 );
@@ -291,11 +293,10 @@ router.post(
       });
       return res.status(201).json(series);
     } catch (error: any) {
-      if (error?.name === 'SequelizeUniqueConstraintError') {
-        return res.status(409).json({error: 'Series slug already exists'});
-      }
-      logger.error('Create tournament series failed:', error);
-      return res.status(500).json({error: 'Failed to create series'});
+      return respondMysqlClientError(res, error, 'Failed to create series', {
+        uniqueMessage: 'Series slug already exists',
+        logLabel: 'Create tournament series failed:',
+      });
     }
   },
 );
@@ -318,8 +319,9 @@ router.put(
       const series = await TournamentSeries.findAll({order: [['sortWeight', 'ASC']]});
       return res.json(series);
     } catch (error) {
-      logger.error('Reorder tournament series failed:', error);
-      return res.status(500).json({error: 'Failed to reorder series'});
+      return respondMysqlClientError(res, error, 'Failed to reorder series', {
+        logLabel: 'Reorder tournament series failed:',
+      });
     }
   },
 );
@@ -344,11 +346,10 @@ router.patch(
       await series.update(updates);
       return res.json(series);
     } catch (error: any) {
-      if (error?.name === 'SequelizeUniqueConstraintError') {
-        return res.status(409).json({error: 'Series slug already exists'});
-      }
-      logger.error('Update tournament series failed:', error);
-      return res.status(500).json({error: 'Failed to update series'});
+      return respondMysqlClientError(res, error, 'Failed to update series', {
+        uniqueMessage: 'Series slug already exists',
+        logLabel: 'Update tournament series failed:',
+      });
     }
   },
 );
@@ -363,8 +364,9 @@ router.delete(
       await series.destroy();
       return res.json({success: true});
     } catch (error) {
-      logger.error('Delete tournament series failed:', error);
-      return res.status(500).json({error: 'Failed to delete series'});
+      return respondMysqlClientError(res, error, 'Failed to delete series', {
+        logLabel: 'Delete tournament series failed:',
+      });
     }
   },
 );
@@ -432,8 +434,9 @@ router.get(
         })),
       );
     } catch (error) {
-      logger.error('List tournaments failed:', error);
-      return res.status(500).json({error: 'Failed to list tournaments'});
+      return respondMysqlClientError(res, error, 'Failed to list tournaments', {
+        logLabel: 'List tournaments failed:',
+      });
     }
   },
 );
@@ -459,8 +462,9 @@ router.put(
       });
       return res.json(tournaments);
     } catch (error) {
-      logger.error('Reorder tournaments failed:', error);
-      return res.status(500).json({error: 'Failed to reorder tournaments'});
+      return respondMysqlClientError(res, error, 'Failed to reorder tournaments', {
+        logLabel: 'Reorder tournaments failed:',
+      });
     }
   },
 );
@@ -479,8 +483,9 @@ router.get(
       const candidates = await loadNomineeCandidates(levelId, roles);
       return res.json(candidates);
     } catch (error) {
-      logger.error('List credit candidates failed:', error);
-      return res.status(500).json({error: 'Failed to list credit candidates'});
+      return respondMysqlClientError(res, error, 'Failed to list credit candidates', {
+        logLabel: 'List credit candidates failed:',
+      });
     }
   },
 );
@@ -513,11 +518,10 @@ router.post(
     } catch (error: any) {
       if (error?.code === 404) return res.status(404).json({error: error.message});
       if (error?.code === 400) return res.status(400).json({error: error.message});
-      if (error?.name === 'SequelizeUniqueConstraintError') {
-        return res.status(409).json({error: 'Tournament short name already exists'});
-      }
-      logger.error('Pack create failed:', error);
-      return res.status(500).json({error: 'Failed to create tournament from pack'});
+      return respondMysqlClientError(res, error, 'Failed to create tournament from pack', {
+        uniqueMessage: 'Tournament short name already exists',
+        logLabel: 'Pack create failed:',
+      });
     }
   },
 );
@@ -570,8 +574,9 @@ router.get(
         owners,
       });
     } catch (error) {
-      logger.error('Get tournament failed:', error);
-      return res.status(500).json({error: 'Failed to get tournament'});
+      return respondMysqlClientError(res, error, 'Failed to get tournament', {
+        logLabel: 'Get tournament failed:',
+      });
     }
   },
 );
@@ -634,11 +639,10 @@ router.post(
       });
       return res.status(201).json(full);
     } catch (error: any) {
-      if (error?.name === 'SequelizeUniqueConstraintError') {
-        return res.status(409).json({error: 'Tournament short name already exists'});
-      }
-      logger.error('Create tournament failed:', error);
-      return res.status(500).json({error: 'Failed to create tournament'});
+      return respondMysqlClientError(res, error, 'Failed to create tournament', {
+        uniqueMessage: 'Tournament short name already exists',
+        logLabel: 'Create tournament failed:',
+      });
     }
   },
 );
@@ -721,11 +725,10 @@ router.patch(
       });
       return res.json(full);
     } catch (error: any) {
-      if (error?.name === 'SequelizeUniqueConstraintError') {
-        return res.status(409).json({error: 'Tournament short name already exists'});
-      }
-      logger.error('Update tournament failed:', error);
-      return res.status(500).json({error: 'Failed to update tournament'});
+      return respondMysqlClientError(res, error, 'Failed to update tournament', {
+        uniqueMessage: 'Tournament short name already exists',
+        logLabel: 'Update tournament failed:',
+      });
     }
   },
 );
@@ -748,8 +751,9 @@ router.delete(
       if (error?.message === 'Tournament not found') {
         return res.status(404).json({error: 'Tournament not found'});
       }
-      logger.error('Delete tournament failed:', error);
-      return res.status(500).json({error: 'Failed to delete tournament'});
+      return respondMysqlClientError(res, error, 'Failed to delete tournament', {
+        logLabel: 'Delete tournament failed:',
+      });
     }
   },
 );
@@ -779,8 +783,9 @@ router.post(
       if (error instanceof CdnError) {
         return res.status(400).json({error: error.message, code: error.code});
       }
-      logger.error('Upload tournament icon failed:', error);
-      return res.status(500).json({error: 'Failed to upload tournament icon'});
+      return respondMysqlClientError(res, error, 'Failed to upload tournament icon', {
+        logLabel: 'Upload tournament icon failed:',
+      });
     }
   },
 );
@@ -808,8 +813,9 @@ router.post(
       if (error instanceof CdnError) {
         return res.status(400).json({error: error.message, code: error.code});
       }
-      logger.error('Upload tournament card background failed:', error);
-      return res.status(500).json({error: 'Failed to upload card background'});
+      return respondMysqlClientError(res, error, 'Failed to upload card background', {
+        logLabel: 'Upload tournament card background failed:',
+      });
     }
   },
 );
@@ -830,8 +836,9 @@ router.delete(
       await deleteCdnAssetIfExists(oldId);
       return res.json(tournament);
     } catch (error) {
-      logger.error('Remove tournament icon failed:', error);
-      return res.status(500).json({error: 'Failed to remove tournament icon'});
+      return respondMysqlClientError(res, error, 'Failed to remove tournament icon', {
+        logLabel: 'Remove tournament icon failed:',
+      });
     }
   },
 );
@@ -852,8 +859,9 @@ router.delete(
       await deleteCdnAssetIfExists(oldId);
       return res.json(tournament);
     } catch (error) {
-      logger.error('Remove tournament card background failed:', error);
-      return res.status(500).json({error: 'Failed to remove card background'});
+      return respondMysqlClientError(res, error, 'Failed to remove card background', {
+        logLabel: 'Remove tournament card background failed:',
+      });
     }
   },
 );
@@ -885,8 +893,9 @@ router.post(
       if (error instanceof CdnError) {
         return res.status(400).json({error: error.message, code: error.code});
       }
-      logger.error('Upload tier icon failed:', error);
-      return res.status(500).json({error: 'Failed to upload tier icon'});
+      return respondMysqlClientError(res, error, 'Failed to upload tier icon', {
+        logLabel: 'Upload tier icon failed:',
+      });
     }
   },
 );
@@ -918,8 +927,9 @@ router.post(
       if (error instanceof CdnError) {
         return res.status(400).json({error: error.message, code: error.code});
       }
-      logger.error('Upload tier card background failed:', error);
-      return res.status(500).json({error: 'Failed to upload tier card background'});
+      return respondMysqlClientError(res, error, 'Failed to upload tier card background', {
+        logLabel: 'Upload tier card background failed:',
+      });
     }
   },
 );
@@ -944,8 +954,9 @@ router.delete(
       await deleteCdnAssetIfExists(oldId);
       return res.json(tier);
     } catch (error) {
-      logger.error('Remove tier icon failed:', error);
-      return res.status(500).json({error: 'Failed to remove tier icon'});
+      return respondMysqlClientError(res, error, 'Failed to remove tier icon', {
+        logLabel: 'Remove tier icon failed:',
+      });
     }
   },
 );
@@ -970,8 +981,9 @@ router.delete(
       await deleteCdnAssetIfExists(oldId);
       return res.json(tier);
     } catch (error) {
-      logger.error('Remove tier card background failed:', error);
-      return res.status(500).json({error: 'Failed to remove tier card background'});
+      return respondMysqlClientError(res, error, 'Failed to remove tier card background', {
+        logLabel: 'Remove tier card background failed:',
+      });
     }
   },
 );
@@ -1054,8 +1066,9 @@ router.put(
       });
       return res.json(result);
     } catch (error) {
-      logger.error('Replace tournament tiers failed:', error);
-      return res.status(500).json({error: 'Failed to update tiers'});
+      return respondMysqlClientError(res, error, 'Failed to update tiers', {
+        logLabel: 'Replace tournament tiers failed:',
+      });
     }
   },
 );
@@ -1192,8 +1205,9 @@ router.put(
       });
       return res.json(full);
     } catch (error) {
-      logger.error('Upsert placements failed:', error);
-      return res.status(500).json({error: 'Failed to update placements'});
+      return respondMysqlClientError(res, error, 'Failed to update placements', {
+        logLabel: 'Upsert placements failed:',
+      });
     }
   },
 );
@@ -1213,8 +1227,9 @@ router.post(
       const preview = await creditService.previewSync(tournamentId, placementIds);
       return res.json(preview);
     } catch (error) {
-      logger.error('Preview credit sync failed:', error);
-      return res.status(500).json({error: 'Failed to preview credit sync'});
+      return respondMysqlClientError(res, error, 'Failed to preview credit sync', {
+        logLabel: 'Preview credit sync failed:',
+      });
     }
   },
 );
@@ -1234,8 +1249,9 @@ router.post(
       const result = await creditService.applySync(tournamentId, placementIds);
       return res.json(result);
     } catch (error) {
-      logger.error('Apply credit sync failed:', error);
-      return res.status(500).json({error: 'Failed to sync credits'});
+      return respondMysqlClientError(res, error, 'Failed to sync credits', {
+        logLabel: 'Apply credit sync failed:',
+      });
     }
   },
 );
@@ -1261,8 +1277,9 @@ router.post(
       const result = await creditService.applySync(tournamentId, placementIds);
       return res.json(result);
     } catch (error) {
-      logger.error('Sync credits failed:', error);
-      return res.status(500).json({error: 'Failed to sync credits'});
+      return respondMysqlClientError(res, error, 'Failed to sync credits', {
+        logLabel: 'Sync credits failed:',
+      });
     }
   },
 );
@@ -1284,8 +1301,9 @@ router.post(
       const result = await creditService.applySync(placement.tournamentId, [placementId]);
       return res.json(result);
     } catch (error) {
-      logger.error('Sync placement credits failed:', error);
-      return res.status(500).json({error: 'Failed to sync placement credits'});
+      return respondMysqlClientError(res, error, 'Failed to sync placement credits', {
+        logLabel: 'Sync placement credits failed:',
+      });
     }
   },
 );
@@ -1304,8 +1322,9 @@ router.get(
       const candidates = await loadNomineeCandidates(levelId, roles);
       return res.json(candidates);
     } catch (error) {
-      logger.error('List nominee candidates failed:', error);
-      return res.status(500).json({error: 'Failed to list nominee candidates'});
+      return respondMysqlClientError(res, error, 'Failed to list nominee candidates', {
+        logLabel: 'List nominee candidates failed:',
+      });
     }
   },
 );
@@ -1322,8 +1341,9 @@ router.post(
       return res.json(diff);
     } catch (error: any) {
       if (error?.code === 404) return res.status(404).json({error: error.message});
-      logger.error('Pack import diff failed:', error);
-      return res.status(500).json({error: 'Failed to compute pack diff'});
+      return respondMysqlClientError(res, error, 'Failed to compute pack diff', {
+        logLabel: 'Pack import diff failed:',
+      });
     }
   },
 );
@@ -1345,8 +1365,9 @@ router.post(
       return res.json(result);
     } catch (error: any) {
       if (error?.code === 404) return res.status(404).json({error: error.message});
-      logger.error('Pack import failed:', error);
-      return res.status(500).json({error: 'Failed to import pack'});
+      return respondMysqlClientError(res, error, 'Failed to import pack', {
+        logLabel: 'Pack import failed:',
+      });
     }
   },
 );
@@ -1389,8 +1410,9 @@ router.patch(
       });
       return res.json(full);
     } catch (error) {
-      logger.error('Patch placement failed:', error);
-      return res.status(500).json({error: 'Failed to update placement'});
+      return respondMysqlClientError(res, error, 'Failed to update placement', {
+        logLabel: 'Patch placement failed:',
+      });
     }
   },
 );
@@ -1429,8 +1451,9 @@ router.get(
 
       return res.json(placements);
     } catch (error) {
-      logger.error('List unresolved placements failed:', error);
-      return res.status(500).json({error: 'Failed to list unresolved placements'});
+      return respondMysqlClientError(res, error, 'Failed to list unresolved placements', {
+        logLabel: 'List unresolved placements failed:',
+      });
     }
   },
 );
@@ -1488,8 +1511,9 @@ router.post(
         stillUnresolved: [...new Set(stillUnresolved)],
       });
     } catch (error) {
-      logger.error('Resolve names failed:', error);
-      return res.status(500).json({error: 'Failed to resolve names'});
+      return respondMysqlClientError(res, error, 'Failed to resolve names', {
+        logLabel: 'Resolve names failed:',
+      });
     }
   },
 );
@@ -1510,8 +1534,9 @@ router.get(
       });
       return res.json(rewards);
     } catch (error) {
-      logger.error('List rewards failed:', error);
-      return res.status(500).json({error: 'Failed to list rewards'});
+      return respondMysqlClientError(res, error, 'Failed to list rewards', {
+        logLabel: 'List rewards failed:',
+      });
     }
   },
 );
@@ -1545,8 +1570,9 @@ router.post(
       await rewardService.syncEntitlementsForReward(reward.id);
       return res.status(201).json(reward);
     } catch (error) {
-      logger.error('Create reward failed:', error);
-      return res.status(500).json({error: 'Failed to create reward'});
+      return respondMysqlClientError(res, error, 'Failed to create reward', {
+        logLabel: 'Create reward failed:',
+      });
     }
   },
 );
@@ -1580,8 +1606,9 @@ router.patch(
       await rewardService.syncEntitlementsForReward(reward.id);
       return res.json(reward);
     } catch (error) {
-      logger.error('Update reward failed:', error);
-      return res.status(500).json({error: 'Failed to update reward'});
+      return respondMysqlClientError(res, error, 'Failed to update reward', {
+        logLabel: 'Update reward failed:',
+      });
     }
   },
 );
@@ -1600,8 +1627,9 @@ router.delete(
       }
       return res.json({success: true});
     } catch (error) {
-      logger.error('Delete reward failed:', error);
-      return res.status(500).json({error: 'Failed to delete reward'});
+      return respondMysqlClientError(res, error, 'Failed to delete reward', {
+        logLabel: 'Delete reward failed:',
+      });
     }
   },
 );
@@ -1645,8 +1673,9 @@ router.post(
           code: error.code,
         });
       }
-      logger.error('Upload reward asset failed:', error);
-      return res.status(500).json({error: 'Failed to upload reward asset'});
+      return respondMysqlClientError(res, error, 'Failed to upload reward asset', {
+        logLabel: 'Upload reward asset failed:',
+      });
     }
   },
 );
@@ -1661,8 +1690,9 @@ router.post(
       );
       return res.json(result);
     } catch (error) {
-      logger.error('Sync entitlements failed:', error);
-      return res.status(500).json({error: 'Failed to sync entitlements'});
+      return respondMysqlClientError(res, error, 'Failed to sync entitlements', {
+        logLabel: 'Sync entitlements failed:',
+      });
     }
   },
 );
@@ -1692,8 +1722,9 @@ router.post(
       });
       return res.json(report);
     } catch (error) {
-      logger.error('CSV import failed:', error);
-      return res.status(500).json({error: 'Failed to import CSV'});
+      return respondMysqlClientError(res, error, 'Failed to import CSV', {
+        logLabel: 'CSV import failed:',
+      });
     }
   },
 );

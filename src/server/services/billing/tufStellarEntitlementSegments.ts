@@ -1,7 +1,8 @@
-import { Op, Transaction, UniqueConstraintError } from 'sequelize';
+import { Op, Transaction } from 'sequelize';
 import UserTufStellarEntitlementSegment from '@/models/billing/UserTufStellarEntitlementSegment.js';
 import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 import { addCalendarMonthsUtc } from '@/misc/utils/time/addCalendarMonthsUtc.js';
+import { mapMysqlClientError } from '@/misc/utils/db/mysqlClientError.js';
 
 const sequelize = UserTufStellarEntitlementSegment.sequelize!;
 
@@ -104,7 +105,7 @@ export async function appendPurchaseSegment(params: {
       await recomputeMaterializedExpiry(userId, t);
       return { inserted: true, endsAt };
     } catch (e: unknown) {
-      if (e instanceof UniqueConstraintError) {
+      if (mapMysqlClientError(e)?.code === 'ER_DUP_ENTRY') {
         await recomputeMaterializedExpiry(userId, t);
         const maxMs = await maxSegmentEndsAtMs(userId, t);
         return { inserted: false, endsAt: maxMs != null ? new Date(maxMs) : endsAt };
@@ -162,7 +163,7 @@ export async function appendAdminGrantSegment(params: {
       await recomputeMaterializedExpiry(userId, t);
       return { inserted: true, segmentId: segment.id, startsAt, endsAt };
     } catch (e: unknown) {
-      if (e instanceof UniqueConstraintError) {
+      if (mapMysqlClientError(e)?.code === 'ER_DUP_ENTRY') {
         await recomputeMaterializedExpiry(userId, t);
         const existing = await UserTufStellarEntitlementSegment.findOne({
           where: { idempotencyKey },
