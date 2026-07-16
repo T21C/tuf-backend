@@ -2,13 +2,15 @@
  * Single entry point for persisted pass scores.
  * Keep API in sync with client/src/utils/scoreService.js
  */
-import {calcAcc, type IJudgements} from './CalcAcc.js';
-import {getScoreV2} from './CalcScore.js';
+import {logger} from '@/server/services/core/LoggerService.js';
+import {calcAcc, type IJudgements, sumJudgements} from './CalcAcc.js';
+import {getScoreV2, resolveScoreBase} from './CalcScore.js';
+import {sanitizeJudgements} from './SanitizeJudgements.js';
 
 export type LevelScoreContext = {
   baseScore: number | null;
   ppBaseScore: number | null;
-  difficulty: {name: string; baseScore: number};
+  difficulty: {baseScore: number; name?: string};
   xaccCurveMeta?: unknown | null;
 };
 
@@ -17,15 +19,15 @@ export type LevelScoreContextSource = {
   ppBaseScore?: number | null;
   xaccCurveMeta?: unknown | null;
   difficulty?: {
-    name?: string;
+    name?: string | null;
     baseScore?: number | null;
   } | null;
 };
 
 export type PassScoreInput = {
-  speed: number;
-  judgements: IJudgements;
-  isNoHoldTap?: boolean;
+  speed?: number | null;
+  judgements?: IJudgements | null;
+  isNoHoldTap?: boolean | null;
 };
 
 export type PassScoreResult = {
@@ -43,24 +45,30 @@ export class PassScoreCalculationError extends Error {
 function resolveDifficulty(
   level: LevelScoreContextSource,
   overrides?: Partial<LevelScoreContext>,
-): {name: string; baseScore: number} {
+): {baseScore: number; name?: string} {
   const fromOverride = overrides?.difficulty;
-  if (fromOverride?.name != null) {
+  if (fromOverride != null) {
     return {
-      name: fromOverride.name,
-      baseScore: fromOverride.baseScore ?? 0,
+      name: fromOverride.name ?? undefined,
+      baseScore:
+        fromOverride.baseScore != null && Number.isFinite(fromOverride.baseScore)
+          ? fromOverride.baseScore
+          : 0,
     };
   }
 
   const fromLevel = level.difficulty;
-  if (fromLevel?.name != null) {
+  if (fromLevel != null) {
     return {
-      name: fromLevel.name,
-      baseScore: fromLevel.baseScore ?? 0,
+      name: fromLevel.name ?? undefined,
+      baseScore:
+        fromLevel.baseScore != null && Number.isFinite(fromLevel.baseScore)
+          ? fromLevel.baseScore
+          : 0,
     };
   }
 
-  return {name: '', baseScore: 0};
+  return {baseScore: 0};
 }
 
 function resolveXaccCurveMeta(
@@ -106,6 +114,57 @@ function assertFiniteScoreResult(result: PassScoreResult): PassScoreResult {
   return result;
 }
 
+type NormalizedPass = {
+  speed: number;
+  judgements: IJudgements;
+  isNoHoldTap: boolean;
+  warnings: string[];
+};
+
+/** Best-effort normalize of pass fields; missing values get safe defaults + warnings. */
+export function normalizePassScoreInput(pass: PassScoreInput): NormalizedPass {
+  const warnings: string[] = [];
+
+  let speed = 1;
+  if (pass.speed == null || !Number.isFinite(Number(pass.speed))) {
+    warnings.push('speed missing/invalid; defaulting to 1');
+  } else {
+    speed = Number(pass.speed);
+  }
+
+  let judgements: IJudgements;
+  if (pass.judgements == null) {
+    warnings.push('judgements missing; defaulting to zeros');
+    judgements = sanitizeJudgements(null);
+  } else {
+    judgements = sanitizeJudgements(pass.judgements);
+    if (sumJudgements(judgements) === 0) {
+      warnings.push('judgements sum to zero; accuracy/score will be 0');
+    }
+  }
+
+  const isNoHoldTap = pass.isNoHoldTap === true;
+
+  return {speed, judgements, isNoHoldTap, warnings};
+}
+
+function logScoreGaps(
+  label: string,
+  warnings: string[],
+  levelContext: LevelScoreContext,
+  pass: NormalizedPass,
+): void {
+  if (!warnings.length) return;
+  logger.warn(`[${label}] best-effort scoring with gaps`, {
+    warnings,
+    speed: pass.speed,
+    isNoHoldTap: pass.isNoHoldTap,
+    levelBaseScore: levelContext.baseScore,
+    ppBaseScore: levelContext.ppBaseScore,
+    difficultyBaseScore: levelContext.difficulty.baseScore,
+  });
+}
+
 /** Single entry point for all persisted pass scores. */
 export function computePassScoreV2(
   pass: PassScoreInput,
@@ -113,12 +172,23 @@ export function computePassScoreV2(
   overrides?: Partial<LevelScoreContext>,
 ): PassScoreResult {
   const levelContext = buildLevelScoreContext(level, overrides);
-  const accuracy = calcAcc(pass.judgements);
+  const normalized = normalizePassScoreInput(pass);
+
+  const accuracy = calcAcc(normalized.judgements);
+  const resolvedBase = resolveScoreBase(levelContext, accuracy);
+  if (resolvedBase === 0) {
+    normalized.warnings.push(
+      'baseScore resolved to 0 (level/difficulty baseScore missing)',
+    );
+  }
+
+  logScoreGaps('computePassScoreV2', normalized.warnings, levelContext, normalized);
+
   const scoreV2 = getScoreV2(
     {
-      speed: pass.speed ?? 1,
-      judgements: pass.judgements,
-      isNoHoldTap: pass.isNoHoldTap ?? false,
+      speed: normalized.speed,
+      judgements: normalized.judgements,
+      isNoHoldTap: normalized.isNoHoldTap,
     },
     levelContext,
   );
@@ -131,13 +201,27 @@ export function computePassScoreV2Batch(
   passes: PassScoreInput[],
   levelContext: LevelScoreContext,
 ): PassScoreResult[] {
-  return passes.map(pass => {
-    const accuracy = calcAcc(pass.judgements);
+  return passes.map((pass, index) => {
+    const normalized = normalizePassScoreInput(pass);
+    const accuracy = calcAcc(normalized.judgements);
+    const resolvedBase = resolveScoreBase(levelContext, accuracy);
+    if (resolvedBase === 0) {
+      normalized.warnings.push(
+        'baseScore resolved to 0 (level/difficulty baseScore missing)',
+      );
+    }
+    logScoreGaps(
+      `computePassScoreV2Batch[${index}]`,
+      normalized.warnings,
+      levelContext,
+      normalized,
+    );
+
     const scoreV2 = getScoreV2(
       {
-        speed: pass.speed ?? 1,
-        judgements: pass.judgements,
-        isNoHoldTap: pass.isNoHoldTap ?? false,
+        speed: normalized.speed,
+        judgements: normalized.judgements,
+        isNoHoldTap: normalized.isNoHoldTap,
       },
       levelContext,
     );

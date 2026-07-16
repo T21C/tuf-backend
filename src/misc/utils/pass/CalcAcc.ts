@@ -30,17 +30,19 @@ export function tilecount(inp: IJudgements): number {
 
 export function calcAcc(inp: IJudgements | PassSubmissionJudgements): number {
   // Handle array format (from client)
-  if (!inp) return 0.95;
+  if (!inp) return 0;
 
   const judgements =
     inp instanceof PassSubmissionJudgements ? inp.dataValues : inp;
 
-  const result =
+  const total = sumJudgements(judgements);
+  if (!total) return 0;
+
+  return (
     (judgements.perfect + // perfect
       (judgements.ePerfect + judgements.lPerfect) * 0.75 + // ePerfect + lPerfect
       (judgements.earlySingle + judgements.lateSingle) * 0.4 + // earlySingle + lateSingle
       (judgements.earlyDouble + judgements.lateDouble) * 0.2) / // earlyDouble + lateDouble
-    sumJudgements(judgements);
-
-  return result;
+    total
+  );
 }

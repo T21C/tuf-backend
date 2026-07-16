@@ -93,7 +93,7 @@ router.put(
               {
                 model: Difficulty,
                 as: 'difficulty',
-                attributes: ['baseScore'],
+                attributes: ['id', 'baseScore'],
               },
               {
                 model: LevelCredit,
@@ -140,7 +140,7 @@ router.put(
             {
               model: Difficulty,
               as: 'difficulty',
-              attributes: ['baseScore'],
+              attributes: ['id', 'baseScore'],
             },
             {
               model: LevelCredit,

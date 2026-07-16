@@ -73,14 +73,8 @@ const getXaccMtp = (
   return xaccCurveMultiplier(xacc, baseScore, curveOverrides);
 };
 
-const getSpeedMtp = (speed: number, isDesBus = false) => {
-  if (isDesBus) {
-    if (!speed || speed === 1) return 1;
-    else if (speed > 1) {
-      return Math.max(2 - speed, 0);
-    }
-  }
-
+/** Standard speed multiplier (Marathon / desync-bus branch removed). */
+export const getSpeedMtp = (speed: number) => {
   if (!speed || speed === 1) {
     return 1;
   }
@@ -99,36 +93,50 @@ const getSpeedMtp = (speed: number, isDesBus = false) => {
   return 1;
 };
 
+/** Prefer level override, else difficulty baseScore; PP uses ppBaseScore at 100% xacc. */
+export function resolveScoreBase(
+  levelData: LevelData,
+  accuracy: number,
+): number {
+  if (
+    accuracy === 1 &&
+    levelData.ppBaseScore != null &&
+    Number.isFinite(levelData.ppBaseScore)
+  ) {
+    return levelData.ppBaseScore;
+  }
+  if (levelData.baseScore != null && Number.isFinite(levelData.baseScore)) {
+    return levelData.baseScore;
+  }
+  const fromDiff = levelData.difficulty?.baseScore;
+  if (fromDiff != null && Number.isFinite(fromDiff)) {
+    return fromDiff;
+  }
+  return 0;
+}
+
 const getScore = (passData: PassData, levelData: LevelData) => {
-  const speed = passData.speed;
+  const speed = Number.isFinite(passData.speed) ? passData.speed : 1;
   const inputs = passData.judgements;
   const accuracy = calcAcc(inputs);
-  const base =
-    accuracy === 1 && levelData.ppBaseScore ? levelData.ppBaseScore :
-    levelData.baseScore ? levelData.baseScore
-    : levelData.difficulty?.baseScore || 0;
-  const xaccMtp = getXaccMtp(inputs, base, resolveXaccCurveForLevelData(levelData));
-
-  let speedMtp = 0;
-  let score = 0;
-  if (levelData.difficulty?.name === 'Marathon') {
-    speedMtp = getSpeedMtp(speed, true);
-    score = Math.max(base * xaccMtp * speedMtp, 0);
-  } else {
-    speedMtp = getSpeedMtp(speed);
-    score = base * xaccMtp * speedMtp;
-  }
-  return score;
+  const base = resolveScoreBase(levelData, accuracy);
+  const xaccMtp = getXaccMtp(
+    inputs,
+    base,
+    resolveXaccCurveForLevelData(levelData),
+  );
+  const speedMtp = getSpeedMtp(speed);
+  return base * xaccMtp * speedMtp;
 };
 
-interface LevelData {
-  baseScore: number | null;
-  ppBaseScore: number | null;
+export interface LevelData {
+  baseScore?: number | null;
+  ppBaseScore?: number | null;
   diff?: number;
-  difficulty: {
-    name: string;
-    baseScore: number;
-  };
+  difficulty?: {
+    name?: string | null;
+    baseScore?: number | null;
+  } | null;
   xaccCurveMeta?: unknown | null;
   xaccCurve?: XaccCurveConfig | null;
 }
