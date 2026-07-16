@@ -4,13 +4,13 @@
  */
 import {logger} from '@/server/services/core/LoggerService.js';
 import {calcAcc, type IJudgements, sumJudgements} from './CalcAcc.js';
-import {getScoreV2, resolveScoreBase} from './CalcScore.js';
+import {getScoreV2} from './CalcScore.js';
 import {sanitizeJudgements} from './SanitizeJudgements.js';
 
 export type LevelScoreContext = {
   baseScore: number | null;
   ppBaseScore: number | null;
-  difficulty: {baseScore: number; name?: string};
+  difficulty: {baseScore: number | null; name?: string};
   xaccCurveMeta?: unknown | null;
 };
 
@@ -45,7 +45,7 @@ export class PassScoreCalculationError extends Error {
 function resolveDifficulty(
   level: LevelScoreContextSource,
   overrides?: Partial<LevelScoreContext>,
-): {baseScore: number; name?: string} {
+): {baseScore: number | null; name?: string} {
   const fromOverride = overrides?.difficulty;
   if (fromOverride != null) {
     return {
@@ -53,7 +53,7 @@ function resolveDifficulty(
       baseScore:
         fromOverride.baseScore != null && Number.isFinite(fromOverride.baseScore)
           ? fromOverride.baseScore
-          : 0,
+          : null,
     };
   }
 
@@ -64,11 +64,11 @@ function resolveDifficulty(
       baseScore:
         fromLevel.baseScore != null && Number.isFinite(fromLevel.baseScore)
           ? fromLevel.baseScore
-          : 0,
+          : null,
     };
   }
 
-  return {baseScore: 0};
+  return {baseScore: null};
 }
 
 function resolveXaccCurveMeta(
@@ -175,10 +175,10 @@ export function computePassScoreV2(
   const normalized = normalizePassScoreInput(pass);
 
   const accuracy = calcAcc(normalized.judgements);
-  const resolvedBase = resolveScoreBase(levelContext, accuracy);
-  if (resolvedBase === 0) {
+  // Difficulty is the last baseScore source; 0 is valid — only warn on non-numbers.
+  if (!Number.isFinite(levelContext.difficulty.baseScore)) {
     normalized.warnings.push(
-      'baseScore resolved to 0 (level/difficulty baseScore missing)',
+      'difficulty.baseScore missing/invalid (last baseScore source)',
     );
   }
 
@@ -204,10 +204,9 @@ export function computePassScoreV2Batch(
   return passes.map((pass, index) => {
     const normalized = normalizePassScoreInput(pass);
     const accuracy = calcAcc(normalized.judgements);
-    const resolvedBase = resolveScoreBase(levelContext, accuracy);
-    if (resolvedBase === 0) {
+    if (!Number.isFinite(levelContext.difficulty.baseScore)) {
       normalized.warnings.push(
-        'baseScore resolved to 0 (level/difficulty baseScore missing)',
+        'difficulty.baseScore missing/invalid (last baseScore source)',
       );
     }
     logScoreGaps(
