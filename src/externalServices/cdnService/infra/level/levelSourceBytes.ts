@@ -10,6 +10,7 @@ import {
     type ArchiveEntry
 } from '../archive/archiveService.js';
 import { normalizeRelativePath, toCopyRelativePath, toSourceRelativePath } from '../../domain/archive/ingestPaths.js';
+import { matchLevelFileBySelection } from '../../domain/level/matchLevelFileSelection.js';
 
 export type LevelMetadataEntry = {
     name?: string;
@@ -47,20 +48,25 @@ export function findArchiveEntryForLevel(
         if (exact) {
             return exact;
         }
+        // Relative path was provided but not found — do not fall back to basename;
+        // multi-folder packs often reuse `level.adofai` in sibling directories.
+        return null;
     }
 
     if (!targetLevelName) {
         return null;
     }
 
-    for (const entry of entries) {
-        if (entry.isDirectory) continue;
-        if (entry.name === targetLevelName || entry.relativePath.endsWith(targetLevelName)) {
-            return entry;
-        }
-    }
+    const basenameMatches = entries.filter((entry) => {
+        if (entry.isDirectory) return false;
+        return (
+            entry.name === targetLevelName ||
+            entry.relativePath === targetLevelName ||
+            entry.relativePath.endsWith(`/${targetLevelName}`)
+        );
+    });
 
-    return null;
+    return basenameMatches.length === 1 ? basenameMatches[0] : null;
 }
 
 export async function extractArchiveEntryToWorkspace(
@@ -150,15 +156,7 @@ export function patchLevelEntrySourceFields(
 
 export function getTargetLevelMetadataEntry(metadata: any, targetLevelPath: string): any | null {
     const allLevelFiles = metadata?.allLevelFiles || [];
-    const normalizedTargetPath = String(targetLevelPath).replace(/\\/g, '/').replace(/^\/+/, '');
-    for (const levelFile of allLevelFiles) {
-        const filePath = String(levelFile?.path || '').replace(/\\/g, '/').replace(/^\/+/, '');
-        const relativePath = String(levelFile?.relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
-        if (filePath === normalizedTargetPath || relativePath === normalizedTargetPath) {
-            return levelFile;
-        }
-    }
-    return null;
+    return matchLevelFileBySelection(allLevelFiles, String(targetLevelPath));
 }
 
 /** Resolve persisted storage key for the immutable pre-parse level bytes. */

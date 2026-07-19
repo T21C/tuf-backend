@@ -42,12 +42,22 @@ export async function performOversizedCacheBackfill(params: {
             ? path.posix.basename(String(wantedRel).replace(/\\/g, '/'))
             : path.basename(targetLevel);
 
-        const levelEntry =
-            (wantedRel
-                ? entries.find(e => !e.isDirectory && e.relativePath === String(wantedRel).replace(/\\/g, '/'))
-                : null) ||
-            entries.find(e => !e.isDirectory && (e.name === wantedBase || e.relativePath.endsWith(`/${wantedBase}`))) ||
-            null;
+        const normalizedWantedRel = wantedRel
+            ? String(wantedRel).replace(/\\/g, '/').replace(/^\/+/, '')
+            : null;
+
+        let levelEntry =
+            normalizedWantedRel
+                ? entries.find(e => !e.isDirectory && e.relativePath.replace(/\\/g, '/') === normalizedWantedRel) || null
+                : null;
+
+        // Basename fallback only when no relative path was known, and only if unique.
+        if (!levelEntry && !normalizedWantedRel) {
+            const basenameMatches = entries.filter(
+                e => !e.isDirectory && (e.name === wantedBase || e.relativePath.endsWith(`/${wantedBase}`))
+            );
+            levelEntry = basenameMatches.length === 1 ? basenameMatches[0] : null;
+        }
 
         if (!levelEntry) {
             logger.warn('refreshCache (oversized backfill): cannot find target level entry in archive', {

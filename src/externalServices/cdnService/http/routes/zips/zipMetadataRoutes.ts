@@ -14,6 +14,7 @@ import {
     CdnSpacesTempDomain,
     withCdnFileDomainWorkspace
 } from '@/externalServices/cdnService/infra/workspaces/cdnSpacesTemp.js';
+import { matchLevelFileBySelection } from '@/externalServices/cdnService/domain/level/matchLevelFileSelection.js';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 
@@ -62,11 +63,19 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
             await fs.promises.mkdir(tempDir, { recursive: true });
 
             return await Promise.all(allLevelFiles.map(async (file) => {
+                const relativePath = (file.relativePath || file.name || '').replace(/\\/g, '/');
+                const identity = {
+                    name: file.name,
+                    relativePath,
+                    fullPath: relativePath,
+                    storagePath: file.path,
+                    size: file.size,
+                };
+
                 if (file.oversizedUnparsed) {
                     // Avoid LevelDict / full-string parse for huge `.adofai` files.
                     return {
-                        name: file.name,
-                        size: file.size,
+                        ...identity,
                         hasYouTubeStream: !!file.hasYouTubeStream,
                         songFilename: file.songFilename,
                         artist: file.artist,
@@ -82,8 +91,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
                     const exists = await spacesStorage.fileExists(objectKey);
                     if (!exists) {
                         return {
-                            name: file.name,
-                            size: file.size,
+                            ...identity,
                             error: 'Level object not found in storage'
                         };
                     }
@@ -94,8 +102,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
                         // Read-only metadata probe; does not rewrite canonical storage (see levelCacheService).
                         const levelDict = new LevelDict(tempPath);
                         return {
-                            name: file.name,
-                            size: file.size,
+                            ...identity,
                             hasYouTubeStream: levelDict.getSetting('requiredMods')?.includes('YouTubeStream'),
                             songFilename: levelDict.getSetting('songFilename'),
                             artist: levelDict.getSetting('artist'),
@@ -114,8 +121,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
                         objectKey: file.path
                     });
                     return {
-                        name: file.name,
-                        size: file.size,
+                        ...identity,
                         error: 'Failed to analyze level file'
                     };
                 }
@@ -181,36 +187,16 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
             pathConfirmed: boolean;
         };
 
-        const normalizedTarget = String(targetLevel).replace(/\\/g, '/');
-        const targetBase = path.posix.basename(normalizedTarget);
-
-        const matchingLevel = metadata.allLevelFiles.find(file => {
-            const objectKey = String(file.path).replace(/\\/g, '/');
-            const rel = (file.relativePath ? String(file.relativePath) : file.name).replace(/\\/g, '/');
-
-            if (objectKey === normalizedTarget) return true;
-            if (rel === normalizedTarget) return true;
-
-            // Filename-only selection (common)
-            if (path.posix.basename(objectKey) === targetBase) return true;
-            if (path.posix.basename(rel) === targetBase) return true;
-
-            // If caller passed an archive-relative path, compare on posix paths
-            if (!path.isAbsolute(normalizedTarget)) {
-                return rel === normalizedTarget || rel.endsWith(`/${normalizedTarget}`);
-            }
-
-            return false;
-        });
+        const matchingLevel = matchLevelFileBySelection(metadata.allLevelFiles, String(targetLevel));
 
         if (!matchingLevel) {
             await safeTransactionRollback(transaction);
             logger.error('Target level not found in zip:', {
                 fileId,
                 targetLevel,
-                targetBase,
                 availableLevels: metadata.allLevelFiles.map(f => ({
                     path: f.path,
+                    relativePath: f.relativePath,
                     name: f.name
                 }))
             });

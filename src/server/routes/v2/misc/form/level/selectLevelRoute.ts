@@ -11,6 +11,9 @@ import {
   standardErrorResponses500,
 } from '@/server/schemas/v2/misc/index.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import {
+  matchLevelFileBySelection,
+} from '@/externalServices/cdnService/domain/level/matchLevelFileSelection.js';
 
 const router: Router = Router();
 
@@ -97,16 +100,14 @@ router.post(
       }
 
       const levelFiles = await cdnService.getLevelFiles(fileId);
-      const normalizedSelectedLevel = String(selectedLevel).replace(/\\/g, '/').replace(/^\/+/, '');
-      const selectedFile = levelFiles.find((file) => {
-        const normalizedFullPath = (file.fullPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
-        const normalizedRelativePath = (file.relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
-        return (
-          normalizedFullPath === normalizedSelectedLevel ||
-          normalizedRelativePath === normalizedSelectedLevel ||
-          file.name === selectedLevel
-        );
-      });
+      const selectedFile = matchLevelFileBySelection(
+        levelFiles.map((file) => ({
+          ...file,
+          path: file.storagePath || file.fullPath,
+          relativePath: file.relativePath || file.fullPath,
+        })),
+        selectedLevel,
+      );
 
       if (!selectedFile) {
         logger.error('Selected level file not found:', {
@@ -132,7 +133,13 @@ router.post(
         }
       }
 
-      await cdnService.setTargetLevel(fileId, selectedLevel);
+      // Prefer relative path so CDN matching never falls back to ambiguous basenames.
+      const resolvedSelection =
+        selectedFile.relativePath ||
+        selectedFile.fullPath ||
+        selectedFile.storagePath ||
+        selectedLevel;
+      await cdnService.setTargetLevel(fileId, resolvedSelection);
 
       return res.json({
         success: true,

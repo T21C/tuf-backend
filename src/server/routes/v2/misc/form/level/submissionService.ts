@@ -63,6 +63,9 @@ export interface CreateLevelSubmissionResult {
   fileId?: string | null;
   levelFiles?: Array<{
     name: string;
+    relativePath?: string;
+    fullPath?: string;
+    storagePath?: string;
     size: number;
     hasYouTubeStream: boolean;
     songFilename?: string;
@@ -466,6 +469,9 @@ async function safeCancelSession(resolved: ResolvedLevelZipSession): Promise<voi
 function mapLevelFile(file: CdnLevelFile) {
   return {
     name: file.name,
+    relativePath: file.relativePath,
+    fullPath: file.fullPath || file.relativePath,
+    storagePath: file.storagePath,
     size: file.size,
     hasYouTubeStream: file.hasYouTubeStream,
     songFilename: file.songFilename,

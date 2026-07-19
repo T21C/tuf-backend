@@ -3,6 +3,7 @@ import { Op } from 'sequelize';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import Level from '@/models/levels/Level.js';
 import { deriveLargestLevelFromRaw } from '../../http/routes/levels/shared/routeUtils.js';
+import { matchLevelFileBySelection } from './matchLevelFileSelection.js';
 import {
     MAX_LEVEL_FILE_SIZE_FOR_PARSE,
     MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE,
@@ -123,10 +124,7 @@ export function resolveTransformTarget(metadata: LevelzipMetadata): {
     }
 
     const entries = collectLevelEntries(metadata);
-    const entry =
-        entries.find((e) => e.path === path) ||
-        entries.find((e) => typeof e.path === 'string' && path!.endsWith(e.path)) ||
-        null;
+    const entry = matchLevelFileBySelection(entries, path);
 
     const name =
         (typeof entry?.name === 'string' && entry.name) ||
