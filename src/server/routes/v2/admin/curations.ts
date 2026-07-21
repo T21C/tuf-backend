@@ -704,6 +704,28 @@ router.put(
 
 const serializeCurationRow = (curation: InstanceType<typeof Curation>) => serializeCurationJson(curation);
 
+/**
+ * Count how many distinct weeks each curation has appeared in the weekly halls.
+ * Returns a map of curationId -> appearance count (0 for never-featured).
+ */
+const getWeeklyAppearanceCounts = async (curationIds: number[]): Promise<Map<number, number>> => {
+  const counts = new Map<number, number>();
+  if (curationIds.length === 0) return counts;
+  const rows = (await CurationSchedule.findAll({
+    attributes: [
+      'curationId',
+      [sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('weekStart'))), 'appearances'],
+    ],
+    where: { curationId: { [Op.in]: curationIds } },
+    group: ['curationId'],
+    raw: true,
+  })) as unknown as { curationId: number; appearances: string | number }[];
+  for (const row of rows) {
+    counts.set(Number(row.curationId), Number(row.appearances));
+  }
+  return counts;
+};
+
 const levelIncludeFull = [
   { model: CurationType, as: 'types' as const, through: { attributes: [] } },
   {
@@ -1058,9 +1080,16 @@ router.get(
     });
 
     const serializedCurations = curations.rows.map(serializeCurationRow);
+    const appearanceCounts = await getWeeklyAppearanceCounts(
+      serializedCurations.map((c) => c.id as number)
+    );
+    const curationsWithAppearances = serializedCurations.map((c) => ({
+      ...c,
+      weeklyAppearances: appearanceCounts.get(c.id as number) ?? 0,
+    }));
 
     return res.json({
-      curations: serializedCurations,
+      curations: curationsWithAppearances,
       total: curations.count,
       page,
       offset,
