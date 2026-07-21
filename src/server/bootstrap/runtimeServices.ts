@@ -71,6 +71,11 @@ export async function initializeRuntimeServices(): Promise<void> {
   );
   LeaderboardRankSnapshotCronService.startScheduledSnapshots();
 
+  const { WeeklyScheduleFillCronService } = await import(
+    '@/server/services/curations/WeeklyScheduleFillCronService.js'
+  );
+  WeeklyScheduleFillCronService.startScheduledFill();
+
   const { initUploadKinds } = await import('@/server/services/upload/registerKinds.js');
   initUploadKinds();
 }

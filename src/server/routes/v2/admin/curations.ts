@@ -14,6 +14,7 @@ import Level from '@/models/levels/Level.js';
 import CurationSchedule from '@/models/curations/CurationSchedule.js';
 import Creator from '@/models/credits/Creator.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { WeeklyScheduleFillService } from '@/server/services/curations/WeeklyScheduleFillService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import sequelize from '@/config/db.js';
 import { hasAnyFlag } from '@/misc/utils/auth/permissionUtils.js';
@@ -1976,6 +1977,132 @@ router.get(
   }
 );
 
+// Auto-fill a week's halls with tier-biased, best-effort picks
+// All dates are handled in UTC to avoid timezone issues
+router.post(
+  '/schedules/fill',
+  Auth.headCurator(),
+  ApiDoc({
+    operationId: 'postAdminCurationScheduleFill',
+    summary: 'Auto-fill curation schedule',
+    description:
+      'Best-effort fill of the primary/secondary halls for a week. Appends only; never removes existing rows. Body: weekStart, halls (primary|secondary|both). Head curator.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'weekStart, halls',
+      schema: {
+        type: 'object',
+        properties: {
+          weekStart: { type: 'string' },
+          halls: { type: 'string', enum: ['primary', 'secondary', 'both'] },
+        },
+        required: ['weekStart', 'halls'],
+      },
+      required: true,
+    },
+    responses: { 200: { description: 'Fill result + schedules' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req, res) => {
+    try {
+      const { weekStart, halls } = req.body;
+      const scheduledBy = req.user?.id || 'unknown';
+
+      if (!weekStart || !halls) {
+        return res.status(400).json({ error: 'Week Start and halls are required' });
+      }
+      if (!['primary', 'secondary', 'both'].includes(halls)) {
+        return res.status(400).json({ error: 'halls must be "primary", "secondary" or "both"' });
+      }
+
+      const result = await WeeklyScheduleFillService.fillWeek({
+        weekStart,
+        halls,
+        scheduledBy,
+        mode: 'manual',
+      });
+
+      const schedules = await CurationSchedule.findAll({
+        where: { weekStart: result.weekStart, isActive: true },
+        include: [
+          {
+            model: Curation,
+            as: 'scheduledCuration',
+            include: [
+              { model: CurationType, as: 'types', through: { attributes: [] } },
+              {
+                model: Level,
+                as: 'level',
+                include: [
+                  { model: Difficulty, as: 'difficulty' },
+                  {
+                    model: LevelCredit,
+                    as: 'levelCredits',
+                    include: [{ model: Creator, as: 'creator' }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        order: [['listType', 'ASC'], ['position', 'ASC']],
+      });
+
+      const levelIds = [
+        ...new Set(
+          schedules
+            .map((s) => s.scheduledCuration?.levelId)
+            .filter((id): id is number => typeof id === 'number')
+        ),
+      ];
+
+      const allCurationsRows =
+        levelIds.length > 0
+          ? await Curation.findAll({
+              where: { levelId: { [Op.in]: levelIds } },
+              include: [{ model: CurationType, as: 'types', through: { attributes: [] } }],
+            })
+          : [];
+
+      const curationsByLevelId = new Map<number, typeof allCurationsRows>();
+      for (const c of allCurationsRows) {
+        if (!curationsByLevelId.has(c.levelId)) {
+          curationsByLevelId.set(c.levelId, []);
+        }
+        curationsByLevelId.get(c.levelId)!.push(c);
+      }
+
+      const serializedSchedules = schedules.map((schedule) => {
+        const lid = schedule.scheduledCuration?.levelId;
+        const allForLevel = lid
+          ? sortCurationsByTypeOrder(curationsByLevelId.get(lid) || []).map(serializeCurationRow)
+          : [];
+        const sc = schedule.scheduledCuration;
+        return {
+          ...schedule.toJSON(),
+          scheduledCuration: sc
+            ? {
+                ...serializeCurationRow(sc),
+                allCurationsForLevel: allForLevel,
+              }
+            : null,
+        };
+      });
+
+      return res.json({
+        skipped: result.skipped,
+        reason: result.reason,
+        created: result.created,
+        perHall: result.perHall,
+        schedules: serializedSchedules,
+      });
+    } catch (error) {
+      logger.error('Error auto-filling curation schedule:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
 // Create curation schedule
 // All dates are handled in UTC to avoid timezone issues
 router.post(
@@ -2020,18 +2147,17 @@ router.post(
     // Set to start of day in UTC
     weekStartDate.setUTCHours(0, 0, 0, 0);
 
-    // Check for existing schedule for this curation in the same week and list type
+    // A curation may appear at most once per week across both halls.
     const existingSchedule = await CurationSchedule.findOne({
       where: {
         curationId,
         weekStart: weekStartDate,
-        listType,
         isActive: true
       }
     });
 
     if (existingSchedule) {
-      return res.status(409).json({error: 'This curation is already scheduled for this week and list type'});
+      return res.status(409).json({error: 'This curation is already scheduled for this week'});
     }
 
     // Find the highest position in the current week and list type, then add to the end
