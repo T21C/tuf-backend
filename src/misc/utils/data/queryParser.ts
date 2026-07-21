@@ -174,14 +174,16 @@ export const queryParserConfigs = {
       'bpm',
       'tilecount',
       'time',
+      'likes',
     ],
-    numericFields: ['id', 'artists']
+    numericFields: ['artists']
   },
   pass: {
     // `player.id` must appear before `player` so the regex matches the longer field first
     allowedFields: [
       'player.id',
       'player',
+      'id',
       'video',
       'vidtitle',
       'level.song',

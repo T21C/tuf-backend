@@ -16,6 +16,7 @@ const PASS_NUMERIC_RANGE_FIELDS: Record<
   string,
   { esField: string; integerOnly: boolean; scale?: number }
 > = {
+  id: { esField: 'id', integerOnly: true },
   keycount: { esField: 'keyCount', integerOnly: true },
   score: { esField: 'scoreV2', integerOnly: false },
   xacc: { esField: 'accuracy', integerOnly: false, scale: 0.01 },

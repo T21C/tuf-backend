@@ -28,6 +28,8 @@ import {
 const LEVEL_NUMERIC_RANGE_FIELDS: Record<string, { esField: string; integerOnly: boolean }> = {
   bpm: { esField: 'bpm', integerOnly: false },
   tilecount: { esField: 'tilecount', integerOnly: true },
+  likes: { esField: 'likes', integerOnly: true },
+  id: { esField: 'id', integerOnly: true },
 };
 
 export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases = false): any {

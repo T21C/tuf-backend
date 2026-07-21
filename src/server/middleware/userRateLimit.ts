@@ -4,6 +4,8 @@ import { Op } from 'sequelize';
 import { RateLimit } from '@/models/index.js';
 import type { RateLimitCreationAttributes } from '@/models/auth/RateLimit.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { permissionFlags } from '@/config/constants.js';
+import { hasAnyFlag } from '@/misc/utils/auth/permissionUtils.js';
 
 export interface UserRateLimiterConfig {
   type: string;
@@ -11,6 +13,17 @@ export interface UserRateLimiterConfig {
   maxAttempts: number;
   blockDuration: number;
 }
+
+/**
+ * Trusted roles (rater/curator and above) are exempt from per-user rate limits;
+ * only the general public is throttled.
+ */
+const RATE_LIMIT_EXEMPT_FLAGS = [
+  permissionFlags.RATER,
+  permissionFlags.CURATOR,
+  permissionFlags.HEAD_CURATOR,
+  permissionFlags.SUPER_ADMIN,
+];
 
 function userRateLimitKey(userId: string): string {
   return `user:${userId}`;
@@ -26,6 +39,12 @@ export function createUserRateLimiter(config: UserRateLimiterConfig) {
     const userId = req.user?.id;
     if (!userId) {
       res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    // Reputation-based exemption: trusted roles bypass the limiter entirely.
+    if (hasAnyFlag(req.user, RATE_LIMIT_EXEMPT_FLAGS)) {
+      next();
       return;
     }
 
