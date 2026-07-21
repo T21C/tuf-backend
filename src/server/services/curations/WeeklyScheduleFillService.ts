@@ -286,7 +286,7 @@ export class WeeklyScheduleFillService {
       await transaction.commit();
 
       const created = perHall.primary + perHall.secondary;
-      logger.info('[curation-schedule] Auto-fill complete', {
+      logger.debug('[curation-schedule] Auto-fill complete', {
         weekStart: targetWeekStart.toISOString().split('T')[0],
         mode,
         halls,
