@@ -61,6 +61,7 @@ router.get(
       offset: { schema: { type: 'integer' } },
       limit: { schema: { type: 'integer' } },
       byCreatorId: { description: 'Filter to levels credited to this creator id', schema: { type: 'string' } },
+      withLikeState: { description: 'Annotate each result with isLiked for the current user (requires auth)', schema: { type: 'boolean' } },
     },
     responses: { 200: { description: 'Paginated level list' }, ...standardErrorResponses500 },
   }),
@@ -79,6 +80,7 @@ router.get(
       tagsFilter,
       facetQuery,
       onlyMyLikes,
+      withLikeState,
       byCreatorId,
     } = req.query;
 
@@ -165,8 +167,26 @@ router.get(
       logger.debug(`[Levels] Search for ${query} completed in ${duration}ms with ${total} results`);
     }
 
+    // Annotate each hit with the current user's like state when requested.
+    let results = hits || [];
+    if (req.user?.id && results.length > 0) {
+      if (onlyMyLikes === 'true') {
+        // The list is already filtered to this user's likes, so every hit is liked.
+        results = results.map((hit: any) => ({ ...hit, isLiked: true }));
+      } else if (withLikeState === 'true') {
+        const hitIds = results.map((hit: any) => hit.id).filter((id: any) => id != null);
+        const likedSet = new Set(
+          (await LevelLikes.findAll({
+            where: { userId: req.user.id, levelId: { [Op.in]: hitIds } },
+            attributes: ['levelId'],
+          })).map((like) => like.levelId),
+        );
+        results = results.map((hit: any) => ({ ...hit, isLiked: likedSet.has(hit.id) }));
+      }
+    }
+
     res.json({
-      results: hits || [],
+      results,
       page,
       offset,
       limit,

@@ -175,6 +175,7 @@ export const queryParserConfigs = {
       'tilecount',
       'time',
       'likes',
+      'clears',
     ],
     numericFields: ['artists']
   },

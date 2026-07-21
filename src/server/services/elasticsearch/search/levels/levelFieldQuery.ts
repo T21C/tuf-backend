@@ -29,6 +29,7 @@ const LEVEL_NUMERIC_RANGE_FIELDS: Record<string, { esField: string; integerOnly:
   bpm: { esField: 'bpm', integerOnly: false },
   tilecount: { esField: 'tilecount', integerOnly: true },
   likes: { esField: 'likes', integerOnly: true },
+  clears: { esField: 'clears', integerOnly: true },
   id: { esField: 'id', integerOnly: true },
 };
 
