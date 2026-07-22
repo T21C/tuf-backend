@@ -153,13 +153,13 @@ router.get('/:fileId/level.adofai', async (req: Request, res: Response) => {
         };
         const targetLevel = metadata.targetLevel || metadata.allLevelFiles?.[0]?.path;
         if (!targetLevel) {
-            throw { error: 'Target level file not found in metadata', code: 400 };
+            throw { error: 'Target level file not found in metadata', code: 404 };
         }
 
         const levelExists = await spacesStorage.fileExists(targetLevel);
 
         if (!levelExists) {
-            throw { error: 'Target level file not found in storage', code: 400 };
+            throw { error: 'Target level file not found in storage', code: 404 };
         }
 
         const cdnUrl = await spacesStorage.getPresignedUrl(targetLevel);

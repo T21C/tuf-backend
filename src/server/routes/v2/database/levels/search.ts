@@ -706,8 +706,11 @@ router.get(
     if (!level) {
       return res.status(404).json({ error: 'Level not found' });
     }
-    const metadata = await cdnService.getLevelAdofai(level);
-    return res.json(metadata);
+    const adofai = await cdnService.getLevelAdofai(level);
+    if (adofai == null) {
+      return res.status(404).json({ error: 'Level .adofai file not found' });
+    }
+    return res.json(adofai);
   }
   catch (error) {
     logger.error('Error fetching level.adofai:', error);

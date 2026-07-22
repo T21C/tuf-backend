@@ -1,7 +1,11 @@
 import AWS from 'aws-sdk';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { CDN_IMMUTABLE_CACHE_CONTROL } from '@/externalServices/cdnService/config.js';
-import { LEVEL_SUPPORTED_AUDIO_CONTENT_TYPE_BY_EXT } from '@/externalServices/cdnService/constants/levelPackAudio.js';
+import {
+    LEVEL_SUPPORTED_AUDIO_CONTENT_TYPE_BY_EXT,
+    type LevelSupportedAudioExtension
+} from '@/externalServices/cdnService/constants/levelPackAudio.js';
+import { normalizeRelativePath } from '@/externalServices/cdnService/domain/archive/ingestPaths.js';
 import { requireCdnR2StorageConfig } from './r2Client.js';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -612,6 +616,14 @@ export class CdnSpacesStorage {
     }
 
     /**
+     * Song object key under the zip cluster, preserving archive-relative path
+     * (e.g. `zips/{fileId}/1. Normal/song.ogg`).
+     */
+    public buildSongStorageKey(fileId: string, relativePath: string): string {
+        return `zips/${fileId}/${normalizeRelativePath(relativePath)}`;
+    }
+
+    /**
      * Generate a unique key for temporary files
      */
     public generateTempKey(prefix = 'temp'): string {
@@ -917,6 +929,10 @@ export class CdnSpacesStorage {
         }
     }
 
+    /**
+     * Upload song files. `filename` is the archive-relative path (same contract as
+     * {@link uploadLevelFiles}), not basename-only — keys preserve nested folders.
+     */
     public async uploadSongFiles(
         files: Array<{ sourcePath: string; filename: string; size: number; type: string }>,
         fileId: string
@@ -941,20 +957,24 @@ export class CdnSpacesStorage {
             }> = [];
 
             for (const file of files) {
-                const spacesKey = `zips/${fileId}/${file.filename}`;
+                const relativePath = normalizeRelativePath(file.filename);
+                const spacesKey = this.buildSongStorageKey(fileId, relativePath);
+                const ext = `.${file.type.toLowerCase()}` as LevelSupportedAudioExtension;
+                const contentType =
+                    LEVEL_SUPPORTED_AUDIO_CONTENT_TYPE_BY_EXT[ext] ?? `audio/${file.type}`;
                 const result = await this.uploadFile(
                     file.sourcePath,
                     spacesKey,
-                    `audio/${file.type}`,
+                    contentType,
                     {
                         fileId,
-                        originalFilename: encodeURIComponent(file.filename),
+                        originalFilename: encodeURIComponent(relativePath),
                         uploadType: 'song',
                         uploadedAt: new Date().toISOString()
                     }
                 );
                 results.push({
-                    filename: file.filename,
+                    filename: relativePath,
                     path: result.key,
                     size: file.size,
                     type: file.type,

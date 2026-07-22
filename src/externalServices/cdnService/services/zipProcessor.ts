@@ -412,6 +412,7 @@ async function processArchiveFileInWorkspace(
 
             songFiles[normalizedSongPath] = {
                 name: songBasename,
+                relativePath: normalizedSongPath,
                 path: songTempPath, // Keep temp path for now, will be uploaded later
                 size: entry.size,
                 type: path.extname(entry.relativePath).toLowerCase().slice(1)
@@ -476,12 +477,12 @@ async function processArchiveFileInWorkspace(
             delete (file as { sourceLocalPath?: string }).sourceLocalPath;
         });
 
-        // Upload song files using hybrid storage manager
+        // Upload song files preserving archive-relative paths under zips/{fileId}/…
         await sendProgress('uploading', 65, 'Uploading song files');
         const songUploadResult = await spacesStorage.uploadSongFiles(
-            Object.values(songFiles).map(songFile => ({
+            Object.entries(songFiles).map(([relativePath, songFile]) => ({
                 sourcePath: songFile.path,
-                filename: songFile.name,
+                filename: relativePath,
                 size: songFile.size,
                 type: songFile.type
             })),
@@ -489,13 +490,16 @@ async function processArchiveFileInWorkspace(
         );
         await sendProgress('uploading', 80, 'Song files uploaded');
 
-        // Update file paths in metadata
+        // Persist songFiles keyed by relative path (not basename).
         const updatedSongFiles: { [key: string]: any } = {};
-        songUploadResult.files.forEach((uploadedFile, index) => {
-            const originalSongFile = Object.values(songFiles)[index];
-            updatedSongFiles[uploadedFile.filename] = {
-                ...originalSongFile,
+        songUploadResult.files.forEach((uploadedFile) => {
+            const relativePath = uploadedFile.filename;
+            updatedSongFiles[relativePath] = {
+                name: path.posix.basename(relativePath),
+                relativePath,
                 path: uploadedFile.path,
+                size: uploadedFile.size,
+                type: uploadedFile.type,
                 url: uploadedFile.url,
                 key: uploadedFile.key
             };

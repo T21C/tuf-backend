@@ -741,9 +741,12 @@ class CdnService {
             const response = await this.client.get(`/levels/${fileId}/level.adofai`);
             return response.data;
         } catch (error) {
+            if (error instanceof AxiosError && error.response?.status === 404) {
+                return null;
+            }
             this.handleCdnError(
                 error,
-                'get level adofai from CDN, level id: ' + level?.id || 'unknown' + ' ',
+                'get level adofai from CDN, level id: ' + (level?.id ?? 'unknown'),
                 'Failed to get level adofai',
                 'GET_LEVEL_ADOFAI_ERROR'
             );

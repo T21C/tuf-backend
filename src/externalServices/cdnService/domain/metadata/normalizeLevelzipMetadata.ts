@@ -31,7 +31,7 @@ const LEVEL_FILE_ENTRY_KEYS = new Set([
     'bpm',
 ]);
 
-const SONG_ENTRY_KEYS = new Set(['name', 'path', 'size', 'type']);
+const SONG_ENTRY_KEYS = new Set(['name', 'path', 'size', 'type', 'relativePath']);
 
 const ARCHIVE_DESCRIPTOR_KEYS = new Set([
     'name',
