@@ -5,8 +5,35 @@ import { spacesStorage } from '@/externalServices/cdnService/infra/storage/space
 import type LevelDict from 'adofai-lib';
 import { AnalysisCacheData, levelCacheService } from '@/externalServices/cdnService/services/levelCacheService.js';
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
+import { ArchivePathError } from '@/externalServices/cdnService/domain/archive/ingestPaths.js';
+import {
+    buildLevelZipFileContents,
+    parseClientRelativePath,
+    resolveChartStoragePathFromMetadata,
+    resolveSongFileForTransform
+} from './shared/routeUtils.js';
 
 const router = Router();
+
+function loadLevelZipOrThrow(file: CdnFile | null): CdnFile {
+    if (!file) {
+        throw { error: 'File not found', code: 404 };
+    }
+    if (file.type !== 'LEVELZIP') {
+        throw { error: 'File is not a level zip', code: 400 };
+    }
+    return file;
+}
+
+async function redirectToStorageObject(res: Response, storagePath: string): Promise<void> {
+    const exists = await spacesStorage.fileExists(storagePath);
+    if (!exists) {
+        throw { error: 'File not found in storage', code: 404 };
+    }
+    const cdnUrl = await spacesStorage.getPresignedUrl(storagePath);
+    res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
+    res.redirect(301, cdnUrl);
+}
 
 router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     try {
@@ -128,6 +155,108 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         }
         logger.error('Unexpected error getting level data for ' + req.params.fileId + ':', error);
         return res.status(500).json({ error: 'Unexpected error getting level data' });
+    }
+});
+
+/** Manifest of extracted charts + songs with public object URLs (from LEVELZIP metadata). */
+router.get('/:fileId/contents', async (req: Request, res: Response) => {
+    try {
+        const file = loadLevelZipOrThrow(await CdnFile.findByPk(req.params.fileId));
+        return res.json(buildLevelZipFileContents(file.metadata));
+    } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
+            const customError = error as { code: number; error: string };
+            return res.status(customError.code).json({ error: customError.error });
+        }
+        logger.error('Unexpected error getting contents for ' + req.params.fileId + ':', error);
+        return res.status(500).json({ error: 'Unexpected error getting level contents' });
+    }
+});
+
+/** Allowlisted redirect to a chart object by archive-relative path (or unique basename). */
+router.get('/:fileId/chart', async (req: Request, res: Response) => {
+    try {
+        const file = loadLevelZipOrThrow(await CdnFile.findByPk(req.params.fileId));
+        let selection: string;
+        try {
+            selection = parseClientRelativePath(req.query.path);
+        } catch (error) {
+            if (error instanceof ArchivePathError) {
+                throw { error: error.message, code: 400 };
+            }
+            throw error;
+        }
+        const storagePath = resolveChartStoragePathFromMetadata(file.metadata, selection);
+        if (!storagePath) {
+            throw { error: 'Chart file not found in metadata', code: 404 };
+        }
+        await redirectToStorageObject(res, storagePath);
+        return;
+    } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
+            const customError = error as { code: number; error: string };
+            return res.status(customError.code).json({ error: customError.error });
+        }
+        logger.error('Unexpected error getting chart for ' + req.params.fileId + ':', error);
+        return res.status(500).json({ error: 'Unexpected error getting chart file' });
+    }
+});
+
+/**
+ * Allowlisted redirect to a song object. `path` may be relative or basename;
+ * optional `levelPath` disambiguates same-basename songs in multi-folder packs.
+ */
+router.get('/:fileId/song', async (req: Request, res: Response) => {
+    try {
+        const file = loadLevelZipOrThrow(await CdnFile.findByPk(req.params.fileId));
+        let songPath: string;
+        try {
+            songPath = parseClientRelativePath(req.query.path);
+        } catch (error) {
+            if (error instanceof ArchivePathError) {
+                throw { error: error.message, code: 400 };
+            }
+            throw error;
+        }
+
+        let levelPath: string | undefined;
+        if (typeof req.query.levelPath === 'string' && req.query.levelPath.trim() !== '') {
+            try {
+                levelPath = parseClientRelativePath(req.query.levelPath);
+            } catch (error) {
+                if (error instanceof ArchivePathError) {
+                    throw { error: error.message, code: 400 };
+                }
+                throw error;
+            }
+        }
+
+        const metadata = (file.metadata ?? {}) as {
+            songFiles?: Record<string, { name: string; path: string; size: number; type: string }>;
+            targetLevelRelativePath?: string;
+        };
+        const songFiles = metadata.songFiles;
+        if (!songFiles || typeof songFiles !== 'object') {
+            throw { error: 'No song files found in metadata', code: 404 };
+        }
+
+        const resolved = resolveSongFileForTransform(
+            songFiles,
+            songPath,
+            levelPath ?? metadata.targetLevelRelativePath
+        );
+        if (!resolved?.path) {
+            throw { error: 'Song file not found in metadata', code: 404 };
+        }
+        await redirectToStorageObject(res, resolved.path);
+        return;
+    } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
+            const customError = error as { code: number; error: string };
+            return res.status(customError.code).json({ error: customError.error });
+        }
+        logger.error('Unexpected error getting song for ' + req.params.fileId + ':', error);
+        return res.status(500).json({ error: 'Unexpected error getting song file' });
     }
 });
 
