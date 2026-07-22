@@ -35,6 +35,7 @@ import { prunePackCdnMetadataForThirdParty } from '@/server/services/packs/prune
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import { annotateReferencedLevelsWithLikeState } from '@/misc/utils/data/levelLikeState.js';
 import { incrementLevelDownloadCountsForFileIds } from '@/misc/utils/data/levelDownloadCount.js';
 import { stringIdParamSpec } from '@/server/schemas/common.js';
 import { isTufStellarAccessActive } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
@@ -705,10 +706,15 @@ router.get(
       resolvePackItemsWithStackedCache(resolvedPackId, linkCode, []),
     ]);
 
-    const items = mergedFlat.map((item: any) => ({
+    const itemsWithClears = mergedFlat.map((item: any) => ({
       ...item,
       isCleared: clearedLevelIds.includes(item.levelId || 0),
     }));
+
+    const items = await annotateReferencedLevelsWithLikeState(
+      itemsWithClears,
+      req.user?.id,
+    );
 
     const packData: any = pack!.toJSON();
     delete packData.packItems;

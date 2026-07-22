@@ -38,9 +38,21 @@ import {
   sortCurationsByTypeOrder,
 } from '@/misc/utils/data/curationOrdering.js';
 import { parseFacetQueryString } from '@/misc/utils/search/facetQuery.js';
+import { annotateLevelsWithLikeState } from '@/misc/utils/data/levelLikeState.js';
 
 const router: Router = Router()
 const elasticsearchService = ElasticsearchService.getInstance();
+
+function emptyLevelSearchPage(page: number, offset: number, limit: number) {
+  return {
+    results: [] as unknown[],
+    page,
+    offset,
+    limit,
+    hasMore: false,
+    total: 0,
+  };
+}
 
 router.get(
   '/',
@@ -99,14 +111,20 @@ router.get(
         parsedSpecialDifficulties = (specialDifficulties as string).split(',').map(s => s.trim());
     }
 
-    // Get liked level IDs if needed
-    let likedLevelIds;
-    if (onlyMyLikes === 'true' && req.user?.id) {
+    // Get liked level IDs if needed. Empty set must short-circuit — otherwise ES
+    // would skip the filter and return the unfiltered list ("does nothing").
+    let likedLevelIds: number[] | undefined;
+    if (onlyMyLikes === 'true') {
+      if (!req.user?.id) {
+        return res.json(emptyLevelSearchPage(page, offset, limit));
+      }
       likedLevelIds = await LevelLikes.findAll({
         where: { userId: req.user.id },
         attributes: ['levelId']
       }).then(likes => likes.map(l => l.levelId));
-      //logger.info('Liked level IDs:', likedLevelIds);
+      if (likedLevelIds.length === 0) {
+        return res.json(emptyLevelSearchPage(page, offset, limit));
+      }
     }
 
     const facetQueryV1 = parseFacetQueryString(
@@ -174,14 +192,7 @@ router.get(
         // The list is already filtered to this user's likes, so every hit is liked.
         results = results.map((hit: any) => ({ ...hit, isLiked: true }));
       } else if (withLikeState === 'true') {
-        const hitIds = results.map((hit: any) => hit.id).filter((id: any) => id != null);
-        const likedSet = new Set(
-          (await LevelLikes.findAll({
-            where: { userId: req.user.id, levelId: { [Op.in]: hitIds } },
-            attributes: ['levelId'],
-          })).map((like) => like.levelId),
-        );
-        results = results.map((hit: any) => ({ ...hit, isLiked: likedSet.has(hit.id) }));
+        results = await annotateLevelsWithLikeState(results, req.user.id);
       }
     }
 

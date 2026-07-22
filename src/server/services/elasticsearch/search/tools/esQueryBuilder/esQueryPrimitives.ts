@@ -69,6 +69,11 @@ export function termsField(field: string, values: (string | number)[]): EsQuery 
   return { terms: { [field]: values } };
 }
 
+/** Match documents by Elasticsearch `_id` (level docs are keyed as stringified numeric ids). */
+export function idsQuery(values: (string | number)[]): EsQuery {
+  return { ids: { values: values.map((v) => String(v)) } };
+}
+
 export function rangeGt(field: string, gt: number): EsQuery {
   return { range: { [field]: { gt } } };
 }

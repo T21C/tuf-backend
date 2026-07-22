@@ -13,6 +13,7 @@ import Level from '@/models/levels/Level.js';
 import sequelize from '@/config/db.js';
 import {escapeForMySQL} from '@/misc/utils/data/searchHelpers.js';
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import { annotateLevelsWithLikeState } from '@/misc/utils/data/levelLikeState.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {safeTransactionRollback} from '@/misc/utils/Utility.js';
 import SongService from '@/server/services/data/SongService.js';
@@ -581,9 +582,14 @@ router.get(
       offset: 0
     });
 
+    const levels = await annotateLevelsWithLikeState(
+      levelsResult.hits || [],
+      req.user?.id,
+    );
+
     return res.json({
       ...song.toJSON(),
-      levels: levelsResult.hits
+      levels,
     });
   } catch (error) {
     logger.error('Error fetching song:', error);

@@ -25,6 +25,7 @@ import {
   rangeGt,
   termField,
   termsField,
+  idsQuery,
 } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 import { buildFieldSearchQuery } from '@/server/services/elasticsearch/search/levels/levelFieldQuery.js';
 import { shouldUseRegularSearch, isRandomSort, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/tools/scrollHelpers.js';
@@ -201,9 +202,9 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       must.push(termField('isHidden', false));
     }
 
-    // Handle liked levels filter
+    // Handle liked levels filter (document _id matches stringified level id)
     if (filters.likedLevelIds?.length > 0) {
-      must.push(termsField('id', filters.likedLevelIds));
+      must.push(idsQuery(filters.likedLevelIds));
     }
 
     // Handle difficulty filters
