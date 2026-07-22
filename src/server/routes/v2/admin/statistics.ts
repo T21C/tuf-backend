@@ -16,6 +16,9 @@ import { Cache } from '@/server/middleware/cache.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 const router: Router = Router();
 
+/** Automated rating account — excluded from top-rater stats/leaderboard. */
+const EXCLUDED_TOP_RATER_USERNAMES = ['autorater'];
+
 router.get(
   '/',
   ApiDoc({
@@ -127,6 +130,10 @@ router.get(
       dateFilter.createdAt[Op.lte] = selectedEndDate;
     }
 
+    const excludedUsernameFilter = {
+      username: { [Op.notIn]: EXCLUDED_TOP_RATER_USERNAMES }
+    };
+
     // Get all active raters (users who have ratings in the date range)
     const activeRaters = await RatingDetail.findAll({
       attributes: [
@@ -139,7 +146,8 @@ router.get(
           model: User,
           as: 'user',
           attributes: ['username', 'avatarUrl', 'nickname'],
-          required: true
+          required: true,
+          where: excludedUsernameFilter
         }
       ],
       group: ['RatingDetail.userId', 'user.id', 'user.username'],
@@ -153,7 +161,8 @@ router.get(
         id: {
           [Op.notIn]: activeRaters.map((result: any) => result.userId)
         },
-        permissionFlags: wherehasFlag(permissionFlags.RATER)
+        permissionFlags: wherehasFlag(permissionFlags.RATER),
+        ...excludedUsernameFilter
       },
       attributes: ['id', 'username', 'avatarUrl', 'nickname'],
       order: [['username', 'ASC']] // Sort inactive raters alphabetically
@@ -174,9 +183,18 @@ router.get(
       daysDiff = Math.floor(millisecondsDiff / (1000 * 60 * 60 * 24)) + 1;
     }
 
-    // Get total ratings count for the entire timespan
+    // Get total ratings count for the entire timespan (excluding automated accounts)
     const totalRatingsCount = await RatingDetail.count({
-      where: dateFilter
+      where: dateFilter,
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: [],
+          required: true,
+          where: excludedUsernameFilter
+        }
+      ]
     });
 
     // Calculate overall average ratings per day for the entire timespan

@@ -1095,8 +1095,9 @@ router.post(
 
     await transaction.commit();
 
+    const packJson = pack.toJSON();
     return res.status(201).json({
-      ...pack,
+      ...packJson,
       id: pack.linkCode,
     });
 
