@@ -122,7 +122,7 @@ router.get(
         where: { userId: req.user.id },
         attributes: ['levelId']
       }).then(likes => likes.map(l => l.levelId));
-      if (likedLevelIds.length === 0) {
+      if (likedLevelIds && likedLevelIds.length === 0) {
         return res.json(emptyLevelSearchPage(page, offset, limit));
       }
     }
@@ -196,7 +196,7 @@ router.get(
       }
     }
 
-    res.json({
+    return res.json({
       results,
       page,
       offset,
@@ -206,7 +206,7 @@ router.get(
     });
   } catch (error) {
     logger.error('Error in level search:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
