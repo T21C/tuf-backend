@@ -1,8 +1,64 @@
 import {sendWebhook, sendFile} from '../api/index.js';
 import MessageBuilder from './messageBuilder.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import type {Response} from 'node-fetch';
 
 const MAX_RATE_LIMIT_RETRIES = 3;
+const MAX_ERROR_BODY_LENGTH = 500;
+
+type ParsedWebhookResponse = {
+  text: string;
+  json: Record<string, unknown> | null;
+};
+
+const truncate = (value: string, max = MAX_ERROR_BODY_LENGTH): string =>
+  value.length > max ? `${value.slice(0, max)}…` : value;
+
+const getWebhookHost = (hookURL: string): string => {
+  try {
+    return new URL(hookURL).host;
+  } catch {
+    return 'invalid-url';
+  }
+};
+
+const parseWebhookResponse = async (
+  res: Response,
+): Promise<ParsedWebhookResponse> => {
+  const text = await res.text();
+  const trimmed = text.trim();
+  const contentType = res.headers.get('content-type') || '';
+  const looksLikeJson =
+    contentType.includes('application/json') ||
+    trimmed.startsWith('{') ||
+    trimmed.startsWith('[');
+
+  if (!looksLikeJson || !trimmed) {
+    return {text, json: null};
+  }
+
+  try {
+    return {text, json: JSON.parse(trimmed)};
+  } catch {
+    return {text, json: null};
+  }
+};
+
+const formatWebhookHttpError = (
+  res: Response,
+  body: ParsedWebhookResponse,
+): string => {
+  const contentType = res.headers.get('content-type') || 'unknown';
+  const preview = truncate(body.text.replace(/\s+/g, ' ').trim() || '(empty body)');
+  const discordCode =
+    body.json && typeof body.json.code === 'number' ? ` discordCode=${body.json.code}` : '';
+  const discordMessage =
+    body.json && typeof body.json.message === 'string'
+      ? ` discordMessage=${body.json.message}`
+      : '';
+
+  return `HTTP ${res.status} ${res.statusText || ''} content-type=${contentType}${discordCode}${discordMessage} body=${preview}`.trim();
+};
 
 export default class Webhook {
   private payload: any;
@@ -100,26 +156,40 @@ export default class Webhook {
       // Handle rate limiting with proper retry logic
       while (res.status === 429 && this.retryOnLimit && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
         rateLimitRetries++;
-        const body: any = await res.json();
-        const waitUntil = (body['retry_after'] || 1) * 1000; // Convert to ms, default 1 second
+        const body = await parseWebhookResponse(res);
+        const retryAfter =
+          typeof body.json?.retry_after === 'number' ? body.json.retry_after : 1;
+        const waitUntil = retryAfter * 1000;
 
-        logger.warn(`[Webhook] Rate limited, retrying in ${waitUntil}ms (attempt ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})`);
+        logger.warn(
+          `[Webhook] Rate limited, retrying in ${waitUntil}ms (attempt ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}) host=${getWebhookHost(this.hookURL)} ${formatWebhookHttpError(res, body)}`,
+        );
 
         await new Promise(resolve => setTimeout(resolve, waitUntil));
         res = await sendWebhook(this.hookURL, endPayload);
       }
 
       if (res.status === 429) {
-        throw new Error(`Rate limit exceeded after ${MAX_RATE_LIMIT_RETRIES} retries`);
+        const body = await parseWebhookResponse(res);
+        throw new Error(
+          `Rate limit exceeded after ${MAX_RATE_LIMIT_RETRIES} retries host=${getWebhookHost(this.hookURL)} ${formatWebhookHttpError(res, body)}`,
+        );
       } else if (res.status !== 204 && res.status !== 200) {
-        const responseText = await res.text();
-        throw new Error(`HTTP ${res.status}: ${responseText}`);
+        const body = await parseWebhookResponse(res);
+        throw new Error(
+          `Webhook request failed host=${getWebhookHost(this.hookURL)} ${formatWebhookHttpError(res, body)}`,
+        );
       }
     } catch (err: any) {
-      // Log all errors with context
       logger.error(`[Webhook] Failed to send webhook: ${err.message}`, {
+        host: getWebhookHost(this.hookURL),
         embedCount: endPayload.embeds?.length || 0,
         hasContent: !!endPayload.content,
+        username: endPayload.username,
+        errorName: err.name,
+        errorCode: err.code,
+        cause: err.cause?.message || err.cause,
+        stack: err.stack,
       });
       if (this.throwErrors) throw new Error(err.message);
     }
