@@ -1,5 +1,14 @@
-import Webhook from './classes/webhook.js';
+import Webhook, {
+  WebhookRateLimitError,
+  getErrorRetryAfterMs,
+} from './classes/webhook.js';
 import MessageBuilder from './classes/messageBuilder.js';
 import DiscordRoleClient from './classes/discordRoleClient.js';
 
-export {Webhook, MessageBuilder, DiscordRoleClient};
+export {
+  Webhook,
+  MessageBuilder,
+  DiscordRoleClient,
+  WebhookRateLimitError,
+  getErrorRetryAfterMs,
+};

@@ -5,11 +5,61 @@ import type {Response} from 'node-fetch';
 
 const MAX_RATE_LIMIT_RETRIES = 3;
 const MAX_ERROR_BODY_LENGTH = 500;
+const DEFAULT_DISCORD_RETRY_AFTER_MS = 5_000;
+const DEFAULT_CLOUDFLARE_RETRY_AFTER_MS = 60_000;
+const MAX_RETRY_AFTER_MS = 5 * 60_000;
 
 type ParsedWebhookResponse = {
   text: string;
   json: Record<string, unknown> | null;
 };
+
+/** Thrown on Discord/Cloudflare 429 so callers (e.g. outbox) can wait the right amount. */
+export class WebhookRateLimitError extends Error {
+  readonly status = 429;
+  readonly retryAfterMs: number;
+  readonly isCloudflareBlock: boolean;
+  readonly host: string;
+
+  constructor(message: string, options: {
+    retryAfterMs: number;
+    isCloudflareBlock: boolean;
+    host: string;
+  }) {
+    super(message);
+    this.name = 'WebhookRateLimitError';
+    this.retryAfterMs = options.retryAfterMs;
+    this.isCloudflareBlock = options.isCloudflareBlock;
+    this.host = options.host;
+  }
+}
+
+/** Best-effort retry delay from thrown errors (WebhookRateLimitError or duck-typed). */
+export function getErrorRetryAfterMs(err: unknown): number | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const value = (err as {retryAfterMs?: unknown}).retryAfterMs;
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : undefined;
+}
+
+/** Process-wide cooldown so parallel outbox handlers don't keep hammering Discord/Cloudflare. */
+let webhookBlockedUntilMs = 0;
+let webhookCooldownIsCloudflare = false;
+
+const noteWebhookCooldown = (
+  retryAfterMs: number,
+  isCloudflareBlock = false,
+): void => {
+  const until = Date.now() + retryAfterMs;
+  if (until >= webhookBlockedUntilMs) {
+    webhookBlockedUntilMs = until;
+    webhookCooldownIsCloudflare = isCloudflareBlock;
+  }
+};
+
+const getActiveWebhookCooldownMs = (): number =>
+  Math.max(0, webhookBlockedUntilMs - Date.now());
 
 const truncate = (value: string, max = MAX_ERROR_BODY_LENGTH): string =>
   value.length > max ? `${value.slice(0, max)}…` : value;
@@ -44,6 +94,53 @@ const parseWebhookResponse = async (
   }
 };
 
+const isCloudflareBlockedResponse = (
+  res: Response,
+  body: ParsedWebhookResponse,
+): boolean => {
+  const contentType = (res.headers.get('content-type') || '').toLowerCase();
+  const text = body.text.toLowerCase();
+  return (
+    contentType.includes('text/html') ||
+    text.includes('cloudflare') ||
+    text.includes('access denied') ||
+    text.includes('<!doctype')
+  );
+};
+
+const resolveRetryAfterMs = (
+  res: Response,
+  body: ParsedWebhookResponse,
+  isCloudflareBlock: boolean,
+): number => {
+  let resolvedMs: number | undefined;
+
+  const header = res.headers.get('retry-after');
+  if (header) {
+    const asSeconds = Number(header);
+    if (!Number.isNaN(asSeconds)) {
+      resolvedMs = asSeconds * 1000;
+    } else {
+      const asDate = Date.parse(header);
+      if (!Number.isNaN(asDate)) {
+        resolvedMs = asDate - Date.now();
+      }
+    }
+  }
+
+  if (resolvedMs === undefined && typeof body.json?.retry_after === 'number') {
+    resolvedMs = body.json.retry_after * 1000;
+  }
+
+  if (resolvedMs === undefined) {
+    resolvedMs = isCloudflareBlock
+      ? DEFAULT_CLOUDFLARE_RETRY_AFTER_MS
+      : DEFAULT_DISCORD_RETRY_AFTER_MS;
+  }
+
+  return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, resolvedMs));
+};
+
 const formatWebhookHttpError = (
   res: Response,
   body: ParsedWebhookResponse,
@@ -58,6 +155,22 @@ const formatWebhookHttpError = (
       : '';
 
   return `HTTP ${res.status} ${res.statusText || ''} content-type=${contentType}${discordCode}${discordMessage} body=${preview}`.trim();
+};
+
+const createRateLimitError = (
+  host: string,
+  res: Response,
+  body: ParsedWebhookResponse,
+  messagePrefix: string,
+): WebhookRateLimitError => {
+  const isCloudflareBlock = isCloudflareBlockedResponse(res, body);
+  const retryAfterMs = resolveRetryAfterMs(res, body, isCloudflareBlock);
+  noteWebhookCooldown(retryAfterMs, isCloudflareBlock);
+
+  return new WebhookRateLimitError(
+    `${messagePrefix} host=${host} retryAfterMs=${retryAfterMs} cloudflare=${isCloudflareBlock} ${formatWebhookHttpError(res, body)}`,
+    {retryAfterMs, isCloudflareBlock, host},
+  );
 };
 
 export default class Webhook {
@@ -105,7 +218,7 @@ export default class Webhook {
       }
     } catch (err: any) {
       logger.error(`[Webhook] Failed to send file: ${err.message}`, { filePath });
-      if (this.throwErrors) throw new Error(err.message);
+      if (this.throwErrors) throw err;
     }
   }
 
@@ -149,49 +262,82 @@ export default class Webhook {
       endPayload.embeds = undefined;
     }
 
+    const host = getWebhookHost(this.hookURL);
+
     try {
+      const cooldownMs = getActiveWebhookCooldownMs();
+      if (cooldownMs > 0) {
+        throw new WebhookRateLimitError(
+          `Webhook cooldown active host=${host} retryAfterMs=${cooldownMs} cloudflare=${webhookCooldownIsCloudflare}`,
+          {
+            retryAfterMs: cooldownMs,
+            isCloudflareBlock: webhookCooldownIsCloudflare,
+            host,
+          },
+        );
+      }
+
       let res = await sendWebhook(this.hookURL, endPayload);
       let rateLimitRetries = 0;
 
-      // Handle rate limiting with proper retry logic
-      while (res.status === 429 && this.retryOnLimit && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
-        rateLimitRetries++;
+      while (res.status === 429) {
         const body = await parseWebhookResponse(res);
-        const retryAfter =
-          typeof body.json?.retry_after === 'number' ? body.json.retry_after : 1;
-        const waitUntil = retryAfter * 1000;
+        const isCloudflareBlock = isCloudflareBlockedResponse(res, body);
+        const retryAfterMs = resolveRetryAfterMs(res, body, isCloudflareBlock);
 
+        // Cloudflare/HTML 429s are bans/challenges — short retries only make it worse.
+        // Leave recovery to the outbox / caller with a long retryAfterMs.
+        if (isCloudflareBlock || !this.retryOnLimit) {
+          throw createRateLimitError(
+            host,
+            res,
+            body,
+            isCloudflareBlock
+              ? 'Webhook blocked by Cloudflare'
+              : 'Webhook rate limited',
+          );
+        }
+
+        // Only retry real Discord JSON rate limits with an explicit wait.
+        if (rateLimitRetries >= MAX_RATE_LIMIT_RETRIES) {
+          throw createRateLimitError(
+            host,
+            res,
+            body,
+            `Rate limit exceeded after ${MAX_RATE_LIMIT_RETRIES} retries`,
+          );
+        }
+
+        rateLimitRetries++;
+        noteWebhookCooldown(retryAfterMs, false);
         logger.warn(
-          `[Webhook] Rate limited, retrying in ${waitUntil}ms (attempt ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}) host=${getWebhookHost(this.hookURL)} ${formatWebhookHttpError(res, body)}`,
+          `[Webhook] Rate limited, retrying in ${retryAfterMs}ms (attempt ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}) host=${host} ${formatWebhookHttpError(res, body)}`,
         );
 
-        await new Promise(resolve => setTimeout(resolve, waitUntil));
+        await new Promise(resolve => setTimeout(resolve, retryAfterMs));
         res = await sendWebhook(this.hookURL, endPayload);
       }
 
-      if (res.status === 429) {
+      if (res.status !== 204 && res.status !== 200) {
         const body = await parseWebhookResponse(res);
         throw new Error(
-          `Rate limit exceeded after ${MAX_RATE_LIMIT_RETRIES} retries host=${getWebhookHost(this.hookURL)} ${formatWebhookHttpError(res, body)}`,
-        );
-      } else if (res.status !== 204 && res.status !== 200) {
-        const body = await parseWebhookResponse(res);
-        throw new Error(
-          `Webhook request failed host=${getWebhookHost(this.hookURL)} ${formatWebhookHttpError(res, body)}`,
+          `Webhook request failed host=${host} ${formatWebhookHttpError(res, body)}`,
         );
       }
     } catch (err: any) {
       logger.error(`[Webhook] Failed to send webhook: ${err.message}`, {
-        host: getWebhookHost(this.hookURL),
+        host,
         embedCount: endPayload.embeds?.length || 0,
         hasContent: !!endPayload.content,
         username: endPayload.username,
         errorName: err.name,
         errorCode: err.code,
+        retryAfterMs: err.retryAfterMs,
+        isCloudflareBlock: err.isCloudflareBlock,
         cause: err.cause?.message || err.cause,
         stack: err.stack,
       });
-      if (this.throwErrors) throw new Error(err.message);
+      if (this.throwErrors) throw err;
     }
   }
 

@@ -425,7 +425,13 @@ export async function sendMessages(channel: ChannelMessages, message?: string): 
     return;
   }
 
-  const hook = new Webhook({ url: channel.webhookUrl, throwErrors: true });
+  // Outbox already retries with backoff; disable nested 429 retries here so we don't
+  // multiply announcement attempts against Discord/Cloudflare.
+  const hook = new Webhook({
+    url: channel.webhookUrl,
+    throwErrors: true,
+    retryOnLimit: false,
+  });
   hook.setUsername('TUF Announcer');
   hook.setAvatar(botAvatar);
 
