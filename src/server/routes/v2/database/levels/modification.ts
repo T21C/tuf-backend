@@ -67,6 +67,12 @@ import {
   checkLevelOwnership,
   type OwnershipCheckResult,
 } from '@/server/domain/levels/levelOwnership.js';
+import {
+  executeLevelPayloadSwap,
+  LevelPayloadSwapError,
+} from '@/server/domain/levels/levelPayloadSwap.js';
+import { getPassIdsByLevelId } from '@/server/services/elasticsearch/projectors/cdcFanout.js';
+import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
 
 export { checkLevelOwnership, type OwnershipCheckResult };
 
@@ -1604,6 +1610,79 @@ router.put(
       return res.status(500).json({error: 'Failed to toggle level like'});
     }
   }
+);
+
+// Swap chart/metadata payload between two levels and remap child levelIds (except likes)
+router.post(
+  '/:id([0-9]{1,20})/swap-payload',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postLevelSwapPayload',
+    summary: 'Swap level payloads',
+    description:
+      'Exchange chart/metadata columns between two levels while keeping both IDs fixed, then remap child levelIds (passes, ratings, credits, packs, tags, curations, etc.). level_likes are not remapped.',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: {
+      description: 'targetLevelId: other level to swap payload with',
+      schema: {
+        type: 'object',
+        properties: { targetLevelId: { type: 'integer' } },
+        required: ['targetLevelId'],
+      },
+      required: true,
+    },
+    responses: {
+      200: { description: 'Payloads swapped' },
+      ...standardErrorResponses,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const sourceId = parseInt(req.params.id, 10);
+      const targetId = parseInt(String(req.body?.targetLevelId), 10);
+
+      const { levelA, levelB, sourceId: a, targetId: b } =
+        await executeLevelPayloadSwap(sourceId, targetId);
+
+      void (async () => {
+        try {
+          const [passIdsA, passIdsB] = await Promise.all([
+            getPassIdsByLevelId(a),
+            getPassIdsByLevelId(b),
+          ]);
+          const passIds = [...new Set([...passIdsA, ...passIdsB])];
+          await Promise.all([
+            elasticsearchService.indexLevel(a),
+            elasticsearchService.indexLevel(b),
+            passIds.length > 0
+              ? elasticsearchService.reindexPasses(passIds)
+              : Promise.resolve(),
+            CacheInvalidation.invalidateTags([
+              `level:${a}`,
+              `level:${b}`,
+              'levels:all',
+            ]),
+            invalidatePackLevelsCachesForLevelIds([a, b]),
+          ]);
+        } catch (err) {
+          logger.error('Error reindexing/invalidating after level payload swap:', err);
+        }
+      })();
+
+      return res.json({ levelA, levelB });
+    } catch (error) {
+      if (error instanceof LevelPayloadSwapError) {
+        if (error.code === 'NOT_FOUND') {
+          return res.status(404).json({ error: error.message });
+        }
+        return res.status(400).json({ error: error.message });
+      }
+      logger.error('Error swapping level payloads:', error);
+      return res.status(500).json({ error: 'Failed to swap level payloads' });
+    }
+  },
 );
 
 // Refresh auto-assigned tags for a level

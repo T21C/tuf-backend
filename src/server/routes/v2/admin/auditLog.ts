@@ -96,14 +96,18 @@ router.get(
         ? []
         : await AuditLog.findAll({
             where: { id: ids },
-            include: [userInclude]
+            include: [userInclude],
           });
+
+    // findAll by id list does not preserve the ordered idRows sequence
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const logs = ids.map((id) => byId.get(id)).filter(Boolean);
 
     res.json({
       total: count,
       page: Number(page),
       pageSize: Number(pageSize),
-      logs: rows,
+      logs,
     });
   } catch (error) {
     logger.error('Failed to fetch audit logs:', error);
