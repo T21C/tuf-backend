@@ -19,10 +19,11 @@ import { createRerateEmbedFromQueue } from '@/server/routes/v2/webhooks/rerateEm
 import {
   computeAnnouncementFacets,
   hasMeaningfulAnnouncementChange,
-  markQueueRowsAnnounced,
 } from '@/server/services/announcements/levelAnnouncementQueue.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import type { ChannelMessage, ChannelMessages } from '@/server/routes/v2/webhooks/webhook.js';
+import { DiscordWebhookGate } from '@/server/services/discord/DiscordWebhookGate.js';
+import { AnnouncementDeliveryTracker } from '@/server/services/discord/AnnouncementDeliveryTracker.js';
 
 function parseRerateWebhookTargets(): { webhookUrl: string; ping?: string }[] {
   const webhookUrls = (process.env.RERATE_ANNOUNCEMENT_HOOK || '')
@@ -58,8 +59,36 @@ function parseRerateWebhookTargets(): { webhookUrl: string; ping?: string }[] {
   });
 }
 
+function buildRequiredWebhooksByPassId(
+  passes: Pass[],
+  configs: Map<number, Awaited<ReturnType<typeof getPassAnnouncementConfig>>>,
+): Map<number, string[]> {
+  const map = new Map<number, string[]>();
+  for (const pass of passes) {
+    const config = configs.get(pass.id);
+    const urls = [...new Set((config?.channels || []).map(c => c.webhookUrl))];
+    map.set(pass.id, urls);
+  }
+  return map;
+}
+
+function buildRequiredWebhooksByLevelTrackingId(
+  rows: { id: number; levelId: number }[],
+  configs: Map<number, Awaited<ReturnType<typeof getLevelAnnouncementConfig>>>,
+): Map<number, string[]> {
+  const map = new Map<number, string[]>();
+  for (const row of rows) {
+    const config = configs.get(row.levelId);
+    const urls = [...new Set((config?.channels || []).map(c => c.webhookUrl))];
+    map.set(row.id, urls);
+  }
+  return map;
+}
+
 /** Executes the same work as POST /v2/webhooks/passes (Discord + isAnnounced update). */
 export async function runPassAnnouncementJob(passIds: number[]): Promise<void> {
+  await DiscordWebhookGate.assertNotBlocked();
+
   const passes = await Pass.findAll({
     where: { id: { [Op.in]: passIds }, isAnnounced: false },
     include: [
@@ -92,6 +121,11 @@ export async function runPassAnnouncementJob(passIds: number[]): Promise<void> {
     ],
   });
 
+  if (passes.length === 0) {
+    logger.info('[pass-announcement-job] No unannounced passes matched', { passIds });
+    return;
+  }
+
   const configs = new Map();
   for (const pass of passes) {
     if (!pass.level?.diffId) continue;
@@ -99,21 +133,29 @@ export async function runPassAnnouncementJob(passIds: number[]): Promise<void> {
     configs.set(pass.id, config);
   }
 
-  const channels = await createChannelMessages(passes, configs);
-  for (const channel of channels) {
-    await sendMessages(channel);
-  }
+  const requiredWebhooksByItemId = buildRequiredWebhooksByPassId(passes, configs);
+  const allWebhookUrls = [...new Set(
+    [...requiredWebhooksByItemId.values()].flat(),
+  )];
+  const alreadyDelivered = await AnnouncementDeliveryTracker.buildAlreadyDeliveredSet(
+    'pass',
+    passes.map(p => p.id),
+    allWebhookUrls,
+  );
 
-  if (passes.length > 0) {
-    await Pass.update(
-      { isAnnounced: true },
-      { where: { id: { [Op.in]: passes.map(p => p.id) } } },
-    );
+  const channels = await createChannelMessages(passes, configs, { alreadyDelivered });
+  for (const channel of channels) {
+    await sendMessages(channel, undefined, {
+      kind: 'pass',
+      requiredWebhooksByItemId,
+    });
   }
 }
 
 /** Executes the same work as POST /v2/webhooks/levels. */
 export async function runLevelAnnouncementJob(queueRowIds: number[]): Promise<void> {
+  await DiscordWebhookGate.assertNotBlocked();
+
   const rows = await LevelAnnouncementQueue.findAll({
     where: {
       id: { [Op.in]: queueRowIds },
@@ -137,27 +179,49 @@ export async function runLevelAnnouncementJob(queueRowIds: number[]): Promise<vo
   }
 
   const levels = rows.map(r => r.level!).filter(Boolean);
+  const trackingIdByEntityId = new Map<number, number>();
+  const levelIdByItemId = new Map<number, number>();
+  for (const row of rows) {
+    trackingIdByEntityId.set(row.levelId, row.id);
+    levelIdByItemId.set(row.id, row.levelId);
+  }
+
   const configs = new Map<number, Awaited<ReturnType<typeof getLevelAnnouncementConfig>>>();
   for (const level of levels) {
     if (!level.diffId) continue;
     configs.set(level.id, await getLevelAnnouncementConfig(level));
   }
 
-  const channels = await createChannelMessages(levels, configs);
-  for (const channel of channels) {
-    await sendMessages(channel);
-  }
-
-  const announcedRowIds = rows.map(r => r.id);
-  await markQueueRowsAnnounced(announcedRowIds);
-  await Level.update(
-    { isAnnounced: true },
-    { where: { id: { [Op.in]: levels.map(l => l.id) } } },
+  const requiredWebhooksByItemId = buildRequiredWebhooksByLevelTrackingId(
+    rows.map(r => ({ id: r.id, levelId: r.levelId })),
+    configs,
   );
+  const allWebhookUrls = [...new Set(
+    [...requiredWebhooksByItemId.values()].flat(),
+  )];
+  const alreadyDelivered = await AnnouncementDeliveryTracker.buildAlreadyDeliveredSet(
+    'level',
+    rows.map(r => r.id),
+    allWebhookUrls,
+  );
+
+  const channels = await createChannelMessages(levels, configs, {
+    alreadyDelivered,
+    trackingIdByEntityId,
+  });
+  for (const channel of channels) {
+    await sendMessages(channel, undefined, {
+      kind: 'level',
+      requiredWebhooksByItemId,
+      levelIdByItemId,
+    });
+  }
 }
 
 /** Executes the same work as POST /v2/webhooks/rerates. */
 export async function runRerateAnnouncementJob(queueRowIds: number[]): Promise<void> {
+  await DiscordWebhookGate.assertNotBlocked();
+
   const rows = await LevelAnnouncementQueue.findAll({
     where: {
       id: { [Op.in]: queueRowIds },
@@ -187,26 +251,54 @@ export async function runRerateAnnouncementJob(queueRowIds: number[]): Promise<v
     return;
   }
 
-  const embeds = await Promise.all(
-    eligibleRows.map(row =>
-      createRerateEmbedFromQueue({
+  const targets = parseRerateWebhookTargets();
+  const targetUrls = targets.map(t => t.webhookUrl);
+  const requiredWebhooksByItemId = new Map<number, string[]>();
+  const levelIdByItemId = new Map<number, number>();
+  for (const row of eligibleRows) {
+    requiredWebhooksByItemId.set(row.id, targetUrls);
+    levelIdByItemId.set(row.id, row.levelId);
+  }
+
+  const alreadyDelivered = await AnnouncementDeliveryTracker.buildAlreadyDeliveredSet(
+    'rerate',
+    eligibleRows.map(r => r.id),
+    targetUrls,
+  );
+
+  const embedPairs = await Promise.all(
+    eligibleRows.map(async row => ({
+      queueRowId: row.id,
+      embed: await createRerateEmbedFromQueue({
         level: row.level!,
         facets: row.facets,
         before: row.before,
         after: row.after,
       }),
-    ),
+    })),
   );
 
-  const targets = parseRerateWebhookTargets();
   const rerateChannels: ChannelMessages[] = [];
 
   for (let i = 0; i < targets.length; i++) {
     const { webhookUrl, ping } = targets[i];
+    const pendingPairs = embedPairs.filter(
+      p =>
+        !alreadyDelivered.has(
+          AnnouncementDeliveryTracker.deliveryPairKey(p.queueRowId, webhookUrl),
+        ),
+    );
+    if (pendingPairs.length === 0) continue;
+
     const rerateMessages: ChannelMessage[] = [];
-    for (let j = 0; j < embeds.length; j += 8) {
+    for (let j = 0; j < pendingPairs.length; j += 8) {
+      const batch = pendingPairs.slice(j, j + 8);
       rerateMessages.push(
-        createEmbedBatchMessage(embeds.slice(j, j + 8), j === 0 ? ping : undefined),
+        createEmbedBatchMessage(
+          batch.map(p => p.embed),
+          j === 0 ? ping : undefined,
+          batch.map(p => p.queueRowId),
+        ),
       );
     }
 
@@ -222,13 +314,10 @@ export async function runRerateAnnouncementJob(queueRowIds: number[]): Promise<v
   }
 
   for (const channel of rerateChannels) {
-    await sendMessages(channel, channel.channelConfig.ping);
+    await sendMessages(channel, channel.channelConfig.ping, {
+      kind: 'rerate',
+      requiredWebhooksByItemId,
+      levelIdByItemId,
+    });
   }
-
-  const announcedRowIds = eligibleRows.map(r => r.id);
-  await markQueueRowsAnnounced(announcedRowIds);
-  await Level.update(
-    { isAnnounced: true },
-    { where: { id: { [Op.in]: eligibleRows.map(r => r.levelId) } } },
-  );
 }

@@ -1,7 +1,18 @@
 import {sendWebhook, sendFile} from '../api/index.js';
 import MessageBuilder from './messageBuilder.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { DiscordWebhookGate } from '@/server/services/discord/DiscordWebhookGate.js';
+import {
+  WebhookRateLimitError,
+  getErrorRetryAfterMs,
+} from './webhookErrors.js';
 import type {Response} from 'node-fetch';
+
+export {
+  WebhookRateLimitError,
+  getErrorRetryAfterMs,
+} from './webhookErrors.js';
+export { isWebhookRateLimitError } from './webhookErrors.js';
 
 const MAX_RATE_LIMIT_RETRIES = 3;
 const MAX_ERROR_BODY_LENGTH = 500;
@@ -13,53 +24,6 @@ type ParsedWebhookResponse = {
   text: string;
   json: Record<string, unknown> | null;
 };
-
-/** Thrown on Discord/Cloudflare 429 so callers (e.g. outbox) can wait the right amount. */
-export class WebhookRateLimitError extends Error {
-  readonly status = 429;
-  readonly retryAfterMs: number;
-  readonly isCloudflareBlock: boolean;
-  readonly host: string;
-
-  constructor(message: string, options: {
-    retryAfterMs: number;
-    isCloudflareBlock: boolean;
-    host: string;
-  }) {
-    super(message);
-    this.name = 'WebhookRateLimitError';
-    this.retryAfterMs = options.retryAfterMs;
-    this.isCloudflareBlock = options.isCloudflareBlock;
-    this.host = options.host;
-  }
-}
-
-/** Best-effort retry delay from thrown errors (WebhookRateLimitError or duck-typed). */
-export function getErrorRetryAfterMs(err: unknown): number | undefined {
-  if (!err || typeof err !== 'object') return undefined;
-  const value = (err as {retryAfterMs?: unknown}).retryAfterMs;
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? value
-    : undefined;
-}
-
-/** Process-wide cooldown so parallel outbox handlers don't keep hammering Discord/Cloudflare. */
-let webhookBlockedUntilMs = 0;
-let webhookCooldownIsCloudflare = false;
-
-const noteWebhookCooldown = (
-  retryAfterMs: number,
-  isCloudflareBlock = false,
-): void => {
-  const until = Date.now() + retryAfterMs;
-  if (until >= webhookBlockedUntilMs) {
-    webhookBlockedUntilMs = until;
-    webhookCooldownIsCloudflare = isCloudflareBlock;
-  }
-};
-
-const getActiveWebhookCooldownMs = (): number =>
-  Math.max(0, webhookBlockedUntilMs - Date.now());
 
 const truncate = (value: string, max = MAX_ERROR_BODY_LENGTH): string =>
   value.length > max ? `${value.slice(0, max)}…` : value;
@@ -157,15 +121,15 @@ const formatWebhookHttpError = (
   return `HTTP ${res.status} ${res.statusText || ''} content-type=${contentType}${discordCode}${discordMessage} body=${preview}`.trim();
 };
 
-const createRateLimitError = (
+const createRateLimitError = async (
   host: string,
   res: Response,
   body: ParsedWebhookResponse,
   messagePrefix: string,
-): WebhookRateLimitError => {
+): Promise<WebhookRateLimitError> => {
   const isCloudflareBlock = isCloudflareBlockedResponse(res, body);
   const retryAfterMs = resolveRetryAfterMs(res, body, isCloudflareBlock);
-  noteWebhookCooldown(retryAfterMs, isCloudflareBlock);
+  await DiscordWebhookGate.setBlocked(retryAfterMs, {isCloudflareBlock});
 
   return new WebhookRateLimitError(
     `${messagePrefix} host=${host} retryAfterMs=${retryAfterMs} cloudflare=${isCloudflareBlock} ${formatWebhookHttpError(res, body)}`,
@@ -265,17 +229,7 @@ export default class Webhook {
     const host = getWebhookHost(this.hookURL);
 
     try {
-      const cooldownMs = getActiveWebhookCooldownMs();
-      if (cooldownMs > 0) {
-        throw new WebhookRateLimitError(
-          `Webhook cooldown active host=${host} retryAfterMs=${cooldownMs} cloudflare=${webhookCooldownIsCloudflare}`,
-          {
-            retryAfterMs: cooldownMs,
-            isCloudflareBlock: webhookCooldownIsCloudflare,
-            host,
-          },
-        );
-      }
+      await DiscordWebhookGate.assertNotBlocked(host);
 
       let res = await sendWebhook(this.hookURL, endPayload);
       let rateLimitRetries = 0;
@@ -283,12 +237,11 @@ export default class Webhook {
       while (res.status === 429) {
         const body = await parseWebhookResponse(res);
         const isCloudflareBlock = isCloudflareBlockedResponse(res, body);
-        const retryAfterMs = resolveRetryAfterMs(res, body, isCloudflareBlock);
 
         // Cloudflare/HTML 429s are bans/challenges — short retries only make it worse.
         // Leave recovery to the outbox / caller with a long retryAfterMs.
         if (isCloudflareBlock || !this.retryOnLimit) {
-          throw createRateLimitError(
+          throw await createRateLimitError(
             host,
             res,
             body,
@@ -300,7 +253,7 @@ export default class Webhook {
 
         // Only retry real Discord JSON rate limits with an explicit wait.
         if (rateLimitRetries >= MAX_RATE_LIMIT_RETRIES) {
-          throw createRateLimitError(
+          throw await createRateLimitError(
             host,
             res,
             body,
@@ -308,8 +261,9 @@ export default class Webhook {
           );
         }
 
+        const retryAfterMs = resolveRetryAfterMs(res, body, false);
         rateLimitRetries++;
-        noteWebhookCooldown(retryAfterMs, false);
+        await DiscordWebhookGate.setBlocked(retryAfterMs, {isCloudflareBlock: false});
         logger.warn(
           `[Webhook] Rate limited, retrying in ${retryAfterMs}ms (attempt ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}) host=${host} ${formatWebhookHttpError(res, body)}`,
         );
@@ -324,6 +278,9 @@ export default class Webhook {
           `Webhook request failed host=${host} ${formatWebhookHttpError(res, body)}`,
         );
       }
+
+      // Successful probe / send — drop probe lock so peers can proceed.
+      await DiscordWebhookGate.releaseProbeLock();
     } catch (err: any) {
       logger.error(`[Webhook] Failed to send webhook: ${err.message}`, {
         host,

@@ -48,6 +48,11 @@ import hash from 'object-hash';
 import crypto from 'crypto';
 import { OutboxService } from '@/server/services/outbox/OutboxService.js';
 import { OUTBOX_EVENT_TYPES } from '@/server/services/outbox/events.js';
+import { DiscordWebhookGate } from '@/server/services/discord/DiscordWebhookGate.js';
+import type {
+  AnnouncementDeliveryKind,
+} from '@/server/services/discord/AnnouncementDeliveryTracker.js';
+import { AnnouncementDeliveryTracker } from '@/server/services/discord/AnnouncementDeliveryTracker.js';
 
 const router: Router = express.Router();
 
@@ -61,6 +66,8 @@ export interface ChannelMessage {
   type: 'text' | 'embeds';
   content?: string; // Plain text content (for headers or to add to embed batch)
   embeds?: MessageBuilder[]; // Embed batch (can have content added to first embed)
+  /** Entity ids represented in this message (pass id or queue row id). */
+  itemIds?: number[];
 }
 
 // Interface to track messages for each channel
@@ -69,6 +76,12 @@ export interface ChannelMessages {
   channelConfig: AnnouncementChannelConfig;
   messages: ChannelMessage[]; // Sequence of messages (headers + embed batches)
 }
+
+export type SendMessagesDeliveryContext = {
+  kind: AnnouncementDeliveryKind;
+  requiredWebhooksByItemId: Map<number, string[]>;
+  levelIdByItemId?: Map<number, number>;
+};
 
 // Helper to render message format template with variables
 function renderMessageFormat(format: string, variables: {
@@ -90,18 +103,54 @@ function renderMessageFormat(format: string, variables: {
   return result;
 }
 
+type EmbedItemPair = { embed: MessageBuilder; itemId: number };
+
 // Helper to create embed batch message with optional content
-export function createEmbedBatchMessage(embeds: MessageBuilder[], content?: string): ChannelMessage {
+export function createEmbedBatchMessage(
+  embeds: MessageBuilder[],
+  content?: string,
+  itemIds?: number[],
+): ChannelMessage {
   return {
     type: 'embeds',
     embeds,
-    ...(content && { content })
+    ...(content && { content }),
+    ...(itemIds && itemIds.length > 0 ? { itemIds } : {}),
   };
 }
 
+function pushEmbedBatches(
+  messages: ChannelMessage[],
+  pairs: EmbedItemPair[],
+  firstContent?: string,
+): void {
+  for (let i = 0; i < pairs.length; i += 8) {
+    const batch = pairs.slice(i, i + 8);
+    messages.push(
+      createEmbedBatchMessage(
+        batch.map(p => p.embed),
+        i === 0 ? firstContent : undefined,
+        batch.map(p => p.itemId),
+      ),
+    );
+  }
+}
+
 // Process items and create embeds using channel list from configs
-export async function createChannelMessages(items: (Pass | Level)[], configs: Map<number, AnnouncementConfig>): Promise<ChannelMessages[]> {
+export async function createChannelMessages(
+  items: (Pass | Level)[],
+  configs: Map<number, AnnouncementConfig>,
+  options?: {
+    alreadyDelivered?: Set<string>;
+    /** Maps entity.id → progress-tracking id (e.g. levelId → queueRowId). Defaults to entity.id. */
+    trackingIdByEntityId?: Map<number, number>;
+  },
+): Promise<ChannelMessages[]> {
   const channelMessages = new Map<string, ChannelMessages>();
+  const alreadyDelivered = options?.alreadyDelivered;
+  const trackingIdByEntityId = options?.trackingIdByEntityId;
+  const trackingIdFor = (entityId: number) =>
+    trackingIdByEntityId?.get(entityId) ?? entityId;
 
   logger.debug(`[Message Processing] Processing ${items.length} item(s)`);
 
@@ -118,6 +167,15 @@ export async function createChannelMessages(items: (Pass | Level)[], configs: Ma
     if (!config) continue;
 
     for (const channel of config.channels) {
+      const trackingId = trackingIdFor(item.id);
+      if (
+        alreadyDelivered?.has(
+          AnnouncementDeliveryTracker.deliveryPairKey(trackingId, channel.webhookUrl),
+        )
+      ) {
+        continue;
+      }
+
       if (!webhookData.has(channel.webhookUrl)) {
         webhookData.set(channel.webhookUrl, {
           items: [],
@@ -231,25 +289,23 @@ export async function createChannelMessages(items: (Pass | Level)[], configs: Ma
         const itemsToEmbed = allRoleItems.filter(item => !embeddedItems.has(item.id));
 
         if (itemsToEmbed.length > 0) {
-          // Create embeds for items that haven't been embedded yet
-          const roleEmbeds: MessageBuilder[] = [];
+          const rolePairs: EmbedItemPair[] = [];
           for (const item of itemsToEmbed) {
             if ('level' in item) {
-              roleEmbeds.push(await createClearEmbed(item as Pass));
+              rolePairs.push({
+                embed: await createClearEmbed(item as Pass),
+                itemId: trackingIdFor(item.id),
+              });
             } else {
-              roleEmbeds.push(await createNewLevelEmbed(item as Level));
+              rolePairs.push({
+                embed: await createNewLevelEmbed(item as Level),
+                itemId: trackingIdFor(item.id),
+              });
             }
             embeddedItems.add(item.id);
           }
 
-          // Add header message to first embed batch
-          for (let i = 0; i < roleEmbeds.length; i += 8) {
-            const batch = roleEmbeds.slice(i, i + 8);
-            messages.push(createEmbedBatchMessage(
-              batch,
-              i === 0 ? headerText : undefined // Add header to first batch only
-            ));
-          }
+          pushEmbedBatches(messages, rolePairs, headerText);
         } else {
           // All items already embedded, just send header as plain text
           messages.push({
@@ -278,12 +334,18 @@ export async function createChannelMessages(items: (Pass | Level)[], configs: Ma
 
         if (unembeddedGenericItems.length > 0) {
           // Create embeds for items only in generic role groups
-          const genericEmbeds: MessageBuilder[] = [];
+          const genericPairs: EmbedItemPair[] = [];
           for (const item of unembeddedGenericItems) {
             if ('level' in item) {
-              genericEmbeds.push(await createClearEmbed(item as Pass));
+              genericPairs.push({
+                embed: await createClearEmbed(item as Pass),
+                itemId: trackingIdFor(item.id),
+              });
             } else {
-              genericEmbeds.push(await createNewLevelEmbed(item as Level));
+              genericPairs.push({
+                embed: await createNewLevelEmbed(item as Level),
+                itemId: trackingIdFor(item.id),
+              });
             }
             embeddedItems.add(item.id);
           }
@@ -293,13 +355,7 @@ export async function createChannelMessages(items: (Pass | Level)[], configs: Ma
 
           // Send headers + embeds for unembedded generic items
           const genericMessages: ChannelMessage[] = [];
-          for (let i = 0; i < genericEmbeds.length; i += 8) {
-            const batch = genericEmbeds.slice(i, i + 8);
-            genericMessages.push(createEmbedBatchMessage(
-              batch,
-              i === 0 ? combinedHeaders : undefined
-            ));
-          }
+          pushEmbedBatches(genericMessages, genericPairs, combinedHeaders);
           messages.unshift(...genericMessages);
         } else {
           // All items already embedded by specific formats, just send generic headers as plain text
@@ -325,24 +381,23 @@ export async function createChannelMessages(items: (Pass | Level)[], configs: Ma
           const itemsToEmbed = allRoleItems.filter(item => !embeddedItems.has(item.id));
 
           if (itemsToEmbed.length > 0) {
-            const roleEmbeds: MessageBuilder[] = [];
+            const rolePairs: EmbedItemPair[] = [];
             for (const item of itemsToEmbed) {
               if ('level' in item) {
-                roleEmbeds.push(await createClearEmbed(item as Pass));
+                rolePairs.push({
+                  embed: await createClearEmbed(item as Pass),
+                  itemId: trackingIdFor(item.id),
+                });
               } else {
-                roleEmbeds.push(await createNewLevelEmbed(item as Level));
+                rolePairs.push({
+                  embed: await createNewLevelEmbed(item as Level),
+                  itemId: trackingIdFor(item.id),
+                });
               }
               embeddedItems.add(item.id);
             }
 
-            // Add header message to first embed batch
-            for (let i = 0; i < roleEmbeds.length; i += 8) {
-              const batch = roleEmbeds.slice(i, i + 8);
-              messages.push(createEmbedBatchMessage(
-                batch,
-                i === 0 ? headerText : undefined // Add header to first batch only
-              ));
-            }
+            pushEmbedBatches(messages, rolePairs, headerText);
           } else {
             messages.push({
               type: 'text',
@@ -353,19 +408,22 @@ export async function createChannelMessages(items: (Pass | Level)[], configs: Ma
       }
     } else {
       // No messageFormats - just create embeds without headers
-      const embeds: MessageBuilder[] = [];
+      const pairs: EmbedItemPair[] = [];
       for (const item of data.items) {
         if ('level' in item) {
-          embeds.push(await createClearEmbed(item as Pass));
+          pairs.push({
+            embed: await createClearEmbed(item as Pass),
+            itemId: trackingIdFor(item.id),
+          });
         } else {
-          embeds.push(await createNewLevelEmbed(item as Level));
+          pairs.push({
+            embed: await createNewLevelEmbed(item as Level),
+            itemId: trackingIdFor(item.id),
+          });
         }
       }
 
-      // Split embeds into batches of 8
-      for (let i = 0; i < embeds.length; i += 8) {
-        messages.push(createEmbedBatchMessage(embeds.slice(i, i + 8)));
-      }
+      pushEmbedBatches(messages, pairs);
     }
 
     channelMessages.set(webhookUrl, {
@@ -417,11 +475,28 @@ function summarizeAnnouncementPayload(
 }
 
 // Helper to send embeds for a channel (levels / rerates / passes batch announcements)
-export async function sendMessages(channel: ChannelMessages, message?: string): Promise<void> {
+export async function sendMessages(
+  channel: ChannelMessages,
+  message?: string,
+  delivery?: SendMessagesDeliveryContext,
+): Promise<void> {
   if (!shouldDeliverDiscordAnnouncementWebhooks()) {
     logger.info('[discord-announcement] Development dry-run — skipping webhook delivery', {
       summary: summarizeAnnouncementPayload(channel, message),
     });
+    if (delivery) {
+      for (const msg of channel.messages) {
+        if (msg.itemIds && msg.itemIds.length > 0) {
+          await AnnouncementDeliveryTracker.recordMessageDelivered({
+            kind: delivery.kind,
+            itemIds: msg.itemIds,
+            webhookUrl: channel.webhookUrl,
+            requiredWebhooksByItemId: delivery.requiredWebhooksByItemId,
+            levelIdByItemId: delivery.levelIdByItemId,
+          });
+        }
+      }
+    }
     return;
   }
 
@@ -455,6 +530,17 @@ export async function sendMessages(channel: ChannelMessages, message?: string): 
       }
 
       await hook.send(combinedEmbed);
+
+      if (delivery && msg.itemIds && msg.itemIds.length > 0) {
+        await AnnouncementDeliveryTracker.recordMessageDelivered({
+          kind: delivery.kind,
+          itemIds: msg.itemIds,
+          webhookUrl: channel.webhookUrl,
+          requiredWebhooksByItemId: delivery.requiredWebhooksByItemId,
+          levelIdByItemId: delivery.levelIdByItemId,
+        });
+      }
+
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
@@ -623,6 +709,21 @@ export async function passSubmissionHook(
   return embed;
 }
 
+async function rejectIfDiscordWebhookBlocked(
+  res: Response,
+): Promise<Response | null> {
+  const remainingMs = await DiscordWebhookGate.getBlockedRemainingMs();
+  if (remainingMs <= 0) return null;
+
+  const blockedUntil = Date.now() + remainingMs;
+  return res.status(429).json({
+    error: 'Discord webhooks are temporarily blocked',
+    code: 'DISCORD_WEBHOOK_BLOCKED',
+    retryAfterMs: remainingMs,
+    blockedUntil,
+  });
+}
+
 router.post(
   '/passes',
   Auth.superAdmin(),
@@ -637,6 +738,9 @@ router.post(
   }),
   async (req: Request, res: Response) => {
     try {
+      const blocked = await rejectIfDiscordWebhookBlocked(res);
+      if (blocked) return blocked;
+
       const {passIds} = req.body;
 
       if (!Array.isArray(passIds)) {
@@ -676,6 +780,9 @@ router.post(
   }),
   async (req: Request, res: Response) => {
     try {
+      const blocked = await rejectIfDiscordWebhookBlocked(res);
+      if (blocked) return blocked;
+
       const {queueRowIds} = req.body;
 
       if (!Array.isArray(queueRowIds)) {
@@ -716,6 +823,9 @@ router.post(
   }),
   async (req: Request, res: Response) => {
     try {
+      const blocked = await rejectIfDiscordWebhookBlocked(res);
+      if (blocked) return blocked;
+
       const {queueRowIds} = req.body;
 
       if (!Array.isArray(queueRowIds)) {

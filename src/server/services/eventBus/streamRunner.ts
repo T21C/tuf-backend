@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { redis } from '@/server/services/core/RedisService.js';
 import { registerShutdownStep, unregisterShutdownStep } from '@/server/bootstrap/shutdownCoordinator.js';
-import { getErrorRetryAfterMs } from '@/misc/webhook/index.js';
+import { getErrorRetryAfterMs, isWebhookRateLimitError } from '@/misc/webhook/index.js';
 
 const DEFAULT_PARTITION_SLOTS = 16;
 const DEFAULT_BLOCK_MS = 5000;
@@ -173,7 +173,8 @@ export function subscribeStream(options: SubscribeStreamOptions): { stop: () => 
 
             enqueue(slot, async () => {
               let lastErr: unknown;
-              for (let attempt = 1; attempt <= maxRetries; attempt++) {
+              let attempt = 1;
+              while (attempt <= maxRetries) {
                 try {
                   await options.handle(flat);
                   if (blockingClient?.isReady) {
@@ -182,23 +183,31 @@ export function subscribeStream(options: SubscribeStreamOptions): { stop: () => 
                   return;
                 } catch (err) {
                   lastErr = err;
+                  const retryAfterMs = getErrorRetryAfterMs(err);
+                  const isRateLimit = isWebhookRateLimitError(err);
+
                   logger.warn(
                     `[eventBus] handle failed ${options.stream} id=${id} attempt=${attempt}/${maxRetries}`,
                     err,
                   );
+
+                  if (isRateLimit && retryAfterMs) {
+                    // Ban / gate: wait without burning attempts toward DLQ.
+                    logger.warn(
+                      `[eventBus] rate-limit gate wait ${retryAfterMs}ms for ${options.stream} id=${id} (attempt unchanged=${attempt})`,
+                    );
+                    await sleep(retryAfterMs);
+                    continue;
+                  }
+
                   if (attempt < maxRetries) {
                     const exponentialBackoff = Math.min(30_000, 200 * 2 ** (attempt - 1));
-                    const retryAfterMs = getErrorRetryAfterMs(err);
-                    // Prefer upstream Retry-After (Discord/Cloudflare) over tiny local backoff
-                    // so rate-limited webhook jobs don't spam the endpoint.
                     const backoff = Math.max(exponentialBackoff, retryAfterMs ?? 0);
-                    if (retryAfterMs) {
-                      logger.warn(
-                        `[eventBus] respecting retryAfterMs=${retryAfterMs} for ${options.stream} id=${id} (wait ${backoff}ms)`,
-                      );
-                    }
                     await sleep(backoff);
+                    attempt++;
+                    continue;
                   }
+                  break;
                 }
               }
               try {

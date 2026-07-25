@@ -1,0 +1,131 @@
+import { createHash } from 'node:crypto';
+import { redis } from '@/server/services/core/RedisService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
+import { WebhookRateLimitError } from '@/misc/webhook/classes/webhookErrors.js';
+
+const BLOCKED_UNTIL_KEY = 'discord:webhook:blockedUntil';
+const BLOCKED_META_KEY = 'discord:webhook:blockedMeta';
+const PROBE_LOCK_KEY = 'discord:webhook:probeLock';
+const MAX_RETRY_AFTER_MS = 5 * 60_000;
+const PROBE_LOCK_TTL_SECONDS = 30;
+
+export type DiscordWebhookBlockMeta = {
+  isCloudflareBlock: boolean;
+  setAt: number;
+};
+
+function capRetryAfterMs(retryAfterMs: number): number {
+  return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, Math.floor(retryAfterMs)));
+}
+
+/**
+ * Shared Discord webhook ban / cooldown gate (Redis), so all processes agree
+ * and HTTP + outbox can hard-reject while blocked.
+ */
+export const DiscordWebhookGate = {
+  async getBlockedUntilMs(): Promise<number> {
+    const value = await redis.get<number>(BLOCKED_UNTIL_KEY);
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  },
+
+  async getBlockedRemainingMs(): Promise<number> {
+    const until = await this.getBlockedUntilMs();
+    return Math.max(0, until - Date.now());
+  },
+
+  async getBlockMeta(): Promise<DiscordWebhookBlockMeta | null> {
+    return redis.get<DiscordWebhookBlockMeta>(BLOCKED_META_KEY);
+  },
+
+  async isBlocked(): Promise<boolean> {
+    return (await this.getBlockedRemainingMs()) > 0;
+  },
+
+  /**
+   * Throws WebhookRateLimitError when the gate is active.
+   * When the timer has expired, acquires a short probe lock so only one
+   * worker may hit Discord; others keep waiting on the previous window.
+   */
+  async assertNotBlocked(host = 'discord.com'): Promise<void> {
+    const remainingMs = await this.getBlockedRemainingMs();
+    if (remainingMs > 0) {
+      const meta = await this.getBlockMeta();
+      throw new WebhookRateLimitError(
+        `Discord webhook gate active host=${host} retryAfterMs=${remainingMs} cloudflare=${!!meta?.isCloudflareBlock}`,
+        {
+          retryAfterMs: remainingMs,
+          isCloudflareBlock: meta?.isCloudflareBlock ?? true,
+          host,
+        },
+      );
+    }
+
+    // Timer expired — only one concurrent probe may proceed.
+    const client = await redis.getClient();
+    if (!client) return;
+
+    try {
+      const acquired = await client.set(PROBE_LOCK_KEY, String(Date.now()), {
+        NX: true,
+        EX: PROBE_LOCK_TTL_SECONDS,
+      });
+      if (acquired === null || acquired === undefined || acquired === false) {
+        // Another worker is probing; treat as still blocked briefly.
+        throw new WebhookRateLimitError(
+          `Discord webhook probe in progress host=${host} retryAfterMs=5000`,
+          {
+            retryAfterMs: 5_000,
+            isCloudflareBlock: true,
+            host,
+          },
+        );
+      }
+    } catch (err) {
+      if (err instanceof WebhookRateLimitError) throw err;
+      logger.warn('[DiscordWebhookGate] probe lock failed; allowing send', err);
+    }
+  },
+
+  async setBlocked(
+    retryAfterMs: number,
+    options: { isCloudflareBlock?: boolean } = {},
+  ): Promise<number> {
+    const capped = capRetryAfterMs(retryAfterMs);
+    const until = Date.now() + capped;
+    const existing = await this.getBlockedUntilMs();
+    const finalUntil = Math.max(existing, until);
+    const ttlSeconds = Math.max(1, Math.ceil((finalUntil - Date.now()) / 1000));
+
+    await redis.set(BLOCKED_UNTIL_KEY, finalUntil, ttlSeconds);
+    await redis.set(
+      BLOCKED_META_KEY,
+      {
+        isCloudflareBlock: options.isCloudflareBlock ?? false,
+        setAt: Date.now(),
+      } satisfies DiscordWebhookBlockMeta,
+      ttlSeconds,
+    );
+
+    logger.warn('[DiscordWebhookGate] blockedUntil set', {
+      retryAfterMs: capped,
+      blockedUntil: finalUntil,
+      isCloudflareBlock: options.isCloudflareBlock ?? false,
+    });
+
+    return finalUntil;
+  },
+
+  async clear(): Promise<void> {
+    await redis.del(BLOCKED_UNTIL_KEY);
+    await redis.del(BLOCKED_META_KEY);
+    await redis.del(PROBE_LOCK_KEY);
+  },
+
+  async releaseProbeLock(): Promise<void> {
+    await redis.del(PROBE_LOCK_KEY);
+  },
+
+  hashWebhookUrl(webhookUrl: string): string {
+    return createHash('sha256').update(webhookUrl).digest('hex').slice(0, 16);
+  },
+};
