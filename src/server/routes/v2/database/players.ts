@@ -768,7 +768,7 @@ router.put(
   ApiDoc({
     operationId: 'putPlayerAliases',
     summary: 'Replace player aliases',
-    description: 'Full replacement of searchable player aliases (max 20). Super admin.',
+    description: 'Full replacement of searchable player aliases (max 100). Super admin.',
     tags: ['Database', 'Players'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },

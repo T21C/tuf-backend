@@ -5,7 +5,7 @@ import Creator from '@/models/credits/Creator.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 
 /** Self-service cap (admin popup uses the same limit in the client). */
-export const MAX_CREATOR_ALIASES_SELF = 20;
+export const MAX_CREATOR_ALIASES_SELF = 100;
 
 const MIN_LEN = 2;
 const MAX_LEN = 100;

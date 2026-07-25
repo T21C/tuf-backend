@@ -5,7 +5,7 @@ import PlayerAlias from '@/models/players/PlayerAlias.js';
 import Creator from '@/models/credits/Creator.js';
 import {CreatorAlias} from '@/models/credits/CreatorAlias.js';
 
-export const MAX_PLAYER_ALIASES = 20;
+export const MAX_PLAYER_ALIASES = 100;
 
 const MIN_LEN = 2;
 const MAX_LEN = 100;

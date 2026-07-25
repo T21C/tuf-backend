@@ -383,7 +383,7 @@ router.patch(
     operationId: 'v3PatchCreatorMeAliases',
     summary: 'Replace my creator aliases (v3)',
     description:
-      'Requires `creatorId` on the user. Body: `aliases: string[]` (full replacement, max 20). ' +
+      'Requires `creatorId` on the user. Body: `aliases: string[]` (full replacement, max 100). ' +
       'Each alias must be unique vs other creators’ names and aliases (case-insensitive), ' +
       'and cannot match this creator’s display name.',
     tags: ['Database', 'Creators', 'v3'],
