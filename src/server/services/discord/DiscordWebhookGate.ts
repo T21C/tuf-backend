@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { redis } from '@/server/services/core/RedisService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { WebhookRateLimitError } from '@/misc/webhook/classes/webhookErrors.js';
+import { sseManager } from '@/misc/utils/server/sse.js';
 
 const BLOCKED_UNTIL_KEY = 'discord:webhook:blockedUntil';
 const BLOCKED_META_KEY = 'discord:webhook:blockedMeta';
@@ -15,6 +16,21 @@ export type DiscordWebhookBlockMeta = {
   isCloudflareBlock: boolean;
   setAt: number;
 };
+
+function broadcastGateChanged(retryAfterMs: number): void {
+  try {
+    sseManager.broadcast({
+      type: 'discord.gate.changed',
+      data: {
+        blocked: retryAfterMs > 0,
+        retryAfterMs,
+        blockedUntil: retryAfterMs > 0 ? Date.now() + retryAfterMs : null,
+      },
+    });
+  } catch (err) {
+    logger.warn('[DiscordWebhookGate] SSE gate broadcast failed', err);
+  }
+}
 
 function capRetryAfterMs(retryAfterMs: number): number {
   return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, Math.floor(retryAfterMs)));
@@ -133,6 +149,8 @@ export const DiscordWebhookGate = {
       isCloudflareBlock: options.isCloudflareBlock ?? false,
     });
 
+    broadcastGateChanged(Math.max(0, finalUntil - Date.now()));
+
     return finalUntil;
   },
 
@@ -141,12 +159,17 @@ export const DiscordWebhookGate = {
     await redis.del(BLOCKED_META_KEY);
     await redis.del(NEEDS_PROBE_KEY);
     await redis.del(PROBE_LOCK_KEY);
+    broadcastGateChanged(0);
   },
 
   /** Call after a successful Discord webhook response. */
   async noteSuccessfulSend(): Promise<void> {
+    const wasProbing = await this.needsProbe();
     await redis.del(NEEDS_PROBE_KEY);
     await redis.del(PROBE_LOCK_KEY);
+    if (wasProbing) {
+      broadcastGateChanged(0);
+    }
   },
 
   async releaseProbeLock(): Promise<void> {

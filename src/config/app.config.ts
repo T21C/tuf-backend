@@ -20,11 +20,32 @@ export function isTufStellarFeatureEnabled(): boolean {
 }
 
 /**
+ * When set, every announcement webhook send uses this URL instead of the configured
+ * channel / rerate hook URLs. Delivery tracking still keys off the original URLs.
+ * Example: a personal Discord webhook for safe local testing.
+ */
+export function getDiscordAnnouncementWebhookOverride(): string | null {
+  const raw = (process.env.DISCORD_ANNOUNCEMENT_WEBHOOK_OVERRIDE || '').trim();
+  return raw.length > 0 ? raw : null;
+}
+
+/**
+ * Resolve the URL used for the actual HTTP send (override wins when set).
+ */
+export function resolveDiscordAnnouncementWebhookUrl(originalUrl: string): string {
+  return getDiscordAnnouncementWebhookOverride() || originalUrl;
+}
+
+/**
  * Batch announcement webhooks (levels / rerates / passes) are logged only in development
  * so local runs do not post to production Discord channels.
  * Set `DISCORD_ANNOUNCEMENT_DELIVERY_FORCE=true` to send from development anyway.
+ * Setting `DISCORD_ANNOUNCEMENT_WEBHOOK_OVERRIDE` also enables delivery (to the override URL).
  */
 export function shouldDeliverDiscordAnnouncementWebhooks(): boolean {
+  if (getDiscordAnnouncementWebhookOverride()) {
+    return true;
+  }
   if (process.env.NODE_ENV === 'development') {
     return parseEnvBool(process.env.DISCORD_ANNOUNCEMENT_DELIVERY_FORCE, false);
   }

@@ -37,6 +37,8 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import {
   clientUrlEnv,
   shouldDeliverDiscordAnnouncementWebhooks,
+  resolveDiscordAnnouncementWebhookUrl,
+  getDiscordAnnouncementWebhookOverride,
 } from '@/config/app.config.js';
 import { User } from '@/models/index.js';
 import { formatCredits } from '@/misc/utils/Utility.js';
@@ -44,7 +46,6 @@ import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
 import { markQueueRowsSkipped } from '@/server/services/announcements/levelAnnouncementQueue.js';
-import hash from 'object-hash';
 import crypto from 'crypto';
 import { OutboxService } from '@/server/services/outbox/OutboxService.js';
 import { OUTBOX_EVENT_TYPES } from '@/server/services/outbox/events.js';
@@ -53,6 +54,9 @@ import type {
   AnnouncementDeliveryKind,
 } from '@/server/services/discord/AnnouncementDeliveryTracker.js';
 import { AnnouncementDeliveryTracker } from '@/server/services/discord/AnnouncementDeliveryTracker.js';
+import { AnnouncementJobService } from '@/server/services/announcements/AnnouncementJobService.js';
+import LevelAnnouncementQueue from '@/models/levels/LevelAnnouncementQueue.js';
+import { isWebhookRateLimitError } from '@/misc/webhook/index.js';
 
 const router: Router = express.Router();
 
@@ -474,75 +478,166 @@ function summarizeAnnouncementPayload(
   };
 }
 
+async function recordDeliveryAndNotify(
+  delivery: SendMessagesDeliveryContext,
+  itemIds: number[],
+  webhookUrl: string,
+  webhookLabel: string,
+  batchId: string,
+): Promise<void> {
+  const newlyCompleted = await AnnouncementDeliveryTracker.recordMessageDelivered({
+    kind: delivery.kind,
+    itemIds,
+    webhookUrl,
+    requiredWebhooksByItemId: delivery.requiredWebhooksByItemId,
+    levelIdByItemId: delivery.levelIdByItemId,
+  });
+
+  for (const itemId of itemIds) {
+    const required = delivery.requiredWebhooksByItemId.get(itemId) || [];
+    const delivered = await AnnouncementDeliveryTracker.getDeliveredWebhookHashes(
+      delivery.kind,
+      itemId,
+    );
+    const destinationsDone = required.filter(url =>
+      delivered.has(AnnouncementDeliveryTracker.hashWebhookUrl(url)),
+    ).length;
+    await AnnouncementJobService.upsertBatchForItems({
+      kind: delivery.kind,
+      itemIds: [itemId],
+      batchId,
+      webhookLabel,
+      status: newlyCompleted.includes(itemId) ? 'sent' : 'sent',
+      destinationsDone,
+      destinationsRequired: Math.max(1, required.length),
+    });
+  }
+
+  if (newlyCompleted.length > 0) {
+    await AnnouncementJobService.markItemsDelivered(delivery.kind, newlyCompleted);
+  }
+}
+
 // Helper to send embeds for a channel (levels / rerates / passes batch announcements)
 export async function sendMessages(
   channel: ChannelMessages,
   message?: string,
   delivery?: SendMessagesDeliveryContext,
 ): Promise<void> {
-  if (!shouldDeliverDiscordAnnouncementWebhooks()) {
-    logger.info('[discord-announcement] Development dry-run — skipping webhook delivery', {
-      summary: summarizeAnnouncementPayload(channel, message),
-    });
-    if (delivery) {
-      for (const msg of channel.messages) {
-        if (msg.itemIds && msg.itemIds.length > 0) {
-          await AnnouncementDeliveryTracker.recordMessageDelivered({
-            kind: delivery.kind,
-            itemIds: msg.itemIds,
-            webhookUrl: channel.webhookUrl,
-            requiredWebhooksByItemId: delivery.requiredWebhooksByItemId,
-            levelIdByItemId: delivery.levelIdByItemId,
-          });
+  const webhookLabel =
+    channel.channelConfig?.label ||
+    `webhook-${AnnouncementDeliveryTracker.hashWebhookUrl(channel.webhookUrl)}`;
+  const batchId = AnnouncementDeliveryTracker.hashWebhookUrl(channel.webhookUrl);
+
+  try {
+    if (!shouldDeliverDiscordAnnouncementWebhooks()) {
+      logger.info('[discord-announcement] Development dry-run — skipping webhook delivery', {
+        summary: summarizeAnnouncementPayload(channel, message),
+      });
+      if (delivery) {
+        for (const msg of channel.messages) {
+          if (msg.itemIds && msg.itemIds.length > 0) {
+            await AnnouncementJobService.upsertBatchForItems({
+              kind: delivery.kind,
+              itemIds: msg.itemIds,
+              batchId,
+              webhookLabel,
+              status: 'sending',
+              destinationsRequired: 1,
+            });
+            await recordDeliveryAndNotify(
+              delivery,
+              msg.itemIds,
+              channel.webhookUrl,
+              webhookLabel,
+              batchId,
+            );
+          }
         }
       }
+      return;
     }
-    return;
-  }
 
-  // Outbox already retries with backoff; disable nested 429 retries here so we don't
-  // multiply announcement attempts against Discord/Cloudflare.
-  const hook = new Webhook({
-    url: channel.webhookUrl,
-    throwErrors: true,
-    retryOnLimit: false,
-  });
-  hook.setUsername('TUF Announcer');
-  hook.setAvatar(botAvatar);
+    // Outbox already retries with backoff; disable nested 429 retries here so we don't
+    // multiply announcement attempts against Discord/Cloudflare.
+    const sendUrl = resolveDiscordAnnouncementWebhookUrl(channel.webhookUrl);
+    const webhookOverride = getDiscordAnnouncementWebhookOverride();
+    if (webhookOverride) {
+      logger.info('[discord-announcement] Using DISCORD_ANNOUNCEMENT_WEBHOOK_OVERRIDE for send', {
+        label: channel.channelConfig?.label,
+        originalHost: (() => {
+          try {
+            return new URL(channel.webhookUrl).hostname;
+          } catch {
+            return 'invalid-url';
+          }
+        })(),
+      });
+    }
+    const hook = new Webhook({
+      url: sendUrl,
+      throwErrors: true,
+      retryOnLimit: false,
+    });
+    hook.setUsername('TUF Announcer');
+    hook.setAvatar(botAvatar);
 
-  for (const msg of channel.messages) {
-    if (msg.type === 'text') {
-      // Send plain text message
-      const textMessage = msg.content || message || '';
-      if (textMessage) {
-        const plainTextMessage = new MessageBuilder().setText(textMessage);
-        await hook.send(plainTextMessage);
+    for (const msg of channel.messages) {
+      if (msg.type === 'text') {
+        // Send plain text message
+        const textMessage = msg.content || message || '';
+        if (textMessage) {
+          const plainTextMessage = new MessageBuilder().setText(textMessage);
+          await hook.send(plainTextMessage);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      } else if (msg.type === 'embeds' && msg.embeds && msg.embeds.length > 0) {
+        // Send embed batch
+        const combinedEmbed = MessageBuilder.combine(...msg.embeds);
+
+        // Add content to embed batch if provided (from msg.content or fallback message)
+        const textContent = msg.content || (message && channel.messages.indexOf(msg) === 0 ? message : undefined);
+        if (textContent) {
+          combinedEmbed.setText(textContent);
+        }
+
+        if (delivery && msg.itemIds && msg.itemIds.length > 0) {
+          await AnnouncementJobService.upsertBatchForItems({
+            kind: delivery.kind,
+            itemIds: msg.itemIds,
+            batchId,
+            webhookLabel,
+            status: 'sending',
+            destinationsRequired: Math.max(
+              1,
+              ...msg.itemIds.map(id => (delivery.requiredWebhooksByItemId.get(id) || []).length),
+            ),
+          });
+        }
+
+        await hook.send(combinedEmbed);
+
+        if (delivery && msg.itemIds && msg.itemIds.length > 0) {
+          await recordDeliveryAndNotify(
+            delivery,
+            msg.itemIds,
+            channel.webhookUrl,
+            webhookLabel,
+            batchId,
+          );
+        }
+
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
-    } else if (msg.type === 'embeds' && msg.embeds && msg.embeds.length > 0) {
-      // Send embed batch
-      const combinedEmbed = MessageBuilder.combine(...msg.embeds);
-
-      // Add content to embed batch if provided (from msg.content or fallback message)
-      const textContent = msg.content || (message && channel.messages.indexOf(msg) === 0 ? message : undefined);
-      if (textContent) {
-        combinedEmbed.setText(textContent);
-      }
-
-      await hook.send(combinedEmbed);
-
-      if (delivery && msg.itemIds && msg.itemIds.length > 0) {
-        await AnnouncementDeliveryTracker.recordMessageDelivered({
-          kind: delivery.kind,
-          itemIds: msg.itemIds,
-          webhookUrl: channel.webhookUrl,
-          requiredWebhooksByItemId: delivery.requiredWebhooksByItemId,
-          levelIdByItemId: delivery.levelIdByItemId,
-        });
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 1000));
     }
+  } catch (err) {
+    if (isWebhookRateLimitError(err) && delivery) {
+      await AnnouncementJobService.markKindBlocked(
+        delivery.kind,
+        err.message || 'Discord webhook rate limited',
+      );
+    }
+    throw err;
   }
 }
 
@@ -724,6 +819,80 @@ async function rejectIfDiscordWebhookBlocked(
   });
 }
 
+async function buildPassLabels(passIds: number[]): Promise<Map<number, string>> {
+  const labels = new Map<number, string>();
+  if (passIds.length === 0) return labels;
+  const passes = await Pass.findAll({
+    where: { id: { [Op.in]: passIds } },
+    include: [
+      { model: Level, as: 'level', attributes: ['song', 'artist'] },
+      { model: Player, as: 'player', attributes: ['name'] },
+    ],
+  });
+  for (const pass of passes) {
+    const song = pass.level?.song || 'Unknown';
+    const player = pass.player?.name || 'Unknown';
+    labels.set(pass.id, `${song} — ${player}`);
+  }
+  return labels;
+}
+
+async function buildQueueRowLabels(queueRowIds: number[]): Promise<Map<number, string>> {
+  const labels = new Map<number, string>();
+  if (queueRowIds.length === 0) return labels;
+  const rows = await LevelAnnouncementQueue.findAll({
+    where: { id: { [Op.in]: queueRowIds } },
+    include: [{ model: Level, as: 'level', attributes: ['song', 'artist'] }],
+  });
+  for (const row of rows) {
+    const song = row.level?.song || 'Unknown';
+    const artist = row.level?.artist || '';
+    labels.set(row.id, artist ? `${song} — ${artist}` : song);
+  }
+  return labels;
+}
+
+function announceResponse(job: Awaited<ReturnType<typeof AnnouncementJobService.createOrMergeRequest>>) {
+  return {
+    success: true,
+    message: job.addedItemCount > 0 ? 'Webhook queued' : 'Nothing new to send',
+    requestId: job.requestId,
+    kind: job.kind,
+    itemCount: job.itemCount,
+    addedItemCount: job.addedItemCount,
+    nothingToSend: job.addedItemCount === 0,
+  };
+}
+
+router.get(
+  '/announcement-jobs',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getWebhookAnnouncementJobs',
+    summary: 'Get announcement job snapshot',
+    description: 'Open and recent announcement request trees for a kind. Super admin.',
+    tags: ['Webhooks'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Snapshot' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const kind = String(req.query.kind || '');
+      if (kind !== 'pass' && kind !== 'level' && kind !== 'rerate') {
+        return res.status(400).json({ error: 'kind must be pass, level, or rerate' });
+      }
+      const snapshot = await AnnouncementJobService.getSnapshot(kind);
+      return res.json(snapshot);
+    } catch (error) {
+      logger.error('Error fetching announcement jobs:', error);
+      return res.status(500).json({
+        error: 'Failed to fetch announcement jobs',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
 router.post(
   '/passes',
   Auth.superAdmin(),
@@ -748,14 +917,29 @@ router.post(
       }
 
       const sorted = [...passIds].sort((a, b) => a - b);
-      await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordPassBatchAnnouncement, {
-        aggregate: 'pass_webhook',
-        aggregateId: hash(sorted),
-        dedupKey: hash(sorted),
-        payload: { passIds: sorted },
+      const labelsByItemId = await buildPassLabels(sorted);
+      const job = await AnnouncementJobService.createOrMergeRequest({
+        kind: 'pass',
+        itemIds: sorted,
+        labelsByItemId,
+        user: {
+          id: String(req.user?.id || ''),
+          username: req.user?.username,
+          nickname: req.user?.nickname,
+        },
       });
 
-      return res.json({success: true, message: 'Webhook queued'});
+      if (job.addedItemIds.length > 0) {
+        const nonce = crypto.randomUUID();
+        await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordPassBatchAnnouncement, {
+          aggregate: 'pass_webhook',
+          aggregateId: nonce,
+          dedupKey: null,
+          payload: { passIds: job.addedItemIds },
+        });
+      }
+
+      return res.json(announceResponse(job));
     } catch (error) {
       logger.error('Error sending webhook:', error);
       return res.status(500).json({
@@ -790,15 +974,29 @@ router.post(
       }
 
       const sorted = [...queueRowIds].sort((a, b) => a - b);
-      const nonce = crypto.randomUUID();
-      await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordLevelBatchAnnouncement, {
-        aggregate: 'level_webhook',
-        aggregateId: nonce,
-        dedupKey: null,
-        payload: { queueRowIds: sorted },
+      const labelsByItemId = await buildQueueRowLabels(sorted);
+      const job = await AnnouncementJobService.createOrMergeRequest({
+        kind: 'level',
+        itemIds: sorted,
+        labelsByItemId,
+        user: {
+          id: String(req.user?.id || ''),
+          username: req.user?.username,
+          nickname: req.user?.nickname,
+        },
       });
 
-      return res.json({success: true, message: 'Webhook queued'});
+      if (job.addedItemIds.length > 0) {
+        const nonce = crypto.randomUUID();
+        await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordLevelBatchAnnouncement, {
+          aggregate: 'level_webhook',
+          aggregateId: nonce,
+          dedupKey: null,
+          payload: { queueRowIds: job.addedItemIds },
+        });
+      }
+
+      return res.json(announceResponse(job));
     } catch (error) {
       logger.error('Error sending webhook:', error);
       return res.status(500).json({
@@ -833,18 +1031,29 @@ router.post(
       }
 
       const sorted = [...queueRowIds].sort((a, b) => a - b);
-      const nonce = crypto.randomUUID();
-      await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement, {
-        aggregate: 'rerate_webhook',
-        aggregateId: nonce,
-        dedupKey: null,
-        payload: { queueRowIds: sorted },
+      const labelsByItemId = await buildQueueRowLabels(sorted);
+      const job = await AnnouncementJobService.createOrMergeRequest({
+        kind: 'rerate',
+        itemIds: sorted,
+        labelsByItemId,
+        user: {
+          id: String(req.user?.id || ''),
+          username: req.user?.username,
+          nickname: req.user?.nickname,
+        },
       });
 
-      return res.json({
-        success: true,
-        message: 'Webhook queued',
-      });
+      if (job.addedItemIds.length > 0) {
+        const nonce = crypto.randomUUID();
+        await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement, {
+          aggregate: 'rerate_webhook',
+          aggregateId: nonce,
+          dedupKey: null,
+          payload: { queueRowIds: job.addedItemIds },
+        });
+      }
+
+      return res.json(announceResponse(job));
     } catch (error) {
       logger.error('Error sending webhook:', error);
       return res.status(500).json({
