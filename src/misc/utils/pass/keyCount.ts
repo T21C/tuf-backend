@@ -1,12 +1,45 @@
-export function normalizeKeyCount(raw: unknown): number | null {
+/** MySQL signed INT range; also a hard ceiling for keyCount / passerId / levelId. */
+export const MYSQL_INT_MAX = 2_147_483_647;
+export const MYSQL_INT_MIN = -2_147_483_648;
+
+/** Practical max for ADOFAI key lanes (well under INT; rejects garbage floats). */
+export const MAX_PASS_KEY_COUNT = 64;
+
+/**
+ * Parse a strict integer in [min, max]. Returns null for empty/missing.
+ * Rejects non-integers (including large floats that used to pass `> 0` checks).
+ */
+export function parseStrictInt(
+  raw: unknown,
+  opts: { min?: number; max?: number; allowEmpty?: boolean } = {},
+): number | null {
+  const min = opts.min ?? MYSQL_INT_MIN;
+  const max = opts.max ?? MYSQL_INT_MAX;
   if (raw === null || raw === undefined || raw === '') {
     return null;
   }
-  const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
-  if (!Number.isFinite(n) || n <= 0) {
+  let n: number;
+  if (typeof raw === 'number') {
+    n = raw;
+  } else if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) return null;
+    // Reject scientific notation / floats in string form via Number then integer check.
+    n = Number(trimmed);
+  } else if (typeof raw === 'bigint') {
+    if (raw > BigInt(max) || raw < BigInt(min)) return null;
+    return Number(raw);
+  } else {
+    return null;
+  }
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < min || n > max) {
     return null;
   }
   return n;
+}
+
+export function normalizeKeyCount(raw: unknown): number | null {
+  return parseStrictInt(raw, { min: 1, max: MAX_PASS_KEY_COUNT });
 }
 
 export function deriveKeyFlags(keyCount: number | null): { is12K: boolean; is16K: boolean } {
@@ -43,6 +76,8 @@ export function assertPassKeyCountForDifficulty(
     return;
   }
   if (keyCount === null) {
-    throw new Error('Missing or invalid keyCount — must be a positive integer');
+    throw new Error(
+      `Missing or invalid keyCount — must be an integer between 1 and ${MAX_PASS_KEY_COUNT}`,
+    );
   }
 }

@@ -27,7 +27,7 @@ import {
 import { passSubmissionHook } from '@/server/routes/v2/webhooks/webhook.js';
 
 import { formError } from '../shared/errors.js';
-import { assertPassKeyCountForDifficulty } from '@/misc/utils/pass/keyCount.js';
+import { assertPassKeyCountForDifficulty, MAX_PASS_KEY_COUNT } from '@/misc/utils/pass/keyCount.js';
 import { parseAndSanitizePassForm, type PassFormSanitised } from './dto.js';
 import { applyResolvedVideoLinkToPayload } from '../shared/videoUrl.js';
 
@@ -64,7 +64,9 @@ export async function createPassSubmission(
       assertPassKeyCountForDifficulty(level.difficulty?.name, sanitized.keyCount);
     } catch (err) {
       throw formError.bad(
-        err instanceof Error ? err.message : 'Missing or invalid keyCount — must be a positive integer',
+        err instanceof Error
+          ? err.message
+          : `Missing or invalid keyCount — must be an integer between 1 and ${MAX_PASS_KEY_COUNT}`,
         { field: 'keyCount' },
       );
     }
@@ -72,6 +74,11 @@ export async function createPassSubmission(
     await assertNoDuplicatePass(sanitized, transaction);
 
     const { score, accuracy } = computeScoreAndAccuracy(sanitized, level);
+    if (!Number.isFinite(score) || !Number.isFinite(accuracy)) {
+      throw formError.bad('Computed score/accuracy is not a finite number', {
+        details: { score, accuracy, levelId: sanitized.levelId },
+      });
+    }
 
     const submission = await PassSubmission.create(
       {
@@ -172,8 +179,19 @@ export async function createPassSubmission(
     };
   } catch (err) {
     if (transaction) await safeTransactionRollback(transaction);
-    throw err;
+    throw mapPassSubmissionDbError(err);
   }
+}
+
+function mapPassSubmissionDbError(err: unknown): unknown {
+  const parent = (err as { parent?: { code?: string; sqlMessage?: string }; original?: { code?: string } })
+    ?.parent;
+  const code = parent?.code || (err as { original?: { code?: string } })?.original?.code;
+  if (code === 'ER_WARN_DATA_OUT_OF_RANGE' || code === 'ER_DATA_OUT_OF_RANGE') {
+    const msg = parent?.sqlMessage || 'One or more numeric fields are out of range';
+    return formError.bad(msg, { details: { code } });
+  }
+  return err;
 }
 
 async function loadLevelOr404(levelId: number, transaction: Transaction): Promise<Level> {

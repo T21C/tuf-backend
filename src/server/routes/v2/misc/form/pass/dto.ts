@@ -2,7 +2,13 @@ import { sanitizeTextInput, validateDateInput, validateFloatInput } from '../sha
 import { cleanVideoUrl } from '../shared/videoUrl.js';
 import { formError } from '../shared/errors.js';
 import { sanitizeJudgements } from '@/misc/utils/pass/SanitizeJudgements.js';
-import { deriveKeyFlags, normalizeKeyCount } from '@/misc/utils/pass/keyCount.js';
+import {
+  deriveKeyFlags,
+  normalizeKeyCount,
+  parseStrictInt,
+  MYSQL_INT_MAX,
+  MAX_PASS_KEY_COUNT,
+} from '@/misc/utils/pass/keyCount.js';
 
 export interface PassFormSanitised {
   levelId: number;
@@ -39,6 +45,14 @@ function optionalSanitizedText(body: Record<string, unknown>, field: string): st
   return trimmed.length > 0 ? sanitizeTextInput(trimmed) : null;
 }
 
+function requirePositiveInt(raw: unknown, field: string, max = MYSQL_INT_MAX): number {
+  const parsed = parseStrictInt(raw, { min: 1, max });
+  if (parsed === null) {
+    throw formError.bad(`Invalid ${field} — must be an integer between 1 and ${max}`, { field });
+  }
+  return parsed;
+}
+
 /**
  * Parse + validate a pass submission payload. Throws {@link FormError} on
  * structural problems. Leaves semantic checks (duplicate detection, score
@@ -59,13 +73,17 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
   const title = sanitizeTextInput(requiredText('title'));
   requiredText('rawTime');
 
-  const levelIdRaw = body.levelId;
-  const levelId = typeof levelIdRaw === 'number' ? levelIdRaw : parseInt(String(levelIdRaw ?? ''));
-  if (Number.isNaN(levelId) || levelId <= 0) {
-    throw formError.bad('Invalid level ID', { field: 'levelId' });
-  }
+  const levelId = requirePositiveInt(body.levelId, 'levelId');
 
-  const speed = body.speed != null && body.speed !== '' ? validateFloatInput(body.speed, 1, 100) : 1;
+  let speed = 1;
+  if (body.speed != null && body.speed !== '') {
+    const speedNum =
+      typeof body.speed === 'number' ? body.speed : Number(String(body.speed).trim());
+    if (!Number.isFinite(speedNum) || speedNum < 1 || speedNum > 100) {
+      throw formError.bad('Invalid speed — must be a number between 1 and 100', { field: 'speed' });
+    }
+    speed = validateFloatInput(speedNum, 1, 100);
+  }
 
   const rawTime = validateDateInput(body.rawTime);
   if (!rawTime) {
@@ -76,7 +94,10 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
 
   const keyCount = normalizeKeyCount(body.keyCount);
   if (body.keyCount !== undefined && body.keyCount !== null && body.keyCount !== '' && keyCount === null) {
-    throw formError.bad('Invalid keyCount — must be a positive integer', { field: 'keyCount' });
+    throw formError.bad(
+      `Invalid keyCount — must be an integer between 1 and ${MAX_PASS_KEY_COUNT}`,
+      { field: 'keyCount' },
+    );
   }
   const { is12K, is16K } = deriveKeyFlags(keyCount);
 
@@ -87,11 +108,7 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
 
   let passerId: number | null = null;
   if (body.passerId !== undefined && body.passerId !== null && body.passerId !== '') {
-    const parsed = typeof body.passerId === 'number' ? body.passerId : parseInt(String(body.passerId));
-    if (Number.isNaN(parsed) || parsed <= 0) {
-      throw formError.bad('Invalid passerId — must be a positive integer', { field: 'passerId' });
-    }
-    passerId = parsed;
+    passerId = requirePositiveInt(body.passerId, 'passerId');
   }
 
   const judgements = sanitizeJudgements(body);

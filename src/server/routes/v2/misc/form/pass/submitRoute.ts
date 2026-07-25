@@ -56,6 +56,7 @@ router.post(
 
 function isExpectedFormError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
+  if (err instanceof Error && err.name === 'FormError') return true;
   const code = (err as { code?: unknown }).code;
   if (typeof code === 'number' && code >= 400 && code < 500) return true;
   return false;
