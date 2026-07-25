@@ -5,9 +5,11 @@ import { WebhookRateLimitError } from '@/misc/webhook/classes/webhookErrors.js';
 
 const BLOCKED_UNTIL_KEY = 'discord:webhook:blockedUntil';
 const BLOCKED_META_KEY = 'discord:webhook:blockedMeta';
+const NEEDS_PROBE_KEY = 'discord:webhook:needsProbe';
 const PROBE_LOCK_KEY = 'discord:webhook:probeLock';
 const MAX_RETRY_AFTER_MS = 5 * 60_000;
 const PROBE_LOCK_TTL_SECONDS = 30;
+const PROBE_WAIT_FALLBACK_MS = 5_000;
 
 export type DiscordWebhookBlockMeta = {
   isCloudflareBlock: boolean;
@@ -21,6 +23,9 @@ function capRetryAfterMs(retryAfterMs: number): number {
 /**
  * Shared Discord webhook ban / cooldown gate (Redis), so all processes agree
  * and HTTP + outbox can hard-reject while blocked.
+ *
+ * Probe lock is only used when recovering from a ban (`needsProbe`), not on
+ * every healthy send — otherwise parallel webhooks infinite-loop on each other.
  */
 export const DiscordWebhookGate = {
   async getBlockedUntilMs(): Promise<number> {
@@ -41,10 +46,15 @@ export const DiscordWebhookGate = {
     return (await this.getBlockedRemainingMs()) > 0;
   },
 
+  async needsProbe(): Promise<boolean> {
+    const value = await redis.get<boolean | string | number>(NEEDS_PROBE_KEY);
+    return value === true || value === 1 || value === '1' || value === 'true';
+  },
+
   /**
    * Throws WebhookRateLimitError when the gate is active.
-   * When the timer has expired, acquires a short probe lock so only one
-   * worker may hit Discord; others keep waiting on the previous window.
+   * After a ban window expires, only one worker may probe Discord (`needsProbe`).
+   * Healthy traffic (no recent ban) does not take the probe lock.
    */
   async assertNotBlocked(host = 'discord.com'): Promise<void> {
     const remainingMs = await this.getBlockedRemainingMs();
@@ -60,7 +70,10 @@ export const DiscordWebhookGate = {
       );
     }
 
-    // Timer expired — only one concurrent probe may proceed.
+    if (!(await this.needsProbe())) {
+      return;
+    }
+
     const client = await redis.getClient();
     if (!client) return;
 
@@ -70,11 +83,15 @@ export const DiscordWebhookGate = {
         EX: PROBE_LOCK_TTL_SECONDS,
       });
       if (acquired === null || acquired === undefined || acquired === false) {
-        // Another worker is probing; treat as still blocked briefly.
+        const ttlSeconds = await client.ttl(PROBE_LOCK_KEY);
+        const waitMs =
+          typeof ttlSeconds === 'number' && ttlSeconds > 0
+            ? ttlSeconds * 1000
+            : PROBE_WAIT_FALLBACK_MS;
         throw new WebhookRateLimitError(
-          `Discord webhook probe in progress host=${host} retryAfterMs=5000`,
+          `Discord webhook probe in progress host=${host} retryAfterMs=${waitMs}`,
           {
-            retryAfterMs: 5_000,
+            retryAfterMs: waitMs,
             isCloudflareBlock: true,
             host,
           },
@@ -105,6 +122,10 @@ export const DiscordWebhookGate = {
       } satisfies DiscordWebhookBlockMeta,
       ttlSeconds,
     );
+    // After the ban window, force a single-flight probe before opening the floodgates.
+    await redis.set(NEEDS_PROBE_KEY, true, Math.max(ttlSeconds + 60, 120));
+    // Prefer blockedUntil waits over probe-lock contention while the ban is active.
+    await redis.del(PROBE_LOCK_KEY);
 
     logger.warn('[DiscordWebhookGate] blockedUntil set', {
       retryAfterMs: capped,
@@ -118,6 +139,13 @@ export const DiscordWebhookGate = {
   async clear(): Promise<void> {
     await redis.del(BLOCKED_UNTIL_KEY);
     await redis.del(BLOCKED_META_KEY);
+    await redis.del(NEEDS_PROBE_KEY);
+    await redis.del(PROBE_LOCK_KEY);
+  },
+
+  /** Call after a successful Discord webhook response. */
+  async noteSuccessfulSend(): Promise<void> {
+    await redis.del(NEEDS_PROBE_KEY);
     await redis.del(PROBE_LOCK_KEY);
   },
 

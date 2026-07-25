@@ -279,10 +279,14 @@ export default class Webhook {
         );
       }
 
-      // Successful probe / send — drop probe lock so peers can proceed.
-      await DiscordWebhookGate.releaseProbeLock();
+      // Successful send — clear recovery probe state so peers can send normally.
+      await DiscordWebhookGate.noteSuccessfulSend();
     } catch (err: any) {
-      logger.error(`[Webhook] Failed to send webhook: ${err.message}`, {
+      const isProbeWait =
+        typeof err?.message === 'string' &&
+        err.message.includes('probe in progress');
+      const logFn = isProbeWait ? logger.warn.bind(logger) : logger.error.bind(logger);
+      logFn(`[Webhook] Failed to send webhook: ${err.message}`, {
         host,
         embedCount: endPayload.embeds?.length || 0,
         hasContent: !!endPayload.content,
@@ -292,7 +296,7 @@ export default class Webhook {
         retryAfterMs: err.retryAfterMs,
         isCloudflareBlock: err.isCloudflareBlock,
         cause: err.cause?.message || err.cause,
-        stack: err.stack,
+        stack: isProbeWait ? undefined : err.stack,
       });
       if (this.throwErrors) throw err;
     }
