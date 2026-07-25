@@ -4,7 +4,6 @@ import mediaRoutes from './media.js';
 import thumbnailRoutes from './thumbnails.js';
 import formRoutes from './form/index.js';
 import eventsRoutes from './events.js';
-import discordRoutes from './discord.js';
 import uploadRoutes from './upload.js';
 import externalRouter from './external.js';
 import jobsRoutes from './jobs.js';
@@ -28,9 +27,6 @@ router.use('/form', formRoutes);
 
 // Events routes
 router.use('/events', eventsRoutes);
-
-// Discord routes
-router.use('/discord', discordRoutes);
 
 // Kind-based chunked upload router (session + kind + sha256)
 router.use('/upload', uploadRoutes);

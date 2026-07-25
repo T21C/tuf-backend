@@ -47,6 +47,7 @@ import {
   syncAnnouncementQueueAfterLevelSave,
   syncAnnouncementQueueAfterCurveChange,
 } from '@/server/services/announcements/levelAnnouncementQueue.js';
+import { createUserRateLimiter } from '@/server/middleware/userRateLimit.js';
 import {
   validateXaccCurveParams,
   XACC_CURVE_DEFAULTS,
@@ -206,6 +207,13 @@ function parseXaccCurvePayload(body: Record<string, unknown>): {
 }
 
 const router = Router();
+
+const levelOwnEditLimiter = createUserRateLimiter({
+  type: 'level_own_edit',
+  windowMs: 30 * 60 * 1000,
+  maxAttempts: 30,
+  blockDuration: 30 * 60 * 1000,
+});
 
 // Helper functions for level updates
 const handleRatingChanges = async (
@@ -454,10 +462,11 @@ async function executeLevelPassScoreRecalc(
 router.put(
   '/own/:id([0-9]{1,20})',
   Auth.verified(),
+  levelOwnEditLimiter,
   ApiDoc({
     operationId: 'putLevelOwn',
     summary: 'Update own level',
-    description: 'Update level metadata (song, artist, links, etc.) when user owns the level.',
+    description: 'Update level metadata (song, artist, links, etc.) when user owns the level. Rate limited to 30 requests per 30 minutes for non-trusted roles.',
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
