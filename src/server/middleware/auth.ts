@@ -1,6 +1,6 @@
 import {Request, Response, NextFunction} from 'express';
 import {User, OAuthProvider, UserTufStellarBilling} from '@/models/index.js';
-import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC} from '@/misc/utils/auth/auth.js';
+import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC, refreshTokenService} from '@/misc/utils/auth/auth.js';
 import type {UserAttributes} from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
 import { logger } from '@/server/services/core/LoggerService.js';
@@ -88,6 +88,14 @@ const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: N
       return;
     }
 
+    const sessionId = typeof decoded.sid === 'string' ? decoded.sid : null;
+    if (!sessionId || !(await refreshTokenService.isSessionActive(sessionId, decoded.id))) {
+      // Do not clear cookies here — legacy access JWTs without sid can still refresh.
+      // Truly revoked sessions fail refresh next and the client logs out.
+      res.status(401).json({error: 'Session revoked', code: 'SESSION_REVOKED'});
+      return;
+    }
+
     const user = await User.findByPk(decoded.id);
     if (!user) {
       res.status(401).json({error: 'User not found'});
@@ -97,7 +105,7 @@ const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: N
     // Check if permissions are up to date; if not, set new access token cookie
     const permissionsValid = await tokenUtils.verifyTokenPermissions(decoded);
     if (!permissionsValid) {
-      const newAccessToken = tokenUtils.generateAccessToken(user);
+      const newAccessToken = tokenUtils.generateAccessToken(user, sessionId);
       cookieUtils.setAuthCookies(res, newAccessToken, null, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
       res.setHeader('X-Permission-Changed', 'true');
     }
@@ -129,6 +137,11 @@ const tryUserAuth: MiddlewareFunction = async (req: Request, _res: Response, nex
     }
     const decoded = tokenUtils.verifyAccessToken(token);
     if (!decoded?.id) {
+      next();
+      return;
+    }
+    const sessionId = typeof decoded.sid === 'string' ? decoded.sid : null;
+    if (!sessionId || !(await refreshTokenService.isSessionActive(sessionId, decoded.id))) {
       next();
       return;
     }

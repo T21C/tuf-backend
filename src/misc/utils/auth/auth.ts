@@ -55,7 +55,7 @@ export const passwordUtils = {
   },
 };
 
-function getAccessTokenPayload(user: User) {
+function getAccessTokenPayload(user: User, sessionId: string) {
   return {
     id: user.id,
     email: user.email,
@@ -65,6 +65,8 @@ function getAccessTokenPayload(user: User) {
     permissionFlags: user.permissionFlags.toString(),
     playerId: user.playerId,
     permissionVersion: user.permissionVersion,
+    /** Refresh-token session id; access JWTs are rejected once this session is revoked. */
+    sid: sessionId,
   };
 }
 
@@ -73,12 +75,12 @@ function getAccessTokenPayload(user: User) {
  */
 export const tokenUtils = {
   /**
-   * Generate short-lived access JWT for a user
+   * Generate short-lived access JWT for a user, bound to a refresh-token session.
    */
-  generateAccessToken: (user: User): string => {
+  generateAccessToken: (user: User, sessionId: string): string => {
     const expiresInSec = 15 * 60; // static 15 minutes
     return jwt.sign(
-      getAccessTokenPayload(user),
+      getAccessTokenPayload(user, sessionId),
       JWT_SECRET,
       { expiresIn: expiresInSec }
     );
@@ -97,9 +99,10 @@ export const tokenUtils = {
 
   /**
    * Generate a JWT token for a user (legacy; prefer generateAccessToken + refresh flow)
+   * @deprecated Requires a session id — prefer generateAccessToken(user, sessionId)
    */
-  generateJWT: (user: User): string => {
-    return tokenUtils.generateAccessToken(user);
+  generateJWT: (user: User, sessionId: string): string => {
+    return tokenUtils.generateAccessToken(user, sessionId);
   },
 
   /**
@@ -287,6 +290,23 @@ export const refreshTokenService = {
   },
 
   /**
+   * Whether a refresh-token session is still usable (not revoked / not expired).
+   */
+  async isSessionActive(sessionId: string, userId: string): Promise<boolean> {
+    if (!sessionId || !userId) return false;
+    const record = await RefreshToken.findOne({
+      where: {
+        id: sessionId,
+        userId,
+        revokedAt: null,
+        expiresAt: { [Op.gt]: new Date() },
+      },
+      attributes: ['id'],
+    });
+    return Boolean(record);
+  },
+
+  /**
    * Revoke all active sessions for a user except the one to keep (current device).
    */
   async revokeOtherSessionsForUser(
@@ -305,6 +325,35 @@ export const refreshTokenService = {
       },
     );
     return affected;
+  },
+
+  /**
+   * Rotate a valid refresh token in place (same session id).
+   * Keeps session identity stable across access-token refreshes.
+   */
+  async rotateRefreshToken(
+    plainToken: string,
+    metadata?: RefreshTokenMetadata,
+  ): Promise<{ token: string; expiresAt: Date; sessionId: string; user: User } | null> {
+    const record = await this.findValidRefreshToken(plainToken);
+    if (!record?.user) return null;
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashRefreshToken(token);
+    const expiresAt = new Date(Date.now() + JWT_REFRESH_EXPIRES_IN_SEC * 1000);
+    await record.update({
+      tokenHash,
+      expiresAt,
+      userAgent: metadata?.userAgent ?? record.userAgent,
+      ip: metadata?.ip ?? record.ip,
+    });
+
+    return {
+      token,
+      expiresAt,
+      sessionId: record.id,
+      user: record.user as User,
+    };
   },
 
   /**
@@ -377,6 +426,27 @@ export const cookieUtils = {
       ...CSRF_COOKIE_OPTIONS,
       maxAge: refreshMaxAgeSec * 1000,
     });
+    // Expose to JS for cross-origin SPAs that cannot read the cookie via document.cookie
+    res.setHeader('X-CSRF-Token', csrf);
+  },
+
+  /**
+   * Ensure a CSRF cookie exists and echo the value to the client (body + header).
+   * Used so cross-origin SPAs can double-submit without reading host-only API cookies.
+   */
+  ensureCsrfToken(req: Request, res: Response): string {
+    const existing = req.cookies?.[COOKIE_CSRF];
+    if (typeof existing === 'string' && existing.length > 0) {
+      res.setHeader('X-CSRF-Token', existing);
+      return existing;
+    }
+    const csrf = crypto.randomBytes(32).toString('hex');
+    res.cookie(COOKIE_CSRF, csrf, {
+      ...CSRF_COOKIE_OPTIONS,
+      maxAge: REFRESH_COOKIE_MAX_AGE_SEC * 1000,
+    });
+    res.setHeader('X-CSRF-Token', csrf);
+    return csrf;
   },
 
   clearAuthCookies(res: Response): void {

@@ -194,12 +194,12 @@ class AuthController {
       await accountCredentialService.claimEmailOnRegister(user, email, actionCtx(req));
       await user.reload();
 
-      const accessToken = tokenUtils.generateAccessToken(user);
       const ip = parseClientIp(req);
       const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(
         user.id,
         { userAgent: req.get('user-agent'), ip },
       );
+      const accessToken = tokenUtils.generateAccessToken(user, sessionId);
       cookieUtils.setAuthCookies(
         res,
         accessToken,
@@ -439,11 +439,11 @@ class AuthController {
       failedAttempts.delete(ip);
       await user.update({ lastLogin: new Date() });
 
-      const accessToken = tokenUtils.generateAccessToken(user);
       const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(
         user.id,
         { userAgent: req.get('user-agent'), ip },
       );
+      const accessToken = tokenUtils.generateAccessToken(user, sessionId);
       cookieUtils.setAuthCookies(
         res,
         accessToken,
@@ -558,29 +558,26 @@ class AuthController {
       if (!refreshTokenValue) {
         return res.status(401).json({ error: 'Refresh token required' });
       }
-      const record = await refreshTokenService.findValidRefreshToken(refreshTokenValue);
-      if (!record?.user) {
+      const reqIp = parseClientIp(req);
+      const rotated = await refreshTokenService.rotateRefreshToken(refreshTokenValue, {
+        userAgent: req.get('user-agent'),
+        ip: reqIp,
+      });
+      if (!rotated) {
         return res.status(401).json({ error: 'Invalid or expired refresh token' });
       }
-      const user = record.user as User;
-      await refreshTokenService.revokeRefreshToken(refreshTokenValue);
-      const reqIp = parseClientIp(req);
-      const { token: newRefreshToken, sessionId } = await refreshTokenService.createRefreshToken(
-        user.id,
-        { userAgent: req.get('user-agent'), ip: reqIp },
-      );
-      const accessToken = tokenUtils.generateAccessToken(user);
+      const accessToken = tokenUtils.generateAccessToken(rotated.user, rotated.sessionId);
       cookieUtils.setAuthCookies(
         res,
         accessToken,
-        newRefreshToken,
+        rotated.token,
         ACCESS_COOKIE_MAX_AGE_SEC,
         REFRESH_COOKIE_MAX_AGE_SEC,
       );
       return res.json({
-        user: publicUserFields(user),
+        user: publicUserFields(rotated.user),
         expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
-        sessionId,
+        sessionId: rotated.sessionId,
       });
     } catch (error) {
       logger.error('Refresh token error:', error);
@@ -602,6 +599,11 @@ class AuthController {
       cookieUtils.clearAuthCookies(res);
       return res.status(204).send();
     }
+  }
+
+  public async getCsrf(req: Request, res: Response): Promise<Response> {
+    const csrfToken = cookieUtils.ensureCsrfToken(req, res);
+    return res.json({ csrfToken });
   }
 
   public async getSessions(req: Request, res: Response): Promise<Response> {

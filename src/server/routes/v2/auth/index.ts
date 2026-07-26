@@ -78,6 +78,27 @@ router.post(
   (req, res) => authController.logout(req, res)
 );
 router.get(
+  '/csrf',
+  ApiDoc({
+    operationId: 'getAuthCsrf',
+    summary: 'Get CSRF token',
+    description:
+      'Return the current CSRF double-submit token (creates one if missing). Needed for cross-origin SPAs.',
+    tags: ['Auth'],
+    responses: {
+      200: {
+        description: 'CSRF token',
+        schema: {
+          type: 'object',
+          properties: { csrfToken: { type: 'string' } },
+          required: ['csrfToken'],
+        },
+      },
+    },
+  }),
+  (req, res) => authController.getCsrf(req, res)
+);
+router.get(
   '/sessions',
   Auth.user(),
   ApiDoc({

@@ -245,13 +245,13 @@ export const OAuthController = {
         // Invalidate user-specific cache (for new users, this is a no-op but harmless)
         await CacheInvalidation.invalidateUser(user.id);
 
-        const accessToken = tokenUtils.generateAccessToken(user);
         const forwardedFor = req.headers['x-forwarded-for'];
         const ip = typeof forwardedFor === 'string' ? forwardedFor?.split(',')[0].trim() : req.ip ?? '127.0.0.1';
         const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(user.id, {
           userAgent: req.get('user-agent'),
           ip,
         });
+        const accessToken = tokenUtils.generateAccessToken(user, sessionId);
         cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
         return res.json({
           user: {

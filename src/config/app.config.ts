@@ -228,7 +228,8 @@ export const corsOptions = {
     'X-Chunk-Index',
     'X-Total-Chunks',
     'If-None-Match',
-    'If-Modified-Since'
+    'If-Modified-Since',
+    'X-CSRF-Token',
   ],
   exposedHeaders: [
     'Content-Type',
@@ -244,6 +245,7 @@ export const corsOptions = {
     'X-Chunk-Index',
     'X-Total-Chunks',
     'ETag',
-    'Last-Modified'
+    'Last-Modified',
+    'X-CSRF-Token',
   ],
 };
