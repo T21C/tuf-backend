@@ -23,6 +23,8 @@ import User from '@/models/auth/User.js';
 import {
   reconcileExpiredTufStellarAccess,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import { stepUpGrantService } from '@/server/services/accounts/StepUpGrantService.js';
+import { parseClientIp } from '@/misc/utils/auth/rateLimitSubjects.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 
 
@@ -31,7 +33,7 @@ interface ProfileResponse {
     id: string;
     username: string;
     nickname: string | null;
-    email?: string;
+    email?: string | null;
     avatarUrl: string | null;
     tufStellarSubscriptionExpiresAt: Date | null;
     tufStellarEnabled: boolean;
@@ -49,41 +51,42 @@ interface ProfileResponse {
 dotenv.config();
 
 // Helper function to handle Discord OAuth token exchange
-async function handleDiscordOAuth(code: string, isLinking: boolean): Promise<{
+async function handleDiscordOAuth(
+  code: string,
+  mode: 'login' | 'linking' | 'reauth',
+): Promise<{
   tokens: RESTPostOAuth2AccessTokenResult;
   profile: RESTGetAPIUserResult;
 } | null> {
-  // Exchange code for token
-  try{
+  const redirectSuffix =
+    mode === 'linking' ? '?linking=true' : mode === 'reauth' ? '?reauth=true' : '';
+  try {
     const tokenResponse = await axios.post(
       'https://discord.com/api/oauth2/token',
       new URLSearchParams({
-      client_id: process.env.DISCORD_CLIENT_ID!,
-      client_secret: process.env.DISCORD_CLIENT_SECRET!,
-      code: code.toString(),
-      grant_type: 'authorization_code',
-      redirect_uri: clientUrlEnv + '/callback'+ (isLinking ? '?linking=true' : ''),
-    }),
-    {
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    },
-  );
+        client_id: process.env.DISCORD_CLIENT_ID!,
+        client_secret: process.env.DISCORD_CLIENT_SECRET!,
+        code: code.toString(),
+        grant_type: 'authorization_code',
+        redirect_uri: clientUrlEnv + '/callback' + redirectSuffix,
+      }),
+      {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      },
+    );
 
-  const tokens: RESTPostOAuth2AccessTokenResult = tokenResponse.data;
+    const tokens: RESTPostOAuth2AccessTokenResult = tokenResponse.data;
+    const userResponse = await axios.get('https://discord.com/api/users/@me', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
 
-  // Get user profile
-  const userResponse = await axios.get('https://discord.com/api/users/@me', {
-    headers: {Authorization: `Bearer ${tokens.access_token}`},
-  })
-
-  return {
-    tokens,
-    profile: userResponse.data,
-  };
-} catch (error) {
-  //logger.error("Discord bearer exchange failed", error)
-  return null;
-}
+    return {
+      tokens,
+      profile: userResponse.data,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export const OAuthController = {
@@ -132,6 +135,23 @@ export const OAuthController = {
   },
 
   /**
+   * Initiate OAuth reauth for step-up (OAuth-only accounts).
+   */
+  async initiateReauth(req: Request, res: Response) {
+    const { provider } = req.params;
+    if (provider === 'discord') {
+      const scopes = ['identify', 'email'];
+      const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${
+        process.env.DISCORD_CLIENT_ID
+      }&redirect_uri=${encodeURIComponent(
+        clientUrlEnv + '/callback?reauth=true',
+      )}&response_type=code&scope=${scopes.join('%20')}`;
+      return res.json({ url: authUrl });
+    }
+    return res.status(400).json({ error: 'Unsupported provider' });
+  },
+
+  /**
    * Handle OAuth callback
    */
   async handleCallback(req: Request, res: Response) {
@@ -139,6 +159,7 @@ export const OAuthController = {
       //const {provider} = req.params;
       const {code} = req.body;
       const isLinking = req.query.linking === 'true';
+      const isReauth = req.query.reauth === 'true';
 
       if (!code) {
         return res
@@ -146,7 +167,10 @@ export const OAuthController = {
           .json({message: 'Authorization code is required'});
       }
 
-      const tokens = await handleDiscordOAuth(code.toString(), isLinking);
+      const tokens = await handleDiscordOAuth(
+        code.toString(),
+        isLinking ? 'linking' : isReauth ? 'reauth' : 'login',
+      );
       //logger.error("Discord OAuth tokens", tokens)
       if (!tokens) {
         return res
@@ -159,6 +183,31 @@ export const OAuthController = {
       if (!profile) {
         return res.status(400).json({message: 'Failed to get user profile'});
       }
+      if (isReauth) {
+        if (!req.user) {
+          return res.status(401).json({ message: 'Authentication required for reauth' });
+        }
+        // Ensure the Discord account is linked to this user
+        const linked = await OAuthProvider.findOne({
+          where: {
+            userId: req.user.id,
+            provider: 'discord',
+            providerId: profile.id,
+          },
+        });
+        if (!linked) {
+          return res.status(403).json({
+            message: 'Discord account does not match a linked provider on this account',
+            code: 'OAUTH_REAUTH_MISMATCH',
+          });
+        }
+        await stepUpGrantService.grantAfterOAuthReauth(req.user.id, res, {
+          ip: parseClientIp(req),
+          userAgent: req.get('user-agent') ?? undefined,
+        });
+        return res.json({ success: true, stepUp: true, scope: 'email-change' });
+      }
+
       if (isLinking) {
         // Handle linking flow
         if (!req.user) {
@@ -296,7 +345,7 @@ export const OAuthController = {
 
     try {
       if (provider === 'discord') {
-        const result = await handleDiscordOAuth(code, true);
+        const result = await handleDiscordOAuth(code, 'linking');
         //logger.error("Discord OAuth linking result", result)
         if (!result) {
           return res.status(400).json({error: 'Failed to exchange code for tokens'});

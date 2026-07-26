@@ -47,6 +47,68 @@ const colors = {
 const reset = '\x1b[0m';
 
 /**
+ * Redact secrets and PII from log strings before egress.
+ */
+export function redactSensitiveText(input: string): string {
+  let out = input;
+  // Emails
+  out = out.replace(
+    /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
+    '[REDACTED_EMAIL]',
+  );
+  // MailerSend API tokens
+  out = out.replace(/\bmlsn\.[A-Za-z0-9._-]+/gi, 'mlsn.[REDACTED]');
+  // Bearer tokens
+  out = out.replace(/\bBearer\s+[A-Za-z0-9._\-]+/gi, 'Bearer [REDACTED]');
+  // JWT-shaped
+  out = out.replace(
+    /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
+    '[REDACTED_JWT]',
+  );
+  // Query/body token or code params
+  out = out.replace(
+    /([?&](?:token|code)=)[^&\s"']+/gi,
+    '$1[REDACTED]',
+  );
+  // Long hex blobs (opaque tokens / hashes)
+  out = out.replace(/\b[a-f0-9]{32,}\b/gi, '[REDACTED_HEX]');
+  return out;
+}
+
+function redactMetaValue(value: unknown, depth = 0): unknown {
+  if (depth > 6) return '[Truncated]';
+  if (typeof value === 'string') return redactSensitiveText(value);
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: redactSensitiveText(value.message),
+      stack: value.stack ? redactSensitiveText(value.stack) : undefined,
+    };
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => redactMetaValue(v, depth + 1));
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      const keyLower = k.toLowerCase();
+      if (
+        keyLower.includes('password') ||
+        keyLower.includes('token') ||
+        keyLower.includes('secret') ||
+        keyLower.includes('authorization')
+      ) {
+        out[k] = '[REDACTED]';
+      } else {
+        out[k] = redactMetaValue(v, depth + 1);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
  * Safely stringify objects with potential circular references
  */
 const safeStringify = (obj: any): string => {
@@ -273,32 +335,31 @@ class LoggerService {
    * Log info message
    */
   public info(message: string, ...meta: any[]): void {
-    this.logger.info(message, ...meta);
-    this.emitLogReplay({ level: 'info', message, meta });
+    const safeMessage = redactSensitiveText(String(message));
+    const safeMeta = meta.map((m) => redactMetaValue(m));
+    this.logger.info(safeMessage, ...safeMeta);
+    this.emitLogReplay({ level: 'info', message: safeMessage, meta: safeMeta });
   }
 
-  /**
-   * Log warning message
-   */
   public warn(message: string, ...meta: any[]): void {
-    this.logger.warn(message, ...meta);
-    this.emitLogReplay({ level: 'warn', message, meta });
+    const safeMessage = redactSensitiveText(String(message));
+    const safeMeta = meta.map((m) => redactMetaValue(m));
+    this.logger.warn(safeMessage, ...safeMeta);
+    this.emitLogReplay({ level: 'warn', message: safeMessage, meta: safeMeta });
   }
 
-  /**
-   * Log error message
-   */
   public error(message: string, ...meta: any[]): void {
-    this.logger.error(message, ...meta);
-    this.emitLogReplay({ level: 'error', message, meta });
+    const safeMessage = redactSensitiveText(String(message));
+    const safeMeta = meta.map((m) => redactMetaValue(m));
+    this.logger.error(safeMessage, ...safeMeta);
+    this.emitLogReplay({ level: 'error', message: safeMessage, meta: safeMeta });
   }
 
-  /**
-   * Log debug message
-   */
   public debug(message: string, ...meta: any[]): void {
-    this.logger.debug(message, ...meta);
-    this.emitLogReplay({ level: 'debug', message, meta });
+    const safeMessage = redactSensitiveText(String(message));
+    const safeMeta = meta.map((m) => redactMetaValue(m));
+    this.logger.debug(safeMessage, ...safeMeta);
+    this.emitLogReplay({ level: 'debug', message: safeMessage, meta: safeMeta });
   }
 }
 

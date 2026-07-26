@@ -24,6 +24,33 @@ router.use('/oauth', oauthRoutes);
 router.use('/profile', profileRoutes);
 router.use('/forgot-password', forgotPasswordRoutes);
 router.post(
+  '/step-up',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postAuthStepUp',
+    summary: 'Step-up authentication',
+    description:
+      'Confirm password (or complete OAuth reauth) to unlock sensitive account actions for a short window',
+    tags: ['Auth'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'Current password',
+      schema: {
+        type: 'object',
+        properties: { password: { type: 'string' } },
+      },
+      required: false,
+    },
+    responses: {
+      200: { description: 'Step-up granted', schema: successMessageSchema },
+      400: { schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
+      429: { schema: errorResponseSchema },
+    },
+  }),
+  (req, res) => authController.stepUp(req, res),
+);
+router.post(
   '/refresh',
   ApiDoc({
     operationId: 'postAuthRefresh',
@@ -65,6 +92,23 @@ router.get(
     },
   }),
   (req, res) => authController.getSessions(req, res)
+);
+router.delete(
+  '/sessions',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deleteAuthOtherSessions',
+    summary: 'Revoke other sessions',
+    description: 'Revoke all active sessions except the current device',
+    tags: ['Auth'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Other sessions revoked', schema: successMessageSchema },
+      400: { schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+    },
+  }),
+  (req, res) => authController.revokeOtherSessions(req, res)
 );
 router.delete(
   '/sessions/:id',

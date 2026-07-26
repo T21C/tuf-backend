@@ -25,7 +25,19 @@ router.post(
     summary: 'Reset password with token',
     description: 'Set new password using the token from the reset email',
     tags: ['Auth'],
-    requestBody: { description: 'Token and new password', schema: { type: 'object', properties: { token: { type: 'string' }, newPassword: { type: 'string' } }, required: ['token', 'newPassword'] }, required: true },
+    requestBody: {
+      description: 'Email, code, and new password',
+      schema: {
+        type: 'object',
+        properties: {
+          email: { type: 'string' },
+          code: { type: 'string' },
+          password: { type: 'string' },
+        },
+        required: ['email', 'code', 'password'],
+      },
+      required: true,
+    },
     responses: { 200: { schema: successMessageSchema }, 400: { schema: errorResponseSchema }, 500: { schema: errorResponseSchema } },
   }),
   authController.resetPassword

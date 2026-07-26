@@ -31,6 +31,7 @@ import {
   upsertSurfaceImageAsset,
 } from '@/server/services/profileHeaderSurfaceImage.js';
 import { permissionFlags } from '@/config/constants.js';
+import { accountCredentialService } from '@/server/services/accounts/AccountCredentialService.js';
 
 function parseHeaderSurfaceLayerId(req: Request): string | null {
   const raw = (req.body as { layerId?: unknown })?.layerId ?? req.query.layerId;
@@ -171,6 +172,9 @@ router.get(
         username: user.username,
         nickname: user.nickname || user.username,
         email: user.email,
+        pendingEmail: user.pendingEmail ?? null,
+        emailResendAvailableAt:
+          accountCredentialService.getEmailResendAvailableAt(user)?.toISOString() ?? null,
         avatarUrl: user.avatarUrl ?? null,
         avatarIsGif: Boolean(user.avatarIsGif),
         tufStellarSubscriptionExpiresAt: stellarOn ? (billing?.tufStellarSubscriptionExpiresAt ?? null) : null,

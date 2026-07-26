@@ -14,23 +14,22 @@ export type PermissionInput = bigint | number | User | UserAttributes | null | u
  */
 const extractPermissionFlags = (input: PermissionInput): bigint => {
   if (typeof input === 'object' && input !== null && input !== undefined) {
-    // If it's a user object, use permissionFlags or fallback to boolean flags
+    // permissionFlags is the sole source of truth when present
     if ('permissionFlags' in input && input.permissionFlags !== undefined) {
       return BigInt(input.permissionFlags || 0);
     }
 
-    // Fallback to boolean flags for backward compatibility
+    // Legacy fallback for objects that only have boolean flags (no permissionFlags field)
     let flags = 0n;
     if (input.isSuperAdmin) flags |= permissionFlags.SUPER_ADMIN;
     if (input.isRater) flags |= permissionFlags.RATER;
     if (input.isRatingBanned) flags |= permissionFlags.RATING_BANNED;
-    if (input.isEmailVerified) flags |= permissionFlags.EMAIL_VERIFIED;
+    // Do not read isEmailVerified — EMAIL_VERIFIED must come from permissionFlags
     if (input.status === 'banned') flags |= permissionFlags.BANNED;
 
     return flags;
   }
 
-  // If it's a number or bigint, convert to bigint
   return BigInt(input || 0);
 };
 

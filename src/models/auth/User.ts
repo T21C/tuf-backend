@@ -9,10 +9,19 @@ const sequelize = getSequelizeForModelGroup('auth');
 export interface UserAttributes {
   id: string;
   username: string;
-  email?: string;
+  /** Verified email only. Unverified claims live in pendingEmail. */
+  email?: string | null;
+  /** Unverified email claim (registration or change-in-progress). */
+  pendingEmail?: string | null;
   password?: string;
+  /** @deprecated Legacy plaintext token; prefer purpose-split SHA-256 columns. */
   passwordResetToken?: string | null;
+  /** @deprecated Prefer passwordResetTokenHash + passwordResetExpires. */
   passwordResetExpires?: Date | null;
+  emailVerifyTokenHash?: string | null;
+  emailVerifyExpires?: Date | null;
+  passwordResetTokenHash?: string | null;
+  /** @deprecated Boolean flag; use permissionFlags.EMAIL_VERIFIED. */
   isEmailVerified: boolean;
   isRater: boolean;
   isSuperAdmin: boolean;
@@ -46,10 +55,14 @@ export interface UserAttributes {
 class User extends Model<UserAttributes> implements UserAttributes {
   declare id: string;
   declare username: string;
-  declare email?: string;
+  declare email?: string | null;
+  declare pendingEmail?: string | null;
   declare password?: string;
   declare passwordResetToken?: string | null;
   declare passwordResetExpires?: Date | null;
+  declare emailVerifyTokenHash?: string | null;
+  declare emailVerifyExpires?: Date | null;
+  declare passwordResetTokenHash?: string | null;
   declare isEmailVerified: boolean;
   declare isRater: boolean;
   declare isSuperAdmin: boolean;
@@ -100,6 +113,15 @@ User.init(
         isEmail: true,
       },
     },
+    pendingEmail: {
+      type: DataTypes.STRING,
+      unique: true,
+      allowNull: true,
+      defaultValue: null,
+      validate: {
+        isEmail: true,
+      },
+    },
     password: {
       type: DataTypes.STRING,
       allowNull: true,
@@ -111,6 +133,21 @@ User.init(
     passwordResetExpires: {
       type: DataTypes.DATE,
       allowNull: true,
+    },
+    emailVerifyTokenHash: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      defaultValue: null,
+    },
+    emailVerifyExpires: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    passwordResetTokenHash: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      defaultValue: null,
     },
     isEmailVerified: {
       type: DataTypes.BOOLEAN,
@@ -228,6 +265,7 @@ User.init(
     tableName: 'users',
     indexes: [
       {unique: true, fields: ['email']},
+      {unique: true, fields: ['pendingEmail']},
       {unique: true, fields: ['username']},
       {fields: ['playerId']},
     ],

@@ -86,17 +86,25 @@ export const sessionItemSchema: JsonSchema = {
   type: 'object',
   properties: {
     id: { type: 'string' },
-    userId: { type: 'string' },
+    userAgent: { type: 'string', nullable: true },
+    ip: { type: 'string', nullable: true },
+    label: { type: 'string', nullable: true },
     createdAt: { type: 'string' },
-    lastUsedAt: { type: 'string' },
-    userAgent: { type: 'string' },
-    ip: { type: 'string' },
+    expiresAt: { type: 'string' },
+    isCurrent: { type: 'boolean' },
   },
+  required: ['id', 'createdAt', 'expiresAt', 'isCurrent'],
 };
 
 /** GET /auth/sessions response */
 export const sessionsListResponseSchema: JsonSchema = {
-  type: 'array',
-  items: sessionItemSchema,
+  type: 'object',
+  properties: {
+    sessions: {
+      type: 'array',
+      items: sessionItemSchema,
+    },
+  },
+  required: ['sessions'],
   description: 'List of active sessions',
 };

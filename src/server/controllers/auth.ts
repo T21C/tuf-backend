@@ -1,9 +1,8 @@
-import {Request, Response} from 'express';
-import {Op, CreationAttributes} from 'sequelize';
-import {v4 as uuidv4} from 'uuid';
+import { Request, Response } from 'express';
+import { CreationAttributes } from 'sequelize';
+import { v4 as uuidv4 } from 'uuid';
 import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
-import {emailService} from '@/misc/utils/auth/email.js';
 import {
   passwordUtils,
   tokenUtils,
@@ -16,128 +15,141 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import CaptchaService from '@/server/services/accounts/CaptchaService.js';
 import { RateLimiter } from '@/server/decorators/rateLimiter.js';
 import { permissionFlags } from '@/config/constants.js';
-import { hasFlag, setUserPermission, setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
-import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { getUsernameFormatError, normalizeUsername } from '@/misc/utils/auth/username.js';
+import {
+  accountCredentialService,
+  CredentialError,
+} from '@/server/services/accounts/AccountCredentialService.js';
+import { stepUpGrantService } from '@/server/services/accounts/StepUpGrantService.js';
+import { parseClientIp } from '@/misc/utils/auth/rateLimitSubjects.js';
 
-// Create a singleton instance of CaptchaService
 const captchaService = new CaptchaService();
 
-const hasAccountEmail = (email: string | null | undefined): email is string =>
-  Boolean(email?.trim());
+const failedAttempts = new Map<string, { count: number; timestamp: number }>();
+const ATTEMPT_TIMEOUT = 30 * 60 * 1000;
 
-
-// Track failed login attempts
-const failedAttempts = new Map<string, {count: number; timestamp: number}>();
-const ATTEMPT_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
-
-// Helper to check if captcha is required
 const isCaptchaRequired = (ip: string): boolean => {
   const attempts = failedAttempts.get(ip);
   if (!attempts) return false;
-
-  // Clear attempts if timeout has passed
   if (Date.now() - attempts.timestamp > ATTEMPT_TIMEOUT) {
     failedAttempts.delete(ip);
     return false;
   }
-  logger.debug(`Login attempt failed for ${ip}. Attempts: ${attempts.count}`);
   return attempts.count >= 1;
 };
 
-// Helper to record failed login attempt
 const recordFailedAttempt = (identifier: string): void => {
   const attempts = failedAttempts.get(identifier) || { count: 0, timestamp: Date.now() };
   attempts.count += 1;
   attempts.timestamp = Date.now();
   failedAttempts.set(identifier, attempts);
-  logger.debug(`Recorded failed login attempt for ${identifier}. Total attempts: ${attempts.count}`);
 };
 
+function actionCtx(req: Request) {
+  return {
+    ip: parseClientIp(req),
+    userAgent: req.get('user-agent') ?? undefined,
+  };
+}
+
+function mapCredentialError(error: unknown, res: Response, fallback: string): Response {
+  if (error instanceof CredentialError) {
+    return res.status(error.statusCode).json({
+      message: error.message,
+      code: error.code,
+      ...(error.details?.retryAfter != null ? { retryAfter: error.details.retryAfter } : {}),
+    });
+  }
+  const statusCode = (error as { statusCode?: number })?.statusCode;
+  if (statusCode) {
+    return res.status(statusCode).json({
+      message: error instanceof Error ? error.message : fallback,
+      code: (error as { code?: string }).code,
+    });
+  }
+  logger.error(fallback, error);
+  return res.status(500).json({ message: fallback });
+}
+
+function publicUserFields(user: User) {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email ?? null,
+    pendingEmail: user.pendingEmail ?? null,
+    emailResendAvailableAt: accountCredentialService.getEmailResendAvailableAt(user)?.toISOString() ?? null,
+    isRater: hasFlag(user, permissionFlags.RATER),
+    isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
+    isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
+    permissionFlags: user.permissionFlags.toString(),
+  };
+}
+
 class AuthController {
-  /**
-   * Register a new user
-   */
   @RateLimiter({
-    windowMs: 24 * 60 * 60 * 1000, // 24 hours
+    windowMs: 24 * 60 * 60 * 1000,
     maxAttempts: 5,
-    blockDuration: 8 * 60 * 60 * 1000, // 8 hours block
+    blockDuration: 8 * 60 * 60 * 1000,
     type: 'registration',
     incrementOnFailure: false,
     incrementOnSuccess: true,
   })
   public async register(req: Request, res: Response): Promise<Response> {
     try {
-      const {email, password, captchaToken} = req.body;
+      const { email, password, captchaToken } = req.body;
       const username = normalizeUsername(String(req.body.username ?? ''));
 
-      if (captchaToken) {
-        const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken);
-        if (!isValidCaptcha) {
-          return res.status(400).json({message: 'Invalid captcha'});
-        }
+      if (!captchaToken) {
+        return res.status(400).json({ message: 'Captcha is required' });
+      }
+      const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken);
+      if (!isValidCaptcha) {
+        return res.status(400).json({ message: 'Invalid captcha' });
       }
 
-      // Validate input
       if (!email || !password || !username) {
-        return res.status(400).json({message: 'All fields are required'});
+        return res.status(400).json({ message: 'All fields are required' });
       }
 
-      // Validate email format
-      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-      if (!emailRegex.test(email)) {
-        return res.status(400).json({message: 'Invalid email format'});
+      try {
+        accountCredentialService.assertValidEmail(accountCredentialService.normalizeEmail(email));
+      } catch {
+        return res.status(400).json({ message: 'Invalid email format' });
       }
 
       const usernameFormatError = getUsernameFormatError(username);
       if (usernameFormatError) {
-        return res.status(400).json({message: usernameFormatError});
+        return res.status(400).json({ message: usernameFormatError });
       }
 
-      // Validate password length (minimum 8 characters)
       if (password.length < 8) {
-        return res.status(400).json({message: 'Password must be at least 8 characters long'});
+        return res.status(400).json({ message: 'Password must be at least 8 characters long' });
       }
 
-      // Check if user already exists with this email
-      const existingUser = await User.findOne({
-        where: {
-          email,
-        },
-      });
-
-      if (existingUser) {
-        return res.status(400).json({message: 'Email already registered'});
+      try {
+        await accountCredentialService.assertEmailAvailable(
+          accountCredentialService.normalizeEmail(email),
+        );
+      } catch {
+        return res.status(400).json({ message: 'Registration failed' });
       }
 
-      // Check if username already exists in User table
-      const existingUsername = await User.findOne({
-        where: {
-          username,
-        },
-      });
-
+      const existingUsername = await User.findOne({ where: { username } });
       if (existingUsername) {
-        return res.status(400).json({message: 'Username already taken'});
+        return res.status(400).json({ message: 'Username already taken' });
       }
 
-      // Check if username exists in Player table
       let finalUsername = username;
       let usernameExists = true;
       let attempts = 0;
-      const maxAttempts = 10; // Limit attempts to prevent infinite loop
+      const maxAttempts = 10;
 
       while (usernameExists && attempts < maxAttempts) {
-        const existingPlayer = await Player.findOne({
-          where: {
-            name: finalUsername,
-          },
-        });
-
+        const existingPlayer = await Player.findOne({ where: { name: finalUsername } });
         if (!existingPlayer) {
           usernameExists = false;
         } else {
-          // Generate a random number between 1 and 999999
           const randomNum = Math.floor(Math.random() * 999999) + 1;
           finalUsername = `${username}_${randomNum}`;
           attempts++;
@@ -145,538 +157,401 @@ class AuthController {
       }
 
       if (usernameExists) {
-        return res.status(400).json({message: 'Could not generate a unique username. Please try a different username.'});
+        return res
+          .status(400)
+          .json({ message: 'Could not generate a unique username. Please try a different username.' });
       }
 
-      // Hash password
       const hashedPassword = await passwordUtils.hashPassword(password);
-
-      // Create verification token
-      const verificationToken = tokenUtils.generateRandomToken();
-
-      // Create player first
       const player = await Player.create({
         name: finalUsername,
-        country: 'XX', // Default country code
+        country: 'XX',
         isBanned: false,
         isSubmissionsPaused: false,
       });
 
-      // Player stats table is deprecated; player search/leaderboard is served by Elasticsearch.
-      // The Player.afterCreate hook reindexes the new player with zero stats in ES.
-
-      // Create user with proper type annotations
       const now = new Date();
       const userData: CreationAttributes<User> = {
         id: uuidv4(),
-        email,
-        username, // Use the final username (might be modified if duplicate in Player table)
+        email: null,
+        pendingEmail: null,
+        username,
         password: hashedPassword,
-        passwordResetToken: verificationToken,
-        passwordResetExpires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-        isEmailVerified: false, // Keep for backward compatibility
-        isRater: false, // Keep for backward compatibility
-        isSuperAdmin: false, // Keep for backward compatibility
-        isRatingBanned: false, // Keep for backward compatibility
+        isEmailVerified: false,
+        isRater: false,
+        isSuperAdmin: false,
+        isRatingBanned: false,
         status: 'active',
         lastLogin: now,
         updatedAt: now,
         createdAt: now,
         permissionVersion: 1,
-        playerId: player.id, // Associate with the created player
-        permissionFlags: 0, // Start with no permissions (Number will be auto-converted to BigInt by Sequelize)
+        playerId: player.id,
+        permissionFlags: 0,
       };
 
       const user = await User.create(userData);
-
-      // Send verification email
-      await emailService.sendVerificationEmail(email, verificationToken);
+      await accountCredentialService.claimEmailOnRegister(user, email, actionCtx(req));
+      await user.reload();
 
       const accessToken = tokenUtils.generateAccessToken(user);
-      const forwardedFor = req.headers['x-forwarded-for'];
-      const ip = typeof forwardedFor === 'string' ? forwardedFor?.split(',')[0].trim() : req.ip ?? '127.0.0.1';
-      const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(user.id, {
-        userAgent: req.get('user-agent'),
-        ip,
-      });
-      cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
+      const ip = parseClientIp(req);
+      const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(
+        user.id,
+        { userAgent: req.get('user-agent'), ip },
+      );
+      cookieUtils.setAuthCookies(
+        res,
+        accessToken,
+        refreshToken,
+        ACCESS_COOKIE_MAX_AGE_SEC,
+        REFRESH_COOKIE_MAX_AGE_SEC,
+      );
 
       return res.status(201).json({
         message: 'Registration successful. Please check your email for verification.',
-        user: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          isRater: hasFlag(user, permissionFlags.RATER),
-          isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
-          isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
-          permissionFlags: user.permissionFlags.toString(),
-        },
+        user: publicUserFields(user),
         expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
         sessionId,
         usernameModified: finalUsername !== username,
       });
     } catch (error) {
+      if (error instanceof CredentialError) {
+        return res.status(error.statusCode).json({ message: 'Registration failed' });
+      }
       logger.error('Registration error:', error);
-      return res.status(500).json({message: 'Registration failed'});
+      return res.status(500).json({ message: 'Registration failed' });
     }
   }
 
-  /**
-   * Verify email with token
-   */
-  async verifyEmail(req: Request, res: Response) {
-    try {
-      const {token} = req.body;
-
-      if (!token) {
-        return res.status(400).json({message: 'Verification token is required'});
-      }
-
-      // Find user with token
-      const user = await User.findOne({
-        where: {
-          passwordResetToken: token,
-          passwordResetExpires: {
-            [Op.gt]: new Date(), // Token not expired
-          },
-        },
-      });
-
-      if (!user) {
-        return res
-          .status(400)
-          .json({message: 'Invalid or expired verification token'});
-      }
-
-      // Check if already verified
-      if (hasFlag(user, permissionFlags.EMAIL_VERIFIED)) {
-        await CacheInvalidation.invalidateUser(user.id);
-        return res.status(200).json({message: 'Email already verified'});
-      }
-
-      // Update user with new permission flags
-      await setUserPermissionAndSave(user, permissionFlags.EMAIL_VERIFIED, true);
-      await user.update({
-        passwordResetToken: '', // Clear the token
-        passwordResetExpires: new Date(), // Set to current time to expire it
-      });
-      // Ranks are computed on-demand in Elasticsearch; User hook handles reindex of linked player
-      await CacheInvalidation.invalidateUser(user.id);
-
-      return res.json({message: 'Email verified successfully'});
-    } catch (error) {
-      logger.error('Email verification error:', error);
-      return res.status(500).json({message: 'Email verification failed'});
-    }
-  }
-
-  /**
-   * Resend verification email
-   */
   @RateLimiter({
-    windowMs: 60 * 60 * 1000,     // 1 hour
-    maxAttempts: 25,
-    blockDuration: 30 * 60 * 1000, // 30 minutes block
-    type: 'verification',
-    incrementOnSuccess: true // Increment on failed verification attempts
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 10,
+    blockDuration: 15 * 60 * 1000,
+    type: 'email-verify-attempt',
+    incrementOnFailure: true,
+    incrementOnSuccess: true,
+    subjects: ['ip', 'user'],
+  })
+  public async verifyEmail(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ message: 'User not authenticated' });
+      }
+      const { code } = req.body;
+      if (!code || typeof code !== 'string') {
+        return res.status(400).json({ message: 'Verification code is required' });
+      }
+
+      const { email } = await accountCredentialService.confirmEmailCode(
+        userId,
+        code,
+        actionCtx(req),
+      );
+
+      stepUpGrantService.clearGrant(res);
+      cookieUtils.clearAuthCookies(res);
+
+      return res.json({
+        message: 'Email verified successfully',
+        email,
+        requireLogin: true,
+      });
+    } catch (error) {
+      return mapCredentialError(error, res, 'Email verification failed');
+    }
+  }
+
+  @RateLimiter({
+    windowMs: 60 * 60 * 1000,
+    maxAttempts: 5,
+    blockDuration: 30 * 60 * 1000,
+    type: 'email-verification',
+    incrementOnSuccess: true,
+    incrementOnFailure: false,
+    subjects: ['ip', 'user'],
   })
   public async resendVerification(req: Request, res: Response): Promise<Response> {
     try {
       const userId = req.user?.id;
       if (!userId) {
-        return res.status(401).json({message: 'User not authenticated'});
+        return res.status(401).json({ message: 'User not authenticated' });
       }
-
-      const user = await User.findOne({
-        where: { id: userId },
+      const result = await accountCredentialService.resendEmailCode(userId, actionCtx(req));
+      return res.json({
+        message: 'Verification email sent',
+        pendingEmail: result.pendingEmail,
+        emailResendAvailableAt: result.emailResendAvailableAt,
       });
-
-      if (!user) {
-        return res.status(404).json({message: 'User not found'});
-      }
-      if (!hasAccountEmail(user.email)) {
-        return res.status(400).json({message: 'No email on file. Add an email in account settings first.'});
-      }
-
-      const accountEmail = user.email.trim();
-
-      if (hasFlag(user, permissionFlags.EMAIL_VERIFIED)) {
-        return res.status(400).json({message: 'Email already verified'});
-      }
-
-      // Generate new verification token
-      const verificationToken = tokenUtils.generateRandomToken();
-
-      // Update user
-      await user.update({
-        passwordResetToken: verificationToken,
-        passwordResetExpires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-      });
-
-      // Send verification email
-      const emailSent = await emailService.sendVerificationEmail(accountEmail, verificationToken);
-
-      if (!emailSent) {
-        return res.status(500).json({message: 'Failed to send verification email'});
-      }
-
-      return res.json({message: 'Verification email sent'});
     } catch (error) {
-      logger.error('Resend verification error:', error);
-      return res
-        .status(500)
-        .json({message: 'Failed to resend verification email'});
+      return mapCredentialError(error, res, 'Failed to resend verification email');
     }
   }
 
-  /**
-   * Change authenticated user's email and re-initiate verification.
-   */
   @RateLimiter({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    maxAttempts: 3,
-    blockDuration: 30 * 60 * 1000, // 30 minutes block
-    type: 'email-change',
+    windowMs: 60 * 60 * 1000,
+    maxAttempts: 5,
+    blockDuration: 30 * 60 * 1000,
+    type: 'email-verification',
     incrementOnFailure: true,
     incrementOnSuccess: true,
+    subjects: ['ip', 'user'],
   })
   public async changeEmail(req: Request, res: Response): Promise<Response> {
     try {
       const userId = req.user?.id;
-      const nextEmailRaw = req.body?.email;
-      const nextEmail = typeof nextEmailRaw === 'string' ? nextEmailRaw.trim().toLowerCase() : '';
-
       if (!userId) {
         return res.status(401).json({ message: 'User not authenticated' });
       }
-
-      if (!nextEmail) {
-        return res.status(400).json({ message: 'Email is required' });
-      }
-
-      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-      if (!emailRegex.test(nextEmail)) {
-        return res.status(400).json({ message: 'Invalid email format' });
-      }
-
+      const nextEmail = req.body?.email;
+      const result = await accountCredentialService.requestEmailChange(
+        userId,
+        nextEmail,
+        actionCtx(req),
+      );
       const user = await User.findByPk(userId);
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-
-      if (hasAccountEmail(user.email) && user.email.toLowerCase() === nextEmail) {
-        return res.status(200).json({
-          message: 'Email is unchanged',
-          user: {
-            id: user.id,
-            email: user.email,
-            isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
-            permissionFlags: user.permissionFlags.toString(),
-          }
-        });
-      }
-
-      const existingUser = await User.findOne({
-        where: {
-          email: nextEmail,
-          id: { [Op.ne]: userId }
-        }
-      });
-      if (existingUser) {
-        return res.status(400).json({ message: 'Email already registered' });
-      }
-
-      const verificationToken = tokenUtils.generateRandomToken();
-      const nextPermissionFlags = setUserPermission(user, permissionFlags.EMAIL_VERIFIED, false);
-
-      await user.update({
-        email: nextEmail,
-        passwordResetToken: verificationToken,
-        passwordResetExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        permissionFlags: nextPermissionFlags,
-        permissionVersion: (user.permissionVersion || 0) + 1,
-      });
-      await CacheInvalidation.invalidateUser(userId);
-
-      const emailSent = await emailService.sendVerificationEmail(nextEmail, verificationToken);
-      if (!emailSent) {
-        return res.status(500).json({ message: 'Failed to send verification email' });
-      }
-
       return res.status(200).json({
-        message: 'Email changed. Please verify your new email address.',
-        user: {
-          id: user.id,
-          email: nextEmail,
-          isEmailVerified: false,
-          permissionFlags: nextPermissionFlags.toString(),
-        }
+        message: 'Verification code sent. Confirm the new email to finish the change.',
+        pendingEmail: result.pendingEmail,
+        emailResendAvailableAt: result.emailResendAvailableAt,
+        user: user ? publicUserFields(user) : undefined,
       });
     } catch (error) {
-      logger.error('Change email error:', error);
-      return res.status(500).json({ message: 'Failed to change email' });
+      if (error instanceof CredentialError && error.code === 'EMAIL_UNAVAILABLE') {
+        return res.status(400).json({ message: 'Unable to update email' });
+      }
+      return mapCredentialError(error, res, 'Failed to change email');
     }
   }
 
-  /**
-   * Login with email and password
-   */
+  public async cancelPendingEmail(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ message: 'User not authenticated' });
+      }
+      await accountCredentialService.cancelPendingEmail(userId, actionCtx(req));
+      const user = await User.findByPk(userId);
+      return res.json({
+        message: 'Pending email change cancelled',
+        user: user ? publicUserFields(user) : undefined,
+      });
+    } catch (error) {
+      return mapCredentialError(error, res, 'Failed to cancel pending email');
+    }
+  }
+
   @RateLimiter({
-    windowMs: 60 * 60 * 1000,     // 1 hour
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 10,
+    blockDuration: 15 * 60 * 1000,
+    type: 'step-up',
+    incrementOnFailure: true,
+    incrementOnSuccess: true,
+    subjects: ['ip', 'user'],
+  })
+  public async stepUp(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ message: 'User not authenticated' });
+      }
+      const { password } = req.body || {};
+      if (!password || typeof password !== 'string') {
+        return res.status(400).json({
+          message: 'Password is required, or complete OAuth re-authentication',
+          code: 'PASSWORD_OR_OAUTH_REQUIRED',
+        });
+      }
+      await stepUpGrantService.grantWithPassword(userId, password, res, actionCtx(req));
+      return res.json({
+        message: 'Step-up granted',
+        expiresIn: 10 * 60,
+        scope: 'email-change',
+      });
+    } catch (error) {
+      return mapCredentialError(error, res, 'Step-up failed');
+    }
+  }
+
+  @RateLimiter({
+    windowMs: 60 * 60 * 1000,
     maxAttempts: 25,
-    blockDuration: 10 * 60 * 1000, // 10 minutes block
+    blockDuration: 10 * 60 * 1000,
     type: 'login',
-    incrementOnFailure: true // Increment on failed login attempts to prevent brute force
+    incrementOnFailure: true,
   })
   public async login(req: Request, res: Response): Promise<Response> {
     try {
-      const {emailOrUsername, password, captchaToken} = req.body;
+      const { emailOrUsername, password, captchaToken } = req.body;
+      const ip = parseClientIp(req);
 
-      // Get client IP for captcha check
-      const forwardedFor = req.headers['x-forwarded-for'];
-      const ip = typeof forwardedFor === 'string'
-        ? forwardedFor?.split(',')[0].trim()
-        : req.ip || req.connection?.remoteAddress || '127.0.0.1';
-
-      // Validate input
       if (!emailOrUsername || !password) {
-        return res
-          .status(400)
-          .json({message: 'Email/Username and password are required'});
+        return res.status(400).json({ message: 'Email/Username and password are required' });
       }
 
-      // Check if captcha is required
       const captchaRequired = isCaptchaRequired(ip);
-      if (captchaRequired) {
-        if (!captchaToken) {
-          return res
-            .status(400)
-            .json({
-              error: 'Captcha required',
-              requireCaptcha: true,
-              message: 'Please complete the captcha verification to continue'
-            });
-        }
-
-        const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken);
-        if (!isValidCaptcha) {
-          recordFailedAttempt(ip);
-          return res
-            .status(400)
-            .json({
-              error: 'Invalid captcha or high risk score detected',
-              requireCaptcha: true,
-              message: 'Captcha verification failed. Please try again.'
-            });
-        }
-      }
-
-      // Find user by email or username
-      const user = await User.findOne({
-        where: {
-          [Op.or]: [
-            { email: emailOrUsername },
-            { username: emailOrUsername }
-          ]
-        },
-      });
-
-      if (!user) {
-        recordFailedAttempt(ip);
-        return res.status(401).json({
-          message: 'Invalid credentials',
-          requireCaptcha: isCaptchaRequired(ip)
-        });
-      }
-
-      // Check if user has a password set
-      if (!user.password) {
-        return res.status(400).json({message: 'Account not linked to a password. Please use OAuth to login.'});
-      }
-
-      // Verify password
-      const isValidPassword = await passwordUtils.comparePassword(
-        password,
-        user.password,
-      );
-      if (!isValidPassword) {
-        recordFailedAttempt(ip);
-        return res.status(401).json({
-          message: 'Invalid credentials',
-          requireCaptcha: isCaptchaRequired(ip)
-        });
-      }
-
-      // Clear failed attempts on successful login
-      failedAttempts.delete(ip);
-
-      // Update last login
-      await user.update({lastLogin: new Date()});
-
-      const accessToken = tokenUtils.generateAccessToken(user);
-      const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(user.id, {
-        userAgent: req.get('user-agent'),
-        ip,
-      });
-      cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
-
-      return res.json({
-        user: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          isRater: hasFlag(user, permissionFlags.RATER),
-          isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
-          isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
-          permissionFlags: user.permissionFlags.toString(),
-        },
-        expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
-        sessionId,
-      });
-    } catch (error) {
-      logger.error('Login error:', error);
-      return res.status(500).json({message: 'Login failed'});
-    }
-  }
-
-  /**
-   * Request password reset
-   */
-  @RateLimiter({
-    windowMs: 60 * 60 * 1000,     // 1 hour
-    maxAttempts: 3,
-    blockDuration: 30 * 60 * 1000, // 30 minutes block
-    type: 'password-reset',
-    incrementOnFailure: false,
-    incrementOnSuccess: true,
-  })
-  public async requestPasswordReset(req: Request, res: Response): Promise<Response> {
-    try {
-      const {email, captchaToken} = req.body;
-
-      if (!email) {
-        return res.status(400).json({message: 'Email is required'});
-      }
-
-      // Validate email format
-      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-      if (!emailRegex.test(email)) {
-        return res.status(400).json({message: 'Invalid email format'});
-      }
-
-      // Check if captcha is required (after 2 failed attempts)
-      const ip = req.headers['x-forwarded-for'] as string || req.ip || '127.0.0.1';
-      const captchaRequired = isCaptchaRequired(ip);
-
       if (captchaRequired) {
         if (!captchaToken) {
           return res.status(400).json({
             error: 'Captcha required',
             requireCaptcha: true,
-            message: 'Please complete the captcha verification to continue'
+            message: 'Please complete the captcha verification to continue',
           });
         }
+        const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken);
+        if (!isValidCaptcha) {
+          recordFailedAttempt(ip);
+          return res.status(400).json({
+            error: 'Invalid captcha or high risk score detected',
+            requireCaptcha: true,
+            message: 'Captcha verification failed. Please try again.',
+          });
+        }
+      }
 
+      const user = await accountCredentialService.findUserByLoginIdentifier(emailOrUsername);
+
+      if (!user) {
+        recordFailedAttempt(ip);
+        return res.status(401).json({
+          message: 'Invalid credentials',
+          requireCaptcha: isCaptchaRequired(ip),
+        });
+      }
+
+      if (!user.password) {
+        return res
+          .status(400)
+          .json({ message: 'Account not linked to a password. Please use OAuth to login.' });
+      }
+
+      const isValidPassword = await passwordUtils.comparePassword(password, user.password);
+      if (!isValidPassword) {
+        recordFailedAttempt(ip);
+        return res.status(401).json({
+          message: 'Invalid credentials',
+          requireCaptcha: isCaptchaRequired(ip),
+        });
+      }
+
+      failedAttempts.delete(ip);
+      await user.update({ lastLogin: new Date() });
+
+      const accessToken = tokenUtils.generateAccessToken(user);
+      const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(
+        user.id,
+        { userAgent: req.get('user-agent'), ip },
+      );
+      cookieUtils.setAuthCookies(
+        res,
+        accessToken,
+        refreshToken,
+        ACCESS_COOKIE_MAX_AGE_SEC,
+        REFRESH_COOKIE_MAX_AGE_SEC,
+      );
+
+      return res.json({
+        user: publicUserFields(user),
+        expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
+        sessionId,
+      });
+    } catch (error) {
+      logger.error('Login error:', error);
+      return res.status(500).json({ message: 'Login failed' });
+    }
+  }
+
+  @RateLimiter({
+    windowMs: 60 * 60 * 1000,
+    maxAttempts: 3,
+    blockDuration: 30 * 60 * 1000,
+    type: 'password-reset',
+    incrementOnFailure: false,
+    incrementOnSuccess: true,
+  })
+  public async requestPasswordReset(req: Request, res: Response): Promise<Response> {
+    const generic = {
+      message: 'If an account with that email exists, a password reset code has been sent.',
+    };
+    try {
+      const { email, captchaToken } = req.body;
+      if (!email) {
+        return res.status(400).json({ message: 'Email is required' });
+      }
+
+      const ip = parseClientIp(req);
+      const captchaRequired = isCaptchaRequired(ip);
+      if (captchaRequired) {
+        if (!captchaToken) {
+          return res.status(400).json({
+            error: 'Captcha required',
+            requireCaptcha: true,
+            message: 'Please complete the captcha verification to continue',
+          });
+        }
         const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken);
         if (!isValidCaptcha) {
           return res.status(400).json({
             error: 'Invalid captcha',
             requireCaptcha: true,
-            message: 'Captcha verification failed. Please try again.'
+            message: 'Captcha verification failed. Please try again.',
           });
         }
       }
 
-      // Find user by email
-      const user = await User.findOne({
-        where: {email},
-      });
-
-      if (!user) {
-        // Don't reveal if user exists or not
-        return res.json({message: 'If an account with that email exists, a password reset link has been sent.'});
+      try {
+        await accountCredentialService.requestPasswordReset(email, actionCtx(req));
+      } catch (error) {
+        if (error instanceof CredentialError && error.statusCode === 500) {
+          return res.status(500).json({ message: 'Failed to send password reset email' });
+        }
+        // Invalid format still returns generic to avoid enumeration on format? Plan says validate format.
+        if (error instanceof CredentialError && error.code === 'INVALID_EMAIL') {
+          return res.status(400).json({ message: 'Invalid email format' });
+        }
       }
 
-      // Check if user has a password set
-      if (!user.password) {
-        return res.json({message: 'If an account with that email exists, a password reset link has been sent.'});
-      }
-
-      // Generate reset token
-      const resetToken = tokenUtils.generateRandomToken();
-
-      // Update user with reset token (expires in 1 hour)
-      await user.update({
-        passwordResetToken: resetToken,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
-      });
-
-      // Send password reset email
-      const emailSent = await emailService.sendPasswordResetEmail(email, resetToken);
-
-      if (!emailSent) {
-        logger.error('Failed to send password reset email to:', email);
-        return res.status(500).json({message: 'Failed to send password reset email'});
-      }
-
-      return res.json({message: 'If an account with that email exists, a password reset link has been sent.'});
+      return res.json(generic);
     } catch (error) {
       logger.error('Password reset request error:', error);
-      return res.status(500).json({message: 'Failed to process password reset request'});
+      return res.status(500).json({ message: 'Failed to process password reset request' });
     }
   }
 
-  /**
-   * Reset password with token
-   */
+  @RateLimiter({
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 10,
+    blockDuration: 15 * 60 * 1000,
+    type: 'email-verify-attempt',
+    incrementOnFailure: true,
+    incrementOnSuccess: true,
+  })
   public async resetPassword(req: Request, res: Response): Promise<Response> {
     try {
-      const {token, password} = req.body;
+      const { email, code, password, token } = req.body;
+      // Accept legacy `token` field name as alias for code during transition
+      const resetCode = code || token;
+      const newPassword = password || req.body.newPassword;
 
-      if (!token || !password) {
-        return res.status(400).json({message: 'Token and password are required'});
+      if (!email || !resetCode || !newPassword) {
+        return res.status(400).json({ message: 'Email, code, and password are required' });
       }
 
-      // Validate password length
-      if (password.length < 8) {
-        return res.status(400).json({message: 'Password must be at least 8 characters long'});
-      }
-
-      // Find user with valid token
-      const user = await User.findOne({
-        where: {
-          passwordResetToken: token,
-          passwordResetExpires: {
-            [Op.gt]: new Date(), // Token not expired
-          },
-        },
-      });
-
-      if (!user) {
-        return res.status(400).json({message: 'Invalid or expired reset token'});
-      }
-
-      // Hash new password
-      const hashedPassword = await passwordUtils.hashPassword(password);
-
-      // Update user password and clear reset token
-      await user.update({
-        password: hashedPassword,
-        passwordResetToken: null,
-        passwordResetExpires: null,
-      });
-
-      return res.json({message: 'Password reset successfully'});
+      await accountCredentialService.confirmPasswordReset(
+        email,
+        resetCode,
+        newPassword,
+        actionCtx(req),
+      );
+      cookieUtils.clearAuthCookies(res);
+      return res.json({ message: 'Password reset successfully', requireLogin: true });
     } catch (error) {
-      logger.error('Password reset error:', error);
-      return res.status(500).json({message: 'Failed to reset password'});
+      return mapCredentialError(error, res, 'Failed to reset password');
     }
   }
 
-  /**
-   * Refresh access token using refresh token cookie
-   */
   public async refresh(req: Request, res: Response): Promise<Response> {
     try {
       const refreshTokenValue = req.cookies?.refreshToken;
@@ -689,23 +564,21 @@ class AuthController {
       }
       const user = record.user as User;
       await refreshTokenService.revokeRefreshToken(refreshTokenValue);
-      const reqIp = typeof req.headers['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',')[0].trim() : req.ip ?? undefined;
-      const { token: newRefreshToken, sessionId } = await refreshTokenService.createRefreshToken(user.id, {
-        userAgent: req.get('user-agent'),
-        ip: reqIp,
-      });
+      const reqIp = parseClientIp(req);
+      const { token: newRefreshToken, sessionId } = await refreshTokenService.createRefreshToken(
+        user.id,
+        { userAgent: req.get('user-agent'), ip: reqIp },
+      );
       const accessToken = tokenUtils.generateAccessToken(user);
-      cookieUtils.setAuthCookies(res, accessToken, newRefreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
+      cookieUtils.setAuthCookies(
+        res,
+        accessToken,
+        newRefreshToken,
+        ACCESS_COOKIE_MAX_AGE_SEC,
+        REFRESH_COOKIE_MAX_AGE_SEC,
+      );
       return res.json({
-        user: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          isRater: hasFlag(user, permissionFlags.RATER),
-          isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
-          isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
-          permissionFlags: user.permissionFlags.toString(),
-        },
+        user: publicUserFields(user),
         expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
         sessionId,
       });
@@ -715,15 +588,13 @@ class AuthController {
     }
   }
 
-  /**
-   * Logout: revoke refresh token and clear auth cookies
-   */
   public async logout(req: Request, res: Response): Promise<Response> {
     try {
       const refreshTokenValue = req.cookies?.refreshToken;
       if (refreshTokenValue) {
         await refreshTokenService.revokeRefreshToken(refreshTokenValue);
       }
+      stepUpGrantService.clearGrant(res);
       cookieUtils.clearAuthCookies(res);
       return res.status(204).send();
     } catch (error) {
@@ -733,15 +604,19 @@ class AuthController {
     }
   }
 
-  /**
-   * List active sessions (cross-device): returns all valid refresh tokens for the current user
-   */
   public async getSessions(req: Request, res: Response): Promise<Response> {
     try {
       if (!req.user?.id) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
-      const sessions = await refreshTokenService.listSessionsForUser(req.user.id);
+      const currentRefreshToken = req.cookies?.refreshToken;
+      const currentRecord = currentRefreshToken
+        ? await refreshTokenService.findValidRefreshToken(currentRefreshToken)
+        : null;
+      const sessions = await refreshTokenService.listSessionsForUser(
+        req.user.id,
+        currentRecord?.id ?? null,
+      );
       return res.json({ sessions });
     } catch (error) {
       logger.error('Get sessions error:', error);
@@ -750,8 +625,34 @@ class AuthController {
   }
 
   /**
-   * Revoke a session by id (current user only). If revoking current session, clear cookies.
+   * Revoke all sessions except the current device (refresh cookie).
    */
+  public async revokeOtherSessions(req: Request, res: Response): Promise<Response> {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      const currentRefreshToken = req.cookies?.refreshToken;
+      const currentRecord = currentRefreshToken
+        ? await refreshTokenService.findValidRefreshToken(currentRefreshToken)
+        : null;
+      if (!currentRecord?.id) {
+        return res.status(400).json({
+          error: 'Current session required',
+          code: 'CURRENT_SESSION_REQUIRED',
+        });
+      }
+      const revokedCount = await refreshTokenService.revokeOtherSessionsForUser(
+        req.user.id,
+        currentRecord.id,
+      );
+      return res.json({ message: 'Other sessions revoked', revokedCount });
+    } catch (error) {
+      logger.error('Revoke other sessions error:', error);
+      return res.status(500).json({ error: 'Failed to revoke other sessions' });
+    }
+  }
+
   public async revokeSession(req: Request, res: Response): Promise<Response> {
     try {
       const { id: sessionId } = req.params;
@@ -780,5 +681,4 @@ class AuthController {
   }
 }
 
-// Export a singleton instance
 export const authController = new AuthController();

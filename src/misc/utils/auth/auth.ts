@@ -14,6 +14,7 @@ const JWT_REFRESH_EXPIRES_IN_SEC = JWT_REFRESH_EXPIRES_IN_DAYS * 24 * 60 * 60;
 
 const COOKIE_ACCESS = 'accessToken';
 const COOKIE_REFRESH = 'refreshToken';
+const COOKIE_CSRF = 'csrfToken';
 
 const isSecureAuthCookie = process.env.NODE_ENV !== 'development';
 
@@ -22,6 +23,14 @@ export const AUTH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: isSecureAuthCookie,
   // SameSite=None requires Secure; use Lax for local HTTP dev (localhost SPA → localhost API).
+  sameSite: (isSecureAuthCookie ? 'none' : 'lax') as 'none' | 'lax',
+  path: '/',
+};
+
+/** CSRF cookie is readable by JS (double-submit). */
+export const CSRF_COOKIE_OPTIONS = {
+  httpOnly: false,
+  secure: isSecureAuthCookie,
   sameSite: (isSecureAuthCookie ? 'none' : 'lax') as 'none' | 'lax',
   path: '/',
 };
@@ -116,6 +125,7 @@ export const tokenUtils = {
 
   /**
    * Generate a random token for password reset or email verification
+   * @deprecated Prefer opaqueTokenUtils.generateOpaqueCode for user-facing codes
    */
   generateRandomToken: (): string => {
     return crypto.randomBytes(32).toString('hex');
@@ -123,12 +133,68 @@ export const tokenUtils = {
 
   /**
    * Generate password reset token and expiry
+   * @deprecated Prefer AccountCredentialService password reset flow
    */
   generatePasswordResetToken: (): {token: string; expires: Date} => {
     const token = crypto.randomBytes(32).toString('hex');
     const expires = new Date();
     expires.setHours(expires.getHours() + 10);
     return {token, expires};
+  },
+};
+
+/** Purpose tags for opaque credential codes (email verify vs password reset). */
+export const OPAQUE_TOKEN_PURPOSE = {
+  EMAIL_VERIFY: 'email_verify',
+  PASSWORD_RESET: 'password_reset',
+} as const;
+
+export type OpaqueTokenPurpose =
+  (typeof OPAQUE_TOKEN_PURPOSE)[keyof typeof OPAQUE_TOKEN_PURPOSE];
+
+/** Crockford base32 alphabet (no I, L, O, U). */
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+function hashOpaqueToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+/**
+ * Opaque code utilities for email verification and password reset.
+ * Hash input: `${purpose}:${userId}:${code}` so codes cannot be reused across users/purposes.
+ */
+export const opaqueTokenUtils = {
+  hashOpaqueToken,
+
+  /**
+   * Hash a user-bound opaque code for storage.
+   */
+  hashBoundCode(purpose: OpaqueTokenPurpose, userId: string, code: string): string {
+    const normalized = code.trim().toUpperCase();
+    return hashOpaqueToken(`${purpose}:${userId}:${normalized}`);
+  },
+
+  /**
+   * Generate an 8-character Crockford base32 code.
+   */
+  generateOpaqueCode(length = 8): string {
+    const bytes = crypto.randomBytes(length);
+    let out = '';
+    for (let i = 0; i < length; i++) {
+      out += CROCKFORD[bytes[i]! % CROCKFORD.length];
+    }
+    return out;
+  },
+
+  timingSafeEqualHash(a: string, b: string): boolean {
+    try {
+      const bufA = Buffer.from(a, 'hex');
+      const bufB = Buffer.from(b, 'hex');
+      if (bufA.length !== bufB.length) return false;
+      return crypto.timingSafeEqual(bufA, bufB);
+    } catch {
+      return false;
+    }
   },
 };
 
@@ -149,6 +215,7 @@ export interface SessionInfo {
   label: string | null;
   createdAt: Date;
   expiresAt: Date;
+  isCurrent?: boolean;
 }
 
 /**
@@ -178,9 +245,13 @@ export const refreshTokenService = {
   },
 
   /**
-   * List active sessions (valid refresh tokens) for a user
+   * List active sessions (valid refresh tokens) for a user.
+   * When currentSessionId is provided, marks that row with isCurrent.
    */
-  async listSessionsForUser(userId: string): Promise<SessionInfo[]> {
+  async listSessionsForUser(
+    userId: string,
+    currentSessionId?: string | null,
+  ): Promise<SessionInfo[]> {
     const records = await RefreshToken.findAll({
       where: {
         userId,
@@ -197,6 +268,7 @@ export const refreshTokenService = {
       label: r.label ?? null,
       createdAt: r.createdAt,
       expiresAt: r.expiresAt,
+      isCurrent: Boolean(currentSessionId && r.id === currentSessionId),
     }));
   },
 
@@ -209,6 +281,27 @@ export const refreshTokenService = {
       { where: { id: sessionId, userId, revokedAt: null } }
     );
     return affected > 0;
+  },
+
+  /**
+   * Revoke all active sessions for a user except the one to keep (current device).
+   */
+  async revokeOtherSessionsForUser(
+    userId: string,
+    keepSessionId: string,
+  ): Promise<number> {
+    const [affected] = await RefreshToken.update(
+      { revokedAt: new Date() },
+      {
+        where: {
+          userId,
+          revokedAt: null,
+          id: { [Op.ne]: keepSessionId },
+          expiresAt: { [Op.gt]: new Date() },
+        },
+      },
+    );
+    return affected;
   },
 
   /**
@@ -275,14 +368,21 @@ export const cookieUtils = {
         maxAge: refreshMaxAgeSec * 1000,
       });
     }
+    // Rotate CSRF token whenever auth cookies are set
+    const csrf = crypto.randomBytes(32).toString('hex');
+    res.cookie(COOKIE_CSRF, csrf, {
+      ...CSRF_COOKIE_OPTIONS,
+      maxAge: refreshMaxAgeSec * 1000,
+    });
   },
 
   clearAuthCookies(res: Response): void {
     res.clearCookie(COOKIE_ACCESS, AUTH_COOKIE_OPTIONS);
     res.clearCookie(COOKIE_REFRESH, AUTH_COOKIE_OPTIONS);
+    res.clearCookie(COOKIE_CSRF, CSRF_COOKIE_OPTIONS);
   },
 
-  cookieNames: { access: COOKIE_ACCESS, refresh: COOKIE_REFRESH },
+  cookieNames: { access: COOKIE_ACCESS, refresh: COOKIE_REFRESH, csrf: COOKIE_CSRF },
 };
 
 /**

@@ -118,6 +118,31 @@ const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: N
 };
 
 /**
+ * Optional auth: attach req.user when a valid token is present; never 401.
+ */
+const tryUserAuth: MiddlewareFunction = async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const token = getAccessToken(req);
+    if (!token) {
+      next();
+      return;
+    }
+    const decoded = tokenUtils.verifyAccessToken(token);
+    if (!decoded?.id) {
+      next();
+      return;
+    }
+    const fullUser = await getUser(decoded.id);
+    if (fullUser) {
+      req.user = fullUser;
+    }
+  } catch (error) {
+    logger.debug('Optional auth skipped:', error);
+  }
+  next();
+};
+
+/**
  * Chain middleware functions together
  */
 const chainMiddleware = (...middlewares: MiddlewareFunction[]): MiddlewareFunction => {
@@ -211,6 +236,10 @@ export const Auth = {
    */
   user: (): MiddlewareFunction => baseAuth,
 
+  /**
+   * Attach user if authenticated; continue without 401 if not.
+   */
+  tryUser: (): MiddlewareFunction => tryUserAuth,
 
   /**
    * Require authenticated user

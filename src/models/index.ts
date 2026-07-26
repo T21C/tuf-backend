@@ -23,6 +23,7 @@ import TeamMember from './credits/TeamMember.js';
 import PlayerStats from './players/PlayerStats.js';
 import PlayerLeaderboardRankEvent from './players/PlayerLeaderboardRankEvent.js';
 import UsernameChange from './auth/UsernameChange.js';
+import ProfileActionLog from './auth/ProfileActionLog.js';
 import AnnouncementChannel from './announcements/AnnouncementChannel.js';
 import AnnouncementRole from './announcements/AnnouncementRole.js';
 import AnnouncementDirective from './announcements/AnnouncementDirective.js';
@@ -84,6 +85,7 @@ export const db = {
     PlayerStats,
     PlayerLeaderboardRankEvent,
     UsernameChange,
+    ProfileActionLog,
     AnnouncementChannel,
     AnnouncementRole,
     AnnouncementDirective,
@@ -140,6 +142,7 @@ export {
   OAuthProvider,
   RefreshToken,
   RateLimit,
+  ProfileActionLog,
   AuditLog,
   BillingEvent,
   UserTufStellarBilling,
