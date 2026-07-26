@@ -6,6 +6,7 @@ import type { Request, Response } from 'express';
 import {User, RefreshToken} from '@/models/index.js';
 import { hasFlag } from './permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
+import { lookupIpLocation, type IpLocationInfo } from './ipLocation.js';
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env
 
@@ -212,6 +213,7 @@ export interface SessionInfo {
   id: string;
   userAgent: string | null;
   ip: string | null;
+  location: IpLocationInfo | null;
   label: string | null;
   createdAt: Date;
   expiresAt: Date;
@@ -265,6 +267,7 @@ export const refreshTokenService = {
       id: r.id,
       userAgent: r.userAgent ?? null,
       ip: r.ip ?? null,
+      location: lookupIpLocation(r.ip),
       label: r.label ?? null,
       createdAt: r.createdAt,
       expiresAt: r.expiresAt,

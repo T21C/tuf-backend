@@ -88,6 +88,18 @@ export const sessionItemSchema: JsonSchema = {
     id: { type: 'string' },
     userAgent: { type: 'string', nullable: true },
     ip: { type: 'string', nullable: true },
+    location: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        label: { type: 'string' },
+        city: { type: 'string', nullable: true },
+        region: { type: 'string', nullable: true },
+        country: { type: 'string', nullable: true },
+        countryCode: { type: 'string', nullable: true },
+      },
+      required: ['label'],
+    },
     label: { type: 'string', nullable: true },
     createdAt: { type: 'string' },
     expiresAt: { type: 'string' },
