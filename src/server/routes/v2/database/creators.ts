@@ -1578,7 +1578,8 @@ router.put(
     return res.json({
       message: 'Creator assigned to user successfully',
       user: await User.findByPk(user.id, {
-        attributes: ['id', 'playerId', 'creatorId'],
+        // Include permissionFlags — clients call hasFlag() on this payload after assign.
+        attributes: ['id', 'playerId', 'creatorId', 'username', 'permissionFlags'],
         include: [
           {
             model: Creator,
@@ -1656,7 +1657,8 @@ router.delete(
     return res.json({
       message: 'Creator removed from user successfully',
       user: await User.findByPk(user.id, {
-        attributes: ['id', 'playerId', 'creatorId'],
+        // Include permissionFlags — clients call hasFlag() on this payload after unassign.
+        attributes: ['id', 'playerId', 'creatorId', 'username', 'permissionFlags'],
         include: [
           {
             model: Creator,
