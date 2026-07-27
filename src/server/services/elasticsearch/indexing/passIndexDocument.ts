@@ -20,8 +20,13 @@ function puaOrNull(value: unknown): string | null {
   return pua(value);
 }
 
+function arr<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 export function buildPassIndexDocument(pass: Pass): any {
   const p = pass.toJSON() as any;
+  const level = p.level as Record<string, unknown> | null | undefined;
 
   return {
     ...p,
@@ -35,11 +40,22 @@ export function buildPassIndexDocument(pass: Pass): any {
           avatarUrl: passPlayerAvatarProxyUrl((p.player as any).id),
         }
       : null,
-    level: p.level
+    level: level
       ? {
-          ...plainRow(p.level as object),
-          song: pua((p.level as any).song),
-          artist: pua((p.level as any).artist),
+          ...plainRow(level as object),
+          song: pua((level as any).song),
+          artist: pua((level as any).artist),
+          dlLink: puaOrNull((level as any).dlLink),
+          // Match level-index PUA encoding so multi-word aliases survive whitespace tokenization.
+          aliases: arr<any>((level as any).aliases).map((a) => {
+            const row = plainRow(a as object) as Record<string, unknown>;
+            return {
+              ...row,
+              originalValue:
+                row.originalValue != null ? pua(row.originalValue) : row.originalValue,
+              alias: pua((row as any).alias),
+            };
+          }),
         }
       : null,
   };

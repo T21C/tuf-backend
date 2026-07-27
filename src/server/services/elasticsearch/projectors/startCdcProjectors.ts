@@ -237,12 +237,24 @@ export function startCdcProjectors(): void {
             if (typeof pl === 'number' && pl > 0) await es.reindexPlayers([pl]);
             break;
           }
-          case 'ratings':
-          case 'level_aliases': {
+          case 'ratings': {
             const lid = num(after?.levelId ?? before?.levelId);
             if (lid != null) {
               await es.indexLevel(lid);
               await invalidateLevel(lid);
+            }
+            break;
+          }
+          case 'level_aliases': {
+            // Pass docs embed level.aliases for search; keep them in sync.
+            const lid = num(after?.levelId ?? before?.levelId);
+            if (lid != null) {
+              await es.indexLevel(lid);
+              await invalidateLevel(lid);
+              const passIds = await getPassIdsByLevelId(lid);
+              if (passIds.length > 0) {
+                await es.reindexPasses(passIds);
+              }
             }
             break;
           }

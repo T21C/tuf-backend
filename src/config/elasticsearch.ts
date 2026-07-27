@@ -807,10 +807,22 @@ const levelMappingHashPayload = {
   mappings: levelMapping.mappings
 };
 
-/** Payload hashed for passes index (settings + mappings only). */
+/**
+ * Payload hashed for passes index (settings + mappings + indexer version).
+ *
+ * `indexerVersion` is bumped whenever the indexer *logic* changes in a way that
+ * produces different documents without touching the ES mapping — e.g. fixing
+ * PUA encoding on nested fields. Bumping it forces `reindexPasses()` on the
+ * next boot while leaving the ES mapping alone.
+ *
+ * History:
+ *   1 — 2026-07-27: PUA-encode `level.aliases` / `level.dlLink` (spaces were
+ *       stored raw, so multi-word alias search like "upside down a" failed).
+ */
 const passMappingHashPayload = {
   settings: passMapping.settings,
-  mappings: passMapping.mappings
+  mappings: passMapping.mappings,
+  indexerVersion: 1,
 };
 
 /**

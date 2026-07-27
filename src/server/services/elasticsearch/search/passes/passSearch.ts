@@ -371,7 +371,16 @@ function convertPassSearchHit(source: Record<string, any>): any {
     level: source.level ? {
       ...source.level,
       song: convertFromPUA(source.level.song as string),
-      artist: convertFromPUA(source.level.artist as string)
+      artist: convertFromPUA(source.level.artist as string),
+      dlLink: source.level.dlLink != null ? convertFromPUA(source.level.dlLink as string) : source.level.dlLink,
+      aliases: source.level.aliases?.map((alias: Record<string, any>) => ({
+        ...alias,
+        originalValue:
+          alias.originalValue != null
+            ? convertFromPUA(alias.originalValue as string)
+            : alias.originalValue,
+        alias: convertFromPUA(alias.alias as string),
+      })),
     } : null
   };
 }
