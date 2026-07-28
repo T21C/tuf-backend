@@ -61,7 +61,6 @@ export function mimeTypeForImageExtension(extWithDot: string): string {
     if (e === '.png') return 'image/png';
     if (e === '.webp') return 'image/webp';
     if (e === '.gif') return 'image/gif';
-    if (e === '.svg') return 'image/svg+xml';
     return 'image/png';
 }
 
@@ -154,21 +153,14 @@ export async function processImage(
     const processedFiles: Record<string, { path: string; mimeType: string }> = {};
     const ext = path.extname(filePath).toLowerCase();
     const isGif = ext === '.gif';
-    const isSvg = ext === '.svg';
+
+    if (ext === '.svg') {
+        throw new Error('SVG uploads are not supported');
+    }
 
     // Create directory for this image's versions
     if (!fs.existsSync(outputDirectory)) {
         throw new Error('Output directory does not exist');
-    }
-
-    if (isSvg) {
-        const svgBuf = await fs.promises.readFile(filePath);
-        for (const [size] of Object.entries(imageConfig.sizes)) {
-            const outputPath = path.join(outputDirectory, `${size}${ext}`);
-            await fs.promises.writeFile(outputPath, svgBuf);
-            processedFiles[size] = metaForVariant(imageConfig.name, fileId, filePath, size);
-        }
-        return processedFiles;
     }
 
     if (isGif && imageType === 'PROFILE') {

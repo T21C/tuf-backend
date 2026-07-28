@@ -245,8 +245,7 @@ export const OAuthController = {
         // Invalidate user-specific cache (for new users, this is a no-op but harmless)
         await CacheInvalidation.invalidateUser(user.id);
 
-        const forwardedFor = req.headers['x-forwarded-for'];
-        const ip = typeof forwardedFor === 'string' ? forwardedFor?.split(',')[0].trim() : req.ip ?? '127.0.0.1';
+        const ip = parseClientIp(req);
         const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(user.id, {
           userAgent: req.get('user-agent'),
           ip,

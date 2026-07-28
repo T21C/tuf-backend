@@ -545,7 +545,6 @@ router.get(
       'image/webp',
       'image/gif',
       'image/apng',
-      'image/svg+xml',
       'image/bmp',
       'image/x-icon',
       'image/vnd.microsoft.icon',
@@ -557,7 +556,7 @@ router.get(
 
     // Quick file extension check, just as a first non-authoritative filter
     function isValidImageUrl(url: string): boolean {
-      const allowedExts = /\.(png|jpg|jpeg|webp|gif|apng|svg|bmp|ico|icon|heic|heif|avif|tiff?)$/i;
+      const allowedExts = /\.(png|jpg|jpeg|webp|gif|apng|bmp|ico|icon|heic|heif|avif|tiff?)$/i;
       return allowedExts.test(url.split('?')[0]);
     }
 

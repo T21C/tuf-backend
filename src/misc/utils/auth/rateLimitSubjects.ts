@@ -17,9 +17,7 @@ export function parseClientIp(req: {
   ip?: string;
   connection?: { remoteAddress?: string };
 }): string {
-  const forwardedFor = req.headers['x-forwarded-for'];
-  if (typeof forwardedFor === 'string') {
-    return forwardedFor.split(',')[0]?.trim() || '127.0.0.1';
-  }
+  // Express resolves req.ip using the configured trusted proxy boundary. Reading
+  // X-Forwarded-For directly would let an untrusted client choose its rate-limit key.
   return req.ip || req.connection?.remoteAddress || '127.0.0.1';
 }
