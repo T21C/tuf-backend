@@ -1,10 +1,10 @@
 import { NextFunction, Request, Response } from 'express';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { Op } from 'sequelize';
-import { RateLimit } from '@/models/index.js';
-import { RateLimitCreationAttributes } from '@/models/auth/RateLimit.js';
+import RateLimit, { type RateLimitCreationAttributes } from '@/models/auth/RateLimit.js';
 import {
   parseClientIp,
+  rateLimitSubjectAccount,
   rateLimitSubjectIp,
   rateLimitSubjectUser,
   type RateLimitSubjectKind,
@@ -19,6 +19,10 @@ export interface RateLimiterConfig {
   incrementOnSuccess?: boolean;
   /** Rate-limit by IP and/or authenticated user. Default: ['ip']. */
   subjects?: RateLimitSubjectKind[];
+  /** Optional unauthenticated account identifier (email/username) bucket. */
+  accountIdentifier?: (req: Request) => unknown;
+  /** Block sensitive requests when the backing store is unavailable. */
+  failClosed?: boolean;
 }
 
 interface RateLimitConfig {
@@ -26,6 +30,7 @@ interface RateLimitConfig {
   maxAttempts: number;
   blockDuration: number;
   type: string;
+  failClosed: boolean;
 }
 
 const defaultConfig: RateLimitConfig = {
@@ -33,9 +38,21 @@ const defaultConfig: RateLimitConfig = {
   maxAttempts: 3,
   blockDuration: 7 * 24 * 60 * 60 * 1000,
   type: 'default',
+  failClosed: false,
 };
 
-function resolveSubjects(req: Request, kinds: RateLimitSubjectKind[]): string[] {
+export class RateLimitStorageError extends Error {
+  constructor(operation: string, cause: unknown) {
+    super(`Rate limit storage unavailable during ${operation}`, { cause });
+    this.name = 'RateLimitStorageError';
+  }
+}
+
+function resolveSubjects(
+  req: Request,
+  kinds: RateLimitSubjectKind[],
+  accountIdentifier?: (req: Request) => unknown,
+): string[] {
   const subjects: string[] = [];
   for (const kind of kinds) {
     if (kind === 'ip') {
@@ -44,11 +61,22 @@ function resolveSubjects(req: Request, kinds: RateLimitSubjectKind[]): string[] 
       subjects.push(rateLimitSubjectUser(req.user.id));
     }
   }
+  const accountSubject = rateLimitSubjectAccount(accountIdentifier?.(req));
+  if (accountSubject) {
+    subjects.push(accountSubject);
+  }
   // Always have at least IP so unauthenticated routes still rate-limit
   if (subjects.length === 0) {
     subjects.push(rateLimitSubjectIp(parseClientIp(req)));
   }
-  return subjects;
+  return [...new Set(subjects)];
+}
+
+function rateLimitUnavailable(res: Response): Response {
+  return res.status(503).json({
+    message: 'Authentication protection is temporarily unavailable. Please try again later.',
+    code: 'RATE_LIMIT_UNAVAILABLE',
+  });
 }
 
 export function RateLimiter(innerConfig: Partial<RateLimiterConfig> = {}) {
@@ -60,6 +88,8 @@ export function RateLimiter(innerConfig: Partial<RateLimiterConfig> = {}) {
     incrementOnFailure = true,
     incrementOnSuccess = false,
     subjects: subjectKinds = ['ip'],
+    accountIdentifier,
+    failClosed = false,
   } = { ...defaultConfig, ...innerConfig };
 
   const config: RateLimiterConfig = {
@@ -70,6 +100,8 @@ export function RateLimiter(innerConfig: Partial<RateLimiterConfig> = {}) {
     incrementOnFailure,
     incrementOnSuccess,
     subjects: subjectKinds,
+    accountIdentifier,
+    failClosed,
   };
 
   return function (
@@ -80,7 +112,11 @@ export function RateLimiter(innerConfig: Partial<RateLimiterConfig> = {}) {
     const originalMethod = descriptor.value;
 
     descriptor.value = async function (req: Request, res: Response) {
-      const subjects = resolveSubjects(req, config.subjects || ['ip']);
+      const subjects = resolveSubjects(
+        req,
+        config.subjects || ['ip'],
+        config.accountIdentifier,
+      );
 
       try {
         for (const subject of subjects) {
@@ -111,6 +147,13 @@ export function RateLimiter(innerConfig: Partial<RateLimiterConfig> = {}) {
 
         return result;
       } catch (error) {
+        if (error instanceof RateLimitStorageError) {
+          logger.error(`${config.type} rate limit storage failure:`, error);
+          if (config.failClosed && !res.headersSent) {
+            return rateLimitUnavailable(res);
+          }
+          if (res.headersSent) return res;
+        }
         if (incrementOnFailure) {
           try {
             for (const subject of subjects) {
@@ -151,6 +194,9 @@ async function isBlocked(subject: string, config: RateLimiterConfig) {
     return { blocked: false, retryAfter: 0 };
   } catch (error) {
     logger.error('Rate limiter isBlocked error:', error);
+    if (config.failClosed) {
+      throw new RateLimitStorageError('block check', error);
+    }
     return { blocked: false, retryAfter: 0 };
   }
 }
@@ -216,6 +262,9 @@ async function increment(subject: string, config: RateLimiterConfig) {
     return false;
   } catch (error) {
     logger.error('Rate limiter increment error:', error);
+    if (config.failClosed) {
+      throw new RateLimitStorageError('increment', error);
+    }
     return false;
   }
 }
@@ -226,6 +275,7 @@ export const createRateLimiter = (config: Partial<RateLimiterConfig> = {}) => {
     maxAttempts = defaultConfig.maxAttempts,
     blockDuration = defaultConfig.blockDuration,
     type = 'default',
+    failClosed = false,
   } = { ...defaultConfig, ...config };
 
   return {
@@ -293,6 +343,9 @@ export const createRateLimiter = (config: Partial<RateLimiterConfig> = {}) => {
         return next();
       } catch (error) {
         logger.error('Rate limiter error:', error);
+        if (failClosed) {
+          return rateLimitUnavailable(res);
+        }
         return next();
       }
     },
@@ -304,6 +357,7 @@ export const createRateLimiter = (config: Partial<RateLimiterConfig> = {}) => {
         maxAttempts,
         blockDuration,
         type,
+        failClosed,
       });
     },
 
@@ -323,6 +377,7 @@ export const createRateLimiter = (config: Partial<RateLimiterConfig> = {}) => {
         maxAttempts,
         blockDuration,
         type,
+        failClosed,
       });
     },
   };

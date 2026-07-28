@@ -26,6 +26,8 @@ router.post(
     responses: {
       200: { description: 'Login success', schema: loginSuccessResponseSchema },
       400: { description: 'Invalid credentials or captcha required', schema: loginErrorResponseSchema },
+      429: { description: 'Login rate limit exceeded', schema: loginErrorResponseSchema },
+      503: { description: 'Authentication protection temporarily unavailable', schema: loginErrorResponseSchema },
       500: { description: 'Server error', schema: loginErrorResponseSchema },
     },
   }),

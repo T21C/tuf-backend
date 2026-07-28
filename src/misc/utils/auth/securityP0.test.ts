@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseTrustProxySetting } from '@/config/trustProxy.js';
 import { parseClientIp } from './rateLimitSubjects.js';
+import { rateLimitSubjectAccount } from './rateLimitSubjects.js';
 import { CDN_IMAGE_MIME_TYPES, cdnImageMimeFilter } from '@/config/multerMemoryUploads.js';
 
 test('proxy trust is disabled by default and rejects blanket trust', () => {
@@ -28,6 +29,16 @@ test('rate-limit client IP ignores attacker-controlled forwarded headers', () =>
     }),
     '10.0.0.2',
   );
+});
+
+test('account rate-limit keys are normalized, stable, and do not expose PII', () => {
+  const first = rateLimitSubjectAccount('  User@Example.COM ');
+  const second = rateLimitSubjectAccount('user@example.com');
+
+  assert.equal(first, second);
+  assert.match(first ?? '', /^account:[a-f0-9]{64}$/);
+  assert.equal(first?.includes('user@example.com'), false);
+  assert.equal(rateLimitSubjectAccount('   '), null);
 });
 
 test('SVG is rejected by the shared in-memory upload filter', () => {

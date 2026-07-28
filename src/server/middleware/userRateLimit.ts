@@ -1,8 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { Op } from 'sequelize';
 
-import { RateLimit } from '@/models/index.js';
-import type { RateLimitCreationAttributes } from '@/models/auth/RateLimit.js';
+import RateLimit, { type RateLimitCreationAttributes } from '@/models/auth/RateLimit.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasAnyFlag } from '@/misc/utils/auth/permissionUtils.js';
@@ -12,6 +11,8 @@ export interface UserRateLimiterConfig {
   windowMs: number;
   maxAttempts: number;
   blockDuration: number;
+  /** Write/sensitive routes default to fail-closed when storage is unavailable. */
+  failClosed?: boolean;
 }
 
 /**
@@ -33,7 +34,7 @@ function userRateLimitKey(userId: string): string {
  * Per-user rate limiter backed by the existing `rate_limits` table (`ip` stores `user:<id>`).
  */
 export function createUserRateLimiter(config: UserRateLimiterConfig) {
-  const { type, windowMs, maxAttempts, blockDuration } = config;
+  const { type, windowMs, maxAttempts, blockDuration, failClosed = true } = config;
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const userId = req.user?.id;
@@ -107,6 +108,13 @@ export function createUserRateLimiter(config: UserRateLimiterConfig) {
       next();
     } catch (error) {
       logger.error('User rate limiter error:', error);
+      if (failClosed) {
+        res.status(503).json({
+          error: 'Request protection is temporarily unavailable. Please try again later.',
+          code: 'RATE_LIMIT_UNAVAILABLE',
+        });
+        return;
+      }
       next();
     }
   };
