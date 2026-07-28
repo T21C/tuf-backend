@@ -13,6 +13,7 @@ RUN apt-get update \
 
 COPY package.json package-lock.json ./
 COPY eslint-plugin-tuf ./eslint-plugin-tuf
+COPY patches ./patches
 RUN --mount=type=cache,target=/root/.npm npm ci
 
 COPY tsconfig.json ./
@@ -36,7 +37,6 @@ RUN apt-get update \
         default-mysql-client \
         fonts-noto-cjk \
         p7zip-full \
-        tini \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10001 tuf \
@@ -50,5 +50,4 @@ COPY --from=build --chown=tuf:tuf /app/node_modules ./node_modules
 COPY --from=build --chown=tuf:tuf /app/dist ./dist
 
 USER 10001:10001
-ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "dist/app.js"]
