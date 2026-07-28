@@ -11,6 +11,7 @@ setTerminalServiceTitle('TUF CDC');
 registerGlobalProcessHandlers();
 
 const PORT = Number(process.env.CDC_HEALTH_PORT ?? 3990);
+const BIND_ADDRESS = process.env.CDC_BIND_ADDRESS || '127.0.0.1';
 
 const app = express();
 
@@ -18,8 +19,8 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'cdc' });
 });
 
-const server = app.listen(PORT, () => {
-  logger.info(`[cdc] Health on http://0.0.0.0:${PORT}/health`);
+const server = app.listen(PORT, BIND_ADDRESS, () => {
+  logger.info(`[cdc] Health on http://${BIND_ADDRESS}:${PORT}/health`);
 });
 
 const serverId = Number(process.env.CDC_SERVER_ID ?? '999901');

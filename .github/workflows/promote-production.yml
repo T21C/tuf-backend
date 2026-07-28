@@ -1,0 +1,57 @@
+name: Promote production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Canary-verified backend git SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tuf-backend-production
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate immutable tag
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          [[ "$IMAGE_TAG" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "image_tag must be a full 40-character git SHA" >&2
+            exit 64
+          }
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:gh-runner
+          ping: tuf-main-server
+
+      - name: Configure deploy SSH identity
+        env:
+          DEPLOY_KEY: ${{ secrets.TUF_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.TUF_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          install -m 600 /dev/null ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          install -m 600 /dev/null ~/.ssh/known_hosts
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Promote backend
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 tuf-deploy@tuf-main-server \
+            "sudo /usr/local/sbin/tuf-deploy-backend '$IMAGE_TAG'"

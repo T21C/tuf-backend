@@ -74,8 +74,9 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 
 app.use('/', router);
 
-app.listen(CDN_CONFIG.port, () => {
-    logger.info(`CDN service running on port ${CDN_CONFIG.port}`);
+const bindAddress = process.env.CDN_BIND_ADDRESS || '127.0.0.1';
+app.listen(CDN_CONFIG.port, bindAddress, () => {
+    logger.info(`CDN service running on http://${bindAddress}:${CDN_CONFIG.port}`);
 });
 
 export default app;

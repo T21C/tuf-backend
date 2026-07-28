@@ -13,6 +13,10 @@ import {
     detectArchiveFormat,
     getArchiveExtension
 } from '@/externalServices/cdnService/infra/archive/archiveService.js';
+import {
+  getTranslationDocuments,
+  stageTranslationDocuments,
+} from '@/server/services/core/FrontendContentService.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -38,25 +42,6 @@ const languageConfigs = {
 
 interface MulterRequest extends Request {
   file?: Express.Multer.File;
-}
-
-// Utility to recursively get all JSON files from a directory
-function getAllJsonFiles(dir: string): string[] {
-  let results: string[] = [];
-  const list = fs.readdirSync(dir);
-
-  list.forEach(file => {
-    const filePath = path.join(dir, file);
-    const stat = fs.statSync(filePath);
-
-    if (stat.isDirectory()) {
-      results = results.concat(getAllJsonFiles(filePath));
-    } else if (path.extname(file) === '.json') {
-      results.push(filePath);
-    }
-  });
-
-  return results;
 }
 
 // Get object keys recursively
@@ -109,28 +94,6 @@ function findTranslationRoot(dir: string): string | null {
 
   // No directory with JSON files found
   return null;
-}
-
-/**
- * Stage every .json file from `sourceDir` into `stagingDir`, mirroring the relative
- * tree, so a single `archiveCreateZip(stagingDir, ...)` call produces an archive that
- * contains only translation JSONs (no .py / .md / sidecar files that may live in the
- * translations folder).
- */
-async function stageJsonTreeForZip(sourceDir: string, baseDir: string, stagingDir: string): Promise<void> {
-  const files = await fs.promises.readdir(sourceDir);
-  for (const name of files) {
-    const filePath = path.join(sourceDir, name);
-    const stat = await fs.promises.stat(filePath);
-    if (stat.isDirectory()) {
-      await stageJsonTreeForZip(filePath, baseDir, stagingDir);
-    } else if (path.extname(name) === '.json') {
-      const relativePath = path.relative(baseDir, filePath);
-      const dest = path.join(stagingDir, relativePath);
-      await fs.promises.mkdir(path.dirname(dest), { recursive: true });
-      await fs.promises.copyFile(filePath, dest);
-    }
-  }
 }
 
 // Verify translations endpoint
@@ -193,15 +156,17 @@ router.post(
           };
         }
 
-        const enTranslationsDir = process.env.TRANSLATIONS_PATH + '/languages/en';
-        const enFiles = getAllJsonFiles(enTranslationsDir);
+        const enDocuments = await getTranslationDocuments('en');
+        if (enDocuments.length === 0) {
+          throw new Error('English translation source is empty');
+        }
 
         const missingFiles: string[] = [];
         const missingKeys: {[file: string]: string[]} = {};
         const extraKeys: {[file: string]: string[]} = {};
 
-        enFiles.forEach(enFile => {
-          const relativePath = path.relative(enTranslationsDir, enFile);
+        enDocuments.forEach(document => {
+          const relativePath = document.relativePath;
           const uploadedFile = path.join(translationRoot, relativePath);
 
           if (!fs.existsSync(uploadedFile)) {
@@ -209,7 +174,7 @@ router.post(
             return;
           }
 
-          const enContent = JSON.parse(fs.readFileSync(enFile, 'utf8'));
+          const enContent = JSON.parse(document.content);
           const uploadedContent = JSON.parse(
             fs.readFileSync(uploadedFile, 'utf8'),
           );
@@ -269,14 +234,14 @@ router.get(
   }),
   async (req: Request, res: Response) => {
   try {
-    const enTranslationsDir = process.env.TRANSLATIONS_PATH + '/languages/en';
     // res.download completes before the workspace lease ends, so the zip file is still around
     // during streaming and gets removed the moment delivery finishes.
     await withWorkspace('translation-download', async (ws) => {
       const stagingDir = ws.join('staging');
       const tempZipPath = ws.join('en-translations.zip');
       await fs.promises.mkdir(stagingDir, { recursive: true });
-      await stageJsonTreeForZip(enTranslationsDir, enTranslationsDir, stagingDir);
+      const staged = await stageTranslationDocuments('en', stagingDir);
+      if (staged === 0) throw new Error('English translation source is empty');
       await archiveCreateZip(stagingDir, tempZipPath);
 
       await new Promise<void>((resolve) => {
@@ -306,40 +271,31 @@ const languages: {[key: string]: {display: string; countryCode: string; folder: 
 // Function to check if a language is implemented
 async function checkLanguageImplementation(langCode: string): Promise<number> {
   try {
-    const langDir = process.env.TRANSLATIONS_PATH + '/languages/' + langCode;
+    const [langDocuments, enDocuments] = await Promise.all([
+      getTranslationDocuments(langCode),
+      getTranslationDocuments('en'),
+    ]);
+    if (langDocuments.length === 0 || enDocuments.length === 0) return 0;
 
-    // Check if directory exists
-    if (!fs.existsSync(langDir)) {
-      return 0;
-    }
-
-    // Get all JSON files in the language directory
-    const langFiles = getAllJsonFiles(langDir);
-    if (langFiles.length === 0) {
-      return 0;
-    }
-
-    // Get English translations for comparison
-    const enDir = process.env.TRANSLATIONS_PATH + '/languages/en';
-    const enFiles = getAllJsonFiles(enDir);
+    const langByPath = new Map(
+      langDocuments.map(document => [document.relativePath, document.content]),
+    );
 
     let missingFiles = 0;
     let missingKeys = 0;
     let totalKeys = 0;
 
     // Check if all English files exist in the language directory
-    for (const enFile of enFiles) {
-      const relativePath = path.relative(enDir, enFile);
-      const langFile = path.join(langDir, relativePath);
-
-      if (!fs.existsSync(langFile)) {
+    for (const enDocument of enDocuments) {
+      const langContentText = langByPath.get(enDocument.relativePath);
+      if (!langContentText) {
         missingFiles++;
         continue;
       }
 
       // Compare keys in each file
-      const enContent = JSON.parse(fs.readFileSync(enFile, 'utf8'));
-      const langContent = JSON.parse(fs.readFileSync(langFile, 'utf8'));
+      const enContent = JSON.parse(enDocument.content);
+      const langContent = JSON.parse(langContentText);
 
       const enKeys = getKeysRecursively(enContent);
       const langKeys = getKeysRecursively(langContent);
@@ -349,7 +305,8 @@ async function checkLanguageImplementation(langCode: string): Promise<number> {
     }
 
     // Calculate implementation percentage
-    const fileCompletion = ((enFiles.length - missingFiles) / enFiles.length) * 100;
+    const fileCompletion =
+      ((enDocuments.length - missingFiles) / enDocuments.length) * 100;
     const keyCompletion = ((totalKeys - missingKeys) / totalKeys) * 100;
     const overallCompletion = (fileCompletion + keyCompletion) / 2;
 
@@ -363,12 +320,6 @@ async function checkLanguageImplementation(langCode: string): Promise<number> {
 
 // Initialize languages configuration
 async function initializeLanguages() {
-  const baseDir = process.env.TRANSLATIONS_PATH + '/languages';
-  if (!fs.existsSync(baseDir)) {
-    logger.error('Translations path does not exist:', baseDir);
-    return;
-  }
-
   // Check each language's implementation
   for (const [code, config] of Object.entries(languageConfigs)) {
     const status = await checkLanguageImplementation(code);
@@ -429,22 +380,18 @@ router.get(
     const {lang} = req.params;
 
     try {
-      if (!languages[lang as LanguageCode]) {
+      if (!languageConfigs[lang as keyof typeof languageConfigs]) {
         return res.status(404).json({error: 'Language not found'});
-      }
-
-      const translationsDir = process.env.TRANSLATIONS_PATH + '/languages/' + lang;
-      if (!fs.existsSync(translationsDir)) {
-        return res
-          .status(404)
-          .json({error: 'Translations not found for this language'});
       }
 
       await withWorkspace('translation-download', async (ws) => {
         const stagingDir = ws.join('staging');
         const tempZipPath = ws.join(`${lang}-translations.zip`);
         await fs.promises.mkdir(stagingDir, { recursive: true });
-        await stageJsonTreeForZip(translationsDir, translationsDir, stagingDir);
+        const staged = await stageTranslationDocuments(lang, stagingDir);
+        if (staged === 0) {
+          throw {code: 404, error: 'Translations not found for this language'};
+        }
         await archiveCreateZip(stagingDir, tempZipPath);
 
         await new Promise<void>((resolve) => {

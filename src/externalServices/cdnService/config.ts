@@ -30,6 +30,7 @@ if (!process.env.CDN_INGEST_SECRET?.trim()) {
 }
 
 const localCdnUrl = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
+const localCdnPort = Number.parseInt(localCdnUrl.split(':')[2] || '', 10);
 /** Single on-disk root for CDN temp, multer, zip scratch, image staging, and tuf-cdn-spaces (via config). Set `CDN_TEMP_ROOT`. */
 const localRoot = path.resolve(
     process.env.CDN_TEMP_ROOT?.trim() || path.join(process.cwd(), 'cache', 'cdn-local-fallback')
@@ -45,7 +46,7 @@ export const CDN_CONFIG = {
     maxImageSize: 10 * 1024 * 1024, // 10MB
     cacheControl: CDN_IMMUTABLE_CACHE_CONTROL,
     baseUrl: process.env.CDN_URL,
-    port: process.env.CDN_PORT || localCdnUrl.split(':')[2],
+    port: envPositiveInt('CDN_PORT', Number.isFinite(localCdnPort) ? localCdnPort : 3001),
     /** Pre-extract zip-bomb guard thresholds (env-overridable). */
     archiveBombLimits: {
         maxArchiveEntryCount: envPositiveInt('CDN_ARCHIVE_MAX_ENTRY_COUNT', 15_000),

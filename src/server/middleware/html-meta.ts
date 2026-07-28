@@ -18,6 +18,7 @@ import { getArtistDisplayName, getSongDisplayName } from '@/misc/utils/data/leve
 import { getPrimaryVideoLink } from '@/misc/utils/data/videoLinkParts.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
+import {fetchFrontendJson} from '@/server/services/core/FrontendContentService.js';
 
 const SITE_NAME = 'The Universal Forums';
 const DEFAULT_DESCRIPTION =
@@ -53,6 +54,11 @@ type Manifest = {
 
 // Function to read manifest file
 const readManifest = async (): Promise<Manifest> => {
+  const manifestUrl = process.env.FRONTEND_MANIFEST_URL?.trim();
+  if (manifestUrl) {
+    return fetchFrontendJson<Manifest>(manifestUrl);
+  }
+
   const manifestPath = path.join(process.cwd(), '..', 'client', 'dist', '.vite', 'manifest.json');
     let attempts = 0;
     while (attempts < 3) {

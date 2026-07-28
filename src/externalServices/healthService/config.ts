@@ -43,6 +43,7 @@ function defaultCdcUrl(): string {
 /** Centralized, env-driven config for the standalone health service. */
 export const HEALTH_CONFIG = {
   port: envInt('HEALTH_PORT', 3883),
+  bindAddress: envString('HEALTH_BIND_ADDRESS', '127.0.0.1'),
   /** How often live probes run while the health HTTP server is up. */
   probeIntervalMs: envInt('HEALTH_PROBE_INTERVAL_MS', 3000),
   probeTimeoutMs: envInt('HEALTH_PROBE_TIMEOUT_MS', 5000),

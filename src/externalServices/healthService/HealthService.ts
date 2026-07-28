@@ -256,13 +256,13 @@ export class HealthService {
 
     try {
       this.server = http.createServer(this.app);
-      this.server.listen(this.port, '::', () => {
+      this.server.listen(this.port, HEALTH_CONFIG.bindAddress, () => {
         this.isRunning = true;
         this.startTime = new Date();
         const enabled = this.probes
           .map((p) => (p.name === 'nginx' && !HEALTH_CONFIG.nginxUrl ? `${p.name}(skipped)` : p.name))
           .join(', ');
-        logger.info(`[health] listening on :${this.port} (probes: ${enabled})`, {
+        logger.info(`[health] listening on ${HEALTH_CONFIG.bindAddress}:${this.port} (probes: ${enabled})`, {
           port: this.port,
           mainServerUrl: HEALTH_CONFIG.mainServerUrl,
           cdnUrl: HEALTH_CONFIG.cdnUrl,
