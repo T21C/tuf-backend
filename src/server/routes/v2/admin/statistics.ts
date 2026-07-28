@@ -69,7 +69,9 @@ router.get(
 
 router.get(
   '/ratings-per-user',
-  Auth.rater(),
+  // Public read: the rating page pulls this for rater activity ornaments and
+  // the Top raters popup, both of which render for anonymous visitors.
+  Auth.addUserToRequest(),
   ApiDoc({
     operationId: 'getAdminStatisticsRatingsPerUser',
     summary: 'Ratings per user',

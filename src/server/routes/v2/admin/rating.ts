@@ -144,9 +144,11 @@ function fullRatingIncludeOptions(transaction: any) {
 }
 
 
+// Public read: the rating page renders for anonymous visitors, and signed-in
+// non-raters rate from it as community raters (see PUT /:id below).
 router.get(
   '/',
-  Auth.rater(),
+  Auth.addUserToRequest(),
   Cache({
     ttl: 300,
     prefix: 'admin:ratings',

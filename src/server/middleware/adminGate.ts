@@ -30,6 +30,10 @@ const PUBLIC_ADMIN_READS: readonly RegExp[] = [
   /^\/curations\/types$/,
   /^\/curations\/schedules$/,
   /^\/curations\/\d+$/,
+  // Rating page (client/src/pages/admin/RatingPage) is public: it lists pending
+  // ratings and pulls rater activity for its ornaments and Top raters popup.
+  /^\/rating$/,
+  /^\/statistics\/ratings-per-user$/,
 ];
 
 /** True when an anonymous caller may reach this admin route. */
