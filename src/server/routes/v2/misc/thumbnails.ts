@@ -38,6 +38,16 @@ dotenv.config();
 
 const CACHE_PATH = process.env.CACHE_PATH || path.join(process.cwd(), 'cache');
 
+/** Escape untrusted text before interpolating it into thumbnail HTML. */
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 // Promise map for tracking ongoing thumbnail generation
 const thumbnailGenerationPromises = new Map<string, Promise<Buffer>>();
 
@@ -426,7 +436,7 @@ router.get(
             .map((t, i) => {
               if (!t.icon) return '';
               // Match the "fan" display used by LevelCard: pass idx/count via CSS variables.
-              return `<img class="curation-icon" style="--idx: ${i}; --curation-count: ${curationIconsSorted.length};" src="${t.icon}" alt="Curation">`;
+              return `<img class="curation-icon" style="--idx: ${i}; --curation-count: ${curationIconsSorted.length};" src="${escapeHtml(t.icon)}" alt="Curation">`;
             })
             .join('');
 
@@ -646,14 +656,14 @@ router.get(
                     null}
                     </div>
                     <div class="song-info">
-                      <div class="song-title text">${song}</div>
+                      <div class="song-title text">${escapeHtml(song)}</div>
                       <div class="artist-name text" 
-                        style="-webkit-line-clamp: 1">${artist}</div>
+                        style="-webkit-line-clamp: 1">${escapeHtml(artist)}</div>
                     </div>
                   </div>
                   <div class="header-right">
                     <div class="level-id">#${levelId}</div>
-                    ${level.tags && level.tags.length > 0 ? `<div class="level-tags">${level.tags.map((tag: LevelTag) => `<img src="${tag.icon}" class="level-tag-icon"/>`).join(' ')}</div>` : ''}
+                    ${level.tags && level.tags.length > 0 ? `<div class="level-tags">${level.tags.map((tag: LevelTag) => `<img src="${escapeHtml(tag.icon)}" class="level-tag-icon"/>`).join(' ')}</div>` : ''}
                     <div class="level-metadata ${level.tilecount && level.bpm ? '' : 'hidden'}">
                                         ${level.levelLengthInMs ? `
                     <div class="level-metadata-item">
@@ -704,8 +714,8 @@ router.get(
                     <div class="pass-count">${level.clears || 0} pass${(level.clears || 0) === 1 ? '' : 'es'}</div>
                   </div>
                   <div class="footer-right">
-                    <div class="creator-name">${firstRow}</div>
-                    ${secondRow ? `<div class="creator-name">${secondRow}</div>` : ''}
+                    <div class="creator-name">${escapeHtml(firstRow)}</div>
+                    ${secondRow ? `<div class="creator-name">${escapeHtml(secondRow)}</div>` : ''}
                   </div>
                 </div>
               </body>
@@ -969,7 +979,7 @@ router.get(
                   alt="Background"
                 />
                 <div class="content">
-                  <div class="player-name">${player.name}</div>
+                  <div class="player-name">${escapeHtml(player.name)}</div>
                   <div class="player-rank">#${player.stats?.rankedScoreRank || 0}</div>
                   <div class="stats">
                     <div class="stat-item">
@@ -982,7 +992,7 @@ router.get(
                     </div>
                     <div class="stat-item">
                       <span class="stat-label">Top Difficulty:</span>
-                      <span class="stat-value">${difficultyMap.get(player.stats?.topDiffId || 0) || 'None'}</span>
+                      <span class="stat-value">${escapeHtml(difficultyMap.get(player.stats?.topDiffId || 0) || 'None')}</span>
                     </div>
                   </div>
                 </div>
@@ -1240,8 +1250,8 @@ router.get(
                 />
                 <div class="content">
                   <div class="pass-id">Pass #${passId}</div>
-                  <div class="level-info">${pass.level ? getSongDisplayName(pass.level) : 'Unknown Level'}</div>
-                  <div class="player-info">by ${pass.player?.name || 'Unknown Player'}</div>
+                  <div class="level-info">${escapeHtml(pass.level ? getSongDisplayName(pass.level) : 'Unknown Level')}</div>
+                  <div class="player-info">by ${escapeHtml(pass.player?.name || 'Unknown Player')}</div>
                   <div class="stats">
                     ${pass.scoreV2 !== null ? `
                     <div class="stat-item">
@@ -1502,8 +1512,8 @@ router.get(
             const songName = getSongDisplayName(level);
             levelsHtml += `
               <div class="level-item">
-                ${diffIcon ? `<img class="level-item-icon" src="${diffIcon}" alt="Difficulty Icon" />` : ''}
-                <span class="level-item-name">${songName}</span>
+                ${diffIcon ? `<img class="level-item-icon" src="${escapeHtml(diffIcon)}" alt="Difficulty Icon" />` : ''}
+                <span class="level-item-name">${escapeHtml(songName)}</span>
               </div>
             `;
           });
@@ -1522,7 +1532,7 @@ router.get(
                 <div class="level-more-icon-container">
                 <img 
                   class="level-more-icon"
-                  src="${diffIcon}" 
+                  src="${escapeHtml(diffIcon)}" 
                   alt="Difficulty Icon"
                   style="z-index: ${100 - index};"
                 />
@@ -1726,7 +1736,7 @@ router.get(
                       <div class="pack-icon-placeholder">📦</div>
                     `}
                     <div class="pack-info">
-                      <div class="pack-title">${pack.name}</div>
+                      <div class="pack-title">${escapeHtml(pack.name)}</div>
                       <div class="pack-owner">
                         ${ownerAvatarBuffer ? `
                           <img 
@@ -1735,9 +1745,9 @@ router.get(
                             alt="Owner Avatar"
                           />
                         ` : ''}
-                        <span class="pack-owner-name">${
+                        <span class="pack-owner-name">${escapeHtml(
                           (pack as any).packOwner?.nickname?.slice(0, 40) ||
-                          (pack as any).packOwner?.username?.slice(0, 40) || 'Unknown'}</span>
+                          (pack as any).packOwner?.username?.slice(0, 40) || 'Unknown')}</span>
                       </div>
                     </div>
                   </div>

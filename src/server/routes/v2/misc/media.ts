@@ -432,6 +432,9 @@ export async function htmlToPng(html: string, width: number, height: number, max
         logger.debug('Page console:', msg.text());
       });
 
+      // Thumbnail templates are static HTML/CSS. Disabling JavaScript provides a
+      // second line of defense if an untrusted value is ever interpolated without escaping.
+      await page.setJavaScriptEnabled(false);
       await page.setViewport({ width, height });
       await page.setContent(html, { timeout: 30000 });
 
