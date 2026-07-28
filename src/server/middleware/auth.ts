@@ -11,8 +11,52 @@ import { permissionFlags } from '@/config/constants.js';
 import { hasAnyFlag, hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { canUseStellarProfileCustomization } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 
+/**
+ * Columns loaded onto `req.user`.
+ *
+ * Deliberately omits every piece of credential material — `password`,
+ * `passwordResetToken`, `passwordResetTokenHash`, `emailVerifyTokenHash` — so a
+ * handler that serialises `req.user` cannot leak a hash or a reset token. The
+ * paired expiry timestamps stay because they are not secrets and
+ * `getEmailResendAvailableAt` needs `emailVerifyExpires`.
+ *
+ * Handlers that genuinely need the password hash (to verify a current password)
+ * must load it explicitly for the one user they are checking.
+ */
+const REQUEST_USER_ATTRIBUTES = [
+  'id',
+  'username',
+  'email',
+  'pendingEmail',
+  'passwordResetExpires',
+  'emailVerifyExpires',
+  'isEmailVerified',
+  'isRater',
+  'isSuperAdmin',
+  'isRatingBanned',
+  'status',
+  'playerId',
+  'creatorId',
+  'lastLogin',
+  'nickname',
+  'avatarId',
+  'avatarUrl',
+  'permissionFlags',
+  'permissionVersion',
+  'deletionScheduledAt',
+  'deletionExecuteAt',
+  'deletionIncludeCreator',
+  'deletionSnapshotPermissionFlags',
+  'avatarIsGif',
+  'lastUsernameChange',
+  'previousUsername',
+  'createdAt',
+  'updatedAt',
+] as const;
+
 const getUser = async (id: string): Promise<User | null> => {
   return await User.findByPk(id, {
+    attributes: [...REQUEST_USER_ATTRIBUTES],
     include: [
       {
         model: OAuthProvider,
@@ -49,6 +93,8 @@ declare global {
   namespace Express {
     interface Request {
       user?: UserAttributes;
+      /** Set once baseAuth has verified the token and loaded req.user. */
+      authResolved?: boolean;
     }
   }
 }
@@ -76,6 +122,15 @@ function getAccessToken(req: Request): string | null {
  */
 const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    // The admin gate authenticates before per-route guards run; re-verifying
+    // would repeat the token check and the getUser join for the same request.
+    // Only baseAuth sets this flag, so the lighter tryUser/addUserToRequest
+    // paths can never satisfy a route that asked for full authentication.
+    if (req.authResolved) {
+      next();
+      return;
+    }
+
     const token = getAccessToken(req);
     if (!token) {
       res.status(401).json({error: 'No token provided'});
@@ -117,6 +172,7 @@ const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: N
     }
 
     req.user = fullUser;
+    req.authResolved = true;
     next();
   } catch (error) {
     logger.error('Auth middleware error:', error);

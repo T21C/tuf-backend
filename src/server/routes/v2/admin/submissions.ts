@@ -1970,6 +1970,7 @@ router.post(
 // Add endpoint to update profiles
 router.put(
   '/levels/:id/profiles',
+  Auth.superAdmin(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionProfiles',
     summary: 'Update level submission profiles',
@@ -2194,6 +2195,7 @@ router.put(
 // Add endpoint to create and assign creator in one step
 router.post(
   '/levels/:id/creators',
+  Auth.superAdmin(),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionCreators',
     summary: 'Create and assign creator',
@@ -2379,6 +2381,7 @@ router.post(
 // Add a new creator request
 router.post(
   '/levels/:id/creator-requests',
+  Auth.superAdmin(),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionCreatorRequests',
     summary: 'Add creator request',
@@ -2492,6 +2495,7 @@ router.post(
 // Remove a creator request
 router.delete(
   '/levels/:id/creator-requests/:requestId',
+  Auth.superAdmin(),
   ApiDoc({
     operationId: 'deleteAdminLevelSubmissionCreatorRequest',
     summary: 'Remove creator request',

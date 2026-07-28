@@ -14,6 +14,7 @@ import {
   sessionsListResponseSchema,
   stringIdParamSpec,
 } from '@/server/schemas/v2/auth/index.js';
+import { stepUpGrantService } from '@/server/services/auth/StepUpGrantService.js';
 
 const router: Router = Router();
 
@@ -24,20 +25,54 @@ router.use('/oauth', oauthRoutes);
 router.use('/profile', profileRoutes);
 router.use('/forgot-password', forgotPasswordRoutes);
 router.post(
+  '/step-up/email',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postAuthStepUpEmail',
+    summary: 'Request step-up email code',
+    description:
+      'Send a one-time confirmation code to the current verified email to unlock a sensitive action',
+    tags: ['Auth'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'Step-up scope',
+      schema: {
+        type: 'object',
+        properties: {
+          scope: { type: 'string', enum: ['email-change', 'security'] },
+        },
+      },
+      required: false,
+    },
+    responses: {
+      200: { description: 'Code sent', schema: successMessageSchema },
+      400: { schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
+      403: { schema: errorResponseSchema },
+      429: { schema: errorResponseSchema },
+    },
+  }),
+  (req, res) => authController.requestStepUpEmail(req, res),
+);
+router.post(
   '/step-up',
   Auth.user(),
   ApiDoc({
     operationId: 'postAuthStepUp',
     summary: 'Step-up authentication',
     description:
-      'Confirm password (or complete OAuth reauth) to unlock sensitive account actions for a short window',
+      'Confirm with an emailed code (verified accounts) or password / OAuth (add-first-email only) to unlock sensitive account actions for a short window',
     tags: ['Auth'],
     security: ['bearerAuth'],
     requestBody: {
-      description: 'Current password',
+      description: 'Confirmation code and/or password, plus scope',
       schema: {
         type: 'object',
-        properties: { password: { type: 'string' } },
+        properties: {
+          code: { type: 'string' },
+          password: { type: 'string' },
+          scope: { type: 'string', enum: ['email-change', 'security'] },
+        },
       },
       required: false,
     },
@@ -45,6 +80,7 @@ router.post(
       200: { description: 'Step-up granted', schema: successMessageSchema },
       400: { schema: errorResponseSchema },
       401: { schema: errorResponseSchema },
+      403: { schema: errorResponseSchema },
       429: { schema: errorResponseSchema },
     },
   }),
@@ -117,16 +153,19 @@ router.get(
 router.delete(
   '/sessions',
   Auth.user(),
+  stepUpGrantService.requireStepUp('security'),
   ApiDoc({
     operationId: 'deleteAuthOtherSessions',
     summary: 'Revoke other sessions',
-    description: 'Revoke all active sessions except the current device',
+    description:
+      'Revoke all active sessions except the current device. Requires recent step-up confirmation.',
     tags: ['Auth'],
     security: ['bearerAuth'],
     responses: {
       200: { description: 'Other sessions revoked', schema: successMessageSchema },
       400: { schema: errorResponseSchema },
       401: { description: 'Unauthorized', schema: errorResponseSchema },
+      403: { schema: errorResponseSchema },
     },
   }),
   (req, res) => authController.revokeOtherSessions(req, res)

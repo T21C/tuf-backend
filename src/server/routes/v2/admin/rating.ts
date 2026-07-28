@@ -146,6 +146,7 @@ function fullRatingIncludeOptions(transaction: any) {
 
 router.get(
   '/',
+  Auth.rater(),
   Cache({
     ttl: 300,
     prefix: 'admin:ratings',

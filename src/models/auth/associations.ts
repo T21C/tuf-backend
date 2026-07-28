@@ -1,6 +1,7 @@
 import User from './User.js';
 import OAuthProvider from './OAuthProvider.js';
 import RefreshToken from './RefreshToken.js';
+import StepUpCode from './StepUpCode.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
 import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
@@ -14,6 +15,15 @@ export function initializeAuthAssociations() {
     as: 'refreshTokens',
   });
   RefreshToken.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  User.hasMany(StepUpCode, {
+    foreignKey: 'userId',
+    as: 'stepUpCodes',
+  });
+  StepUpCode.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
   });

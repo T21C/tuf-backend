@@ -1,5 +1,6 @@
 import { Op } from 'sequelize';
 import User from '@/models/auth/User.js';
+import StepUpCode from '@/models/auth/StepUpCode.js';
 import ProfileActionLog, {
   type ProfileActionType,
 } from '@/models/auth/ProfileActionLog.js';
@@ -18,11 +19,20 @@ import {
 } from '@/misc/utils/auth/permissionUtils.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { STEP_UP_TTL_SEC } from '@/config/auth.config.js';
+import type { StepUpCodeScope } from '@/models/auth/StepUpCode.js';
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const EMAIL_VERIFY_TTL_MS = 60 * 60 * 1000; // 1 hour
 const EMAIL_RESEND_COOLDOWN_MS = 60 * 1000; // 60s between codes
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
+const STEP_UP_CODE_TTL_MS = STEP_UP_TTL_SEC * 1000;
+const STEP_UP_CODE_MAX_ATTEMPTS = 5;
+
+const STEP_UP_ACTION_LABELS: Record<StepUpCodeScope, string> = {
+  'email-change': 'change your email address',
+  security: 'perform a sensitive security action',
+};
 
 export class CredentialError extends Error {
   constructor(
@@ -43,6 +53,15 @@ export interface ActionContext {
 
 function hasAccountEmail(email: string | null | undefined): email is string {
   return Boolean(email?.trim());
+}
+
+/** True when the account has a usable verified inbox (not merely a pending claim). */
+export function hasVerifiedEmail(user: {
+  email?: string | null;
+  permissionFlags?: bigint | number | null;
+} | null | undefined): boolean {
+  if (!user || !hasAccountEmail(user.email)) return false;
+  return hasFlag(user.permissionFlags ?? 0, permissionFlags.EMAIL_VERIFIED);
 }
 
 class AccountCredentialService {
@@ -437,6 +456,241 @@ class AccountCredentialService {
     await refreshTokenService.revokeAllRefreshTokensForUser(user.id);
     await CacheInvalidation.invalidateUser(user.id);
     await this.logAction(user.id, 'password_reset_confirmed', { email }, ctx);
+  }
+
+  /**
+   * Issue an emailed step-up code to the current verified inbox.
+   * Invalidates any previous unused code for the same (user, scope).
+   */
+  async issueStepUpCode(
+    userId: string,
+    scope: StepUpCodeScope,
+    ctx?: ActionContext,
+  ): Promise<{ emailResendAvailableAt: string; maskedEmail: string }> {
+    const user = await User.findByPk(userId);
+    if (!user) throw new CredentialError('User not found', 404);
+    if (!hasVerifiedEmail(user)) {
+      throw new CredentialError(
+        'A verified email is required for this action. Add and verify an email first.',
+        403,
+        'EMAIL_REQUIRED',
+      );
+    }
+
+    const latest = await StepUpCode.findOne({
+      where: { userId, scope, consumedAt: null },
+      order: [['createdAt', 'DESC']],
+    });
+    if (latest) {
+      const sentAtMs = new Date(latest.expiresAt).getTime() - STEP_UP_CODE_TTL_MS;
+      const availableAtMs = sentAtMs + EMAIL_RESEND_COOLDOWN_MS;
+      const remainingMs = availableAtMs - Date.now();
+      if (remainingMs > 0) {
+        throw new CredentialError(
+          'Please wait before requesting another code',
+          429,
+          'RESEND_COOLDOWN',
+          { retryAfter: remainingMs },
+        );
+      }
+    }
+
+    // Invalidate outstanding codes for this scope so only the newest is valid.
+    await StepUpCode.update(
+      { consumedAt: new Date() },
+      { where: { userId, scope, consumedAt: null } },
+    );
+
+    const code = opaqueTokenUtils.generateOpaqueCode(8);
+    const codeHash = opaqueTokenUtils.hashBoundCode(
+      OPAQUE_TOKEN_PURPOSE.STEP_UP,
+      userId,
+      code,
+      scope,
+    );
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + STEP_UP_CODE_TTL_MS);
+
+    await StepUpCode.create({
+      userId,
+      scope,
+      codeHash,
+      expiresAt,
+      attempts: 0,
+      consumedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const action = STEP_UP_ACTION_LABELS[scope];
+    const sent = await emailService.sendStepUpCode({
+      to: user.email!,
+      code,
+      action,
+    });
+    if (!sent) {
+      throw new CredentialError('Failed to send confirmation email', 500, 'EMAIL_SEND_FAILED');
+    }
+
+    await this.logAction(userId, 'step_up_code_issued', { scope }, ctx);
+
+    const emailResendAvailableAt = new Date(
+      now.getTime() + EMAIL_RESEND_COOLDOWN_MS,
+    ).toISOString();
+    return {
+      emailResendAvailableAt,
+      maskedEmail: this.maskEmail(user.email!),
+    };
+  }
+
+  /**
+   * Verify an emailed step-up code. Single-use, attempt-capped, scope-bound.
+   */
+  async confirmStepUpCode(
+    userId: string,
+    scope: StepUpCodeScope,
+    codeRaw: string,
+    ctx?: ActionContext,
+  ): Promise<void> {
+    const user = await User.findByPk(userId);
+    if (!user) throw new CredentialError('User not found', 404);
+    if (!hasVerifiedEmail(user)) {
+      throw new CredentialError(
+        'A verified email is required for this action. Add and verify an email first.',
+        403,
+        'EMAIL_REQUIRED',
+      );
+    }
+
+    const record = await StepUpCode.findOne({
+      where: { userId, scope, consumedAt: null },
+      order: [['createdAt', 'DESC']],
+    });
+    if (!record || record.expiresAt.getTime() <= Date.now()) {
+      throw new CredentialError('Invalid or expired confirmation code', 400, 'INVALID_CODE');
+    }
+    if (record.attempts >= STEP_UP_CODE_MAX_ATTEMPTS) {
+      await record.update({ consumedAt: new Date() });
+      throw new CredentialError(
+        'Too many incorrect attempts. Request a new code.',
+        400,
+        'CODE_LOCKED',
+      );
+    }
+
+    const expected = opaqueTokenUtils.hashBoundCode(
+      OPAQUE_TOKEN_PURPOSE.STEP_UP,
+      userId,
+      codeRaw,
+      scope,
+    );
+    if (!opaqueTokenUtils.timingSafeEqualHash(expected, record.codeHash)) {
+      await record.update({ attempts: record.attempts + 1 });
+      if (record.attempts + 1 >= STEP_UP_CODE_MAX_ATTEMPTS) {
+        await record.update({ consumedAt: new Date() });
+        throw new CredentialError(
+          'Too many incorrect attempts. Request a new code.',
+          400,
+          'CODE_LOCKED',
+        );
+      }
+      throw new CredentialError('Invalid or expired confirmation code', 400, 'INVALID_CODE');
+    }
+
+    await record.update({ consumedAt: new Date() });
+    await this.logAction(userId, 'step_up_code_confirmed', { scope }, ctx);
+  }
+
+  maskEmail(email: string): string {
+    const [local, domain] = email.split('@');
+    if (!local || !domain) return '***';
+    const visible = local.slice(0, Math.min(2, local.length));
+    return `${visible}***@${domain}`;
+  }
+
+  /**
+   * Self-service password change for a signed-in user.
+   *
+   * Deliberately mirrors confirmPasswordReset — same strength floor, same
+   * permissionVersion bump, same audit entry — because the two paths set the
+   * same credential and previously diverged: this one validated nothing and
+   * left every other session alive, so changing your password after a
+   * suspected compromise did not evict the attacker.
+   *
+   * Pass keepSessionId to spare the caller's own device; omit it (bearer
+   * clients, where the current session cannot be identified) to revoke
+   * everything and force a fresh login.
+   */
+  async changePassword(
+    userId: string,
+    args: {
+      currentPassword?: unknown;
+      newPassword: unknown;
+      keepSessionId?: string | null;
+    },
+    ctx?: ActionContext,
+  ): Promise<{ revokedSessions: number; keptCurrentSession: boolean }> {
+    const { currentPassword, newPassword, keepSessionId } = args;
+
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      throw new CredentialError('Password must be at least 8 characters long', 400);
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      throw new CredentialError('User not found', 404);
+    }
+
+    const existingHash = user.password ?? null;
+
+    // OAuth-only accounts have no password to confirm; anything else must prove
+    // the current one so a hijacked session cannot silently take the account.
+    if (existingHash) {
+      if (typeof currentPassword !== 'string' || !currentPassword.length) {
+        throw new CredentialError(
+          'Current password is required',
+          400,
+          'CURRENT_PASSWORD_REQUIRED',
+        );
+      }
+      const check = await passwordUtils.verifyAndMaybeRehash(currentPassword, existingHash);
+      if (!check.ok) {
+        throw new CredentialError(
+          'Current password is incorrect',
+          400,
+          'CURRENT_PASSWORD_INVALID',
+        );
+      }
+    }
+
+    const hashedPassword = await passwordUtils.hashPassword(newPassword);
+    await user.update({
+      password: hashedPassword,
+      passwordResetTokenHash: null,
+      passwordResetExpires: null,
+      passwordResetToken: null,
+      permissionVersion: (user.permissionVersion || 0) + 1,
+    });
+
+    let revokedSessions = 0;
+    if (keepSessionId) {
+      revokedSessions = await refreshTokenService.revokeOtherSessionsForUser(
+        userId,
+        keepSessionId,
+      );
+    } else {
+      await refreshTokenService.revokeAllRefreshTokensForUser(userId);
+    }
+
+    await CacheInvalidation.invalidateUser(userId);
+    await this.logAction(
+      userId,
+      existingHash ? 'password_changed' : 'password_set',
+      { keptCurrentSession: Boolean(keepSessionId), revokedSessions },
+      ctx,
+    );
+
+    return { revokedSessions, keptCurrentSession: Boolean(keepSessionId) };
   }
 
   /**

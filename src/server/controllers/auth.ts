@@ -5,24 +5,26 @@ import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
 import {
   passwordUtils,
-  tokenUtils,
   refreshTokenService,
   cookieUtils,
-  ACCESS_COOKIE_MAX_AGE_SEC,
-  REFRESH_COOKIE_MAX_AGE_SEC,
 } from '@/misc/utils/auth/auth.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import CaptchaService from '@/server/services/accounts/CaptchaService.js';
 import { RateLimiter } from '@/server/decorators/rateLimiter.js';
-import { permissionFlags } from '@/config/constants.js';
-import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { getUsernameFormatError, normalizeUsername } from '@/misc/utils/auth/username.js';
 import {
   accountCredentialService,
   CredentialError,
 } from '@/server/services/accounts/AccountCredentialService.js';
-import { stepUpGrantService } from '@/server/services/accounts/StepUpGrantService.js';
+import {
+  stepUpGrantService,
+  isStepUpScope,
+  type StepUpScope,
+} from '@/server/services/auth/StepUpGrantService.js';
+import { sessionIssuanceService } from '@/server/services/auth/SessionIssuanceService.js';
+import { publicUserFields } from '@/server/services/auth/userSerializer.js';
 import { parseClientIp } from '@/misc/utils/auth/rateLimitSubjects.js';
+import { STEP_UP_TTL_SEC } from '@/config/auth.config.js';
 
 const captchaService = new CaptchaService();
 
@@ -70,20 +72,6 @@ function mapCredentialError(error: unknown, res: Response, fallback: string): Re
   }
   logger.error(fallback, error);
   return res.status(500).json({ message: fallback });
-}
-
-function publicUserFields(user: User) {
-  return {
-    id: user.id,
-    username: user.username,
-    email: user.email ?? null,
-    pendingEmail: user.pendingEmail ?? null,
-    emailResendAvailableAt: accountCredentialService.getEmailResendAvailableAt(user)?.toISOString() ?? null,
-    isRater: hasFlag(user, permissionFlags.RATER),
-    isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
-    isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
-    permissionFlags: user.permissionFlags.toString(),
-  };
 }
 
 class AuthController {
@@ -194,25 +182,13 @@ class AuthController {
       await accountCredentialService.claimEmailOnRegister(user, email, actionCtx(req));
       await user.reload();
 
-      const ip = parseClientIp(req);
-      const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(
-        user.id,
-        { userAgent: req.get('user-agent'), ip },
-      );
-      const accessToken = tokenUtils.generateAccessToken(user, sessionId);
-      cookieUtils.setAuthCookies(
-        res,
-        accessToken,
-        refreshToken,
-        ACCESS_COOKIE_MAX_AGE_SEC,
-        REFRESH_COOKIE_MAX_AGE_SEC,
-      );
+      const auth = await sessionIssuanceService.completeAuthentication(user, req, res);
 
       return res.status(201).json({
         message: 'Registration successful. Please check your email for verification.',
-        user: publicUserFields(user),
-        expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
-        sessionId,
+        user: auth.user,
+        expiresIn: auth.expiresIn,
+        sessionId: auth.sessionId,
         usernameModified: finalUsername !== username,
       });
     } catch (error) {
@@ -357,21 +333,92 @@ class AuthController {
       if (!userId) {
         return res.status(401).json({ message: 'User not authenticated' });
       }
-      const { password } = req.body || {};
-      if (!password || typeof password !== 'string') {
-        return res.status(400).json({
-          message: 'Password is required, or complete OAuth re-authentication',
-          code: 'PASSWORD_OR_OAUTH_REQUIRED',
+      const { password, code, scope: rawScope } = req.body || {};
+      let scope: StepUpScope = 'email-change';
+      if (rawScope != null && rawScope !== '') {
+        if (!isStepUpScope(rawScope)) {
+          return res.status(400).json({
+            message: 'Invalid step-up scope',
+            code: 'INVALID_STEP_UP_SCOPE',
+          });
+        }
+        scope = rawScope;
+      }
+
+      if (typeof code === 'string' && code.trim()) {
+        await accountCredentialService.confirmStepUpCode(
+          userId,
+          scope,
+          code,
+          actionCtx(req),
+        );
+        await stepUpGrantService.grantAfterEmailCode(userId, res, scope, actionCtx(req));
+        return res.json({
+          message: 'Step-up granted',
+          expiresIn: STEP_UP_TTL_SEC,
+          scope,
+          method: 'email_code',
         });
       }
-      await stepUpGrantService.grantWithPassword(userId, password, res, actionCtx(req));
+
+      if (!password || typeof password !== 'string') {
+        return res.status(400).json({
+          message:
+            'Confirmation code is required (or password / OAuth when adding a first email)',
+          code: 'CODE_OR_PASSWORD_REQUIRED',
+        });
+      }
+      await stepUpGrantService.grantWithPassword(userId, password, res, scope, actionCtx(req));
       return res.json({
         message: 'Step-up granted',
-        expiresIn: 10 * 60,
-        scope: 'email-change',
+        expiresIn: STEP_UP_TTL_SEC,
+        scope,
+        method: 'password',
       });
     } catch (error) {
       return mapCredentialError(error, res, 'Step-up failed');
+    }
+  }
+
+  @RateLimiter({
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 8,
+    blockDuration: 15 * 60 * 1000,
+    type: 'step-up-email',
+    incrementOnFailure: true,
+    incrementOnSuccess: true,
+    subjects: ['ip', 'user'],
+  })
+  public async requestStepUpEmail(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ message: 'User not authenticated' });
+      }
+      const { scope: rawScope } = req.body || {};
+      let scope: StepUpScope = 'security';
+      if (rawScope != null && rawScope !== '') {
+        if (!isStepUpScope(rawScope)) {
+          return res.status(400).json({
+            message: 'Invalid step-up scope',
+            code: 'INVALID_STEP_UP_SCOPE',
+          });
+        }
+        scope = rawScope;
+      }
+      const result = await accountCredentialService.issueStepUpCode(
+        userId,
+        scope,
+        actionCtx(req),
+      );
+      return res.json({
+        message: 'Confirmation code sent',
+        scope,
+        maskedEmail: result.maskedEmail,
+        emailResendAvailableAt: result.emailResendAvailableAt,
+      });
+    } catch (error) {
+      return mapCredentialError(error, res, 'Failed to send confirmation code');
     }
   }
 
@@ -442,23 +489,12 @@ class AuthController {
         ...(passwordCheck.newHash ? { password: passwordCheck.newHash } : {}),
       });
 
-      const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(
-        user.id,
-        { userAgent: req.get('user-agent'), ip },
-      );
-      const accessToken = tokenUtils.generateAccessToken(user, sessionId);
-      cookieUtils.setAuthCookies(
-        res,
-        accessToken,
-        refreshToken,
-        ACCESS_COOKIE_MAX_AGE_SEC,
-        REFRESH_COOKIE_MAX_AGE_SEC,
-      );
+      const auth = await sessionIssuanceService.completeAuthentication(user, req, res);
 
       return res.json({
-        user: publicUserFields(user),
-        expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
-        sessionId,
+        user: auth.user,
+        expiresIn: auth.expiresIn,
+        sessionId: auth.sessionId,
       });
     } catch (error) {
       logger.error('Login error:', error);
@@ -569,18 +605,16 @@ class AuthController {
       if (!rotated) {
         return res.status(401).json({ error: 'Invalid or expired refresh token' });
       }
-      const accessToken = tokenUtils.generateAccessToken(rotated.user, rotated.sessionId);
-      cookieUtils.setAuthCookies(
-        res,
-        accessToken,
+      const auth = await sessionIssuanceService.reissueForSession(
+        rotated.user,
+        rotated.sessionId,
         rotated.token,
-        ACCESS_COOKIE_MAX_AGE_SEC,
-        REFRESH_COOKIE_MAX_AGE_SEC,
+        res,
       );
       return res.json({
-        user: publicUserFields(rotated.user),
-        expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
-        sessionId: rotated.sessionId,
+        user: auth.user,
+        expiresIn: auth.expiresIn,
+        sessionId: auth.sessionId,
       });
     } catch (error) {
       logger.error('Refresh token error:', error);

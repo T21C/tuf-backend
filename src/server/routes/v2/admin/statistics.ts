@@ -69,6 +69,7 @@ router.get(
 
 router.get(
   '/ratings-per-user',
+  Auth.rater(),
   ApiDoc({
     operationId: 'getAdminStatisticsRatingsPerUser',
     summary: 'Ratings per user',

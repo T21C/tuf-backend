@@ -5,32 +5,38 @@ const CSRF_HEADER = 'x-csrf-token';
 const CSRF_COOKIE = 'csrfToken';
 
 /**
- * Paths (suffix after /v2) that require CSRF when authenticated via cookies.
- * Matched against req.path relative to the mounted router, or req.originalUrl.
+ * Paths (prefixes) exempt from CSRF. Only machine-to-machine callers belong here:
+ * they authenticate with a provider signature or shared-secret header and cannot
+ * perform a double-submit. Browser-reachable routes are never exempt — enforcement
+ * is the default so a new endpoint is protected without touching this file.
  */
-function isCredentialSensitivePath(req: Request): boolean {
-  const url = (req.originalUrl || req.url || '').split('?')[0] || '';
-  const sensitive = [
-    '/v2/auth/step-up',
-    '/v2/auth/verify/change-email',
-    '/v2/auth/verify/pending-email',
-    '/v2/auth/verify/resend',
-    '/v2/auth/profile/password',
-    '/v2/auth/profile/me/delete',
-    '/v2/auth/sessions',
-  ];
-  return sensitive.some((p) => url === p || url.startsWith(`${p}/`));
-}
+const CSRF_EXEMPT_PREFIXES = [
+  '/v2/webhook', // Discord + Stripe provider callbacks
+  '/v2/cdn', // job progress / download ingest (x-job-ingest-key, x-download-ingest-key)
+];
 
-function usedCookieAuth(req: Request): boolean {
-  return Boolean(req.cookies?.[cookieUtils.cookieNames.access]);
+function isCsrfExemptPath(req: Request): boolean {
+  const url = (req.originalUrl || req.url || '').split('?')[0] || '';
+  return CSRF_EXEMPT_PREFIXES.some((p) => url === p || url.startsWith(`${p}/`));
 }
 
 /**
- * Double-submit CSRF for credential-sensitive cookie-authenticated mutating requests.
- * Bearer-only clients skip this check.
+ * True when the request carries either session cookie. Auth cookies are SameSite=None
+ * in production, so any such request is cross-site forgeable and must prove CSRF.
+ * The refresh cookie counts too — /auth/refresh and /auth/logout act on it alone.
  */
-export function requireCsrfForCredentialRoutes(
+function usedCookieAuth(req: Request): boolean {
+  return Boolean(
+    req.cookies?.[cookieUtils.cookieNames.access] ||
+      req.cookies?.[cookieUtils.cookieNames.refresh],
+  );
+}
+
+/**
+ * Double-submit CSRF for every cookie-authenticated mutating request.
+ * Bearer-only clients and signature/secret-authenticated callers skip this check.
+ */
+export function requireCsrfForCookieAuth(
   req: Request,
   res: Response,
   next: NextFunction,
@@ -40,7 +46,7 @@ export function requireCsrfForCredentialRoutes(
     next();
     return;
   }
-  if (!isCredentialSensitivePath(req)) {
+  if (isCsrfExemptPath(req)) {
     next();
     return;
   }

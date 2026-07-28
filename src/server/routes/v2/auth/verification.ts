@@ -6,7 +6,9 @@ import {
   errorResponseSchema,
   successMessageSchema,
 } from '@/server/schemas/v2/auth/index.js';
-import { stepUpGrantService } from '@/server/services/accounts/StepUpGrantService.js';
+import {
+  stepUpGrantService,
+} from '@/server/services/auth/StepUpGrantService.js';
 
 const router: Router = Router();
 
@@ -59,7 +61,7 @@ router.post(
     operationId: 'postAuthChangeEmail',
     summary: 'Request email change',
     description:
-      'Set pending email and send verification code. Requires recent step-up authentication.',
+      'Set pending email and send verification code. Requires recent step-up authentication (emailed code when a verified email exists; password/OAuth when adding a first email).',
     tags: ['Auth'],
     security: ['bearerAuth'],
     requestBody: {
