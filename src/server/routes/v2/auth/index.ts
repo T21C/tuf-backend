@@ -87,6 +87,86 @@ router.post(
   (req, res) => authController.stepUp(req, res),
 );
 router.post(
+  '/mfa/email',
+  ApiDoc({
+    operationId: 'postAuthMfaEmail',
+    summary: 'Request login MFA email code',
+    description:
+      'Send a one-time login code to the verified email for the current MFA-pending challenge',
+    tags: ['Auth'],
+    responses: {
+      200: { description: 'Code sent', schema: successMessageSchema },
+      400: { schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
+      429: { schema: errorResponseSchema },
+    },
+  }),
+  (req, res) => authController.requestLoginMfaEmail(req, res),
+);
+router.post(
+  '/mfa/verify',
+  ApiDoc({
+    operationId: 'postAuthMfaVerify',
+    summary: 'Verify login MFA',
+    description:
+      'Confirm the login MFA code and issue a session. Optionally remember this device for 30 days.',
+    tags: ['Auth'],
+    requestBody: {
+      description: 'MFA code and remember-device flag',
+      schema: {
+        type: 'object',
+        properties: {
+          code: { type: 'string' },
+          rememberDevice: { type: 'boolean' },
+        },
+        required: ['code'],
+      },
+      required: true,
+    },
+    responses: {
+      200: { description: 'Session issued', schema: successMessageSchema },
+      400: { schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
+      429: { schema: errorResponseSchema },
+    },
+  }),
+  (req, res) => authController.verifyLoginMfa(req, res),
+);
+router.get(
+  '/trusted-devices',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getAuthTrustedDevices',
+    summary: 'List trusted devices',
+    description: 'Devices that skip login MFA for this account',
+    tags: ['Auth'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'List of trusted devices', schema: successMessageSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+    },
+  }),
+  (req, res) => authController.getTrustedDevices(req, res),
+);
+router.delete(
+  '/trusted-devices/:id',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deleteAuthTrustedDevice',
+    summary: 'Revoke a trusted device',
+    description: 'Revoke a remembered device so the next login requires MFA again',
+    tags: ['Auth'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: {
+      204: { description: 'Trusted device revoked' },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      404: { description: 'Device not found', schema: errorResponseSchema },
+    },
+  }),
+  (req, res) => authController.revokeTrustedDevice(req, res),
+);
+router.post(
   '/refresh',
   ApiDoc({
     operationId: 'postAuthRefresh',

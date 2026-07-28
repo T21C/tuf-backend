@@ -490,7 +490,7 @@ export const refreshTokenService = {
 
 /** Access token cookie maxAge in seconds (15 min) */
 export const ACCESS_COOKIE_MAX_AGE_SEC = ACCESS_TOKEN_TTL_SEC;
-/** Refresh token cookie maxAge in seconds (7 days) */
+/** Refresh token cookie maxAge in seconds (matches REFRESH_TOKEN_TTL) */
 export const REFRESH_COOKIE_MAX_AGE_SEC = JWT_REFRESH_EXPIRES_IN_SEC;
 
 /**

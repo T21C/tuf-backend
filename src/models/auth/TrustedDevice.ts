@@ -4,48 +4,43 @@ import { getSequelizeForModelGroup } from '@/config/db.js';
 
 const sequelize = getSequelizeForModelGroup('auth');
 
-/**
- * Step-up / login MFA code scopes.
- * Login scope is for login-time MFA; the others mirror StepUpGrantService scopes.
- * Kept local to avoid model↔service cycles.
- */
-export type StepUpCodeScope = 'email-change' | 'security' | 'login';
-
-export interface StepUpCodeAttributes {
+export interface TrustedDeviceAttributes {
   id: string;
   userId: string;
-  scope: StepUpCodeScope;
-  codeHash: string;
+  tokenHash: string;
+  userAgent: string | null;
+  ip: string | null;
+  lastUsedAt: Date;
   expiresAt: Date;
-  attempts: number;
-  consumedAt: Date | null;
+  revokedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
-type StepUpCodeCreationAttributes = Optional<
-  StepUpCodeAttributes,
-  'id' | 'attempts' | 'consumedAt' | 'createdAt' | 'updatedAt'
+type TrustedDeviceCreationAttributes = Optional<
+  TrustedDeviceAttributes,
+  'id' | 'userAgent' | 'ip' | 'revokedAt' | 'createdAt' | 'updatedAt'
 >;
 
-class StepUpCode
-  extends Model<StepUpCodeAttributes, StepUpCodeCreationAttributes>
-  implements StepUpCodeAttributes
+class TrustedDevice
+  extends Model<TrustedDeviceAttributes, TrustedDeviceCreationAttributes>
+  implements TrustedDeviceAttributes
 {
   declare id: string;
   declare userId: string;
-  declare scope: StepUpCodeScope;
-  declare codeHash: string;
+  declare tokenHash: string;
+  declare userAgent: string | null;
+  declare ip: string | null;
+  declare lastUsedAt: Date;
   declare expiresAt: Date;
-  declare attempts: number;
-  declare consumedAt: Date | null;
+  declare revokedAt: Date | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
   declare user?: User;
 }
 
-StepUpCode.init(
+TrustedDevice.init(
   {
     id: {
       type: DataTypes.UUID,
@@ -62,24 +57,27 @@ StepUpCode.init(
       onUpdate: 'CASCADE',
       onDelete: 'CASCADE',
     },
-    scope: {
-      type: DataTypes.STRING(32),
+    tokenHash: {
+      type: DataTypes.STRING(64),
       allowNull: false,
     },
-    codeHash: {
-      type: DataTypes.STRING(64),
+    userAgent: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    ip: {
+      type: DataTypes.STRING(45),
+      allowNull: true,
+    },
+    lastUsedAt: {
+      type: DataTypes.DATE,
       allowNull: false,
     },
     expiresAt: {
       type: DataTypes.DATE,
       allowNull: false,
     },
-    attempts: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
-    },
-    consumedAt: {
+    revokedAt: {
       type: DataTypes.DATE,
       allowNull: true,
       defaultValue: null,
@@ -95,12 +93,13 @@ StepUpCode.init(
   },
   {
     sequelize,
-    tableName: 'step_up_codes',
+    tableName: 'trusted_devices',
     indexes: [
-      { name: 'step_up_codes_user_scope', fields: ['userId', 'scope'] },
-      { name: 'step_up_codes_expires', fields: ['expiresAt'] },
+      { name: 'trusted_devices_token_hash', fields: ['tokenHash'], unique: true },
+      { name: 'trusted_devices_user_id', fields: ['userId'] },
+      { name: 'trusted_devices_expires', fields: ['expiresAt'] },
     ],
   },
 );
 
-export default StepUpCode;
+export default TrustedDevice;

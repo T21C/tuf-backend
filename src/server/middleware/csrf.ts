@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { cookieUtils } from '@/misc/utils/auth/auth.js';
+import { MFA_PENDING_COOKIE } from '@/config/auth.config.js';
 
 const CSRF_HEADER = 'x-csrf-token';
 const CSRF_COOKIE = 'csrfToken';
@@ -21,14 +22,16 @@ function isCsrfExemptPath(req: Request): boolean {
 }
 
 /**
- * True when the request carries either session cookie. Auth cookies are SameSite=None
+ * True when the request carries any auth-bearing cookie. Auth cookies are SameSite=None
  * in production, so any such request is cross-site forgeable and must prove CSRF.
  * The refresh cookie counts too — /auth/refresh and /auth/logout act on it alone.
+ * The mfaPending cookie counts for the same reason — /auth/mfa/* act on it alone.
  */
 function usedCookieAuth(req: Request): boolean {
   return Boolean(
     req.cookies?.[cookieUtils.cookieNames.access] ||
-      req.cookies?.[cookieUtils.cookieNames.refresh],
+      req.cookies?.[cookieUtils.cookieNames.refresh] ||
+      req.cookies?.[MFA_PENDING_COOKIE],
   );
 }
 

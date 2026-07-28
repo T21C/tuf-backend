@@ -12,6 +12,7 @@ import {
 } from '@/misc/utils/auth/username.js';
 import { accountCredentialService } from '@/server/services/accounts/AccountCredentialService.js';
 import { permissionFlags } from '@/config/constants.js';
+import { securityNotificationService } from '@/server/services/accounts/SecurityNotificationService.js';
 
 interface OAuthProfile {
   id: string;
@@ -282,6 +283,7 @@ class OAuthService {
     });
     if (result > 0) {
       await accountCredentialService.logAction(userId, 'oauth_unlink', { provider });
+      securityNotificationService.notify(userId, 'oauth-unlinked', { provider });
     }
     return result > 0;
   }

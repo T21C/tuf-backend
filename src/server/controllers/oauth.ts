@@ -25,6 +25,7 @@ import { sessionIssuanceService } from '@/server/services/auth/SessionIssuanceSe
 import { hasPasswordCredential } from '@/server/services/auth/passwordCredential.js';
 import { parseClientIp } from '@/misc/utils/auth/rateLimitSubjects.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
+import { securityNotificationService } from '@/server/services/accounts/SecurityNotificationService.js';
 
 
 interface ProfileResponse {
@@ -259,7 +260,18 @@ export const OAuthController = {
         // Invalidate user-specific cache (for new users, this is a no-op but harmless)
         await CacheInvalidation.invalidateUser(user.id);
 
-        const auth = await sessionIssuanceService.completeAuthentication(user, req, res);
+        const auth = await sessionIssuanceService.completeAuthentication(user, req, res, {
+          mfaExempt: true,
+        });
+        if (auth.status !== 'session') {
+          return res.status(500).json({ message: 'Authentication failed' });
+        }
+        if (!isNew) {
+          securityNotificationService.notify(user.id, 'new-signin', {
+            req,
+            method: 'discord',
+          });
+        }
         return res.json({
           user: auth.user,
           isNew,

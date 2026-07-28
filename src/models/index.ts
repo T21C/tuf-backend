@@ -17,6 +17,7 @@ import User from './auth/User.js';
 import OAuthProvider from './auth/OAuthProvider.js';
 import RefreshToken from './auth/RefreshToken.js';
 import StepUpCode from './auth/StepUpCode.js';
+import TrustedDevice from './auth/TrustedDevice.js';
 import Creator from './credits/Creator.js';
 import LevelCredit from './levels/LevelCredit.js';
 import Team from './credits/Team.js';
@@ -80,6 +81,7 @@ export const db = {
     OAuthProvider,
     RefreshToken,
     StepUpCode,
+    TrustedDevice,
     Creator,
     LevelCredit,
     Team,
@@ -144,6 +146,7 @@ export {
   OAuthProvider,
   RefreshToken,
   StepUpCode,
+  TrustedDevice,
   RateLimit,
   ProfileActionLog,
   AuditLog,
