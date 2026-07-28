@@ -1103,22 +1103,280 @@ router.get(
   }
 );
 
-// Create curation
+type PutLevelCurationBody = {
+  shortDescription?: string | null;
+  description?: string | null;
+  customCSS?: string | null;
+  customColor?: string | null;
+  /** Replace the set of curation types (required for PUT /level/:levelId) */
+  typeIds?: number[];
+};
+
+/** Thrown from PUT /level/:levelId handler; handled in catch, rollback in finally */
+type PutLevelCurationHttpError = { status: number; error: string };
+
+function isPutLevelCurationHttpError(e: unknown): e is PutLevelCurationHttpError {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    'status' in e &&
+    'error' in e &&
+    typeof (e as PutLevelCurationHttpError).status === 'number' &&
+    typeof (e as PutLevelCurationHttpError).error === 'string'
+  );
+}
+
+function userCanAssignCurationTypeAbilities(req: Request, typeAbilities: bigint): boolean {
+  if (!req.user) return false;
+  if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
+    return true;
+  }
+  if (hasAnyFlag(req.user, [permissionFlags.CURATOR, permissionFlags.RATER])) {
+    return canAssignCurationType(BigInt(req.user.permissionFlags || 0), typeAbilities);
+  }
+  return false;
+}
+
+type BulkCurationInvalidReason = 'not_found' | 'cannot_manage';
+type BulkCurationInvalidEntry = { levelId: number; reason: BulkCurationInvalidReason };
+
+type PostCurationBody = {
+  levelId?: number;
+  levelIds?: number[];
+  typeIds?: number[];
+  validateOnly?: boolean;
+};
+
+function normalizePositiveIntIds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))];
+}
+
+function userCanManageExistingCurationTypes(
+  req: Request,
+  types: InstanceType<typeof CurationType>[]
+): boolean {
+  if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
+    return true;
+  }
+  if (types.length === 0) return true;
+  const flags = BigInt(req.user?.permissionFlags || 0);
+  return types.every((t) => canAssignCurationType(flags, BigInt(t.abilities)));
+}
+
+async function resolveBulkCurationCandidates(
+  req: Request,
+  levelIds: number[]
+): Promise<{ validLevelIds: number[]; invalid: BulkCurationInvalidEntry[] }> {
+  const uniqueLevelIds = [...new Set(levelIds)];
+  const levels = await Level.findAll({
+    where: { id: { [Op.in]: uniqueLevelIds } },
+    attributes: ['id'],
+  });
+  const existingLevelIds = new Set(levels.map((l) => l.id));
+
+  const curations = await Curation.findAll({
+    where: { levelId: { [Op.in]: uniqueLevelIds } },
+    include: [{ model: CurationType, as: 'types', through: { attributes: [] } }],
+  });
+  const curationByLevelId = new Map(curations.map((c) => [c.levelId, c]));
+
+  const validLevelIds: number[] = [];
+  const invalid: BulkCurationInvalidEntry[] = [];
+
+  for (const levelId of uniqueLevelIds) {
+    if (!existingLevelIds.has(levelId)) {
+      invalid.push({ levelId, reason: 'not_found' });
+      continue;
+    }
+    const existing = curationByLevelId.get(levelId);
+    if (existing && !userCanManageExistingCurationTypes(req, existing.types || [])) {
+      invalid.push({ levelId, reason: 'cannot_manage' });
+      continue;
+    }
+    validLevelIds.push(levelId);
+  }
+
+  return { validLevelIds, invalid };
+}
+
+// Create curation (single) or bulk-create/union types (levelIds + typeIds)
 router.post(
   '/',
   requireCuratorOrRater,
   ApiDoc({
     operationId: 'postAdminCuration',
     summary: 'Create curation',
-    description: 'Create curation for a level. Body: levelId. Curator or rater.',
+    description:
+      'Single: body { levelId }. Bulk: body { levelIds, typeIds, validateOnly? } — create or union types onto existing curations (skips FORCE_DESCRIPTION). Curator or rater.',
     tags: ['Admin', 'Curations'],
     security: ['bearerAuth'],
-    requestBody: { description: 'levelId', schema: { type: 'object', properties: { levelId: { type: 'number' } }, required: ['levelId'] }, required: true },
-    responses: { 201: { description: 'Curation created' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500, 409: { schema: errorResponseSchema } },
+    requestBody: {
+      description: 'levelId OR levelIds+typeIds',
+      schema: {
+        type: 'object',
+        properties: {
+          levelId: { type: 'number' },
+          levelIds: { type: 'array', items: { type: 'number' } },
+          typeIds: { type: 'array', items: { type: 'number' } },
+          validateOnly: { type: 'boolean' },
+        },
+      },
+      required: true,
+    },
+    responses: {
+      200: { description: 'Bulk validate or execute result' },
+      201: { description: 'Curation created' },
+      400: { schema: errorResponseSchema },
+      403: { schema: errorResponseSchema },
+      ...standardErrorResponses404500,
+      409: { schema: errorResponseSchema },
+    },
   }),
   async (req: Request, res: Response) => {
   try {
-    const {levelId} = req.body;
+    const body = req.body as PostCurationBody;
+    const hasLevelId = body.levelId !== undefined && body.levelId !== null;
+    const hasLevelIds = Array.isArray(body.levelIds);
+
+    if (hasLevelId && hasLevelIds) {
+      return res.status(400).json({ error: 'Provide either levelId or levelIds, not both' });
+    }
+
+    // ---- Bulk path ----
+    if (hasLevelIds) {
+      const levelIds = normalizePositiveIntIds(body.levelIds);
+      const typeIds = normalizePositiveIntIds(body.typeIds);
+
+      if (levelIds.length === 0) {
+        return res.status(400).json({ error: 'levelIds must be a non-empty array of positive integers' });
+      }
+      if (typeIds.length === 0) {
+        return res.status(400).json({ error: 'typeIds must be a non-empty array of positive integers' });
+      }
+
+      const typeRows = await CurationType.findAll({
+        where: { id: { [Op.in]: typeIds } },
+      });
+      if (typeRows.length !== typeIds.length) {
+        return res.status(400).json({ error: 'One or more curation types not found' });
+      }
+      for (const t of typeRows) {
+        if (!userCanAssignCurationTypeAbilities(req, BigInt(t.abilities))) {
+          return res.status(403).json({ error: 'You cannot assign one or more curation types' });
+        }
+      }
+
+      const { validLevelIds, invalid } = await resolveBulkCurationCandidates(req, levelIds);
+
+      if (body.validateOnly) {
+        return res.status(200).json({ validLevelIds, invalid });
+      }
+
+      if (validLevelIds.length === 0) {
+        return res.status(200).json({ created: 0, updated: 0, invalid, curations: [] });
+      }
+
+      const assignedBy = req.user?.id || 'unknown';
+      let created = 0;
+      let updated = 0;
+      const affectedLevelIds: number[] = [];
+      const oldTypeSetsByLevel = new Map<number, Map<number, Set<number>> | undefined>();
+
+      const transaction = await sequelize.transaction();
+      try {
+        const existingCurations = await Curation.findAll({
+          where: { levelId: { [Op.in]: validLevelIds } },
+          include: [{ model: CurationType, as: 'types', through: { attributes: [] } }],
+          transaction,
+        });
+        const curationByLevelId = new Map(existingCurations.map((c) => [c.levelId, c]));
+
+        for (const levelId of validLevelIds) {
+          const levelWithCreators = await Level.findByPk(levelId, {
+            transaction,
+            include: [
+              {
+                model: LevelCredit,
+                as: 'levelCredits',
+                include: [{ model: Creator, as: 'creator' }],
+              },
+            ],
+          });
+          const creatorIds =
+            levelWithCreators?.levelCredits
+              ?.map((credit) => credit.creator?.id)
+              .filter((id): id is number => id !== null && id !== undefined) ?? [];
+          const oldCurationTypeSets =
+            creatorIds.length > 0
+              ? await roleSyncService.getCreatorsCurationTypeSets(creatorIds)
+              : undefined;
+          oldTypeSetsByLevel.set(levelId, oldCurationTypeSets);
+
+          const existing = curationByLevelId.get(levelId);
+          if (!existing) {
+            const curation = await Curation.create({ levelId, assignedBy }, { transaction });
+            await curation.setTypes(typeIds, { transaction });
+            created += 1;
+          } else {
+            if (!userCanManageExistingCurationTypes(req, existing.types || [])) {
+              invalid.push({ levelId, reason: 'cannot_manage' });
+              continue;
+            }
+            const existingTypeIds = (existing.types || []).map((t) => t.id);
+            const unionTypeIds = [...new Set([...existingTypeIds, ...typeIds])];
+            await existing.setTypes(unionTypeIds, { transaction });
+            updated += 1;
+          }
+          affectedLevelIds.push(levelId);
+        }
+
+        await transaction.commit();
+      } catch (error) {
+        await safeTransactionRollback(transaction);
+        throw error;
+      }
+
+      const finalRows =
+        affectedLevelIds.length > 0
+          ? await Curation.findAll({
+              where: { levelId: { [Op.in]: affectedLevelIds } },
+              include: [
+                { model: CurationType, as: 'types', through: { attributes: [] } },
+                {
+                  model: Level,
+                  as: 'level',
+                  include: [
+                    { model: Difficulty, as: 'difficulty' },
+                    {
+                      model: LevelCredit,
+                      as: 'levelCredits',
+                      include: [{ model: Creator, as: 'creator' }],
+                    },
+                    { model: Team, as: 'teamObject' },
+                  ],
+                },
+              ],
+            })
+          : [];
+
+      for (const levelId of affectedLevelIds) {
+        await elasticsearchService.indexLevel(levelId);
+        CacheInvalidation.invalidateTag(`level:${levelId}`);
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
+        syncRolesForLevel(levelId, oldTypeSetsByLevel.get(levelId));
+      }
+
+      return res.status(200).json({
+        created,
+        updated,
+        invalid,
+        curations: finalRows.map(serializeCurationRow),
+      });
+    }
+
+    // ---- Single create (unchanged) ----
+    const {levelId} = body;
     const assignedBy = req.user?.id || 'unknown';
 
     if (!levelId) {
@@ -1214,40 +1472,6 @@ router.post(
   }
   }
 );
-
-type PutLevelCurationBody = {
-  shortDescription?: string | null;
-  description?: string | null;
-  customCSS?: string | null;
-  customColor?: string | null;
-  /** Replace the set of curation types (required for PUT /level/:levelId) */
-  typeIds?: number[];
-};
-
-/** Thrown from PUT /level/:levelId handler; handled in catch, rollback in finally */
-type PutLevelCurationHttpError = { status: number; error: string };
-
-function isPutLevelCurationHttpError(e: unknown): e is PutLevelCurationHttpError {
-  return (
-    typeof e === 'object' &&
-    e !== null &&
-    'status' in e &&
-    'error' in e &&
-    typeof (e as PutLevelCurationHttpError).status === 'number' &&
-    typeof (e as PutLevelCurationHttpError).error === 'string'
-  );
-}
-
-function userCanAssignCurationTypeAbilities(req: Request, typeAbilities: bigint): boolean {
-  if (!req.user) return false;
-  if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
-    return true;
-  }
-  if (hasAnyFlag(req.user, [permissionFlags.CURATOR, permissionFlags.RATER])) {
-    return canAssignCurationType(BigInt(req.user.permissionFlags || 0), typeAbilities);
-  }
-  return false;
-}
 
 /** OR semantics for visual fields from the selected curation types (short + long description share description abilities). */
 function curationTypeVisualAbilityFlags(types: CurationType[]) {
