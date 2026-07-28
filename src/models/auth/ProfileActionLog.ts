@@ -11,6 +11,10 @@ export type ProfileActionType =
   | 'email_verify_confirmed'
   | 'password_reset_requested'
   | 'password_reset_confirmed'
+  /** Signed-in user changed an existing password. */
+  | 'password_changed'
+  /** Signed-in OAuth-only user added a password for the first time. */
+  | 'password_set'
   | 'oauth_link'
   | 'oauth_unlink'
   | 'username_change'

@@ -56,15 +56,27 @@ router.get(
           {permissionFlags: wherehasFlag(permissionFlags.SUPER_ADMIN)},
         ],
       },
+      attributes: [
+        'id',
+        'username',
+        'nickname',
+        'avatarUrl',
+        'permissionFlags',
+        'playerId',
+      ],
       include: [
         {
           model: Player,
           as: 'player',
           required: false,
+          attributes: ['id', 'name', 'country', 'pfp'],
         },
       ],
     });
 
+    // Anonymous endpoint (About Us credits). Only what that page renders: name,
+    // role badge, and the avatar chain (avatarUrl with player.pfp fallback).
+    // Account state such as the deletion schedule must not appear here.
     return res.json(
       raters.map(user => {
         return {
@@ -76,14 +88,6 @@ router.get(
           isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
           permissionFlags: user.permissionFlags.toString(), // Convert BigInt to string
           playerId: user.playerId,
-          creatorId: user.creatorId ?? null,
-          deletionScheduledAt: user.deletionScheduledAt
-            ? user.deletionScheduledAt.toISOString()
-            : null,
-          deletionExecuteAt: user.deletionExecuteAt
-            ? user.deletionExecuteAt.toISOString()
-            : null,
-          deletionIncludeCreator: Boolean(user.deletionIncludeCreator),
           player: user.player,
         };
       }),
@@ -158,6 +162,9 @@ router.get(
 // Get all curators
 router.get(
   '/curators',
+  // Head curators manage curators (see requireGrantRole), so they must be able
+  // to list them; Auth.headCurator() also admits super admins.
+  Auth.headCurator(),
   ApiDoc({
     operationId: 'getAdminCurators',
     summary: 'List curators',

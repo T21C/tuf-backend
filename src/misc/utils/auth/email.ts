@@ -169,6 +169,40 @@ export const emailService = {
     return this.sendEmail({ to, subject, text, html });
   },
 
+  /**
+   * One-time code proving control of the current verified inbox before a
+   * sensitive account action (password change, unlink, etc.).
+   */
+  async sendStepUpCode({
+    to,
+    code,
+    action,
+  }: {
+    to: string;
+    code: string;
+    action: string;
+  }): Promise<boolean> {
+    const subject = `Confirm: ${action}`;
+    const text = `
+      You requested to ${action} on your TUF account.
+
+      Your confirmation code is: ${code}
+
+      This code will expire in 10 minutes. Enter it in the confirmation dialog to continue.
+
+      If you did not request this, change your password and revoke other sessions immediately.
+    `;
+    const html = `
+      <h2>Confirm: ${action}</h2>
+      <p>You requested to <strong>${action}</strong> on your TUF account.</p>
+      <p>Your confirmation code is:</p>
+      <p style="font-size: 28px; letter-spacing: 4px; font-weight: bold;">${code}</p>
+      <p>This code will expire in 10 minutes. Enter it in the confirmation dialog to continue.</p>
+      <p><small>If you did not request this, change your password and revoke other sessions immediately.</small></p>
+    `;
+    return this.sendEmail({ to, subject, text, html });
+  },
+
   /** @deprecated Prefer sendEmailVerificationCode */
   async sendVerificationEmail(to: string, token: string): Promise<boolean> {
     return this.sendEmailVerificationCode({

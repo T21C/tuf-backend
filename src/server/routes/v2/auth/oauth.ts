@@ -3,6 +3,7 @@ import {OAuthController} from '@/server/controllers/oauth.js';
 import {Auth} from '@/server/middleware/auth.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, successMessageSchema } from '@/server/schemas/v2/auth/index.js';
+import { stepUpGrantService } from '@/server/services/auth/StepUpGrantService.js';
 
 const router: Router = Router();
 
@@ -70,14 +71,21 @@ router.post(
 router.post(
   '/unlink/:provider',
   Auth.user(),
+  stepUpGrantService.requireStepUp('security'),
   ApiDoc({
     operationId: 'postOAuthUnlink',
     summary: 'Unlink OAuth provider',
-    description: 'Remove OAuth provider from account',
+    description:
+      'Remove OAuth provider from account. Requires recent step-up confirmation.',
     tags: ['Auth'],
     security: ['bearerAuth'],
     params: { provider: { schema: { type: 'string' } } },
-    responses: { 200: { schema: successMessageSchema }, 401: { schema: errorResponseSchema }, 500: { schema: errorResponseSchema } },
+    responses: {
+      200: { schema: successMessageSchema },
+      401: { schema: errorResponseSchema },
+      403: { schema: errorResponseSchema },
+      500: { schema: errorResponseSchema },
+    },
   }),
   OAuthController.unlinkProvider
 );

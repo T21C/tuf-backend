@@ -18,7 +18,7 @@ import { clientUrlEnv, port, corsOptions } from './config/app.config.js';
 import { registerGlobalProcessHandlers } from '@/server/bootstrap/processHandlers.js';
 import { initializeRuntimeServices } from '@/server/bootstrap/runtimeServices.js';
 import { slowEndpointLoggingMiddleware } from '@/server/middleware/slowEndpointLogging.js';
-import { requireCsrfForCredentialRoutes } from '@/server/middleware/csrf.js';
+import { requireCsrfForCookieAuth } from '@/server/middleware/csrf.js';
 import { setTerminalServiceTitle } from '@/misc/utils/terminalTitle.js';
 import { parseTrustProxySetting } from '@/config/trustProxy.js';
 
@@ -94,7 +94,7 @@ export async function startServer() {
     app.use(express.urlencoded({extended: true}));
     app.use(cookieParser());
     app.use(queryValidator);
-    app.use(requireCsrfForCredentialRoutes);
+    app.use(requireCsrfForCookieAuth);
 
     app.use(slowEndpointLoggingMiddleware);
 

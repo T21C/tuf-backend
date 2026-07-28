@@ -9,6 +9,7 @@
  * - { model: User, attributes: { exclude: [...] } } (denylist is unsafe)
  * - { model: User, attributes: [..., 'password', ...] } (sensitive fields)
  * - include: [User] / include: User (bare model = all columns)
+ * - User.findAll / findOne / findByPk with a sensitive column in `attributes`
  *
  * Does not prove safety of attributes referenced via variables/spreads beyond
  * literal string elements that are statically visible.
@@ -26,6 +27,18 @@ const SENSITIVE_USER_FIELDS = new Set([
   'pendingEmail',
 ]);
 
+/**
+ * Credential material that must not be selected by name in a top-level User
+ * query. Reading a hash belongs in services/auth/passwordCredential.ts, which
+ * the security config exempts.
+ */
+const CREDENTIAL_USER_FIELDS = new Set([
+  'password',
+  'passwordResetToken',
+  'passwordResetTokenHash',
+  'emailVerifyTokenHash',
+]);
+
 const messages = {
   missingAttributes:
     'User includes must set attributes to an explicit allowlist (never load the full User row).',
@@ -33,6 +46,8 @@ const messages = {
     'User includes must use attributes: [...] allowlist, not attributes: { exclude: [...] } (denylist still leaks sensitive fields by default).',
   sensitiveField:
     "User include must not select sensitive field '{{field}}'. Omit it from attributes.",
+  credentialField:
+    "Do not select credential column '{{field}}' here. Read password hashes through services/auth/passwordCredential.ts.",
   bareModel:
     'Do not include the User model bare (include: [User]). Use { model: User, attributes: [...] }.',
 };
@@ -110,14 +125,14 @@ function collectLiteralAttributeNames(attributesNode, out) {
   }
 }
 
-function reportSensitiveLiterals(context, attributesNode) {
+function reportSensitiveLiterals(context, attributesNode, fields, messageId) {
   const found = [];
   collectLiteralAttributeNames(attributesNode, found);
   for (const {name, node} of found) {
-    if (SENSITIVE_USER_FIELDS.has(name)) {
+    if (fields.has(name)) {
       context.report({
         node,
-        messageId: 'sensitiveField',
+        messageId: messageId || 'sensitiveField',
         data: {field: name},
       });
     }
@@ -181,7 +196,7 @@ function checkUserIncludeObject(context, objectExpression) {
     const includeProp = getObjectProperty(attrs, 'include');
     if (includeProp) {
       // attributes: [] / include: [] is intentional join-only (loads no User columns).
-      reportSensitiveLiterals(context, includeProp.value);
+      reportSensitiveLiterals(context, includeProp.value, SENSITIVE_USER_FIELDS);
       return;
     }
     // Unknown object shape — still require a usable allowlist form.
@@ -191,12 +206,54 @@ function checkUserIncludeObject(context, objectExpression) {
 
   if (attrs.type === 'ArrayExpression') {
     // Empty allowlist is safe (join/filter only; no User columns selected).
-    reportSensitiveLiterals(context, attrs);
+    reportSensitiveLiterals(context, attrs, SENSITIVE_USER_FIELDS);
     return;
   }
 
   // Identifier / CallExpression / etc. — presence of attributes is required;
   // cannot statically verify contents.
+}
+
+/** Finder methods whose options object selects columns from the User table. */
+const USER_QUERY_METHODS = new Set([
+  'findAll',
+  'findOne',
+  'findByPk',
+  'findAndCountAll',
+  'findOrCreate',
+]);
+
+/** True for `User.findAll(...)` / `models.User.findOne(...)`. */
+function isUserQueryCall(node) {
+  const callee = node.callee;
+  if (!callee || callee.type !== 'MemberExpression' || callee.computed) return false;
+  if (callee.property.type !== 'Identifier') return false;
+  if (!USER_QUERY_METHODS.has(callee.property.name)) return false;
+  return isUserModelRef(callee.object);
+}
+
+/**
+ * A top-level User query may legitimately load the whole row, or select `email`
+ * to send mail, so neither attributes nor the full include denylist applies
+ * here — requiring more would only push callers to drop `attributes` and load
+ * everything, which is worse. Only credential columns are flagged, to keep
+ * "this code reads a password hash or a reset token" a small, greppable set
+ * that has to be exempted in .eslintrc.security.cjs to grow.
+ */
+function checkUserQueryCall(context, node) {
+  if (!isUserQueryCall(node)) return;
+  for (const arg of node.arguments) {
+    if (!arg || arg.type !== 'ObjectExpression') continue;
+    const attributesProp = getObjectProperty(arg, 'attributes');
+    if (attributesProp) {
+      reportSensitiveLiterals(
+        context,
+        attributesProp.value,
+        CREDENTIAL_USER_FIELDS,
+        'credentialField',
+      );
+    }
+  }
 }
 
 function checkBareUserInInclude(context, includeValue) {
@@ -233,6 +290,9 @@ module.exports = {
     return {
       ObjectExpression(node) {
         checkUserIncludeObject(context, node);
+      },
+      CallExpression(node) {
+        checkUserQueryCall(context, node);
       },
       Property(node) {
         if (node.computed || node.kind !== 'init') return;

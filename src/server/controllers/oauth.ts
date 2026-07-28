@@ -1,12 +1,5 @@
 import {Request, Response} from 'express';
 import OAuthService from '@/server/services/accounts/OAuthService.js';
-import {
-  tokenUtils,
-  refreshTokenService,
-  cookieUtils,
-  ACCESS_COOKIE_MAX_AGE_SEC,
-  REFRESH_COOKIE_MAX_AGE_SEC,
-} from '@/misc/utils/auth/auth.js';
 import {OAuthProvider} from '@/models/index.js';
 import axios from 'axios';
 import {
@@ -23,7 +16,13 @@ import User from '@/models/auth/User.js';
 import {
   reconcileExpiredTufStellarAccess,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
-import { stepUpGrantService } from '@/server/services/accounts/StepUpGrantService.js';
+import {
+  stepUpGrantService,
+  isStepUpScope,
+  type StepUpScope,
+} from '@/server/services/auth/StepUpGrantService.js';
+import { sessionIssuanceService } from '@/server/services/auth/SessionIssuanceService.js';
+import { hasPasswordCredential } from '@/server/services/auth/passwordCredential.js';
 import { parseClientIp } from '@/misc/utils/auth/rateLimitSubjects.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 
@@ -50,6 +49,18 @@ interface ProfileResponse {
 
 dotenv.config();
 
+function parseStepUpScopeParam(raw: unknown): StepUpScope {
+  if (raw == null || raw === '') return 'email-change';
+  if (isStepUpScope(raw)) return raw;
+  return 'email-change';
+}
+
+function buildDiscordRedirectUri(mode: 'login' | 'linking' | 'reauth'): string {
+  if (mode === 'linking') return clientUrlEnv + '/callback?linking=true';
+  if (mode === 'reauth') return clientUrlEnv + '/callback?reauth=true';
+  return clientUrlEnv + '/callback';
+}
+
 // Helper function to handle Discord OAuth token exchange
 async function handleDiscordOAuth(
   code: string,
@@ -58,8 +69,6 @@ async function handleDiscordOAuth(
   tokens: RESTPostOAuth2AccessTokenResult;
   profile: RESTGetAPIUserResult;
 } | null> {
-  const redirectSuffix =
-    mode === 'linking' ? '?linking=true' : mode === 'reauth' ? '?reauth=true' : '';
   try {
     const tokenResponse = await axios.post(
       'https://discord.com/api/oauth2/token',
@@ -68,7 +77,7 @@ async function handleDiscordOAuth(
         client_secret: process.env.DISCORD_CLIENT_SECRET!,
         code: code.toString(),
         grant_type: 'authorization_code',
-        redirect_uri: clientUrlEnv + '/callback' + redirectSuffix,
+        redirect_uri: buildDiscordRedirectUri(mode),
       }),
       {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -103,7 +112,7 @@ export const OAuthController = {
       }
 
       const scopes = ['identify', 'email'];
-      const redirectUri = clientUrlEnv + '/callback';
+      const redirectUri = buildDiscordRedirectUri('login');
 
       const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${
         process.env.DISCORD_CLIENT_ID
@@ -123,10 +132,11 @@ export const OAuthController = {
 
     if (provider === 'discord') {
       const scopes = ['identify', 'email'];
+      const redirectUri = buildDiscordRedirectUri('linking');
       const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${
         process.env.DISCORD_CLIENT_ID
       }&redirect_uri=${encodeURIComponent(
-        clientUrlEnv + '/callback?linking=true',
+        redirectUri,
       )}&response_type=code&scope=${scopes.join('%20')}`;
       return res.json({url: authUrl});
     }
@@ -136,17 +146,20 @@ export const OAuthController = {
 
   /**
    * Initiate OAuth reauth for step-up (OAuth-only accounts).
+   * Optional query `scope` selects the step-up grant scope (default email-change).
+   * Scope is echoed to the client and passed back on the API callback (not in the Discord redirect_uri).
    */
   async initiateReauth(req: Request, res: Response) {
     const { provider } = req.params;
+    const scope = parseStepUpScopeParam(req.query.scope);
     if (provider === 'discord') {
       const scopes = ['identify', 'email'];
       const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${
         process.env.DISCORD_CLIENT_ID
       }&redirect_uri=${encodeURIComponent(
-        clientUrlEnv + '/callback?reauth=true',
+        buildDiscordRedirectUri('reauth'),
       )}&response_type=code&scope=${scopes.join('%20')}`;
-      return res.json({ url: authUrl });
+      return res.json({ url: authUrl, scope });
     }
     return res.status(400).json({ error: 'Unsupported provider' });
   },
@@ -160,6 +173,7 @@ export const OAuthController = {
       const {code} = req.body;
       const isLinking = req.query.linking === 'true';
       const isReauth = req.query.reauth === 'true';
+      const stepUpScope = parseStepUpScopeParam(req.query.scope);
 
       if (!code) {
         return res
@@ -201,11 +215,11 @@ export const OAuthController = {
             code: 'OAUTH_REAUTH_MISMATCH',
           });
         }
-        await stepUpGrantService.grantAfterOAuthReauth(req.user.id, res, {
+        await stepUpGrantService.grantAfterOAuthReauth(req.user.id, res, stepUpScope, {
           ip: parseClientIp(req),
           userAgent: req.get('user-agent') ?? undefined,
         });
-        return res.json({ success: true, stepUp: true, scope: 'email-change' });
+        return res.json({ success: true, stepUp: true, scope: stepUpScope });
       }
 
       if (isLinking) {
@@ -245,30 +259,12 @@ export const OAuthController = {
         // Invalidate user-specific cache (for new users, this is a no-op but harmless)
         await CacheInvalidation.invalidateUser(user.id);
 
-        const ip = parseClientIp(req);
-        const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(user.id, {
-          userAgent: req.get('user-agent'),
-          ip,
-        });
-        const accessToken = tokenUtils.generateAccessToken(user, sessionId);
-        cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
+        const auth = await sessionIssuanceService.completeAuthentication(user, req, res);
         return res.json({
-          user: {
-            id: user.id,
-            username: user.username,
-            nickname: user.nickname,
-            email: user.email,
-            avatarUrl: user.avatarUrl,
-            playerId: user.playerId,
-            creatorId: user.creatorId,
-            isRater: hasFlag(user, permissionFlags.RATER),
-            isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
-            isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
-            permissionFlags: user.permissionFlags.toString(),
-          },
+          user: auth.user,
           isNew,
-          expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
-          sessionId,
+          expiresIn: auth.expiresIn,
+          sessionId: auth.sessionId,
         });
       }
     } catch (error) {
@@ -395,7 +391,7 @@ export const OAuthController = {
     try {
       const providers = await OAuthService.getUserProviders(req.user!.id);
 
-      if (providers.length <= 1 && !req.user?.password) {
+      if (providers.length <= 1 && !(await hasPasswordCredential(req.user!.id))) {
         return res
           .status(400)
           .json({error: 'Cannot remove last authentication provider without a password'});

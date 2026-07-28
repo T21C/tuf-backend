@@ -33,7 +33,7 @@
     "backfill:analysis-by-tag": "cross-env tsx src/misc/scripts/backfillAnalysisByTag.ts",
     "pentest:zip-fixtures": "cross-env tsx src/externalServices/cdnService/scripts/security/generateZipPentestFixtures.ts",
     "pentest:zip": "cross-env tsx src/externalServices/cdnService/scripts/security/runZipProtectionPentest.ts",
-    "test": "cross-env tsx --test src/misc/utils/auth/*.test.ts",
+    "test": "cross-env tsx --test \"src/**/*.test.ts\"",
     "lint": "eslint \"src/**/*.{ts,js}\" --no-eslintrc --config .eslintrc.security.cjs --no-inline-config --max-warnings 0",
     "lint:all": "eslint \"src/**/*.{ts,js}\" --max-warnings 0"
   },

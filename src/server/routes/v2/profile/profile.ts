@@ -3,7 +3,6 @@ import {Auth} from '@/server/middleware/auth.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, successMessageSchema, standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, stringIdParamSpec } from '@/server/schemas/v2/profile/index.js';
 import {OAuthProvider, User} from '@/models/index.js';
-import { passwordUtils } from '@/misc/utils/auth/auth.js';
 import sequelize from '@/config/db.js';
 import { Op } from 'sequelize';
 import UsernameChange from '@/models/auth/UsernameChange.js';
@@ -31,7 +30,13 @@ import {
   upsertSurfaceImageAsset,
 } from '@/server/services/profileHeaderSurfaceImage.js';
 import { permissionFlags } from '@/config/constants.js';
-import { accountCredentialService } from '@/server/services/accounts/AccountCredentialService.js';
+import {
+  accountCredentialService,
+  CredentialError,
+} from '@/server/services/accounts/AccountCredentialService.js';
+import { refreshTokenService } from '@/misc/utils/auth/auth.js';
+import { parseClientIp } from '@/misc/utils/auth/rateLimitSubjects.js';
+import { stepUpGrantService } from '@/server/services/auth/StepUpGrantService.js';
 
 function parseHeaderSurfaceLayerId(req: Request): string | null {
   const raw = (req.body as { layerId?: unknown })?.layerId ?? req.query.layerId;
@@ -438,10 +443,20 @@ router.put(
     });
   } catch (error: any) {
     await safeTransactionRollback(transaction);
-    if (!error.code) {
+
+    // The validation paths above signal expected failures by throwing a plain
+    // object with a numeric `code`, and the client reads their extra fields
+    // (nextAvailableChange, timeRemaining), so those are still echoed verbatim.
+    // Anything else is a real exception and must not be: Sequelize's
+    // DatabaseError carries enumerable `sql` and `parameters`, which would hand
+    // the caller the failing query and its bound values. A non-numeric `code`
+    // (mysql's 'ER_DUP_ENTRY') also used to reach res.status() and throw.
+    const status = error?.code;
+    if (typeof status !== 'number' || status < 400 || status > 599) {
       logger.error('Error updating user profile:', error);
+      return res.status(500).json({error: 'Failed to update profile'});
     }
-    return res.status(error.code || 500).json(error || 'Failed to update profile');
+    return res.status(status).json(error);
   }
   }
 );
@@ -450,10 +465,12 @@ router.put(
 router.put(
   '/password',
   Auth.user(),
+  stepUpGrantService.requireStepUp('security'),
   ApiDoc({
     operationId: 'putProfilePassword',
     summary: 'Change password',
-    description: 'Update password for the authenticated user',
+    description:
+      'Update password for the authenticated user. Requires recent step-up confirmation.',
     tags: ['Profile'],
     security: ['bearerAuth'],
     requestBody: {
@@ -468,6 +485,7 @@ router.put(
       200: { description: 'Password updated', schema: successMessageSchema },
       400: { description: 'Validation error', schema: errorResponseSchema },
       401: { description: 'Unauthorized', schema: errorResponseSchema },
+      403: { schema: errorResponseSchema },
       500: { description: 'Server error', schema: errorResponseSchema },
     },
   }),
@@ -480,29 +498,36 @@ router.put(
       return res.status(401).json({error: 'User not authenticated'});
     }
 
-    // If user has a password, verify current password
-    if (user.password) {
-      if (!currentPassword) {
-        return res.status(400).json({error: 'Current password is required'});
-      }
+    // Keep the device making the change signed in and drop the rest. Bearer
+    // callers have no refresh cookie, so their session cannot be identified and
+    // every session is revoked instead.
+    const currentRefreshToken = req.cookies?.refreshToken;
+    const currentRecord = currentRefreshToken
+      ? await refreshTokenService.findValidRefreshToken(currentRefreshToken)
+      : null;
 
-      const isValid = await passwordUtils.comparePassword(currentPassword, user.password);
-      if (!isValid) {
-        return res.status(400).json({error: 'Current password is incorrect'});
-      }
-    }
+    const { revokedSessions, keptCurrentSession } =
+      await accountCredentialService.changePassword(
+        user.id,
+        {
+          currentPassword,
+          newPassword,
+          keepSessionId: currentRecord?.id ?? null,
+        },
+        { ip: parseClientIp(req), userAgent: req.get('user-agent') },
+      );
 
-    // Hash new password with current argon2id params
-    const hashedPassword = await passwordUtils.hashPassword(newPassword);
-
-    // Update user's password
-    await User.update({password: hashedPassword}, {where: {id: user.id}});
-
-    // Invalidate user-specific cache
-    await CacheInvalidation.invalidateUser(user.id);
-
-    return res.json({message: 'Password updated successfully'});
+    return res.json({
+      message: 'Password updated successfully',
+      revokedSessions,
+      keptCurrentSession,
+    });
   } catch (error) {
+    if (error instanceof CredentialError) {
+      return res
+        .status(error.statusCode)
+        .json({error: error.message, code: error.code});
+    }
     logger.error('Error updating password:', error);
     return res.status(500).json({error: 'Failed to update password'});
   }
@@ -1073,11 +1098,12 @@ router.delete(
 router.post(
   '/me/delete',
   Auth.user(),
+  stepUpGrantService.requireStepUp('security'),
   ApiDoc({
     operationId: 'postProfileDeleteMe',
     summary: 'Schedule account deletion',
     description:
-      'Schedules account deletion with a 3-day grace period. Immediately hides the player from the leaderboard.',
+      'Schedules account deletion with a 3-day grace period. Immediately hides the player from the leaderboard. Requires recent step-up confirmation.',
     tags: ['Profile'],
     security: ['bearerAuth'],
     responses: {

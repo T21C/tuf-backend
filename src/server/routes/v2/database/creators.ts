@@ -383,6 +383,7 @@ router.get(
 // Create new creator
 router.post(
   '/',
+  Auth.superAdmin(),
   ApiDoc({
     operationId: 'postCreator',
     summary: 'Create creator',
@@ -849,6 +850,7 @@ router.post(
 // Update creator
 router.put(
   '/:id([0-9]{1,20})',
+  Auth.superAdmin(),
   ApiDoc({
     operationId: 'putCreator',
     summary: 'Update creator',

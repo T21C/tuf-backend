@@ -8,6 +8,11 @@ import {User, RefreshToken} from '@/models/index.js';
 import { hasFlag } from './permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { lookupIpLocation, type IpLocationInfo } from './ipLocation.js';
+import {
+  JWT_SECRET,
+  ACCESS_TOKEN_TTL_SEC,
+  REFRESH_TOKEN_TTL_SEC,
+} from '@/config/auth.config.js';
 
 /** Target argon2id params (memoryCost is KiB; 65536 = 64 MiB). */
 const ARGON2_OPTIONS = {
@@ -17,10 +22,7 @@ const ARGON2_OPTIONS = {
   parallelism: 1,
 } as const satisfies HashOptions;
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env
-
-const JWT_REFRESH_EXPIRES_IN_DAYS = 7;
-const JWT_REFRESH_EXPIRES_IN_SEC = JWT_REFRESH_EXPIRES_IN_DAYS * 24 * 60 * 60;
+const JWT_REFRESH_EXPIRES_IN_SEC = REFRESH_TOKEN_TTL_SEC;
 
 const COOKIE_ACCESS = 'accessToken';
 const COOKIE_REFRESH = 'refreshToken';
@@ -143,11 +145,10 @@ export const tokenUtils = {
    * Generate short-lived access JWT for a user, bound to a refresh-token session.
    */
   generateAccessToken: (user: User, sessionId: string): string => {
-    const expiresInSec = 15 * 60; // static 15 minutes
     return jwt.sign(
       getAccessTokenPayload(user, sessionId),
       JWT_SECRET,
-      { expiresIn: expiresInSec }
+      { expiresIn: ACCESS_TOKEN_TTL_SEC }
     );
   },
 
@@ -212,10 +213,11 @@ export const tokenUtils = {
   },
 };
 
-/** Purpose tags for opaque credential codes (email verify vs password reset). */
+/** Purpose tags for opaque credential codes (email verify, password reset, step-up). */
 export const OPAQUE_TOKEN_PURPOSE = {
   EMAIL_VERIFY: 'email_verify',
   PASSWORD_RESET: 'password_reset',
+  STEP_UP: 'step_up',
 } as const;
 
 export type OpaqueTokenPurpose =
@@ -229,18 +231,28 @@ function hashOpaqueToken(raw: string): string {
 }
 
 /**
- * Opaque code utilities for email verification and password reset.
- * Hash input: `${purpose}:${userId}:${code}` so codes cannot be reused across users/purposes.
+ * Opaque code utilities for email verification, password reset, and step-up.
+ * Hash input: `${purpose}:${binding}:${userId}:${code}` (binding optional) so codes
+ * cannot be reused across users, purposes, or step-up scopes.
  */
 export const opaqueTokenUtils = {
   hashOpaqueToken,
 
   /**
    * Hash a user-bound opaque code for storage.
+   * Pass `binding` (e.g. step-up scope) so a `security` code cannot verify as `email-change`.
    */
-  hashBoundCode(purpose: OpaqueTokenPurpose, userId: string, code: string): string {
+  hashBoundCode(
+    purpose: OpaqueTokenPurpose,
+    userId: string,
+    code: string,
+    binding?: string,
+  ): string {
     const normalized = code.trim().toUpperCase();
-    return hashOpaqueToken(`${purpose}:${userId}:${normalized}`);
+    const parts = binding
+      ? `${purpose}:${binding}:${userId}:${normalized}`
+      : `${purpose}:${userId}:${normalized}`;
+    return hashOpaqueToken(parts);
   },
 
   /**
@@ -477,7 +489,7 @@ export const refreshTokenService = {
 };
 
 /** Access token cookie maxAge in seconds (15 min) */
-export const ACCESS_COOKIE_MAX_AGE_SEC = 15 * 60;
+export const ACCESS_COOKIE_MAX_AGE_SEC = ACCESS_TOKEN_TTL_SEC;
 /** Refresh token cookie maxAge in seconds (7 days) */
 export const REFRESH_COOKIE_MAX_AGE_SEC = JWT_REFRESH_EXPIRES_IN_SEC;
 
