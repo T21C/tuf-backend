@@ -1039,7 +1039,14 @@ router.patch(
       const {id} = req.params;
       const {isSubmissionsPaused} = req.body;
 
-      const player = await Player.findByPk(id, {transaction, include: [{model: User, as: 'user'}]});
+      const player = await Player.findByPk(id, {
+        transaction,
+        include: [{
+          model: User,
+          as: 'user',
+          attributes: ['id', 'permissionFlags', 'permissionVersion'],
+        }],
+      });
       if (!player) {
         await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Player not found'});
@@ -1105,6 +1112,7 @@ router.post(
           {
             model: User,
             as: 'user',
+            attributes: ['id'],
             include: [
               {
                 model: OAuthProvider,
@@ -1122,6 +1130,7 @@ router.post(
           {
             model: User,
             as: 'user',
+            attributes: ['id'],
             include: [
               {
                 model: OAuthProvider,
@@ -1522,9 +1531,10 @@ router.get(
       include: [{
         model: User,
         as: 'oauthUser',
+        attributes: ['id', 'playerId', 'creatorId'],
         include: [
-          { model: Player, as: 'player' },
-          { model: Creator, as: 'creator' },
+          { model: Player, as: 'player', attributes: ['id'] },
+          { model: Creator, as: 'creator', attributes: ['id'] },
         ],
       }],
     });

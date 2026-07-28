@@ -500,7 +500,14 @@ router.patch(
         include: [{
           model: User,
           as: 'user',
-          required: true
+          required: true,
+          attributes: [
+            'id',
+            'username',
+            'permissionFlags',
+            'permissionVersion',
+            'isRatingBanned',
+          ],
         }],
         transaction,
       });
@@ -572,6 +579,7 @@ router.get(
           model: User,
           as: 'oauthUser',
           required: true,
+          attributes: ['id', 'permissionFlags'],
         },
       ],
     });
@@ -625,6 +633,7 @@ router.get(
             model: User,
             as: 'oauthUser',
             required: true,
+            attributes: ['id', 'username', 'avatarUrl', 'permissionFlags'],
           },
         ],
       });

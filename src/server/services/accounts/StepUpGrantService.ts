@@ -91,9 +91,12 @@ class StepUpGrantService {
         { statusCode: 400, code: 'OAUTH_REAUTH_REQUIRED' },
       );
     }
-    const ok = await passwordUtils.comparePassword(password, user.password);
-    if (!ok) {
+    const passwordCheck = await passwordUtils.verifyAndMaybeRehash(password, user.password);
+    if (!passwordCheck.ok) {
       throw Object.assign(new Error('Incorrect password'), { statusCode: 400 });
+    }
+    if (passwordCheck.newHash) {
+      await user.update({ password: passwordCheck.newHash });
     }
     this.issueGrant(res, userId, 'email-change');
     await accountCredentialService.logAction(userId, 'step_up_granted', { method: 'password' }, ctx);

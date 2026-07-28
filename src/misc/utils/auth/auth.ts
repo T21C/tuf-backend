@@ -1,3 +1,4 @@
+import argon2, { type HashOptions } from 'argon2';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -7,7 +8,15 @@ import {User, RefreshToken} from '@/models/index.js';
 import { hasFlag } from './permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { lookupIpLocation, type IpLocationInfo } from './ipLocation.js';
-const SALT_ROUNDS = 10;
+
+/** Target argon2id params (memoryCost is KiB; 65536 = 64 MiB). */
+const ARGON2_OPTIONS = {
+  type: argon2.argon2id,
+  memoryCost: 65536,
+  timeCost: 3,
+  parallelism: 1,
+} as const satisfies HashOptions;
+
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env
 
 const JWT_REFRESH_EXPIRES_IN_DAYS = 7;
@@ -36,22 +45,78 @@ export const CSRF_COOKIE_OPTIONS = {
   path: '/',
 };
 
+function isBcryptHash(hash: string): boolean {
+  return hash.startsWith('$2a$') || hash.startsWith('$2b$') || hash.startsWith('$2y$');
+}
+
+function isArgon2Hash(hash: string): boolean {
+  return hash.startsWith('$argon2');
+}
+
+export interface PasswordVerifyResult {
+  ok: boolean;
+  /** Present when verification succeeded and the stored hash should be upgraded. */
+  newHash?: string;
+}
+
 /**
- * Password utilities
+ * Password utilities — argon2id for new hashes; bcrypt verified and upgraded on success.
  */
 export const passwordUtils = {
   /**
-   * Hash a password using bcrypt
+   * Hash a password with argon2id (current target parameters).
    */
   hashPassword: async (password: string): Promise<string> => {
-    return bcrypt.hash(password, SALT_ROUNDS);
+    return argon2.hash(password, { ...ARGON2_OPTIONS, raw: false });
   },
 
   /**
-   * Compare a password with a hash
+   * Compare a password against a stored bcrypt or argon2 hash.
    */
   comparePassword: async (password: string, hash: string): Promise<boolean> => {
-    return bcrypt.compare(password, hash);
+    if (!hash) return false;
+    if (isArgon2Hash(hash)) {
+      try {
+        return await argon2.verify(hash, password);
+      } catch {
+        return false;
+      }
+    }
+    if (isBcryptHash(hash)) {
+      return bcrypt.compare(password, hash);
+    }
+    return false;
+  },
+
+  /**
+   * True when the stored hash should be rewritten with current argon2id params.
+   */
+  needsRehash: (hash: string): boolean => {
+    if (!hash) return true;
+    if (isBcryptHash(hash)) return true;
+    if (isArgon2Hash(hash)) {
+      try {
+        return argon2.needsRehash(hash, ARGON2_OPTIONS);
+      } catch {
+        return true;
+      }
+    }
+    return true;
+  },
+
+  /**
+   * Verify password; on success, return a new argon2id hash when the stored one is outdated.
+   */
+  verifyAndMaybeRehash: async (
+    password: string,
+    hash: string,
+  ): Promise<PasswordVerifyResult> => {
+    const ok = await passwordUtils.comparePassword(password, hash);
+    if (!ok) return { ok: false };
+    if (passwordUtils.needsRehash(hash)) {
+      return { ok: true, newHash: await passwordUtils.hashPassword(password) };
+    }
+    return { ok: true };
   },
 };
 
@@ -338,6 +403,19 @@ export const refreshTokenService = {
     const record = await this.findValidRefreshToken(plainToken);
     if (!record?.user) return null;
 
+    // Reload with JWT fields (email is banned on includes; findByPk is intentional).
+    const user = await User.findByPk(record.user.id, {
+      attributes: [
+        'id',
+        'email',
+        'username',
+        'playerId',
+        'permissionFlags',
+        'permissionVersion',
+      ],
+    });
+    if (!user) return null;
+
     const token = crypto.randomBytes(32).toString('hex');
     const tokenHash = hashRefreshToken(token);
     const expiresAt = new Date(Date.now() + JWT_REFRESH_EXPIRES_IN_SEC * 1000);
@@ -352,7 +430,7 @@ export const refreshTokenService = {
       token,
       expiresAt,
       sessionId: record.id,
-      user: record.user as User,
+      user,
     };
   },
 
@@ -367,7 +445,11 @@ export const refreshTokenService = {
         expiresAt: { [Op.gt]: new Date() },
         revokedAt: null,
       },
-      include: [{ model: User, as: 'user' }],
+      include: [{
+        model: User,
+        as: 'user',
+        attributes: ['id'],
+      }],
     });
     return record;
   },

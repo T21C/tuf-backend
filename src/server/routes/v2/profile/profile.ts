@@ -3,7 +3,7 @@ import {Auth} from '@/server/middleware/auth.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, successMessageSchema, standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, stringIdParamSpec } from '@/server/schemas/v2/profile/index.js';
 import {OAuthProvider, User} from '@/models/index.js';
-import bcrypt from 'bcryptjs';
+import { passwordUtils } from '@/misc/utils/auth/auth.js';
 import sequelize from '@/config/db.js';
 import { Op } from 'sequelize';
 import UsernameChange from '@/models/auth/UsernameChange.js';
@@ -486,14 +486,14 @@ router.put(
         return res.status(400).json({error: 'Current password is required'});
       }
 
-      const isValid = await bcrypt.compare(currentPassword, user.password);
+      const isValid = await passwordUtils.comparePassword(currentPassword, user.password);
       if (!isValid) {
         return res.status(400).json({error: 'Current password is incorrect'});
       }
     }
 
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    // Hash new password with current argon2id params
+    const hashedPassword = await passwordUtils.hashPassword(newPassword);
 
     // Update user's password
     await User.update({password: hashedPassword}, {where: {id: user.id}});

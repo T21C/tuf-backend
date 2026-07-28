@@ -1,5 +1,6 @@
 {
   "extends": "./node_modules/gts/",
+  "plugins": ["tuf"],
   "overrides": [
     {
       "files": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.js", "src/**/*.jsx"],
@@ -37,7 +38,8 @@
     "prefer-const": "off",
     "no-case-declarations": "off",
     // Add any other rules you want to disable here
-    "prettier/prettier": "off"
+    "prettier/prettier": "off",
+    "tuf/no-unsafe-user-include": "error"
   },
-  "ignorePatterns": ["dist/**/*", "build/**/*", "node_modules/**/*", "uploads/**/*", "temp/**/*", "cache/**/*", "backups/**/*", "profiles/**/*", "src/database/generate_meta_inserts.bat", "src/database/meta_inserts.sql", "*.sh", "__pycache__/**/*"]
+  "ignorePatterns": ["dist/**/*", "build/**/*", "node_modules/**/*", "uploads/**/*", "temp/**/*", "cache/**/*", "backups/**/*", "profiles/**/*", "src/database/generate_meta_inserts.bat", "src/database/meta_inserts.sql", "*.sh", "__pycache__/**/*", "eslint-plugin-tuf/**/*"]
 }

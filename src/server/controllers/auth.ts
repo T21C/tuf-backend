@@ -427,8 +427,8 @@ class AuthController {
           .json({ message: 'Account not linked to a password. Please use OAuth to login.' });
       }
 
-      const isValidPassword = await passwordUtils.comparePassword(password, user.password);
-      if (!isValidPassword) {
+      const passwordCheck = await passwordUtils.verifyAndMaybeRehash(password, user.password);
+      if (!passwordCheck.ok) {
         recordFailedAttempt(ip);
         return res.status(401).json({
           message: 'Invalid credentials',
@@ -437,7 +437,10 @@ class AuthController {
       }
 
       failedAttempts.delete(ip);
-      await user.update({ lastLogin: new Date() });
+      await user.update({
+        lastLogin: new Date(),
+        ...(passwordCheck.newHash ? { password: passwordCheck.newHash } : {}),
+      });
 
       const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(
         user.id,

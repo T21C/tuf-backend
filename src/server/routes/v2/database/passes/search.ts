@@ -79,6 +79,14 @@ router.get(
             model: User,
             as: 'user',
             required: false,
+            attributes: [
+              'id',
+              'username',
+              'nickname',
+              'avatarUrl',
+              'isSuperAdmin',
+              'isRater',
+            ],
             where: {
               [Op.and]: [
                 wherePermission(permissionFlags.BANNED, false)

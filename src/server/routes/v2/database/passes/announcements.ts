@@ -46,6 +46,7 @@ router.get(
                 model: User,
                 as: 'user',
                 required: false,
+                attributes: ['id', 'username', 'nickname', 'avatarUrl'],
               }
             ]
           },

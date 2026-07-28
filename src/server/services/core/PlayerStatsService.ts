@@ -343,6 +343,7 @@ export class PlayerStatsService {
               model: User,
               as: 'user',
               required: false,
+              attributes: [],
             }
           ]
         }],
@@ -559,12 +560,7 @@ export class PlayerStatsService {
   public async getEnrichedPlayer(playerId: number, user?: any): Promise<EnrichedPlayer | null> {
 
     const player = await Player.findByPk(playerId, {
-      include: [
-        {
-          model: User,
-          as: 'user',
-        },
-      ],
+      attributes: ['id', 'name', 'country', 'isBanned', 'isSubmissionsPaused', 'pfp', 'createdAt', 'updatedAt'],
     });
 
     if (!player) return null;

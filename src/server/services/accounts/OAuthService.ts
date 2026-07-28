@@ -36,7 +36,22 @@ class OAuthService {
         provider: profile.provider,
         providerId: profile.id,
       },
-      include: [{ model: User, as: 'oauthUser', include: [{ model: Player, as: 'player' }] }],
+      include: [{
+        model: User,
+        as: 'oauthUser',
+        attributes: [
+          'id',
+          'username',
+          'nickname',
+          'avatarId',
+          'avatarUrl',
+          'playerId',
+          'creatorId',
+          'permissionFlags',
+          'permissionVersion',
+        ],
+        include: [{ model: Player, as: 'player', attributes: ['id', 'name'] }],
+      }],
     });
 
     if (provider?.oauthUser) {
@@ -58,7 +73,13 @@ class OAuthService {
         await provider.oauthUser.update(updates);
       }
       if (profile.email) {
-        await accountCredentialService.ensureEmailVerifiedFlag(provider.oauthUser);
+        // email is banned on includes; load only fields needed for verify-flag check
+        const userForVerify = await User.findByPk(provider.oauthUser.id, {
+          attributes: ['id', 'email', 'permissionFlags', 'permissionVersion'],
+        });
+        if (userForVerify) {
+          await accountCredentialService.ensureEmailVerifiedFlag(userForVerify);
+        }
       }
       return [provider.oauthUser, false];
     }
@@ -268,7 +289,21 @@ class OAuthService {
   async findUserByProvider(provider: string, providerId: string): Promise<User | null> {
     const oauthProvider = await OAuthProvider.findOne({
       where: { provider, providerId },
-      include: [{ model: User, as: 'user' }],
+      include: [{
+        model: User,
+        as: 'oauthUser',
+        attributes: [
+          'id',
+          'username',
+          'nickname',
+          'avatarId',
+          'avatarUrl',
+          'playerId',
+          'creatorId',
+          'permissionFlags',
+          'permissionVersion',
+        ],
+      }],
     });
     return oauthProvider?.oauthUser || null;
   }
