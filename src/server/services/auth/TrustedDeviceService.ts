@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import type { Request, Response } from 'express';
 import { Op } from 'sequelize';
 import TrustedDevice from '@/models/auth/TrustedDevice.js';
-import { AUTH_COOKIE_OPTIONS } from '@/misc/utils/auth/auth.js';
+import { AUTH_COOKIE_OPTIONS, cookieClearOptions } from '@/misc/utils/auth/auth.js';
 import { parseClientIp } from '@/misc/utils/auth/rateLimitSubjects.js';
 import { lookupIpLocation, type IpLocationInfo } from '@/misc/utils/auth/ipLocation.js';
 import { TRUSTED_DEVICE_TTL_SEC } from '@/config/auth.config.js';
@@ -160,7 +160,7 @@ class TrustedDeviceService {
   }
 
   clearCookie(res: Response): void {
-    res.clearCookie(TRUSTED_DEVICE_COOKIE, TRUSTED_DEVICE_COOKIE_OPTIONS);
+    res.clearCookie(TRUSTED_DEVICE_COOKIE, cookieClearOptions(TRUSTED_DEVICE_COOKIE_OPTIONS));
   }
 }
 

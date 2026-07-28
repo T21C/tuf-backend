@@ -8,6 +8,7 @@ import {
   ACCESS_COOKIE_MAX_AGE_SEC,
   REFRESH_COOKIE_MAX_AGE_SEC,
   AUTH_COOKIE_OPTIONS,
+  cookieClearOptions,
 } from '@/misc/utils/auth/auth.js';
 import { parseClientIp } from '@/misc/utils/auth/rateLimitSubjects.js';
 import { publicUserFields, type PublicUserFields } from './userSerializer.js';
@@ -161,7 +162,7 @@ class SessionIssuanceService {
   }
 
   clearMfaPending(res: Response): void {
-    res.clearCookie(MFA_PENDING_COOKIE, MFA_PENDING_COOKIE_OPTIONS);
+    res.clearCookie(MFA_PENDING_COOKIE, cookieClearOptions(MFA_PENDING_COOKIE_OPTIONS));
   }
 
   private async issueSession(

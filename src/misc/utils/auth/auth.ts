@@ -47,6 +47,17 @@ export const CSRF_COOKIE_OPTIONS = {
   path: '/',
 };
 
+/**
+ * Express 5 ignores maxAge on clearCookie and warns when it is passed.
+ * Strip it so clear options stay path/secure/sameSite-compatible with setCookie.
+ */
+export function cookieClearOptions<T extends object>(
+  options: T & { maxAge?: number },
+): Omit<T, 'maxAge'> {
+  const { maxAge: _ignored, ...rest } = options;
+  return rest;
+}
+
 function isBcryptHash(hash: string): boolean {
   return hash.startsWith('$2a$') || hash.startsWith('$2b$') || hash.startsWith('$2y$');
 }
@@ -544,9 +555,9 @@ export const cookieUtils = {
   },
 
   clearAuthCookies(res: Response): void {
-    res.clearCookie(COOKIE_ACCESS, AUTH_COOKIE_OPTIONS);
-    res.clearCookie(COOKIE_REFRESH, AUTH_COOKIE_OPTIONS);
-    res.clearCookie(COOKIE_CSRF, CSRF_COOKIE_OPTIONS);
+    res.clearCookie(COOKIE_ACCESS, cookieClearOptions(AUTH_COOKIE_OPTIONS));
+    res.clearCookie(COOKIE_REFRESH, cookieClearOptions(AUTH_COOKIE_OPTIONS));
+    res.clearCookie(COOKIE_CSRF, cookieClearOptions(CSRF_COOKIE_OPTIONS));
   },
 
   cookieNames: { access: COOKIE_ACCESS, refresh: COOKIE_REFRESH, csrf: COOKIE_CSRF },
