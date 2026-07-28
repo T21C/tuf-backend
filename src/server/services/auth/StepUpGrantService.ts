@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import type { Request, Response, NextFunction } from 'express';
-import { passwordUtils, AUTH_COOKIE_OPTIONS } from '@/misc/utils/auth/auth.js';
+import { passwordUtils, AUTH_COOKIE_OPTIONS, cookieClearOptions } from '@/misc/utils/auth/auth.js';
 import {
   accountCredentialService,
   hasVerifiedEmail,
@@ -44,7 +44,7 @@ class StepUpGrantService {
   }
 
   clearGrant(res: Response): void {
-    res.clearCookie(STEP_UP_COOKIE, STEP_UP_COOKIE_OPTIONS);
+    res.clearCookie(STEP_UP_COOKIE, cookieClearOptions(STEP_UP_COOKIE_OPTIONS));
   }
 
   readGrant(req: Request, scope: StepUpScope): StepUpPayload | null {

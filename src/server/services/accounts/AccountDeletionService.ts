@@ -13,6 +13,7 @@ import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchS
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { CreatorProfileDeletionService } from '@/server/services/accounts/CreatorProfileDeletionService.js';
 import { handleAccountDeletePieces } from '@/server/services/profileCustomization/ProfileCustomizationService.js';
+import { securityNotificationService } from '@/server/services/accounts/SecurityNotificationService.js';
 
 const GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
 
@@ -202,6 +203,10 @@ export class AccountDeletionService {
           });
         }
       }
+
+      securityNotificationService.notify(userId, 'deletion-scheduled', {
+        executeAt,
+      });
 
       return { deletionScheduledAt: user.deletionScheduledAt ?? now, deletionExecuteAt: executeAt };
     } catch (error) {

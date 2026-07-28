@@ -22,12 +22,14 @@ import {
   type StepUpScope,
 } from '@/server/services/auth/StepUpGrantService.js';
 import { sessionIssuanceService } from '@/server/services/auth/SessionIssuanceService.js';
+import { trustedDeviceService } from '@/server/services/auth/TrustedDeviceService.js';
 import { publicUserFields } from '@/server/services/auth/userSerializer.js';
 import {
   parseClientIp,
   rateLimitSubjectAccount,
 } from '@/misc/utils/auth/rateLimitSubjects.js';
 import { STEP_UP_TTL_SEC } from '@/config/auth.config.js';
+import { securityNotificationService } from '@/server/services/accounts/SecurityNotificationService.js';
 
 const captchaService = new CaptchaService();
 
@@ -73,6 +75,7 @@ function mapCredentialError(error: unknown, res: Response, fallback: string): Re
       message: error.message,
       code: error.code,
       ...(error.details?.retryAfter != null ? { retryAfter: error.details.retryAfter } : {}),
+      ...(error.details?.maskedEmail ? { maskedEmail: error.details.maskedEmail } : {}),
     });
   }
   const statusCode = (error as { statusCode?: number })?.statusCode;
@@ -195,6 +198,9 @@ class AuthController {
       await user.reload();
 
       const auth = await sessionIssuanceService.completeAuthentication(user, req, res);
+      if (auth.status !== 'session') {
+        return res.status(500).json({ message: 'Registration failed' });
+      }
 
       return res.status(201).json({
         message: 'Registration successful. Please check your email for verification.',
@@ -499,14 +505,29 @@ class AuthController {
       }
 
       for (const key of attemptKeys) failedAttempts.delete(key);
-      await user.update({
-        lastLogin: new Date(),
-        ...(passwordCheck.newHash ? { password: passwordCheck.newHash } : {}),
-      });
+      if (passwordCheck.newHash) {
+        await user.update({ password: passwordCheck.newHash });
+      }
 
       const auth = await sessionIssuanceService.completeAuthentication(user, req, res);
 
+      if (auth.status === 'mfa_required') {
+        // Cooldown from any still-outstanding login code, so the client resend
+        // timer survives reloads / repeat phase-1 logins instead of 429ing.
+        const emailResendAvailableAt =
+          await accountCredentialService.getStepUpResendAvailableAt(user.id, 'login');
+        return res.json({
+          status: 'mfa_required',
+          methods: auth.methods,
+          maskedEmail: auth.maskedEmail,
+          emailResendAvailableAt,
+        });
+      }
+
+      await user.update({ lastLogin: new Date() });
+
       return res.json({
+        status: 'session',
         user: auth.user,
         expiresIn: auth.expiresIn,
         sessionId: auth.sessionId,
@@ -737,6 +758,156 @@ class AuthController {
     } catch (error) {
       logger.error('Revoke session error:', error);
       return res.status(500).json({ error: 'Failed to revoke session' });
+    }
+  }
+
+  @RateLimiter({
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 8,
+    blockDuration: 15 * 60 * 1000,
+    type: 'mfa-email',
+    incrementOnFailure: true,
+    incrementOnSuccess: true,
+  })
+  public async requestLoginMfaEmail(req: Request, res: Response): Promise<Response> {
+    try {
+      const pending = sessionIssuanceService.readMfaPending(req);
+      if (!pending) {
+        return res.status(401).json({
+          message: 'Login challenge expired. Please sign in again.',
+          code: 'MFA_PENDING_REQUIRED',
+        });
+      }
+      if (!pending.methods.includes('email')) {
+        return res.status(400).json({
+          message: 'Email MFA is not available for this login',
+          code: 'MFA_METHOD_UNAVAILABLE',
+        });
+      }
+      const result = await accountCredentialService.issueStepUpCode(
+        pending.sub,
+        'login',
+        actionCtx(req),
+      );
+      return res.json({
+        message: 'Login code sent',
+        maskedEmail: result.maskedEmail,
+        emailResendAvailableAt: result.emailResendAvailableAt,
+      });
+    } catch (error) {
+      return mapCredentialError(error, res, 'Failed to send login code');
+    }
+  }
+
+  @RateLimiter({
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 12,
+    blockDuration: 15 * 60 * 1000,
+    type: 'mfa-verify',
+    incrementOnFailure: true,
+  })
+  public async verifyLoginMfa(req: Request, res: Response): Promise<Response> {
+    try {
+      const pending = sessionIssuanceService.readMfaPending(req);
+      if (!pending) {
+        return res.status(401).json({
+          message: 'Login challenge expired. Please sign in again.',
+          code: 'MFA_PENDING_REQUIRED',
+        });
+      }
+
+      const { code, rememberDevice } = req.body || {};
+      if (!code || typeof code !== 'string') {
+        return res.status(400).json({
+          message: 'Confirmation code is required',
+          code: 'CODE_REQUIRED',
+        });
+      }
+      if (!pending.methods.includes('email')) {
+        return res.status(400).json({
+          message: 'Email MFA is not available for this login',
+          code: 'MFA_METHOD_UNAVAILABLE',
+        });
+      }
+
+      await accountCredentialService.confirmStepUpCode(
+        pending.sub,
+        'login',
+        code,
+        actionCtx(req),
+      );
+
+      const user = await User.findByPk(pending.sub);
+      if (!user) {
+        sessionIssuanceService.clearMfaPending(res);
+        return res.status(401).json({ message: 'User not found' });
+      }
+
+      if (rememberDevice === true) {
+        await trustedDeviceService.trust(user.id, req, res);
+      }
+
+      const auth = await sessionIssuanceService.completeAuthentication(user, req, res, {
+        mfaExempt: true,
+      });
+      if (auth.status !== 'session') {
+        return res.status(500).json({ message: 'Login failed' });
+      }
+
+      await user.update({ lastLogin: new Date() });
+
+      securityNotificationService.notify(user.id, 'new-signin', {
+        req,
+        remembered: rememberDevice === true,
+        method: 'password',
+      });
+
+      return res.json({
+        status: 'session',
+        user: auth.user,
+        expiresIn: auth.expiresIn,
+        sessionId: auth.sessionId,
+      });
+    } catch (error) {
+      return mapCredentialError(error, res, 'MFA verification failed');
+    }
+  }
+
+  public async getTrustedDevices(req: Request, res: Response): Promise<Response> {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      const currentId = await trustedDeviceService.currentDeviceId(req.user.id, req);
+      const devices = await trustedDeviceService.listForUser(req.user.id, currentId);
+      return res.json({ devices });
+    } catch (error) {
+      logger.error('Get trusted devices error:', error);
+      return res.status(500).json({ error: 'Failed to list trusted devices' });
+    }
+  }
+
+  public async revokeTrustedDevice(req: Request, res: Response): Promise<Response> {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      const { id: deviceId } = req.params;
+      if (!deviceId) {
+        return res.status(400).json({ error: 'Device id required' });
+      }
+      const currentId = await trustedDeviceService.currentDeviceId(req.user.id, req);
+      const revoked = await trustedDeviceService.revoke(deviceId, req.user.id);
+      if (!revoked) {
+        return res.status(404).json({ error: 'Trusted device not found or already revoked' });
+      }
+      if (currentId === deviceId) {
+        trustedDeviceService.clearCookie(res);
+      }
+      return res.status(204).send();
+    } catch (error) {
+      logger.error('Revoke trusted device error:', error);
+      return res.status(500).json({ error: 'Failed to revoke trusted device' });
     }
   }
 }

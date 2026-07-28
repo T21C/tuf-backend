@@ -21,6 +21,8 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { STEP_UP_TTL_SEC } from '@/config/auth.config.js';
 import type { StepUpCodeScope } from '@/models/auth/StepUpCode.js';
+import { trustedDeviceService } from '@/server/services/auth/TrustedDeviceService.js';
+import { securityNotificationService } from '@/server/services/accounts/SecurityNotificationService.js';
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const EMAIL_VERIFY_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -29,7 +31,7 @@ const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const STEP_UP_CODE_TTL_MS = STEP_UP_TTL_SEC * 1000;
 const STEP_UP_CODE_MAX_ATTEMPTS = 5;
 
-const STEP_UP_ACTION_LABELS: Record<StepUpCodeScope, string> = {
+const STEP_UP_ACTION_LABELS: Record<Exclude<StepUpCodeScope, 'login'>, string> = {
   'email-change': 'change your email address',
   security: 'perform a sensitive security action',
 };
@@ -39,7 +41,7 @@ export class CredentialError extends Error {
     message: string,
     public statusCode: number = 400,
     public code?: string,
-    public details?: { retryAfter?: number },
+    public details?: { retryAfter?: number; maskedEmail?: string },
   ) {
     super(message);
     this.name = 'CredentialError';
@@ -454,8 +456,10 @@ class AccountCredentialService {
     });
 
     await refreshTokenService.revokeAllRefreshTokensForUser(user.id);
+    await trustedDeviceService.revokeAllForUser(user.id);
     await CacheInvalidation.invalidateUser(user.id);
     await this.logAction(user.id, 'password_reset_confirmed', { email }, ctx);
+    securityNotificationService.notify(user.id, 'password-reset');
   }
 
   /**
@@ -486,11 +490,13 @@ class AccountCredentialService {
       const availableAtMs = sentAtMs + EMAIL_RESEND_COOLDOWN_MS;
       const remainingMs = availableAtMs - Date.now();
       if (remainingMs > 0) {
+        // maskedEmail lets the client keep rendering the "sent to X" prompt
+        // instead of treating the still-valid earlier code as an error.
         throw new CredentialError(
           'Please wait before requesting another code',
           429,
           'RESEND_COOLDOWN',
-          { retryAfter: remainingMs },
+          { retryAfter: remainingMs, maskedEmail: this.maskEmail(user.email!) },
         );
       }
     }
@@ -522,17 +528,30 @@ class AccountCredentialService {
       updatedAt: now,
     });
 
-    const action = STEP_UP_ACTION_LABELS[scope];
-    const sent = await emailService.sendStepUpCode({
-      to: user.email!,
-      code,
-      action,
-    });
+    let sent: boolean;
+    if (scope === 'login') {
+      sent = await emailService.sendLoginCode({
+        to: user.email!,
+        code,
+      });
+    } else {
+      const action = STEP_UP_ACTION_LABELS[scope];
+      sent = await emailService.sendStepUpCode({
+        to: user.email!,
+        code,
+        action,
+      });
+    }
     if (!sent) {
       throw new CredentialError('Failed to send confirmation email', 500, 'EMAIL_SEND_FAILED');
     }
 
-    await this.logAction(userId, 'step_up_code_issued', { scope }, ctx);
+    await this.logAction(
+      userId,
+      scope === 'login' ? 'login_mfa_code_issued' : 'step_up_code_issued',
+      { scope },
+      ctx,
+    );
 
     const emailResendAvailableAt = new Date(
       now.getTime() + EMAIL_RESEND_COOLDOWN_MS,
@@ -598,7 +617,33 @@ class AccountCredentialService {
     }
 
     await record.update({ consumedAt: new Date() });
-    await this.logAction(userId, 'step_up_code_confirmed', { scope }, ctx);
+    await this.logAction(
+      userId,
+      scope === 'login' ? 'login_mfa_code_confirmed' : 'step_up_code_confirmed',
+      { scope },
+      ctx,
+    );
+  }
+
+  /**
+   * When the next code for (user, scope) may be requested. Server is the source
+   * of truth so the client cooldown survives reloads and new sessions.
+   * Returns null when no cooldown is active.
+   */
+  async getStepUpResendAvailableAt(
+    userId: string,
+    scope: StepUpCodeScope,
+  ): Promise<string | null> {
+    const latest = await StepUpCode.findOne({
+      where: { userId, scope, consumedAt: null },
+      order: [['createdAt', 'DESC']],
+      attributes: ['expiresAt'],
+    });
+    if (!latest) return null;
+    const sentAtMs = new Date(latest.expiresAt).getTime() - STEP_UP_CODE_TTL_MS;
+    const availableAtMs = sentAtMs + EMAIL_RESEND_COOLDOWN_MS;
+    if (availableAtMs <= Date.now()) return null;
+    return new Date(availableAtMs).toISOString();
   }
 
   maskEmail(email: string): string {
@@ -682,12 +727,19 @@ class AccountCredentialService {
       await refreshTokenService.revokeAllRefreshTokensForUser(userId);
     }
 
+    await trustedDeviceService.revokeAllForUser(userId);
+
     await CacheInvalidation.invalidateUser(userId);
     await this.logAction(
       userId,
       existingHash ? 'password_changed' : 'password_set',
       { keptCurrentSession: Boolean(keepSessionId), revokedSessions },
       ctx,
+    );
+
+    securityNotificationService.notify(
+      userId,
+      existingHash ? 'password-changed' : 'password-set',
     );
 
     return { revokedSessions, keptCurrentSession: Boolean(keepSessionId) };
