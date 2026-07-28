@@ -37,7 +37,7 @@ RateLimit.init(
       autoIncrement: true,
       primaryKey: true,
     },
-    // Subject key: raw IP, or `ip:…` / `user:…` via rateLimitSubjects helper
+    // Subject key: raw IP, or `ip:…` / `user:…` / hashed `account:…` via rateLimitSubjects.
     ip: {
       type: DataTypes.STRING(80),
       allowNull: false,

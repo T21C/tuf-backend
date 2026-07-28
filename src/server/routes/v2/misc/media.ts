@@ -432,6 +432,9 @@ export async function htmlToPng(html: string, width: number, height: number, max
         logger.debug('Page console:', msg.text());
       });
 
+      // Thumbnail templates are static HTML/CSS. Disabling JavaScript provides a
+      // second line of defense if an untrusted value is ever interpolated without escaping.
+      await page.setJavaScriptEnabled(false);
       await page.setViewport({ width, height });
       await page.setContent(html, { timeout: 30000 });
 
@@ -545,7 +548,6 @@ router.get(
       'image/webp',
       'image/gif',
       'image/apng',
-      'image/svg+xml',
       'image/bmp',
       'image/x-icon',
       'image/vnd.microsoft.icon',
@@ -557,7 +559,7 @@ router.get(
 
     // Quick file extension check, just as a first non-authoritative filter
     function isValidImageUrl(url: string): boolean {
-      const allowedExts = /\.(png|jpg|jpeg|webp|gif|apng|svg|bmp|ico|icon|heic|heif|avif|tiff?)$/i;
+      const allowedExts = /\.(png|jpg|jpeg|webp|gif|apng|bmp|ico|icon|heic|heif|avif|tiff?)$/i;
       return allowedExts.test(url.split('?')[0]);
     }
 

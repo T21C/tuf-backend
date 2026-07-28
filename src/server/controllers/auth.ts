@@ -24,7 +24,10 @@ import {
 import { sessionIssuanceService } from '@/server/services/auth/SessionIssuanceService.js';
 import { trustedDeviceService } from '@/server/services/auth/TrustedDeviceService.js';
 import { publicUserFields } from '@/server/services/auth/userSerializer.js';
-import { parseClientIp } from '@/misc/utils/auth/rateLimitSubjects.js';
+import {
+  parseClientIp,
+  rateLimitSubjectAccount,
+} from '@/misc/utils/auth/rateLimitSubjects.js';
 import { STEP_UP_TTL_SEC } from '@/config/auth.config.js';
 import { securityNotificationService } from '@/server/services/accounts/SecurityNotificationService.js';
 
@@ -33,21 +36,30 @@ const captchaService = new CaptchaService();
 const failedAttempts = new Map<string, { count: number; timestamp: number }>();
 const ATTEMPT_TIMEOUT = 30 * 60 * 1000;
 
-const isCaptchaRequired = (ip: string): boolean => {
-  const attempts = failedAttempts.get(ip);
-  if (!attempts) return false;
-  if (Date.now() - attempts.timestamp > ATTEMPT_TIMEOUT) {
-    failedAttempts.delete(ip);
-    return false;
-  }
-  return attempts.count >= 1;
+const authenticationAttemptKeys = (ip: string, identifier: unknown): string[] => {
+  const accountKey = rateLimitSubjectAccount(identifier);
+  return accountKey ? [ip, accountKey] : [ip];
 };
 
-const recordFailedAttempt = (identifier: string): void => {
-  const attempts = failedAttempts.get(identifier) || { count: 0, timestamp: Date.now() };
-  attempts.count += 1;
-  attempts.timestamp = Date.now();
-  failedAttempts.set(identifier, attempts);
+const isCaptchaRequired = (keys: string[]): boolean => {
+  return keys.some(key => {
+    const attempts = failedAttempts.get(key);
+    if (!attempts) return false;
+    if (Date.now() - attempts.timestamp > ATTEMPT_TIMEOUT) {
+      failedAttempts.delete(key);
+      return false;
+    }
+    return attempts.count >= 1;
+  });
+};
+
+const recordFailedAttempt = (keys: string[]): void => {
+  for (const key of keys) {
+    const attempts = failedAttempts.get(key) || { count: 0, timestamp: Date.now() };
+    attempts.count += 1;
+    attempts.timestamp = Date.now();
+    failedAttempts.set(key, attempts);
+  }
 };
 
 function actionCtx(req: Request) {
@@ -434,6 +446,8 @@ class AuthController {
     blockDuration: 10 * 60 * 1000,
     type: 'login',
     incrementOnFailure: true,
+    accountIdentifier: req => req.body?.emailOrUsername,
+    failClosed: true,
   })
   public async login(req: Request, res: Response): Promise<Response> {
     try {
@@ -444,7 +458,8 @@ class AuthController {
         return res.status(400).json({ message: 'Email/Username and password are required' });
       }
 
-      const captchaRequired = isCaptchaRequired(ip);
+      const attemptKeys = authenticationAttemptKeys(ip, emailOrUsername);
+      const captchaRequired = isCaptchaRequired(attemptKeys);
       if (captchaRequired) {
         if (!captchaToken) {
           return res.status(400).json({
@@ -455,7 +470,7 @@ class AuthController {
         }
         const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken);
         if (!isValidCaptcha) {
-          recordFailedAttempt(ip);
+          recordFailedAttempt(attemptKeys);
           return res.status(400).json({
             error: 'Invalid captcha or high risk score detected',
             requireCaptcha: true,
@@ -467,10 +482,10 @@ class AuthController {
       const user = await accountCredentialService.findUserByLoginIdentifier(emailOrUsername);
 
       if (!user) {
-        recordFailedAttempt(ip);
+        recordFailedAttempt(attemptKeys);
         return res.status(401).json({
           message: 'Invalid credentials',
-          requireCaptcha: isCaptchaRequired(ip),
+          requireCaptcha: isCaptchaRequired(attemptKeys),
         });
       }
 
@@ -482,14 +497,14 @@ class AuthController {
 
       const passwordCheck = await passwordUtils.verifyAndMaybeRehash(password, user.password);
       if (!passwordCheck.ok) {
-        recordFailedAttempt(ip);
+        recordFailedAttempt(attemptKeys);
         return res.status(401).json({
           message: 'Invalid credentials',
-          requireCaptcha: isCaptchaRequired(ip),
+          requireCaptcha: isCaptchaRequired(attemptKeys),
         });
       }
 
-      failedAttempts.delete(ip);
+      for (const key of attemptKeys) failedAttempts.delete(key);
       if (passwordCheck.newHash) {
         await user.update({ password: passwordCheck.newHash });
       }
@@ -530,6 +545,8 @@ class AuthController {
     type: 'password-reset',
     incrementOnFailure: false,
     incrementOnSuccess: true,
+    accountIdentifier: req => req.body?.email,
+    failClosed: true,
   })
   public async requestPasswordReset(req: Request, res: Response): Promise<Response> {
     const generic = {
@@ -542,7 +559,8 @@ class AuthController {
       }
 
       const ip = parseClientIp(req);
-      const captchaRequired = isCaptchaRequired(ip);
+      const attemptKeys = authenticationAttemptKeys(ip, email);
+      const captchaRequired = isCaptchaRequired(attemptKeys);
       if (captchaRequired) {
         if (!captchaToken) {
           return res.status(400).json({
@@ -553,6 +571,7 @@ class AuthController {
         }
         const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken);
         if (!isValidCaptcha) {
+          recordFailedAttempt(attemptKeys);
           return res.status(400).json({
             error: 'Invalid captcha',
             requireCaptcha: true,
@@ -584,9 +603,11 @@ class AuthController {
     windowMs: 15 * 60 * 1000,
     maxAttempts: 10,
     blockDuration: 15 * 60 * 1000,
-    type: 'email-verify-attempt',
+    type: 'password-reset-confirm',
     incrementOnFailure: true,
     incrementOnSuccess: true,
+    accountIdentifier: req => req.body?.email,
+    failClosed: true,
   })
   public async resetPassword(req: Request, res: Response): Promise<Response> {
     try {

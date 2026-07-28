@@ -13,7 +13,6 @@ export const CDN_IMAGE_MIME_TYPES: readonly string[] = [
   'image/png',
   'image/webp',
   'image/gif',
-  'image/svg+xml',
 ];
 
 export const cdnImageMimeFilter = (
@@ -24,7 +23,7 @@ export const cdnImageMimeFilter = (
   if (CDN_IMAGE_MIME_TYPES.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only JPEG, PNG, WebP, GIF, and SVG images are allowed.'));
+    cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and GIF images are allowed.'));
   }
 };
 

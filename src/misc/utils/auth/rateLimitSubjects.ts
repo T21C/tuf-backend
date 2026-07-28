@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 /**
  * Rate-limit subject keys stored in RateLimit.ip (VARCHAR).
  * Prefer these helpers so IP and user buckets stay consistent.
@@ -12,14 +14,25 @@ export function rateLimitSubjectUser(userId: string): string {
   return `user:${userId}`;
 }
 
+/**
+ * Stable, non-PII bucket for unauthenticated account identifiers.
+ * Email and username lookup are case-insensitive, so normalize them identically
+ * before hashing. Returning null keeps empty/malformed requests on the IP bucket.
+ */
+export function rateLimitSubjectAccount(identifier: unknown): string | null {
+  if (typeof identifier !== 'string') return null;
+  const normalized = identifier.trim().normalize('NFKC').toLowerCase();
+  if (!normalized) return null;
+  const digest = createHash('sha256').update(normalized).digest('hex');
+  return `account:${digest}`;
+}
+
 export function parseClientIp(req: {
   headers: { [key: string]: string | string[] | undefined };
   ip?: string;
   connection?: { remoteAddress?: string };
 }): string {
-  const forwardedFor = req.headers['x-forwarded-for'];
-  if (typeof forwardedFor === 'string') {
-    return forwardedFor.split(',')[0]?.trim() || '127.0.0.1';
-  }
+  // Express resolves req.ip using the configured trusted proxy boundary. Reading
+  // X-Forwarded-For directly would let an untrusted client choose its rate-limit key.
   return req.ip || req.connection?.remoteAddress || '127.0.0.1';
 }

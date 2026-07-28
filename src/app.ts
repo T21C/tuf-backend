@@ -20,6 +20,7 @@ import { initializeRuntimeServices } from '@/server/bootstrap/runtimeServices.js
 import { slowEndpointLoggingMiddleware } from '@/server/middleware/slowEndpointLogging.js';
 import { requireCsrfForCookieAuth } from '@/server/middleware/csrf.js';
 import { setTerminalServiceTitle } from '@/misc/utils/terminalTitle.js';
+import { parseTrustProxySetting } from '@/config/trustProxy.js';
 
 setTerminalServiceTitle('TUF Main API');
 
@@ -29,8 +30,9 @@ registerGlobalProcessHandlers();
 const app: Express = express();
 const httpServer = createServer(app);
 
-// Trust proxy headers for proper IP address handling
-app.set('trust proxy', true);
+// Trust only the explicitly configured reverse-proxy boundary. Unset means no
+// forwarded headers are trusted, which prevents clients from choosing req.ip.
+app.set('trust proxy', parseTrustProxySetting(process.env.TRUST_PROXY));
 
 // ES Module dirname equivalent
 const __filename = fileURLToPath(import.meta.url);

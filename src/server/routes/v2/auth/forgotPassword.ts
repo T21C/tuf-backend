@@ -13,7 +13,7 @@ router.post(
     description: 'Send password reset email to the given email address',
     tags: ['Auth'],
     requestBody: { description: 'Email address', schema: { type: 'object', properties: { email: { type: 'string' } }, required: ['email'] }, required: true },
-    responses: { 200: { description: 'Email sent if account exists', schema: successMessageSchema }, 400: { schema: errorResponseSchema }, 500: { schema: errorResponseSchema } },
+    responses: { 200: { description: 'Email sent if account exists', schema: successMessageSchema }, 400: { schema: errorResponseSchema }, 429: { schema: errorResponseSchema }, 503: { schema: errorResponseSchema }, 500: { schema: errorResponseSchema } },
   }),
   authController.requestPasswordReset
 );
@@ -38,7 +38,7 @@ router.post(
       },
       required: true,
     },
-    responses: { 200: { schema: successMessageSchema }, 400: { schema: errorResponseSchema }, 500: { schema: errorResponseSchema } },
+    responses: { 200: { schema: successMessageSchema }, 400: { schema: errorResponseSchema }, 429: { schema: errorResponseSchema }, 503: { schema: errorResponseSchema }, 500: { schema: errorResponseSchema } },
   }),
   authController.resetPassword
 );
