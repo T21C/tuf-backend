@@ -195,7 +195,9 @@ export const tokenUtils = {
   verifyTokenPermissions: (decoded: any): Promise<boolean> => {
     return (async () => {
       try {
-        const user = await User.findByPk(decoded.id);
+        const user = await User.findByPk(decoded.id, {
+          attributes: ['id', 'permissionVersion'],
+        });
         if (!user) return false;
         return user.permissionVersion === decoded.permissionVersion;
       } catch {

@@ -1,6 +1,6 @@
 import {Model, DataTypes} from 'sequelize';
 import Team from './Team.js';
-import { getSequelizeForModelGroup } from '@/config/db.js';
+import {getSequelizeForModelGroup} from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('credits');
 
 export class TeamAlias extends Model {
@@ -35,8 +35,13 @@ TeamAlias.init(
     },
   },
   {
-    sequelize: sequelize,
+    sequelize,
     tableName: 'team_aliases',
     timestamps: true,
-  }
+    indexes: [
+      {fields: ['teamId']},
+      {fields: ['name']},
+      {unique: true, fields: ['teamId', 'name']},
+    ],
+  },
 );

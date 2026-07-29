@@ -1,4 +1,7 @@
 import { clientUrlEnv } from '@/config/app.config.js';
+import { escapeHtml } from '@/misc/utils/Utility.js';
+
+export { escapeHtml };
 
 const BRAND = 'The Universal Forums';
 const PRIMARY = '#4a90e2';
@@ -27,15 +30,6 @@ export function settingsUrl(): string {
 
 export function forgotPasswordUrl(): string {
   return `${siteUrl()}/forgot-password`;
-}
-
-export function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 export function renderCode(code: string): string {

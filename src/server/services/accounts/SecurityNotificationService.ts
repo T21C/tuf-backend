@@ -13,16 +13,19 @@ export type SecurityEvent =
   | 'password-set'
   | 'password-reset'
   | 'deletion-scheduled'
-  | 'oauth-unlinked';
+  | 'oauth-unlinked'
+  | 'passkey-added'
+  | 'passkey-removed';
 
 export interface SecurityEventDetails {
   req?: Request;
   userAgent?: string | null;
   ip?: string | null;
   remembered?: boolean;
-  method?: 'password' | 'discord' | string;
+  method?: 'password' | 'discord' | 'passkey' | string;
   provider?: string;
   executeAt?: Date;
+  name?: string;
 }
 
 function userHasVerifiedEmail(user: {
@@ -135,6 +138,18 @@ class SecurityNotificationService {
         sent = await emailService.sendOAuthUnlinkedAlert({
           to,
           provider: details.provider || 'provider',
+        });
+        break;
+      case 'passkey-added':
+        sent = await emailService.sendPasskeyAddedAlert({
+          to,
+          name: details.name || 'Passkey',
+        });
+        break;
+      case 'passkey-removed':
+        sent = await emailService.sendPasskeyRemovedAlert({
+          to,
+          name: details.name || 'Passkey',
         });
         break;
       default:

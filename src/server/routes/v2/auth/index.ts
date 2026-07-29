@@ -5,6 +5,7 @@ import verificationRoutes from './verification.js';
 import oauthRoutes from './oauth.js';
 import profileRoutes from '@/server/routes/v2/profile/profile.js';
 import forgotPasswordRoutes from './forgotPassword.js';
+import passkeyRoutes from './passkeys.js';
 import { authController } from '@/server/controllers/auth.js';
 import { Auth } from '@/server/middleware/auth.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
@@ -24,6 +25,7 @@ router.use('/verify', verificationRoutes);
 router.use('/oauth', oauthRoutes);
 router.use('/profile', profileRoutes);
 router.use('/forgot-password', forgotPasswordRoutes);
+router.use('/passkeys', passkeyRoutes);
 router.post(
   '/step-up/email',
   Auth.user(),
@@ -131,6 +133,52 @@ router.post(
     },
   }),
   (req, res) => authController.verifyLoginMfa(req, res),
+);
+router.post(
+  '/mfa/passkey/options',
+  ApiDoc({
+    operationId: 'postAuthMfaPasskeyOptions',
+    summary: 'Begin login MFA with a passkey',
+    description:
+      'Return WebAuthn options restricted to passkeys for the MFA-pending account',
+    tags: ['Auth'],
+    responses: {
+      200: { description: 'Authentication options' },
+      400: { schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
+      429: { schema: errorResponseSchema },
+    },
+  }),
+  (req, res) => authController.requestLoginMfaPasskeyOptions(req, res),
+);
+router.post(
+  '/mfa/passkey/verify',
+  ApiDoc({
+    operationId: 'postAuthMfaPasskeyVerify',
+    summary: 'Verify login MFA with a passkey',
+    description:
+      'Confirm the passkey assertion for the MFA-pending login and issue a session',
+    tags: ['Auth'],
+    requestBody: {
+      description: 'Authentication response and remember-device flag',
+      schema: {
+        type: 'object',
+        properties: {
+          response: { type: 'object' },
+          rememberDevice: { type: 'boolean' },
+        },
+        required: ['response'],
+      },
+      required: true,
+    },
+    responses: {
+      200: { description: 'Session issued', schema: successMessageSchema },
+      400: { schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
+      429: { schema: errorResponseSchema },
+    },
+  }),
+  (req, res) => authController.verifyLoginMfaPasskey(req, res),
 );
 router.get(
   '/trusted-devices',

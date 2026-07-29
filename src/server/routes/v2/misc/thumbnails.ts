@@ -24,7 +24,7 @@ import { User } from '@/models/index.js';
 import { port } from '@/config/app.config.js';
 import CdnService from '@/server/services/core/CdnService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { clampFloat, formatCredits } from '@/misc/utils/Utility.js';
+import { clampFloat, escapeHtml, formatCredits } from '@/misc/utils/Utility.js';
 import { htmlToPng, formatAxiosError } from './media.js';
 import { formatNumber } from '@/server/routes/v2/webhooks/embeds.js';
 import dotenv from 'dotenv';
@@ -37,16 +37,6 @@ import Artist from '@/models/artists/Artist.js';
 dotenv.config();
 
 const CACHE_PATH = process.env.CACHE_PATH || path.join(process.cwd(), 'cache');
-
-/** Escape untrusted text before interpolating it into thumbnail HTML. */
-function escapeHtml(value: unknown): string {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
 
 // Promise map for tracking ongoing thumbnail generation
 const thumbnailGenerationPromises = new Map<string, Promise<Buffer>>();

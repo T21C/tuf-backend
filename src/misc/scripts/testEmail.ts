@@ -15,6 +15,8 @@ const TEMPLATES = [
   'password-reset-alert',
   'deletion-scheduled',
   'oauth-unlinked',
+  'passkey-added',
+  'passkey-removed',
 ] as const;
 
 type TemplateName = (typeof TEMPLATES)[number];
@@ -82,6 +84,10 @@ async function sendTemplate(email: string, template: TemplateName) {
       });
     case 'oauth-unlinked':
       return emailService.sendOAuthUnlinkedAlert({ to: email, provider: 'discord' });
+    case 'passkey-added':
+      return emailService.sendPasskeyAddedAlert({ to: email, name: 'Chrome on macOS' });
+    case 'passkey-removed':
+      return emailService.sendPasskeyRemovedAlert({ to: email, name: 'Chrome on macOS' });
     default:
       throw new Error(`Unknown template: ${template}`);
   }

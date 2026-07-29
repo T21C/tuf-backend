@@ -1,23 +1,30 @@
 import { hasVerifiedEmail } from '@/server/services/accounts/AccountCredentialService.js';
+import PasskeyCredential from '@/models/auth/PasskeyCredential.js';
 
 /**
  * Login-time MFA methods. Extend this union (and getAvailableMfaMethods)
- * when adding TOTP / WebAuthn — verify switches on the same list.
+ * when adding TOTP — verify switches on the same list.
  */
-export type MfaMethod = 'email';
+export type MfaMethod = 'email' | 'passkey';
 
-export const MFA_METHODS = ['email'] as const satisfies readonly MfaMethod[];
+export const MFA_METHODS = ['email', 'passkey'] as const satisfies readonly MfaMethod[];
 
 /**
  * Which MFA methods the account can currently satisfy.
  * Email is available when the account has a verified inbox.
+ * Passkey is available when the account has at least one registered credential.
  */
-export function getAvailableMfaMethods(user: {
+export async function getAvailableMfaMethods(user: {
+  id?: string;
   email?: string | null;
   permissionFlags?: bigint | number | null;
-} | null | undefined): MfaMethod[] {
-  if (hasVerifiedEmail(user)) return ['email'];
-  return [];
+} | null | undefined): Promise<MfaMethod[]> {
+  if (!user?.id) return [];
+  const methods: MfaMethod[] = [];
+  if (hasVerifiedEmail(user)) methods.push('email');
+  const passkeyCount = await PasskeyCredential.count({ where: { userId: user.id } });
+  if (passkeyCount > 0) methods.push('passkey');
+  return methods;
 }
 
 /**

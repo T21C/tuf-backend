@@ -48,6 +48,14 @@ import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import SongCredit from '@/models/songs/SongCredit.js';
 import ArtistService from '@/server/services/data/ArtistService.js';
+import {
+  resolveOrCreateTeamByName,
+  TeamMutationError,
+} from '@/server/services/teams/teamMutations.js';
+import {
+  replaceTeamAliases,
+  validateTeamAliasList,
+} from '@/server/services/teams/teamAliases.js';
 import SongService from '@/server/services/data/SongService.js';
 import EvidenceService from '@/server/services/data/EvidenceService.js';
 import submissionSongArtistRoutes from './submissions-song-artist.js';
@@ -770,11 +778,20 @@ router.put(
             }
             teamId = team.id;
           } else if (submission.teamRequestData.isNewRequest) {
-            // Create new team
-            [team] = await Team.findOrCreate({
-              where: { name: submission.teamRequestData.teamName.trim() },
-              transaction,
-            });
+            // Create new team (or resolve existing by name/alias)
+            try {
+              team = await resolveOrCreateTeamByName(
+                submission.teamRequestData.teamName.trim(),
+                transaction,
+              );
+            } catch (error) {
+              if (error instanceof TeamMutationError) {
+                rollbackReason = error.message;
+                await safeTransactionRollback(transaction, logger);
+                return res.status(error.status).json({ error: error.message });
+              }
+              throw error;
+            }
             teamId = team.id;
           }
         }
@@ -2241,22 +2258,52 @@ router.post(
 
     if (role === 'team') {
       // Create or find team without checking isNewRequest
-      const [team] = await Team.findOrCreate({
-        where: { name: name.trim() },
-        transaction
-      });
+      let team;
+      try {
+        team = await resolveOrCreateTeamByName(name.trim(), transaction);
+      } catch (error) {
+        if (error instanceof TeamMutationError) {
+          await safeTransactionRollback(transaction, logger);
+          return res.status(error.status).json({ error: error.message });
+        }
+        throw error;
+      }
 
       // Create team aliases if provided
       if (aliases && Array.isArray(aliases) && aliases.length > 0) {
-        const aliasRecords = aliases.map((alias: string) => ({
-          teamId: team.id,
-          name: alias.trim(),
-        }));
-
-        await TeamAlias.bulkCreate(aliasRecords, {
+        const aliasResult = await validateTeamAliasList(
+          sequelize,
+          team.id,
+          team.name,
+          aliases,
           transaction,
-          ignoreDuplicates: true
+        );
+        if (!aliasResult.ok) {
+          await safeTransactionRollback(transaction, logger);
+          return res.status(400).json({ error: aliasResult.error });
+        }
+        // Merge with existing aliases (preserve prior; add validated new names)
+        const existing = await TeamAlias.findAll({
+          where: { teamId: team.id },
+          attributes: ['name'],
+          transaction,
         });
+        const merged = [...new Set([
+          ...existing.map(a => a.name),
+          ...aliasResult.names,
+        ])];
+        const mergedResult = await validateTeamAliasList(
+          sequelize,
+          team.id,
+          team.name,
+          merged,
+          transaction,
+        );
+        if (!mergedResult.ok) {
+          await safeTransactionRollback(transaction, logger);
+          return res.status(400).json({ error: mergedResult.error });
+        }
+        await replaceTeamAliases(team.id, mergedResult.names, transaction);
       }
 
       // Update team request

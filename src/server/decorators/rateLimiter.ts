@@ -79,6 +79,21 @@ function rateLimitUnavailable(res: Response): Response {
   });
 }
 
+/** Send a 429 with body + headers (headers matter for HEAD, where bodies are omitted). */
+export function sendRateLimited(
+  res: Response,
+  retryAfterMs: number,
+  message = 'Too many attempts. Please try again later.',
+): Response {
+  const ms = Math.max(0, Math.ceil(retryAfterMs));
+  res.setHeader('Retry-After', String(Math.ceil(ms / 1000)));
+  res.setHeader('X-Retry-After-Ms', String(ms));
+  return res.status(429).json({
+    message,
+    retryAfter: ms,
+  });
+}
+
 export function RateLimiter(innerConfig: Partial<RateLimiterConfig> = {}) {
   const {
     windowMs = 24 * 60 * 60 * 1000,
@@ -125,10 +140,7 @@ export function RateLimiter(innerConfig: Partial<RateLimiterConfig> = {}) {
             logger.debug(
               `Request blocked for ${subject} due to ${config.type} rate limiting. Retry after: ${retryAfter}ms`,
             );
-            return res.status(429).json({
-              message: 'Too many attempts. Please try again later.',
-              retryAfter,
-            });
+            return sendRateLimited(res, retryAfter);
           }
         }
 
@@ -295,10 +307,7 @@ export const createRateLimiter = (config: Partial<RateLimiterConfig> = {}) => {
           const remainingBlockTime = Math.ceil(
             blockedRecord.blockedUntil!.getTime() - Date.now(),
           );
-          return res.status(429).json({
-            message: 'Too many attempts. Please try again later.',
-            retryAfter: remainingBlockTime,
-          });
+          return sendRateLimited(res, remainingBlockTime);
         }
 
         const now = new Date();
@@ -329,10 +338,11 @@ export const createRateLimiter = (config: Partial<RateLimiterConfig> = {}) => {
         if (rateLimit.attempts > maxAttempts) {
           const blockedUntil = new Date(now.getTime() + blockDuration);
           await rateLimit.update({ blocked: true, blockedUntil });
-          return res.status(429).json({
-            message: 'Rate limit exceeded. IP address blocked.',
-            retryAfter: blockDuration,
-          });
+          return sendRateLimited(
+            res,
+            blockDuration,
+            'Rate limit exceeded. IP address blocked.',
+          );
         }
 
         res.setHeader('X-RateLimit-Limit', maxAttempts);
@@ -382,3 +392,82 @@ export const createRateLimiter = (config: Partial<RateLimiterConfig> = {}) => {
     },
   };
 };
+
+/**
+ * Failure-counted rate limit for credential gates (password checks, etc.).
+ * Checks block state before the attempt; call `recordFailure` only on bad credentials.
+ */
+export function createFailureAwareRateLimit(innerConfig: Partial<RateLimiterConfig>) {
+  const config: RateLimiterConfig = {
+    windowMs: innerConfig.windowMs ?? defaultConfig.windowMs,
+    maxAttempts: innerConfig.maxAttempts ?? defaultConfig.maxAttempts,
+    blockDuration: innerConfig.blockDuration ?? defaultConfig.blockDuration,
+    type: innerConfig.type ?? defaultConfig.type,
+    subjects: innerConfig.subjects ?? ['ip'],
+    accountIdentifier: innerConfig.accountIdentifier,
+    failClosed: innerConfig.failClosed ?? true,
+    incrementOnFailure: true,
+    incrementOnSuccess: false,
+  };
+
+  const subjectsFor = (req: Request) =>
+    resolveSubjects(req, config.subjects || ['ip'], config.accountIdentifier);
+
+  return {
+    /**
+     * If any subject is blocked, send 429 and return true.
+     * On storage failure with failClosed, send 503 and return true.
+     */
+    async rejectIfBlocked(req: Request, res: Response): Promise<boolean> {
+      try {
+        for (const subject of subjectsFor(req)) {
+          const { blocked, retryAfter } = await isBlocked(subject, config);
+          if (blocked) {
+            sendRateLimited(res, retryAfter);
+            return true;
+          }
+        }
+        return false;
+      } catch (error) {
+        if (error instanceof RateLimitStorageError) {
+          logger.error(`${config.type} rate limit storage failure:`, error);
+          if (config.failClosed) {
+            rateLimitUnavailable(res);
+            return true;
+          }
+        } else {
+          logger.error(`${config.type} rate limit check failed:`, error);
+          if (config.failClosed) {
+            rateLimitUnavailable(res);
+            return true;
+          }
+        }
+        return false;
+      }
+    },
+
+    /** Increment failure counters; returns whether the subject is now blocked. */
+    async recordFailure(req: Request): Promise<{ blocked: boolean; retryAfter: number }> {
+      let blocked = false;
+      let retryAfter = 0;
+      try {
+        for (const subject of subjectsFor(req)) {
+          await increment(subject, config);
+          const state = await isBlocked(subject, config);
+          if (state.blocked) {
+            blocked = true;
+            retryAfter = Math.max(retryAfter, state.retryAfter);
+          }
+        }
+      } catch (error) {
+        logger.error(`${config.type} rate limit increment failed:`, error);
+        if (config.failClosed) {
+          throw error instanceof RateLimitStorageError
+            ? error
+            : new RateLimitStorageError('increment', error);
+        }
+      }
+      return { blocked, retryAfter };
+    },
+  };
+}

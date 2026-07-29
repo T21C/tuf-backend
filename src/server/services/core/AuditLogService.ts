@@ -8,6 +8,66 @@ const RETENTION_PERIOD = 1000 * 60 * 60 * 24 * 30 * 2; // two month retention
 /** Every 12 hours at minute 0 (e.g. 00:00 and 12:00 server local time). */
 const RETENTION_CRON_SCHEDULE = '0 */12 * * *';
 
+const REDACTED = '[REDACTED]';
+
+/** Exact key names (case-insensitive) stripped from audit payload/result JSON. */
+const SENSITIVE_AUDIT_KEYS = new Set([
+  'password',
+  'superadminpassword',
+  'currentpassword',
+  'newpassword',
+  'oldpassword',
+  'passwordhash',
+  'passwordresettoken',
+  'passwordresettokenhash',
+  'emailverifytoken',
+  'emailverifytokenhash',
+  'token',
+  'refreshtoken',
+  'accesstoken',
+  'csrftoken',
+  'captchatoken',
+  'secret',
+  'clientsecret',
+  'authorization',
+  'x-super-admin-password',
+]);
+
+/**
+ * Deep-clone JSON-like values while replacing sensitive keys with a placeholder.
+ * Non-plain objects (Date, Buffer, etc.) are stringified to a safe label.
+ */
+export function redactForAudit(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (value == null) return value;
+  if (typeof value !== 'object') return value;
+
+  if (seen.has(value as object)) return '[Circular]';
+  seen.add(value as object);
+
+  if (Array.isArray(value)) {
+    return value.map((item) => redactForAudit(item, seen));
+  }
+
+  if (value instanceof Date) return value.toISOString();
+  if (Buffer.isBuffer(value)) return '[Buffer]';
+
+  // Only walk plain objects / records — avoid dumping class internals.
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) {
+    return '[Object]';
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    if (SENSITIVE_AUDIT_KEYS.has(key.toLowerCase())) {
+      out[key] = REDACTED;
+    } else {
+      out[key] = redactForAudit(nested, seen);
+    }
+  }
+  return out;
+}
+
 export class AuditLogService {
   private static retentionCron: CronJob | null = null;
 
@@ -79,13 +139,15 @@ export class AuditLogService {
     result?: any;
   }) {
     try {
+      const safePayload = payload != null ? redactForAudit(payload) : null;
+      const safeResult = result != null ? redactForAudit(result) : null;
       await AuditLog.create({
         userId,
         action,
         route,
         method,
-        payload: payload ? JSON.stringify(payload) : null,
-        result: result ? JSON.stringify(result) : null,
+        payload: safePayload != null ? JSON.stringify(safePayload) : null,
+        result: safeResult != null ? JSON.stringify(safeResult) : null,
       });
     } catch (err) {
       logger.error('Failed to write audit log:', err);

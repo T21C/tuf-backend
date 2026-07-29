@@ -18,6 +18,8 @@ import OAuthProvider from './auth/OAuthProvider.js';
 import RefreshToken from './auth/RefreshToken.js';
 import StepUpCode from './auth/StepUpCode.js';
 import TrustedDevice from './auth/TrustedDevice.js';
+import PasskeyCredential from './auth/PasskeyCredential.js';
+import WebAuthnChallenge from './auth/WebAuthnChallenge.js';
 import Creator from './credits/Creator.js';
 import LevelCredit from './levels/LevelCredit.js';
 import Team from './credits/Team.js';
@@ -82,6 +84,8 @@ export const db = {
     RefreshToken,
     StepUpCode,
     TrustedDevice,
+    PasskeyCredential,
+    WebAuthnChallenge,
     Creator,
     LevelCredit,
     Team,
@@ -147,6 +151,8 @@ export {
   RefreshToken,
   StepUpCode,
   TrustedDevice,
+  PasskeyCredential,
+  WebAuthnChallenge,
   RateLimit,
   ProfileActionLog,
   AuditLog,

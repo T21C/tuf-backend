@@ -323,7 +323,13 @@ export const emailService = {
     const subject = 'New sign-in to your TUF account';
     const intro = 'Someone just signed in to your account.';
     const methodLabel =
-      method === 'discord' ? 'Discord' : method === 'password' ? 'Email and password' : method || 'Sign-in';
+      method === 'discord'
+        ? 'Discord'
+        : method === 'passkey'
+          ? 'Passkey'
+          : method === 'password'
+            ? 'Email and password'
+            : method || 'Sign-in';
 
     const bodyHtml = [
       detailList([
@@ -512,6 +518,80 @@ export const emailService = {
       intro,
       bodyLines: [
         'You can still sign in with your email and password if you have one set.',
+        `Open account settings: ${settings}`,
+      ],
+      notYouKind: 'security',
+    });
+
+    return this.sendEmail({ to, subject, text, html });
+  },
+
+  async sendPasskeyAddedAlert({
+    to,
+    name,
+  }: {
+    to: string;
+    name: string;
+  }): Promise<boolean> {
+    const settings = settingsUrl();
+    const label = name.trim() || 'Passkey';
+    const subject = 'Passkey added to your TUF account';
+    const intro = `A passkey named "${label}" was added to your account.`;
+
+    const bodyHtml = [
+      paragraph('You can use it to sign in without a password on supported devices.'),
+      renderButton('Open account settings', settings),
+    ].join('');
+
+    const html = renderEmail({
+      title: subject,
+      intro,
+      bodyHtml,
+      notYouKind: 'security',
+    });
+
+    const text = renderText({
+      title: subject,
+      intro,
+      bodyLines: [
+        'You can use it to sign in without a password on supported devices.',
+        `Open account settings: ${settings}`,
+      ],
+      notYouKind: 'security',
+    });
+
+    return this.sendEmail({ to, subject, text, html });
+  },
+
+  async sendPasskeyRemovedAlert({
+    to,
+    name,
+  }: {
+    to: string;
+    name: string;
+  }): Promise<boolean> {
+    const settings = settingsUrl();
+    const label = name.trim() || 'Passkey';
+    const subject = 'Passkey removed from your TUF account';
+    const intro = `A passkey named "${label}" was removed from your account.`;
+
+    const bodyHtml = [
+      paragraph('If you still have other passkeys or a password, you can keep signing in as usual.'),
+      renderButton('Open account settings', settings),
+    ].join('');
+
+    const html = renderEmail({
+      title: subject,
+      intro,
+      bodyHtml,
+      notYouKind: 'security',
+    });
+
+    const text = renderText({
+      title: subject,
+      intro,
+      bodyLines: [
+        'If you still have other passkeys or a password, you can keep signing in as usual.',
         `Open account settings: ${settings}`,
       ],
       notYouKind: 'security',

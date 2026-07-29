@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import {Request, Response, NextFunction} from 'express';
 import {User, OAuthProvider, UserTufStellarBilling} from '@/models/index.js';
 import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC, refreshTokenService} from '@/misc/utils/auth/auth.js';
@@ -10,6 +11,11 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasAnyFlag, hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { canUseStellarProfileCustomization } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
+import {
+  createFailureAwareRateLimit,
+  RateLimitStorageError,
+  sendRateLimited,
+} from '@/server/decorators/rateLimiter.js';
 
 /**
  * Columns loaded onto `req.user`.
@@ -151,24 +157,17 @@ const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: N
       return;
     }
 
-    const user = await User.findByPk(decoded.id);
-    if (!user) {
+    const fullUser = await getUser(decoded.id);
+    if (!fullUser) {
       res.status(401).json({error: 'User not found'});
       return;
     }
 
     // Check if permissions are up to date; if not, set new access token cookie
-    const permissionsValid = await tokenUtils.verifyTokenPermissions(decoded);
-    if (!permissionsValid) {
-      const newAccessToken = tokenUtils.generateAccessToken(user, sessionId);
+    if (fullUser.permissionVersion !== decoded.permissionVersion) {
+      const newAccessToken = tokenUtils.generateAccessToken(fullUser, sessionId);
       cookieUtils.setAuthCookies(res, newAccessToken, null, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
       res.setHeader('X-Permission-Changed', 'true');
-    }
-
-    const fullUser = await getUser(decoded.id);
-    if (!fullUser) {
-      res.status(401).json({error: 'User not found'});
-      return;
     }
 
     req.user = fullUser;
@@ -294,7 +293,25 @@ const auditLogMiddleware: MiddlewareFunction = async (req: Request, res: Respons
   next();
 };
 
-const incorectPasswords: Map<string, number> = new Map();
+const SUPER_ADMIN_PASSWORD_MAX_ATTEMPTS = 5;
+const SUPER_ADMIN_PASSWORD_WINDOW_MS = 15 * 60 * 1000;
+const SUPER_ADMIN_PASSWORD_LOCK_MS = 15 * 60 * 1000;
+
+const superAdminPasswordRateLimit = createFailureAwareRateLimit({
+  type: 'super-admin-password',
+  windowMs: SUPER_ADMIN_PASSWORD_WINDOW_MS,
+  maxAttempts: SUPER_ADMIN_PASSWORD_MAX_ATTEMPTS,
+  blockDuration: SUPER_ADMIN_PASSWORD_LOCK_MS,
+  subjects: ['user', 'ip'],
+  failClosed: true,
+});
+
+/** Constant-time secret compare via equal-length SHA-256 digests. */
+function safeEqualSecret(provided: string, expected: string): boolean {
+  const a = crypto.createHash('sha256').update(provided, 'utf8').digest();
+  const b = crypto.createHash('sha256').update(expected, 'utf8').digest();
+  return crypto.timingSafeEqual(a, b);
+}
 
 /**
  * Auth middleware factory
@@ -388,23 +405,45 @@ export const Auth = {
     return chainMiddleware(
       Auth.superAdmin(),
       async (req: Request, res: Response, next: NextFunction) => {
-        const {origin} = req.query;
-        const {superAdminPassword: superAdminPasswordBody} = req.body;
-        const superAdminPasswordHeader = req.headers['x-super-admin-password'];
-        const superAdminPassword = superAdminPasswordBody || superAdminPasswordHeader;
-
-        if (!superAdminPassword || superAdminPassword !== process.env.SUPER_ADMIN_KEY) {
-          incorectPasswords.set(req.user!.id, (incorectPasswords.get(req.user!.id) || 0) + 1);
-          if ((incorectPasswords.get(req.user!.id) || 0) >= 5) {
-            logger.warn(`User ${req.user!.id} has made ${incorectPasswords.get(req.user!.id)} incorrect password attempts while accessing ${origin} at link ${req.originalUrl}`);
-          }
-          res.status(403).json({message: 'Invalid super admin password'});
+        if (await superAdminPasswordRateLimit.rejectIfBlocked(req, res)) {
           return;
         }
 
-        if ((incorectPasswords.get(req.user!.id) || 0) >= 5) {
-          logger.warn(`User ${req.user!.id} successfully entered password after ${incorectPasswords.get(req.user!.id)} incorrect attempts`);
-          incorectPasswords.delete(req.user!.id);
+        const {origin} = req.query;
+        const {superAdminPassword: superAdminPasswordBody} = req.body;
+        const superAdminPasswordHeader = req.headers['x-super-admin-password'];
+        const provided =
+          typeof superAdminPasswordBody === 'string'
+            ? superAdminPasswordBody
+            : typeof superAdminPasswordHeader === 'string'
+              ? superAdminPasswordHeader
+              : '';
+        const expected = process.env.SUPER_ADMIN_KEY;
+
+        if (!expected || !provided || !safeEqualSecret(provided, expected)) {
+          try {
+            const {blocked, retryAfter} =
+              await superAdminPasswordRateLimit.recordFailure(req);
+            if (blocked) {
+              logger.warn(
+                `User ${req.user!.id} locked out after incorrect super-admin password attempts while accessing ${origin} at ${req.originalUrl}`,
+              );
+              sendRateLimited(res, retryAfter);
+              return;
+            }
+          } catch (error) {
+            if (error instanceof RateLimitStorageError) {
+              logger.error('Super-admin password rate limit storage failure:', error);
+              res.status(503).json({
+                message: 'Authentication protection is temporarily unavailable. Please try again later.',
+                code: 'RATE_LIMIT_UNAVAILABLE',
+              });
+              return;
+            }
+            throw error;
+          }
+          res.status(403).json({message: 'Invalid super admin password'});
+          return;
         }
 
         next();
@@ -440,43 +479,8 @@ export const Auth = {
     ),
 
   /**
-   * Optionally add user to request without blocking
-   * Returns true if user was added, false otherwise
+   * Optionally attach req.user when a valid, non-revoked session is present.
+   * Shares tryUserAuth so REQUEST_USER_ATTRIBUTES and session checks apply.
    */
-  addUserToRequest: (): MiddlewareFunction =>
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-      try {
-        const token = getAccessToken(req);
-        if (!token) {
-          next();
-          return;
-        }
-
-        const decoded = tokenUtils.verifyAccessToken(token);
-        if (!decoded) {
-          next();
-          return;
-        }
-
-        const user = await User.findByPk(decoded.id, {
-          include: [
-            {
-              model: Player,
-              as: 'player',
-            },
-          ],
-        });
-        if (!user) {
-          next();
-          return;
-        }
-
-        req.user = user;
-        next();
-      } catch (error) {
-        // On any error, just continue without user
-        logger.error('Optional auth middleware error:', error);
-        next();
-      }
-    },
+  addUserToRequest: (): MiddlewareFunction => tryUserAuth,
 };

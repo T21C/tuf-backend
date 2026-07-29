@@ -49,6 +49,16 @@ export function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Escape untrusted text before interpolating it into HTML. */
+export function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 export const ensureString = (value: any): string | undefined => {
   if (typeof value === 'string') return value;
   if (Array.isArray(value)) return value[0]?.toString();

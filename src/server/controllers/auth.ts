@@ -25,11 +25,16 @@ import { sessionIssuanceService } from '@/server/services/auth/SessionIssuanceSe
 import { trustedDeviceService } from '@/server/services/auth/TrustedDeviceService.js';
 import { publicUserFields } from '@/server/services/auth/userSerializer.js';
 import {
+  passkeyService,
+  PasskeyError,
+} from '@/server/services/auth/PasskeyService.js';
+import {
   parseClientIp,
   rateLimitSubjectAccount,
 } from '@/misc/utils/auth/rateLimitSubjects.js';
 import { STEP_UP_TTL_SEC } from '@/config/auth.config.js';
 import { securityNotificationService } from '@/server/services/accounts/SecurityNotificationService.js';
+import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
 
 const captchaService = new CaptchaService();
 
@@ -70,12 +75,16 @@ function actionCtx(req: Request) {
 }
 
 function mapCredentialError(error: unknown, res: Response, fallback: string): Response {
-  if (error instanceof CredentialError) {
+  if (error instanceof CredentialError || error instanceof PasskeyError) {
     return res.status(error.statusCode).json({
       message: error.message,
       code: error.code,
-      ...(error.details?.retryAfter != null ? { retryAfter: error.details.retryAfter } : {}),
-      ...(error.details?.maskedEmail ? { maskedEmail: error.details.maskedEmail } : {}),
+      ...(error instanceof CredentialError && error.details?.retryAfter != null
+        ? { retryAfter: error.details.retryAfter }
+        : {}),
+      ...(error instanceof CredentialError && error.details?.maskedEmail
+        ? { maskedEmail: error.details.maskedEmail }
+        : {}),
     });
   }
   const statusCode = (error as { statusCode?: number })?.statusCode;
@@ -870,6 +879,103 @@ class AuthController {
       });
     } catch (error) {
       return mapCredentialError(error, res, 'MFA verification failed');
+    }
+  }
+
+  @RateLimiter({
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 20,
+    blockDuration: 15 * 60 * 1000,
+    type: 'mfa-passkey-options',
+  })
+  public async requestLoginMfaPasskeyOptions(req: Request, res: Response): Promise<Response> {
+    try {
+      const pending = sessionIssuanceService.readMfaPending(req);
+      if (!pending) {
+        return res.status(401).json({
+          message: 'Login challenge expired. Please sign in again.',
+          code: 'MFA_PENDING_REQUIRED',
+        });
+      }
+      if (!pending.methods.includes('passkey')) {
+        return res.status(400).json({
+          message: 'Passkey MFA is not available for this login',
+          code: 'MFA_METHOD_UNAVAILABLE',
+        });
+      }
+      const options = await passkeyService.authenticationOptions(pending.sub);
+      return res.json(options);
+    } catch (error) {
+      return mapCredentialError(error, res, 'Failed to start passkey MFA');
+    }
+  }
+
+  @RateLimiter({
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 12,
+    blockDuration: 15 * 60 * 1000,
+    type: 'mfa-passkey-verify',
+    incrementOnFailure: true,
+  })
+  public async verifyLoginMfaPasskey(req: Request, res: Response): Promise<Response> {
+    try {
+      const pending = sessionIssuanceService.readMfaPending(req);
+      if (!pending) {
+        return res.status(401).json({
+          message: 'Login challenge expired. Please sign in again.',
+          code: 'MFA_PENDING_REQUIRED',
+        });
+      }
+      if (!pending.methods.includes('passkey')) {
+        return res.status(400).json({
+          message: 'Passkey MFA is not available for this login',
+          code: 'MFA_METHOD_UNAVAILABLE',
+        });
+      }
+
+      const { response, rememberDevice } = req.body || {};
+      if (!response || typeof response !== 'object') {
+        return res.status(400).json({
+          message: 'Authentication response is required',
+          code: 'PASSKEY_INVALID',
+        });
+      }
+
+      const { user } = await passkeyService.verifyAuthentication(
+        response as AuthenticationResponseJSON,
+        {
+          requireUserId: pending.sub,
+          requireUserVerification: false,
+        },
+      );
+
+      if (rememberDevice === true) {
+        await trustedDeviceService.trust(user.id, req, res);
+      }
+
+      const auth = await sessionIssuanceService.completeAuthentication(user, req, res, {
+        mfaExempt: true,
+      });
+      if (auth.status !== 'session') {
+        return res.status(500).json({ message: 'Login failed' });
+      }
+
+      await user.update({ lastLogin: new Date() });
+
+      securityNotificationService.notify(user.id, 'new-signin', {
+        req,
+        remembered: rememberDevice === true,
+        method: 'passkey',
+      });
+
+      return res.json({
+        status: 'session',
+        user: auth.user,
+        expiresIn: auth.expiresIn,
+        sessionId: auth.sessionId,
+      });
+    } catch (error) {
+      return mapCredentialError(error, res, 'Passkey MFA verification failed');
     }
   }
 

@@ -7,8 +7,6 @@ import Level from '@/models/levels/Level.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import {CreditRole} from '@/models/levels/LevelCredit.js';
 import sequelize from '@/config/db.js';
-import Team from '@/models/credits/Team.js';
-import TeamMember from '@/models/credits/TeamMember.js';
 import User from '@/models/auth/User.js';
 import {
   escapeForMySQL,
@@ -16,7 +14,6 @@ import {
 import {Router, Request, Response} from 'express';
 import LevelSubmissionCreatorRequest from '@/models/submissions/LevelSubmissionCreatorRequest.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
-import { TeamAlias } from '@/models/credits/TeamAlias.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -26,9 +23,28 @@ import { validCreatorVerificationStatuses, type CreatorVerificationStatus } from
 import {appendCreatorAliasFromRename} from '@/server/services/aliases/nameChangeAliases.js';
 import TournamentPlacement from '@/models/tournaments/TournamentPlacement.js';
 import TournamentPlacementCredit from '@/models/tournaments/TournamentPlacementCredit.js';
+import {
+  clearLevelTeam,
+  createTeam,
+  deleteTeam,
+  listTeams,
+  loadTeamFlat,
+  searchTeams,
+  setLevelTeam,
+  TeamMutationError,
+  updateTeam,
+} from '@/server/services/teams/teamMutations.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 const router: Router = Router();
+
+function handleTeamMutationError(res: Response, error: unknown, fallback: string) {
+  if (error instanceof TeamMutationError) {
+    return res.status(error.status).json({error: error.message, ...error.extra});
+  }
+  logger.error(fallback, error);
+  return res.status(500).json({error: fallback});
+}
 
 interface LevelCountResult {
   creatorId: number;
@@ -220,63 +236,25 @@ router.get(
 });
 
 // Get team by ID with members and levels
+// Prefer GET /v3/teams/:id?includeLevels=true
 router.get(
   '/teams/byId/:teamId([0-9]{1,20})',
   ApiDoc({
     operationId: 'getTeamById',
     summary: 'Get team by ID',
-    description: 'Get team with members, levels, and aliases.',
+    description:
+      'Get team with members, levels, and aliases. Prefer GET /v3/teams/:id?includeLevels=true.',
     tags: ['Database', 'Creators'],
     params: { teamId: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Team' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
   try {
-    const {teamId} = req.params;
-    const team = await Team.findByPk(teamId, {
-      include: [
-        {
-          model: Creator,
-          as: 'teamCreators',
-          through: {attributes: []},
-        },
-        {
-          model: Level,
-          as: 'levels',
-          include: [{
-            model: LevelCredit,
-            as: 'levelCredits',
-            include: [{
-              model: Creator,
-              as: 'creator',
-            }],
-          }],
-        },
-        {
-          model: TeamAlias,
-          as: 'teamAliases',
-          attributes: ['id', 'name'],
-        }
-      ],
-    });
-
-    if (!team) {
+    const teamId = parseInt(req.params.teamId, 10);
+    const formattedTeam = await loadTeamFlat(teamId, {includeLevels: true});
+    if (!formattedTeam) {
       return res.status(404).json({ error: 'Team not found' });
     }
-
-    // Format response to match frontend expectations
-    const formattedTeam = {
-      id: team.id,
-      name: team.name,
-      description: team.description,
-      members: team.teamCreators?.map(member => ({
-        id: member.id,
-        name: member.name
-      })) || [],
-      aliases: team.teamAliases?.map(alias => alias.name) || [],
-      levels: team.levels || []
-    };
-
     return res.json(formattedTeam);
   } catch (error) {
     logger.error('Error fetching team:', error);
@@ -957,83 +935,21 @@ router.put(
 );
 
 // Get all teams with search
+// Prefer GET /v3/teams or GET /v3/teams/search
 router.get(
   '/teams',
   ApiDoc({
     operationId: 'getCreatorsTeams',
     summary: 'List teams',
-    description: 'List teams with optional search. Query: search.',
+    description: 'List teams with optional search. Query: search. Prefer GET /v3/teams.',
     tags: ['Database', 'Creators'],
     query: { search: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Teams list' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
   try {
-    const {search} = req.query;
-
-    let whereClause: any = {};
-    const teamIds: Set<number> = new Set();
-
-    // If search is provided, filter by name or alias
-    if (search && typeof search === 'string' && search.trim().length > 0) {
-      const escapedSearch = escapeForMySQL(search.trim());
-
-      const teamNameIds = await Team.findAll({
-        where: {name: {[Op.like]: `%${escapedSearch}%`}},
-        attributes: ['id'],
-      });
-
-      for (const team of teamNameIds) {
-        teamIds.add(team.id);
-      }
-
-      const teamAliasIds = await TeamAlias.findAll({
-        where: {name: {[Op.like]: `%${escapedSearch}%`}},
-        attributes: ['teamId'],
-      });
-
-      for (const alias of teamAliasIds) {
-        teamIds.add(alias.teamId);
-      }
-
-      // If we have matching IDs, filter by them
-      if (teamIds.size > 0) {
-        whereClause = {id: {[Op.in]: Array.from(teamIds)}};
-      } else {
-        // No matches found, return empty array
-        return res.json([]);
-      }
-    }
-
-    const teams = await Team.findAll({
-      where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
-      include: [
-        {
-          model: Creator,
-          as: 'teamCreators',
-          through: {attributes: []},
-        },
-        {
-          model: TeamAlias,
-          as: 'teamAliases',
-          attributes: ['id', 'name'],
-        }
-      ],
-      order: [['name', 'ASC']],
-    });
-
-    // Format response to match frontend expectations
-    const formattedTeams = teams.map(team => ({
-      id: team.id,
-      name: team.name,
-      description: team.description || null,
-      members: team.teamCreators?.map(member => ({
-        id: member.id,
-        name: member.name
-      })) || [],
-      aliases: (team.teamAliases?.map(alias => alias.name) || []).filter(Boolean)
-    }));
-
+    const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+    const formattedTeams = await listTeams(search);
     return res.json(formattedTeams);
   } catch (error) {
     logger.error('Error fetching teams:', error);
@@ -1043,13 +959,15 @@ router.get(
 );
 
 // Create or update team for level
+// Prefer PUT /v3/levels/:id/team
 router.put(
   '/level/:levelId([0-9]+)/team',
   Auth.superAdmin(),
   ApiDoc({
     operationId: 'putLevelTeam',
     summary: 'Set level team',
-    description: 'Create/update team for level. Body: teamId?, name?, members?. Super admin.',
+    description:
+      'Create/update team for level. Body: teamId?, name?, members?. Prefer PUT /v3/levels/:id/team. Super admin.',
     tags: ['Database', 'Creators'],
     security: ['bearerAuth'],
     params: { levelId: { schema: { type: 'string' } } },
@@ -1057,198 +975,43 @@ router.put(
     responses: { 200: { description: 'Team updated' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    let transaction: any;
-    try {
+  let transaction: any;
+  try {
       transaction = await sequelize.transaction();
-      const {levelId} = req.params;
-      const {teamId, name, members} = req.body;
-
-      // Find the level
-      const level = await Level.findByPk(levelId, {transaction});
-      if (!level) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({error: 'Level not found'});
-      }
-
-      // Find or create team
-      let team: Team | null = null;
-      if (name) {
-        if (teamId) {
-          // Update existing team
-          team = await Team.findByPk(teamId, {transaction});
-          if (!team) {
-            await safeTransactionRollback(transaction);
-            return res.status(404).json({error: 'Team not found'});
-          }
-        } else {
-          // Create new team
-          const upsertedTeam = await Team.create(
-            {
-              name,
-            },
-            {transaction},
-          );
-          team = upsertedTeam;
-        }
-
-        if (!team) {
-          await safeTransactionRollback(transaction);
-          return res.status(500).json({error: 'Failed to create/update team'});
-        }
-
-        // Update level's team
-        await level.update({teamId: team.id}, {transaction});
-
-        // If members are provided, update team members
-        if (members) {
-          // Ensure members is an array of numbers and deduplicate
-          const memberIds = Array.isArray(members)
-            ? members.filter((id): id is number => typeof id === 'number')
-            : [];
-          const uniqueMembers = [...new Set(memberIds)];
-
-          // Get all levels associated with this team
-          const teamLevels = await Level.findAll({
-            where: {teamId: team.id},
-            transaction,
-          });
-
-          // Get all creators from these levels
-          const levelCreators = await Promise.all(
-            teamLevels.map(async level => {
-              const credits = await LevelCredit.findAll({
-                where: {levelId: level.id},
-                transaction,
-              });
-              return credits.map(credit => credit.creatorId);
-            }),
-          );
-
-          // Flatten and deduplicate creator IDs
-          const allTeamCreators = [...new Set(levelCreators.flat())];
-
-          // Only remove creators that are not present in any level
-          const creatorsToRemove = allTeamCreators.filter(
-            (creatorId: number) => !uniqueMembers.includes(creatorId),
-          );
-
-          // Remove creators that are not in any level
-          if (creatorsToRemove.length > 0) {
-            await TeamMember.destroy({
-              where: {
-                teamId: team.id,
-                creatorId: {[Op.in]: creatorsToRemove},
-              },
-              transaction,
-            });
-          }
-
-          // Add new creators
-          const existingMembers = await TeamMember.findAll({
-            where: {teamId: team.id},
-            transaction,
-          });
-          const existingCreatorIds = existingMembers.map(
-            member => member.creatorId,
-          );
-          const newCreatorIds = uniqueMembers.filter(
-            (creatorId: number) => !existingCreatorIds.includes(creatorId),
-          );
-
-          if (newCreatorIds.length > 0) {
-            // Use upsert to handle potential duplicates gracefully
-            for (const creatorId of newCreatorIds) {
-              try {
-                await TeamMember.create(
-                  {
-                    teamId: team?.id,
-                    creatorId,
-                  },
-                  {transaction},
-                );
-              } catch (error: any) {
-                // If it's a duplicate entry error, just continue
-                if (mapMysqlClientError(error)?.code === 'ER_DUP_ENTRY') {
-                  logger.debug(`Team member ${creatorId} already exists for team ${team?.id}`);
-                  continue;
-                }
-                throw error; // Re-throw if it's any other type of error
-              }
-            }
-          }
-        }
-      } else {
-        // Remove team association if no team details provided
-        await level.update({teamId: null}, {transaction});
-      }
-
+      const levelId = parseInt(req.params.levelId, 10);
+      const updatedTeam = await setLevelTeam(
+        levelId,
+        {
+          teamId: req.body?.teamId,
+          name: req.body?.name,
+          members: req.body?.members,
+        },
+        transaction,
+      );
       await transaction.commit();
-
-      // Fetch the updated team with members to return
-      let updatedTeam = null;
-      if (team?.id) {
-        const teamWithMembers = await Team.findByPk(team.id, {
-          include: [
-            {
-              model: TeamMember,
-              as: 'teamMembers',
-              include: [
-                {
-                  model: Creator,
-                  as: 'creator',
-                  attributes: ['id', 'name'],
-                }
-              ]
-            },
-            {
-              model: TeamAlias,
-              as: 'teamAliases',
-              attributes: ['id', 'name'],
-            }
-          ]
-        });
-
-        if (teamWithMembers) {
-          updatedTeam = {
-            id: teamWithMembers.id,
-            name: teamWithMembers.name,
-            description: teamWithMembers.description,
-            members: teamWithMembers.teamCreators?.map(member => ({
-              id: member.id,
-              name: member.name
-            })) || [],
-            aliases: teamWithMembers.teamAliases?.map(alias => alias.name) || []
-          };
-        }
-      }
-
-      if (!updatedTeam) {
-        await safeTransactionRollback(transaction);
-        return res.status(500).json({ error: 'Failed to fetch created team' });
-      }
-
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      elasticsearchService.indexLevel(parseInt(levelId));
+      elasticsearchService.indexLevel(levelId);
       return res.json({
         message: 'Team updated successfully',
         team: updatedTeam,
       });
     } catch (error) {
       await safeTransactionRollback(transaction);
-      logger.error('Error updating team:', error);
-      return res.status(500).json({error: 'Failed to update team'});
+      return handleTeamMutationError(res, error, 'Failed to update team');
     }
   }
 );
 
 // Delete team association from level
+// Prefer DELETE /v3/levels/:id/team
 router.delete(
   '/level/:levelId([0-9]{1,20})/team',
   Auth.superAdmin(),
   ApiDoc({
     operationId: 'deleteLevelTeam',
     summary: 'Remove level team',
-    description: 'Remove team association from level. Super admin.',
+    description:
+      'Remove team association from level. Prefer DELETE /v3/levels/:id/team. Super admin.',
     tags: ['Database', 'Creators'],
     security: ['bearerAuth'],
     params: { levelId: { schema: { type: 'string' } } },
@@ -1258,60 +1021,29 @@ router.delete(
     let transaction: any;
     try {
       transaction = await sequelize.transaction();
-      const {levelId} = req.params;
-
-      const level = await Level.findByPk(levelId, {transaction});
-      if (!level) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({error: 'Level not found'});
-      }
-
-      if (level.teamId) {
-        // Check if team is used by other levels
-        const otherLevels = await Level.count({
-          where: {
-            teamId: level.teamId,
-            id: {[Op.ne]: levelId},
-          },
-          transaction,
-        });
-
-        if (otherLevels === 0) {
-          // Delete team if not used elsewhere
-          await TeamMember.destroy({
-            where: {teamId: level.teamId},
-            transaction,
-          });
-          await Team.destroy({
-            where: {id: level.teamId},
-            transaction,
-          });
-        }
-      }
-
-      // Remove team association
-      await level.update({teamId: null}, {transaction});
-
+      const levelId = parseInt(req.params.levelId, 10);
+      await clearLevelTeam(levelId, transaction);
       await transaction.commit();
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      elasticsearchService.indexLevel(parseInt(levelId));
+      elasticsearchService.indexLevel(levelId);
       return res.json({message: 'Team association removed successfully'});
     } catch (error) {
       await safeTransactionRollback(transaction);
-      logger.error('Error removing team:', error);
-      return res.status(500).json({error: 'Failed to remove team'});
+      return handleTeamMutationError(res, error, 'Failed to remove team');
     }
   }
 );
 
-// Delete team
+// Delete team (legacy: optionally detach from a level)
+// Prefer DELETE /v3/teams/:id or DELETE /v3/levels/:id/team
 router.delete(
   '/team/:teamId([0-9]{1,20})',
   Auth.superAdmin(),
   ApiDoc({
     operationId: 'deleteCreatorTeam',
     summary: 'Delete team',
-    description: 'Delete team or remove from level. Query: levelId. Super admin.',
+    description:
+      'Delete team or remove from level. Query: levelId. Prefer DELETE /v3/teams/:id or DELETE /v3/levels/:id/team. Super admin.',
     tags: ['Database', 'Creators'],
     security: ['bearerAuth'],
     params: { teamId: { schema: { type: 'string' } } },
@@ -1322,99 +1054,47 @@ router.delete(
     let transaction: any;
     try {
       transaction = await sequelize.transaction();
-      const {teamId} = req.params;
-      const levelId = req.query.levelId as string;
+      const teamId = parseInt(req.params.teamId, 10);
+      const levelIdRaw = req.query.levelId as string | undefined;
+      const levelId = levelIdRaw ? parseInt(levelIdRaw, 10) : NaN;
 
-      // Check if team exists and get associated levels
-      const associatedLevels = await Level.findAll({
-        where: {teamId},
-        transaction,
-      });
-
-      const team = await Team.findByPk(teamId, {transaction});
-      if (!team) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({error: 'Team not found'});
+      if (Number.isFinite(levelId)) {
+        await clearLevelTeam(levelId, transaction);
+        await transaction.commit();
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
+        elasticsearchService.indexLevel(levelId);
+        return res.json({message: 'Team deleted successfully'});
       }
 
-      // If team has only one level or no levels, delete the team and its associations
-      if (associatedLevels.length <= 1) {
-        // Remove team members
-        await TeamMember.destroy({
-          where: {teamId},
-          transaction,
-        });
-
-        // Remove team from levels
-        await Level.update({teamId: null}, {where: {teamId}, transaction});
-
-        // Delete the team
-        await team.destroy({transaction});
-      } else {
-        // If team has multiple levels, just remove the association from this level
-        await Level.update(
-          {teamId: null},
-          {where: {id: parseInt(levelId)}, transaction},
-        );
-      }
-
+      await deleteTeam(teamId, transaction);
       await transaction.commit();
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      elasticsearchService.indexLevel(parseInt(levelId));
       return res.json({message: 'Team deleted successfully'});
     } catch (error) {
       await safeTransactionRollback(transaction);
-      logger.error('Error deleting team:', error);
-      return res.status(500).json({error: 'Failed to delete team'});
+      return handleTeamMutationError(res, error, 'Failed to delete team');
     }
   }
 );
 
 // Get team details
+// Prefer GET /v3/teams/:id
 router.get(
   '/team/:teamId([0-9]{1,20})',
   ApiDoc({
     operationId: 'getCreatorTeam',
     summary: 'Get team',
-    description: 'Get team by ID with members and aliases.',
+    description: 'Get team by ID with members and aliases. Prefer GET /v3/teams/:id.',
     tags: ['Database', 'Creators'],
     params: { teamId: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Team' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
   try {
-    const {teamId} = req.params;
-    const team = await Team.findByPk(teamId, {
-      include: [
-        {
-          model: Creator,
-          as: 'teamCreators',
-          through: {attributes: []},
-        },
-        {
-          model: TeamAlias,
-          as: 'teamAliases',
-          attributes: ['id', 'name'],
-        }
-      ],
-    });
-
-    if (!team) {
+    const teamId = parseInt(req.params.teamId, 10);
+    const formattedTeam = await loadTeamFlat(teamId);
+    if (!formattedTeam) {
       return res.status(404).json({error: 'Team not found'});
     }
-
-    // Format response to match frontend expectations
-    const formattedTeam = {
-      id: team.id,
-      name: team.name,
-      description: team.description || null,
-      members: team.teamCreators?.map(member => ({
-        id: member.id,
-        name: member.name
-      })) || [],
-      aliases: (team.teamAliases?.map(alias => alias.name) || []).filter(Boolean)
-    };
-
     return res.json(formattedTeam);
   } catch (error) {
     logger.error('Error fetching team:', error);
@@ -1747,13 +1427,14 @@ router.get(
 );
 
 // Create new team
+// Prefer POST /v3/teams
 router.post(
   '/teams',
   Auth.superAdmin(),
   ApiDoc({
     operationId: 'postCreatorsTeam',
     summary: 'Create team',
-    description: 'Create team. Body: name, aliases?, description?. Super admin.',
+    description: 'Create team. Body: name, aliases?, description?. Prefer POST /v3/teams. Super admin.',
     tags: ['Database', 'Creators'],
     security: ['bearerAuth'],
     requestBody: { description: 'name, aliases, description', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, description: { type: 'string' } }, required: ['name'] }, required: true },
@@ -1763,151 +1444,33 @@ router.post(
   let transaction: any;
   try {
     transaction = await sequelize.transaction();
-    const { name, aliases, description } = req.body;
-
-    if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Team name is required' });
-    }
-
-    // Check for existing team with the same name (case insensitive)
-    const existingTeam = await Team.findOne({
-      where: {
-        [Op.or]: [
-          sequelize.where(
-            sequelize.fn('LOWER', sequelize.col('name')),
-            sequelize.fn('LOWER', name.trim())
-          ),
-          // For MySQL search with escaped characters
-          sequelize.literal(`EXISTS (
-            SELECT 1 FROM team_aliases 
-            WHERE team_aliases.name = '${name.trim()}'
-          )`)
-        ]
-      },
-      transaction
-    });
-
-    if (existingTeam) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({
-        error: `A team with the name "${name}" already exists (ID: ${existingTeam.id})`
-      });
-    }
-
-    // Check if any of the aliases match existing team names
-    if (aliases && Array.isArray(aliases)) {
-      const aliasConditions = aliases.map(alias => ({
-        [Op.or]: [
-          sequelize.where(
-            sequelize.fn('LOWER', sequelize.col('name')),
-            sequelize.fn('LOWER', alias.trim())
-          ),
-          // For MySQL search with escaped characters
-          sequelize.literal(`EXISTS (
-            SELECT 1 FROM team_aliases 
-            WHERE team_aliases.name = '${alias.trim()}'
-          )`)
-        ]
-      }));
-
-      const existingAliases = await Team.findOne({
-        where: {
-          [Op.or]: aliasConditions
-        },
-        transaction
-      });
-
-      if (existingAliases) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({
-          error: `One of the aliases conflicts with an existing team (ID: ${existingAliases.id})`
-        });
-      }
-    }
-
-    // Create the team with all fields from the model
-    const team = await Team.create(
+    const team = await createTeam(
       {
-        name: name.trim(),
-        description: description?.trim() || null,
-        createdAt: new Date(),
-        updatedAt: new Date()
+        name: req.body?.name,
+        aliases: req.body?.aliases,
+        description: req.body?.description,
       },
-      { transaction }
+      transaction,
     );
-
-    // Create aliases if provided
-    if (aliases && Array.isArray(aliases) && aliases.length > 0) {
-      const aliasRecords = aliases
-        .map((alias: string) => (typeof alias === 'string' ? alias.trim() : String(alias).trim()))
-        .filter((alias: string) => alias.length > 0)
-        .map((alias: string) => ({
-          teamId: team.id,
-          name: alias,
-        }));
-
-      if (aliasRecords.length > 0) {
-        const createdAliases = await TeamAlias.bulkCreate(aliasRecords, { transaction });
-        logger.debug(`Created ${createdAliases.length} aliases for team ${team.id}: ${JSON.stringify(aliasRecords.map(a => a.name))}`);
-      }
-    }
-
     await transaction.commit();
-
-    // Return the team with its members - reload to ensure aliases are included
-    const teamWithMembers = await Team.findByPk(team.id, {
-      include: [
-        {
-          model: Creator,
-          as: 'teamCreators',
-          through: { attributes: [] },
-        },
-        {
-          model: TeamAlias,
-          as: 'teamAliases',
-          attributes: ['id', 'name'],
-        }
-      ]
-    });
-
-    if (!teamWithMembers) {
-      return res.status(500).json({ error: 'Failed to fetch created team' });
-    }
-
-    // Ensure aliases are properly extracted
-    const teamAliases = teamWithMembers.teamAliases || [];
-    const aliasNames = teamAliases.map(alias => alias.name).filter(Boolean);
-
-    logger.debug(`Team ${team.id} has ${teamAliases.length} aliases: ${JSON.stringify(aliasNames)}`);
-
-    return res.json({
-      id: teamWithMembers.id,
-      name: teamWithMembers.name,
-      description: teamWithMembers.description || null,
-      type: 'team',
-      members: teamWithMembers.teamCreators?.map(member => ({
-        id: member.id,
-        name: member.name
-      })) || [],
-      aliases: aliasNames
-    });
+    return res.json({...team, type: 'team'});
   } catch (error) {
     await safeTransactionRollback(transaction);
-    logger.error('Error creating team:', error);
-    return res.status(500).json({ error: 'Failed to create team' });
+    return handleTeamMutationError(res, error, 'Failed to create team');
   }
   }
 );
 
 // Update team
+// Prefer PATCH /v3/teams/:id
 router.put(
   '/teams/:teamId([0-9]{1,20})',
   Auth.superAdmin(),
   ApiDoc({
     operationId: 'putCreatorsTeam',
     summary: 'Update team',
-    description: 'Update team. Body: name?, aliases?, description?. Super admin.',
+    description:
+      'Update team. Body: name?, aliases?, description?. Prefer PATCH /v3/teams/:id. Super admin.',
     tags: ['Database', 'Creators'],
     security: ['bearerAuth'],
     params: { teamId: { schema: { type: 'string' } } },
@@ -1918,162 +1481,35 @@ router.put(
   let transaction: any;
   try {
     transaction = await sequelize.transaction();
-    const { teamId } = req.params;
-    const { name, aliases, description } = req.body;
-
-    const team = await Team.findByPk(teamId, {
-      include: [
-        {
-          model: TeamAlias,
-          as: 'teamAliases',
-        }
-      ],
-      transaction
-    });
-
-    if (!team) {
-      await safeTransactionRollback(transaction, logger);
-      return res.status(404).json({ error: 'Team not found' });
-    }
-
-    // Update name if provided
-    if (name && typeof name === 'string' && name.trim().length > 0) {
-      const trimmedName = name.trim();
-
-      // Check for duplicate name (excluding current team)
-      const existingTeam = await Team.findOne({
-        where: {
-          id: { [Op.ne]: teamId },
-          [Op.or]: [
-            sequelize.where(
-              sequelize.fn('LOWER', sequelize.col('name')),
-              sequelize.fn('LOWER', trimmedName)
-            ),
-            sequelize.literal(`EXISTS (
-              SELECT 1 FROM team_aliases 
-              WHERE team_aliases.name = '${trimmedName}' 
-              AND team_aliases.teamId != ${teamId}
-            )`)
-          ]
-        },
-        transaction
-      });
-
-      if (existingTeam) {
-        await safeTransactionRollback(transaction, logger);
-        return res.status(400).json({
-          error: `A team with the name "${trimmedName}" already exists (ID: ${existingTeam.id})`
-        });
-      }
-
-      team.name = trimmedName;
-    }
-
-    // Update description if provided
-    if (description !== undefined) {
-      team.description = description === null || description === '' ? undefined : String(description).trim();
-    }
-
-    await team.save({ transaction });
-
-    // Update aliases if provided
-    if (aliases !== undefined && Array.isArray(aliases)) {
-      // Delete existing aliases
-      await TeamAlias.destroy({
-        where: { teamId },
-        transaction
-      });
-
-      // Check if any new aliases conflict with existing team names
-      if (aliases.length > 0) {
-        const aliasConditions = aliases.map(alias => ({
-          id: { [Op.ne]: teamId },
-          [Op.or]: [
-            sequelize.where(
-              sequelize.fn('LOWER', sequelize.col('name')),
-              sequelize.fn('LOWER', alias.trim())
-            ),
-            sequelize.literal(`EXISTS (
-              SELECT 1 FROM team_aliases 
-              WHERE team_aliases.name = '${alias.trim()}'
-              AND team_aliases.teamId != ${teamId}
-            )`)
-          ]
-        }));
-
-        const conflictingTeam = await Team.findOne({
-          where: {
-            [Op.or]: aliasConditions
-          },
-          transaction
-        });
-
-        if (conflictingTeam) {
-          await safeTransactionRollback(transaction, logger);
-          return res.status(400).json({
-            error: `One of the aliases conflicts with an existing team (ID: ${conflictingTeam.id})`
-          });
-        }
-
-        // Create new aliases
-        const aliasRecords = aliases
-          .map((alias: string) => (typeof alias === 'string' ? alias.trim() : String(alias).trim()))
-          .filter((alias: string) => alias.length > 0)
-          .map((alias: string) => ({
-            teamId: team.id,
-            name: alias,
-          }));
-
-        if (aliasRecords.length > 0) {
-          await TeamAlias.bulkCreate(aliasRecords, { transaction });
-        }
-      }
-    }
-
+    const teamId = parseInt(req.params.teamId, 10);
+    const team = await updateTeam(
+      teamId,
+      {
+        name: req.body?.name,
+        aliases: req.body?.aliases,
+        description: req.body?.description,
+      },
+      transaction,
+    );
     await transaction.commit();
-
-    // Return updated team
-    const updatedTeam = await Team.findByPk(team.id, {
-      include: [
-        {
-          model: Creator,
-          as: 'teamCreators',
-          through: { attributes: [] },
-        },
-        {
-          model: TeamAlias,
-          as: 'teamAliases',
-          attributes: ['id', 'name'],
-        }
-      ]
-    });
-
-    return res.json({
-      id: updatedTeam!.id,
-      name: updatedTeam!.name,
-      description: updatedTeam!.description || null,
-      members: updatedTeam!.teamCreators?.map(member => ({
-        id: member.id,
-        name: member.name
-      })) || [],
-      aliases: (updatedTeam!.teamAliases?.map(alias => alias.name) || []).filter(Boolean)
-    });
+    return res.json(team);
   } catch (error) {
     await safeTransactionRollback(transaction, logger);
-    logger.error('Error updating team:', error);
-    return res.status(500).json({ error: 'Failed to update team' });
+    return handleTeamMutationError(res, error, 'Failed to update team');
   }
   }
 );
 
 // Delete team (only if not assigned to any levels)
+// Prefer DELETE /v3/teams/:id
 router.delete(
   '/teams/:teamId([0-9]{1,20})',
   Auth.superAdmin(),
   ApiDoc({
     operationId: 'deleteCreatorsTeam',
     summary: 'Delete team',
-    description: 'Delete team if not assigned to any levels. Super admin.',
+    description:
+      'Delete team if not assigned to any levels. Prefer DELETE /v3/teams/:id. Super admin.',
     tags: ['Database', 'Creators'],
     security: ['bearerAuth'],
     params: { teamId: { schema: { type: 'string' } } },
@@ -2083,61 +1519,25 @@ router.delete(
   let transaction: any;
   try {
     transaction = await sequelize.transaction();
-    const { teamId } = req.params;
-
-    const team = await Team.findByPk(teamId, { transaction });
-    if (!team) {
-      await safeTransactionRollback(transaction, logger);
-      return res.status(404).json({ error: 'Team not found' });
-    }
-
-    // Check if team is assigned to any levels
-    const associatedLevels = await Level.findAll({
-      where: { teamId },
-      attributes: ['id'],
-      transaction,
-    });
-
-    if (associatedLevels.length > 0) {
-      await safeTransactionRollback(transaction, logger);
-      return res.status(400).json({
-        error: `Cannot delete team: assigned to ${associatedLevels.length} level(s)`,
-        levelCount: associatedLevels.length
-      });
-    }
-
-    // Delete team members
-    await TeamMember.destroy({
-      where: { teamId },
-      transaction,
-    });
-
-    // Delete team aliases
-    await TeamAlias.destroy({
-      where: { teamId },
-      transaction,
-    });
-
-    // Delete the team
-    await team.destroy({ transaction });
-
+    const teamId = parseInt(req.params.teamId, 10);
+    await deleteTeam(teamId, transaction);
     await transaction.commit();
     return res.json({ message: 'Team deleted successfully' });
   } catch (error) {
     await safeTransactionRollback(transaction, logger);
-    logger.error('Error deleting team:', error);
-    return res.status(500).json({ error: 'Failed to delete team' });
+    return handleTeamMutationError(res, error, 'Failed to delete team');
   }
   }
 );
 
 // Add search endpoint for teams
+// Prefer GET /v3/teams/search?query=
 router.get(
   '/teams/search/:name',
   ApiDoc({
     operationId: 'getTeamsSearch',
     summary: 'Search teams',
-    description: 'Search teams by name.',
+    description: 'Search teams by name. Prefer GET /v3/teams/search?query=.',
     tags: ['Database', 'Creators'],
     params: { name: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Teams list' }, ...standardErrorResponses500 },
@@ -2145,70 +1545,13 @@ router.get(
   async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
-
-    const escapedName = escapeForMySQL(name);
-
-    const teamIds: Set<number> = new Set();
-
-    const teamNameIds = await Team.findAll({
-      where: {name: {[Op.like]: `%${escapedName}%`}},
-      attributes: ['id'],
-    });
-
-    const teamAliasIds = await TeamAlias.findAll({
-      where: {name: {[Op.like]: `%${escapedName}%`}},
-      attributes: ['teamId'],
-    });
-
-    for (const team of teamNameIds) {
-      teamIds.add(team.id);
-    }
-
-    for (const alias of teamAliasIds) {
-      teamIds.add(alias.teamId);
-    }
-
-    logger.debug('alias ids: ' + JSON.stringify(teamAliasIds));
-
-    const teams = await Team.findAll({
-      where: {
-        [Op.or]: [
-          {id: {[Op.in]: Array.from(teamIds)}},
-        ]
-      },
-      include: [
-        {
-          model: TeamMember,
-          as: 'teamMembers',
-          include: [
-            {
-              model: Creator,
-              as: 'creator',
-              attributes: ['id', 'name'],
-            }
-          ]
-        },
-        {
-          model: TeamAlias,
-          as: 'teamAliases',
-          attributes: ['id', 'name'],
-        }
-      ],
-      limit: 10
-    });
-
-    // Format response to match ProfileSelector expectations
-    return res.json(teams.map(team => ({
-      id: team.id,
-      name: team.name,
-      type: 'team',
-      members: team.teamCreators?.map(member => ({
-        id: member.id,
-        name: member.name
-      })) || [],
-      aliases: team.teamAliases?.map(alias => alias.name) || []
-    })));
-
+    const { results } = await searchTeams({ query: name, limit: 10, offset: 0 });
+    return res.json(
+      results.map(team => ({
+        ...team,
+        type: 'team',
+      })),
+    );
   } catch (error) {
     logger.error('Error searching teams:', error);
     return res.status(500).json({ error: 'Failed to search teams' });

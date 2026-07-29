@@ -8,7 +8,7 @@ import path from 'path';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { clientUrlEnv, ownUrl } from '@/config/app.config.js';
 import { User } from '@/models/index.js';
-import { formatCreatorDisplay } from '@/misc/utils/Utility.js';
+import { escapeHtml, formatCreatorDisplay } from '@/misc/utils/Utility.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Creator from '@/models/credits/Creator.js';
 import LevelPack from '@/models/packs/LevelPack.js';
@@ -85,17 +85,6 @@ const getRequiredAssets = async (manifest: Manifest) => {
   const imports = entry.imports?.map(imp => manifest[imp]?.file).filter(Boolean) || [];
 
   return { js, css, imports };
-};
-
-// Function to escape special characters for meta tags
-const escapeMetaText = (text: string): string => {
-  if (!text) return '';
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
 };
 
 const BACKGROUND_BLURRED_MANIFEST_KEY =
@@ -283,12 +272,12 @@ export const htmlMetaMiddleware = async (
       });
 
       if (pass && !pass.isDeleted && pass.player && pass.level) {
-        const difficultyName = escapeMetaText(pass.level.difficulty?.name || 'Unknown Difficulty');
-        const playerName = escapeMetaText(pass.player.name);
-        const songName = escapeMetaText(getSongDisplayName(pass.level));
-        const artistName = escapeMetaText(getArtistDisplayName(pass.level));
-        const pageTitle = escapeMetaText(`${playerName}'s Clear of ${songName} - ${artistName}`);
-        const pageDescription = escapeMetaText(
+        const difficultyName = escapeHtml(pass.level.difficulty?.name || 'Unknown Difficulty');
+        const playerName = escapeHtml(pass.player.name);
+        const songName = escapeHtml(getSongDisplayName(pass.level));
+        const artistName = escapeHtml(getArtistDisplayName(pass.level));
+        const pageTitle = escapeHtml(`${playerName}'s Clear of ${songName} - ${artistName}`);
+        const pageDescription = escapeHtml(
           `${playerName} cleared ${songName} by ${artistName} — ${difficultyName} · Score ${pass.scoreV2}`,
         );
         const canonicalPath = req.path;
@@ -342,11 +331,11 @@ export const htmlMetaMiddleware = async (
       });
 
       if (level && !level.isDeleted && !level.isHidden) {
-        const creators = escapeMetaText(formatCreatorDisplay(level));
-        const songName = escapeMetaText(getSongDisplayName(level));
-        const artistName = escapeMetaText(getArtistDisplayName(level));
-        const pageTitle = escapeMetaText(`${songName} - ${artistName}`);
-        const pageDescription = escapeMetaText(
+        const creators = escapeHtml(formatCreatorDisplay(level));
+        const songName = escapeHtml(getSongDisplayName(level));
+        const artistName = escapeHtml(getArtistDisplayName(level));
+        const pageTitle = escapeHtml(`${songName} - ${artistName}`);
+        const pageDescription = escapeHtml(
           `${songName} by ${artistName} — charted by ${creators} on ${SITE_NAME}`,
         );
         const canonicalPath = req.path;
@@ -396,9 +385,9 @@ export const htmlMetaMiddleware = async (
       });
 
       if (player && !player.isBanned) {
-        const playerName = escapeMetaText(player.name);
-        const pageTitle = escapeMetaText(playerName);
-        const pageDescription = escapeMetaText(
+        const playerName = escapeHtml(player.name);
+        const pageTitle = escapeHtml(playerName);
+        const pageDescription = escapeHtml(
           `Check out ${playerName}'s profile, clears, and achievements on ${SITE_NAME}`,
         );
         const canonicalPath = req.path;
@@ -445,11 +434,11 @@ export const htmlMetaMiddleware = async (
     else if (req.path.startsWith('/packs/')) {
       const pack = await LevelPack.findOne({where: {linkCode: id, viewMode: {[Op.or]: [LevelPackViewModes.PUBLIC, LevelPackViewModes.LINKONLY]}}});
       if (pack) {
-        const packName = escapeMetaText(pack.name);
+        const packName = escapeHtml(pack.name);
         const owner = await User.findByPk(pack.ownerId);
-        const ownerName = escapeMetaText(owner?.nickname || owner?.username || 'Unknown Owner');
-        const pageTitle = escapeMetaText(packName);
-        const pageDescription = escapeMetaText(
+        const ownerName = escapeHtml(owner?.nickname || owner?.username || 'Unknown Owner');
+        const pageTitle = escapeHtml(packName);
+        const pageDescription = escapeHtml(
           `Level pack ${packName} by ${ownerName} on ${SITE_NAME}`,
         );
         const canonicalPath = `/packs/${pack.linkCode}`;

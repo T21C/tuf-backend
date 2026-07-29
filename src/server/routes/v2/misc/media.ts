@@ -768,6 +768,7 @@ router.get(
   }
 );
 
+/* unused lalala
 router.get(
   '/github-asset',
   ApiDoc({
@@ -806,6 +807,7 @@ router.get(
   }
   }
 );
+*/
 
 router.get(
   '/image/:type/:path',

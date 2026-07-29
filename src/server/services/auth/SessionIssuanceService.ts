@@ -78,7 +78,7 @@ class SessionIssuanceService {
     opts?: CompleteAuthenticationOptions,
   ): Promise<AuthCompletion> {
     const fullUser = (await User.findByPk(user.id)) ?? user;
-    const methods = getAvailableMfaMethods(fullUser);
+    const methods = await getAvailableMfaMethods(fullUser);
     const isTrusted =
       methods.length > 0
         ? await trustedDeviceService.isTrusted(fullUser.id, req)
@@ -127,7 +127,7 @@ class SessionIssuanceService {
   beginMfaChallenge(
     user: User,
     res: Response,
-    methods: MfaMethod[] = getAvailableMfaMethods(user),
+    methods: MfaMethod[],
   ): Extract<AuthCompletion, { status: 'mfa_required' }> {
     const token = jwt.sign(
       { sub: user.id, methods, typ: 'mfa_pending' } satisfies MfaPendingPayload,

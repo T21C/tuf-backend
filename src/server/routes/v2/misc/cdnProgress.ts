@@ -3,6 +3,7 @@ import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, standardErrorResponses500 } from '@/server/schemas/v2/misc/index.js';
 import { jobProgressService, type JobProgressPatch } from '@/server/services/core/JobProgressService.js';
 import { packDownloadJobProgressTtlSeconds } from '@/misc/utils/packDownloadUrlExpiry.js';
+import { safeEqualSecret } from '@/misc/utils/auth/safeEqualSecret.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { incrementLevelDownloadCountsForFileIds } from '@/misc/utils/data/levelDownloadCount.js';
 
@@ -20,7 +21,7 @@ function requireJobIngestKey(req: Request, res: Response): boolean {
     return false;
   }
   const header = req.headers['x-job-ingest-key'];
-  if (typeof header !== 'string' || header !== secret) {
+  if (typeof header !== 'string' || !safeEqualSecret(header, secret)) {
     res.status(401).json({ error: 'Unauthorized' });
     return false;
   }
@@ -35,7 +36,7 @@ function requireDownloadIngestKey(req: Request, res: Response): boolean {
     return false;
   }
   const header = req.headers['x-download-ingest-key'];
-  if (typeof header !== 'string' || header !== secret) {
+  if (typeof header !== 'string' || !safeEqualSecret(header, secret)) {
     res.status(401).json({ error: 'Unauthorized' });
     return false;
   }

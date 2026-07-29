@@ -3,6 +3,8 @@ import OAuthProvider from './OAuthProvider.js';
 import RefreshToken from './RefreshToken.js';
 import StepUpCode from './StepUpCode.js';
 import TrustedDevice from './TrustedDevice.js';
+import PasskeyCredential from './PasskeyCredential.js';
+import WebAuthnChallenge from './WebAuthnChallenge.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
 import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
@@ -34,6 +36,24 @@ export function initializeAuthAssociations() {
     as: 'trustedDevices',
   });
   TrustedDevice.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  User.hasMany(PasskeyCredential, {
+    foreignKey: 'userId',
+    as: 'passkeys',
+  });
+  PasskeyCredential.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  User.hasMany(WebAuthnChallenge, {
+    foreignKey: 'userId',
+    as: 'webauthnChallenges',
+  });
+  WebAuthnChallenge.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
   });
