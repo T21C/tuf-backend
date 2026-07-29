@@ -22,13 +22,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       - name: Test release candidate
         env:
           PUPPETEER_SKIP_DOWNLOAD: "true"
         run: |
-          npm ci
+          npm install
           npm test
 
       - uses: docker/setup-buildx-action@v3

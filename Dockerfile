@@ -11,10 +11,10 @@ RUN apt-get update \
         python3 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json ./
+COPY package.json ./
 COPY eslint-plugin-tuf ./eslint-plugin-tuf
 COPY patches ./patches
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN --mount=type=cache,target=/root/.npm npm install
 
 COPY tsconfig.json ./
 COPY .eslintrc.security.cjs ./
@@ -45,7 +45,7 @@ RUN groupadd --gid 10001 tuf \
     && chown -R tuf:tuf /app /srv/tuf /home/tuf
 
 WORKDIR /app
-COPY --from=build --chown=tuf:tuf /app/package.json /app/package-lock.json ./
+COPY --from=build --chown=tuf:tuf /app/package.json ./
 COPY --from=build --chown=tuf:tuf /app/node_modules ./node_modules
 COPY --from=build --chown=tuf:tuf /app/dist ./dist
 
