@@ -6,6 +6,7 @@ import {
   normalizeZipUrlDownloadError,
   type ZipUrlDownloadProgress,
 } from '@/misc/utils/data/levelZipFromUrl.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 /**
  * Steam Workshop ➔ level zip import for upload-from-url.
@@ -18,6 +19,11 @@ import {
  * The zip body is read as a stream so `onDownloadProgress` reflects Tailscale/HTTP transfer
  * (0–100 when `Content-Length` is present), matching direct cloud URL downloads.
  */
+
+const STEAM_PUBLISHED_FILE_DETAILS_URL =
+  'https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/';
+const STEAM_E_RESULT_OK = 1;
+const STEAM_PREFLIGHT_TIMEOUT_MS = 10_000;
 
 /** Published file id as decimal string (may exceed JS safe integer). */
 export function parseSteamWorkshopPublishedFileId(input: string): string | null {
@@ -73,6 +79,89 @@ function agentTimeoutMs(): number {
     }
   }
   return 45 * 60 * 1000;
+}
+
+function expectedWorkshopAppId(): string | null {
+  const id = process.env.STEAM_WORKSHOP_APP_ID?.trim();
+  if (id && /^\d+$/.test(id)) {
+    return id;
+  }
+  return null;
+}
+
+type SteamPublishedFileDetail = {
+  publishedfileid?: string;
+  result?: number;
+  consumer_app_id?: number | string;
+  consumer_appid?: number | string;
+};
+
+/**
+ * Fast existence / app-id check via Steam Web API (no key required).
+ * Throws 404 when Steam reports the item missing or wrong app.
+ * On Steam API outage / malformed response: logs and returns (caller may still hit the agent).
+ */
+async function assertSteamWorkshopItemDownloadable(
+  publishedFileId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  try {
+    const body = new URLSearchParams();
+    body.set('itemcount', '1');
+    body.set('publishedfileids[0]', publishedFileId);
+
+    const res = await axios.post(STEAM_PUBLISHED_FILE_DETAILS_URL, body.toString(), {
+      timeout: STEAM_PREFLIGHT_TIMEOUT_MS,
+      signal,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      validateStatus: () => true,
+    });
+
+    if (res.status !== 200 || !res.data || typeof res.data !== 'object') {
+      logger.warn('Steam Workshop preflight: unexpected HTTP response', {
+        publishedFileId,
+        status: res.status,
+      });
+      return;
+    }
+
+    const details = (res.data as { response?: { publishedfiledetails?: SteamPublishedFileDetail[] } })
+      ?.response?.publishedfiledetails;
+    const detail = Array.isArray(details) ? details[0] : undefined;
+    if (!detail || typeof detail !== 'object') {
+      logger.warn('Steam Workshop preflight: missing publishedfiledetails', { publishedFileId });
+      return;
+    }
+
+    if (detail.result !== STEAM_E_RESULT_OK) {
+      throw { error: 'Steam Workshop item not found', code: 404 };
+    }
+
+    const expectedApp = expectedWorkshopAppId();
+    if (expectedApp) {
+      const consumerRaw = detail.consumer_app_id ?? detail.consumer_appid;
+      if (consumerRaw != null && String(consumerRaw) !== '' && String(consumerRaw) !== expectedApp) {
+        throw {
+          error: 'Steam Workshop item not found',
+          code: 404,
+        };
+      }
+    }
+  } catch (err: unknown) {
+    if (typeof err === 'object' && err !== null && 'error' in err && 'code' in err) {
+      const o = err as { error?: unknown; code?: unknown };
+      if (typeof o.error === 'string' && typeof o.code === 'number') {
+        throw err;
+      }
+    }
+    if (axios.isAxiosError(err) && err.code === 'ERR_CANCELED') {
+      throw { error: 'Steam Workshop download was cancelled', code: 499 };
+    }
+    logger.warn('Steam Workshop preflight failed; continuing to agent', {
+      publishedFileId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 function agentBaseUrl(): string | null {
@@ -184,6 +273,8 @@ export async function downloadSteamWorkshopItemToZipBuffer(
   if (!/^\d+$/.test(publishedFileId)) {
     throw { error: 'Invalid Steam Workshop item id', code: 400 };
   }
+
+  await assertSteamWorkshopItemDownloadable(publishedFileId, options?.signal);
 
   const base = agentBaseUrl();
   const secret = process.env.STEAM_WORKSHOP_AGENT_SECRET?.trim();
