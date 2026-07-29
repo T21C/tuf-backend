@@ -27,8 +27,10 @@ const SENSITIVE_AUDIT_KEYS = new Set([
   'accesstoken',
   'csrftoken',
   'captchatoken',
+  'confirmpassword',
   'secret',
   'clientsecret',
+  'apikey',
   'authorization',
   'x-super-admin-password',
 ]);

@@ -272,7 +272,13 @@ const auditLogMiddleware: MiddlewareFunction = async (req: Request, res: Respons
       return oldJson.call(this, body);
     };
     res.send = function (body: any) {
-      responseBody = JSON.parse(body);
+      // res.send carries any payload type; a non-JSON body used to throw here
+      // and turn a successful handler into a 500.
+      try {
+        responseBody = typeof body === 'string' ? JSON.parse(body) : body;
+      } catch {
+        responseBody = undefined;
+      }
       return oldSend.call(this, body);
     };
 

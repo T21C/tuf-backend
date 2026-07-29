@@ -19,6 +19,7 @@ import { getPrimaryVideoLink } from '@/misc/utils/data/videoLinkParts.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import {fetchFrontendJson} from '@/server/services/core/FrontendContentService.js';
+import {serializeJsonLd} from '@/misc/utils/html/jsonLd.js';
 
 const SITE_NAME = 'The Universal Forums';
 const DEFAULT_DESCRIPTION =
@@ -33,12 +34,15 @@ const levelSongInclude = {
 const buildJsonLdScripts = (data: object | object[]) => {
   const blocks = Array.isArray(data) ? data : [data];
   return blocks
-    .map((block) => `<script type="application/ld+json">${JSON.stringify(block)}</script>`)
+    .map(
+      (block) =>
+        `<script type="application/ld+json">${serializeJsonLd(block)}</script>`,
+    )
     .join('\n          ');
 };
 
 const buildCanonicalTag = (path: string) =>
-  `<link rel="canonical" href="${clientUrlEnv}${path}" />`;
+  `<link rel="canonical" href="${clientUrlEnv}${escapeHtml(path)}" />`;
 
 // Add type for manifest entries
 type ManifestEntry = {
@@ -281,7 +285,8 @@ export const htmlMetaMiddleware = async (
           `${playerName} cleared ${songName} by ${artistName} — ${difficultyName} · Score ${pass.scoreV2}`,
         );
         const canonicalPath = req.path;
-        const pageUrl = `${clientUrlEnv}${canonicalPath}`;
+        // canonicalPath is the raw request path; escape before it lands in an attribute.
+        const pageUrl = escapeHtml(`${clientUrlEnv}${canonicalPath}`);
         const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/pass/${id}`;
 
         metaTags = `
@@ -339,7 +344,8 @@ export const htmlMetaMiddleware = async (
           `${songName} by ${artistName} — charted by ${creators} on ${SITE_NAME}`,
         );
         const canonicalPath = req.path;
-        const pageUrl = `${clientUrlEnv}${canonicalPath}`;
+        // canonicalPath is the raw request path; escape before it lands in an attribute.
+        const pageUrl = escapeHtml(`${clientUrlEnv}${canonicalPath}`);
         const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/level/${id}`;
 
         metaTags = `
@@ -358,7 +364,7 @@ export const htmlMetaMiddleware = async (
           <meta property="twitter:title" content="${pageTitle}" />
           <meta property="twitter:description" content="${pageDescription}" />
           <meta property="twitter:image" content="${thumbnailUrl}" />
-          <meta name="theme-color" content="${level.difficulty?.color || '#090909'}" />
+          <meta name="theme-color" content="${escapeHtml(level.difficulty?.color || '#090909')}" />
           <meta property="og:url" content="${pageUrl}" />
           ${buildJsonLdScripts([
             {
@@ -391,7 +397,8 @@ export const htmlMetaMiddleware = async (
           `Check out ${playerName}'s profile, clears, and achievements on ${SITE_NAME}`,
         );
         const canonicalPath = req.path;
-        const pageUrl = `${clientUrlEnv}${canonicalPath}`;
+        // canonicalPath is the raw request path; escape before it lands in an attribute.
+        const pageUrl = escapeHtml(`${clientUrlEnv}${canonicalPath}`);
         const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/player/${id}`;
 
         metaTags = `
@@ -442,7 +449,8 @@ export const htmlMetaMiddleware = async (
           `Level pack ${packName} by ${ownerName} on ${SITE_NAME}`,
         );
         const canonicalPath = `/packs/${pack.linkCode}`;
-        const pageUrl = `${clientUrlEnv}${canonicalPath}`;
+        // linkCode is stored data; escape before it lands in an attribute.
+        const pageUrl = escapeHtml(`${clientUrlEnv}${canonicalPath}`);
         const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/pack/${pack.linkCode}`;
 
         metaTags = `
