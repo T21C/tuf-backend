@@ -1,4 +1,4 @@
-name: Build and deploy canary
+name: Build and deploy production
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: tuf-backend-canary
+  group: tuf-backend-production
   cancel-in-progress: false
 
 jobs:
@@ -69,8 +69,8 @@ jobs:
           install -m 600 /dev/null ~/.ssh/known_hosts
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
 
-      - name: Deploy backend canary
+      - name: Deploy backend production
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/id_ed25519 tuf-deploy@tuf-main-server \
-            "sudo /usr/local/sbin/tuf-deploy-canary backend '${{ github.sha }}'"
+            "sudo /usr/local/sbin/tuf-deploy-backend '${{ github.sha }}'"
