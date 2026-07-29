@@ -32,3 +32,12 @@ function copyHtmlFiles() {
 }
 
 copyHtmlFiles();
+
+const bannerManifestSource = path.join(srcDir, 'config', 'bannerPresetManifest.json');
+const bannerManifestDestination = path.join(destDir, 'config', 'bannerPresetManifest.json');
+if (!fs.existsSync(bannerManifestSource)) {
+  throw new Error(`copyHtml: banner preset manifest not found: ${bannerManifestSource}`);
+}
+fs.mkdirSync(path.dirname(bannerManifestDestination), { recursive: true });
+fs.copyFileSync(bannerManifestSource, bannerManifestDestination);
+console.log(`Copied banner preset manifest to ${bannerManifestDestination}`);

@@ -35,10 +35,14 @@ const localCdnPort = Number.parseInt(localCdnUrl.split(':')[2] || '', 10);
 const localRoot = path.resolve(
     process.env.CDN_TEMP_ROOT?.trim() || path.join(process.cwd(), 'cache', 'cdn-local-fallback')
 );
+const configuredPackRoot = process.env.PACK_CDN_ROOT?.trim();
+const packRoot = configuredPackRoot
+    ? path.resolve(localRoot, configuredPackRoot)
+    : path.join(localRoot, 'packs');
 
 export const CDN_CONFIG = {
     localRoot,
-    pack_root: process.env.PACK_CDN_ROOT || path.join(localRoot, 'packs'),
+    pack_root: packRoot,
     /** Legacy/general multer cap (pack downloads, etc.). Level zips use {@link maxZipFileSize}. */
     maxFileSize: 4000 * 1024 * 1024, // 4GB
     /** Hard cap for level-zip ingest (`POST /zips`). Matches public upload kind limit. */

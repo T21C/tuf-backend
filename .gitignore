@@ -156,8 +156,6 @@ docs
 *.md
 *.ndjson
 *.exe
-bannerPresetManifest.json
-
 # ts builds
 build/
 
