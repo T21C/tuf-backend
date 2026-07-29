@@ -1,5 +1,6 @@
 import { logger } from '../core/LoggerService.js';
 import { RecaptchaEnterpriseServiceClient } from '@google-cloud/recaptcha-enterprise';
+import key from '@/config/recaptcha-service-key.js';
 
 // gRPC error codes that are retryable (transient errors)
 const RETRYABLE_ERROR_CODES = [
@@ -39,7 +40,9 @@ export default class CaptchaService {
  */
   public getInstance = (): RecaptchaEnterpriseServiceClient => {
     if (!this.recaptchaClient) {
-      this.recaptchaClient = new RecaptchaEnterpriseServiceClient();
+      this.recaptchaClient = new RecaptchaEnterpriseServiceClient({
+        credentials: key,
+      });
     logger.info('Created new reCAPTCHA Enterprise client');
     }
     return this.recaptchaClient;
