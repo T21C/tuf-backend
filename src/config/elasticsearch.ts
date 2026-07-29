@@ -37,18 +37,24 @@ const client = new Client({
   sniffOnStart: true
 });
 
-// Index names
-export const levelIndexName = 'levels_v1';
-export const passIndexName = 'passes_v1';
-export const playerIndexName = 'players_v1';
-export const creatorIndexName = 'creators_v1';
+const indexPrefix = process.env.ELASTICSEARCH_INDEX_PREFIX?.trim() || '';
+if (!/^[a-z0-9_-]*$/.test(indexPrefix)) {
+  throw new Error('ELASTICSEARCH_INDEX_PREFIX may contain only lowercase letters, digits, underscores, and hyphens');
+}
+
+// Index and alias names. Canary stacks must use a dedicated prefix so their
+// startup reconciliation can never replace production aliases.
+export const levelIndexName = `${indexPrefix}levels_v1`;
+export const passIndexName = `${indexPrefix}passes_v1`;
+export const playerIndexName = `${indexPrefix}players_v1`;
+export const creatorIndexName = `${indexPrefix}creators_v1`;
 
 // Alias names
-export const levelAlias = 'levels';
-export const passAlias = 'passes';
-export const creditsAlias = 'credits';
-export const playerAlias = 'players';
-export const creatorAlias = 'creators';
+export const levelAlias = `${indexPrefix}levels`;
+export const passAlias = `${indexPrefix}passes`;
+export const creditsAlias = `${indexPrefix}credits`;
+export const playerAlias = `${indexPrefix}players`;
+export const creatorAlias = `${indexPrefix}creators`;
 
 // Combined index and alias configuration
 const settings = {
