@@ -133,7 +133,6 @@ dist.tmp
 
 #enc
 .env
-package-lock.json
 mapping-hashes/
 uploads/
 temp/
