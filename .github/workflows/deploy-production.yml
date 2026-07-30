@@ -1,4 +1,4 @@
-name: Build and deploy canary
+name: Build and deploy production
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: tuf-backend-canary
+  group: tuf-backend-production
   cancel-in-progress: false
 
 jobs:
@@ -22,13 +22,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       - name: Test release candidate
         env:
           PUPPETEER_SKIP_DOWNLOAD: "true"
         run: |
-          npm ci
+          npm install
           npm test
 
       - uses: docker/setup-buildx-action@v3
@@ -51,6 +50,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Connect to Tailscale
+        if: ${{ vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
         uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -59,6 +59,7 @@ jobs:
           ping: tuf-main-server
 
       - name: Configure deploy SSH identity
+        if: ${{ vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
         env:
           DEPLOY_KEY: ${{ secrets.TUF_DEPLOY_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.TUF_DEPLOY_KNOWN_HOSTS }}
@@ -70,8 +71,9 @@ jobs:
           install -m 600 /dev/null ~/.ssh/known_hosts
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
 
-      - name: Deploy backend canary
+      - name: Deploy backend production
+        if: ${{ vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/id_ed25519 tuf-deploy@tuf-main-server \
-            "sudo /usr/local/sbin/tuf-deploy-canary backend '${{ github.sha }}'"
+            "sudo /usr/local/sbin/tuf-deploy-backend '${{ github.sha }}'"
