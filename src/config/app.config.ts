@@ -230,6 +230,9 @@ export const corsOptions = {
     'If-None-Match',
     'If-Modified-Since',
     'X-CSRF-Token',
+    // Sentry browser tracing (tracePropagationTargets → api.tuforums.com)
+    'baggage',
+    'sentry-trace',
   ],
   exposedHeaders: [
     'Content-Type',
