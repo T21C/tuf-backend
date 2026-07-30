@@ -13,7 +13,6 @@ RUN apt-get update \
 
 COPY package.json ./
 COPY eslint-plugin-tuf ./eslint-plugin-tuf
-COPY patches ./patches
 RUN --mount=type=cache,target=/root/.npm npm install
 
 COPY tsconfig.json ./
