@@ -64,7 +64,9 @@ router.get(
     'Cache-Control',
     'Last-Event-ID',
     'X-Form-Type',
-    'X-Super-Admin-Password'
+    'X-Super-Admin-Password',
+    'baggage',
+    'sentry-trace',
   ].join(', '));
   res.setHeader('Access-Control-Expose-Headers', [
     'Content-Type',

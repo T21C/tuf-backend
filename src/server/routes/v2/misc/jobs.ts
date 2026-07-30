@@ -28,9 +28,16 @@ function applyJobStreamCors(req: Request, res: Response): void {
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type', 'X-Super-Admin-Password'].join(
-      ', '
-    )
+    [
+      'Content-Type',
+      'Authorization',
+      'Cache-Control',
+      'Last-Event-ID',
+      'X-Form-Type',
+      'X-Super-Admin-Password',
+      'baggage',
+      'sentry-trace',
+    ].join(', ')
   );
 }
 
