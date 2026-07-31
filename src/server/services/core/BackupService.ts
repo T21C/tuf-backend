@@ -104,8 +104,25 @@ export class BackupService {
     return filename.endsWith('.sql') ? 'application/sql' : 'application/zip';
   }
 
+  /**
+   * Scratch dir for mysqldump before upload to R2.
+   * Must be on a disk-backed volume in Docker — Compose mounts a small tmpfs on /tmp.
+   */
+  private getBackupTempRoot(): string {
+    const configured = process.env.MYSQL_BACKUP_TEMP_PATH?.trim();
+    if (configured) {
+      return path.resolve(configured);
+    }
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'MYSQL_BACKUP_TEMP_PATH must be set in production (use a disk path under /srv/tuf/data/backups, not /tmp)',
+      );
+    }
+    return path.join(os.tmpdir(), 'tuf-backup-temp');
+  }
+
   private getTempBackupPath(filename: string): string {
-    return path.join(os.tmpdir(), 'tuf-backup-temp', this.normalizeBackupFilename(filename));
+    return path.join(this.getBackupTempRoot(), this.normalizeBackupFilename(filename));
   }
 
   private async storeBackupFromLocalPath(
