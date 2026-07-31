@@ -183,15 +183,23 @@ export class HealthService {
   // ------------------------------------------------------------------
 
   private setupRoutes(): void {
-    this.app.get('/health/api', async (req, res) => {
+    // Public health JSON for the site Health Check page (cross-origin from tuforums.com).
+    // Must handle OPTIONS: Sentry tracing adds baggage/sentry-trace and triggers preflight.
+    // app.get(...) alone never sees OPTIONS, which surfaces as missing ACAO.
+    this.app.use('/health/api', (req, res, next) => {
       res.header('Access-Control-Allow-Origin', '*');
       res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
+      res.header(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, baggage, sentry-trace',
+      );
       if (req.method === 'OPTIONS') {
-        return res.status(200).end();
+        return res.status(204).end();
       }
+      return next();
+    });
 
+    this.app.get('/health/api', async (_req, res) => {
       await this.runHealthChecks();
       return res.json(this.buildLegacyJson());
     });
