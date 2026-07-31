@@ -33,6 +33,15 @@ const DATABASE_NAME =
     ? process.env.DB_STAGING_DATABASE
     : process.env.DB_DATABASE;
 
+/**
+ * mysqldump/mysql treat `-h localhost` as "use Unix socket", which does not exist
+ * inside the API container (MySQL lives on the host). Force TCP via 127.0.0.1.
+ */
+function mysqlCliHost(): string {
+  const host = (process.env.DB_HOST || '127.0.0.1').trim();
+  return host === 'localhost' ? '127.0.0.1' : host;
+}
+
 type BackupType = 'mysql';
 
 interface BackupStorageEntry {
@@ -240,15 +249,17 @@ export class BackupService {
 
     let cmd: string;
     const dumpFlags = '--single-transaction --quick';// --ignore-table=tuf_website.player_leaderboard_rank_events';
+    const dbHost = mysqlCliHost();
     if (this.isWindows) {
       const mysqlDumpPath = path.join(
         process.env.MYSQL_PATH || '',
         'mysqldump.exe',
       );
       const outputPath = filePath.replace(/\\/g, '/');
-      cmd = `"${mysqlDumpPath}" ${dumpFlags} -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${outputPath}"`;
+      cmd = `"${mysqlDumpPath}" ${dumpFlags} -h ${dbHost} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${outputPath}"`;
     } else {
-      cmd = `mysqldump ${dumpFlags} -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${filePath}"`;
+      // --protocol=TCP: never fall back to a missing container socket path
+      cmd = `mysqldump ${dumpFlags} --protocol=TCP -h ${dbHost} -P ${process.env.DB_PORT || '3306'} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${filePath}"`;
     }
 
     return new Promise((resolve, reject) => {
@@ -273,13 +284,14 @@ export class BackupService {
 
   async restoreMySQLBackup(backupPath: string) {
     const resolvedBackup = await this.resolveBackupPathForRestore(backupPath);
+    const dbHost = mysqlCliHost();
     let cmd: string;
     if (this.isWindows) {
       const mysqlPath = path.join(process.env.MYSQL_PATH || '', 'mysql.exe');
       const inputPath = resolvedBackup.path.replace(/\\/g, '/');
-      cmd = `"${mysqlPath}" -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} < "${inputPath}"`;
+      cmd = `"${mysqlPath}" -h ${dbHost} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} < "${inputPath}"`;
     } else {
-      cmd = `mysql -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} < "${resolvedBackup.path}"`;
+      cmd = `mysql --protocol=TCP -h ${dbHost} -P ${process.env.DB_PORT || '3306'} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} < "${resolvedBackup.path}"`;
     }
 
     const shell = this.isWindows ? 'cmd.exe' : '/bin/bash';
