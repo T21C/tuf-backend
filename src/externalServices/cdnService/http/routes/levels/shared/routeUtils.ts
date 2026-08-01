@@ -6,6 +6,7 @@ import {
 } from '@/externalServices/cdnService/domain/archive/ingestPaths.js';
 import { matchLevelFileBySelection } from '@/externalServices/cdnService/domain/level/matchLevelFileSelection.js';
 import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
+import { isLevelStorageMissingError } from '@/externalServices/cdnService/domain/level/levelStorageMissingError.js';
 
 export function sanitizeFilename(filename: string): string {
   return filename
@@ -362,4 +363,22 @@ export function buildPublicLevelzipCdnMetadata(metadata: unknown): Record<string
 export function extractLevelMetadata(metadata: any): Record<string, unknown> {
     return buildPublicLevelzipCdnMetadata(metadata);
 }
+
+/**
+ * Map known CDN domain misses / route `{ code, error }` throws to an HTTP response shape.
+ * Returns null for unexpected errors that should stay 500.
+ */
+export function asRouteHttpError(error: unknown): { code: number; error: string } | null {
+    if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
+        const candidate = error as { code: unknown; error: unknown };
+        if (typeof candidate.code === 'number' && typeof candidate.error === 'string') {
+            return { code: candidate.code, error: candidate.error };
+        }
+    }
+    if (isLevelStorageMissingError(error)) {
+        return { code: 404, error: 'Target level file not found in storage' };
+    }
+    return null;
+}
+
 
