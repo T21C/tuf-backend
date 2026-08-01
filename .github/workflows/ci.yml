@@ -38,6 +38,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # Image expects context ./dist from the Build step above (Sentry inject is deploy-only).
       - name: Build container image
         uses: docker/build-push-action@v6
         with:
@@ -46,11 +47,5 @@ jobs:
           tags: ghcr.io/t21c/tuf-backend:ci
           build-args: |
             GIT_SHA=${{ github.sha }}
-            SENTRY_ORG=${{ vars.SENTRY_ORG }}
-            SENTRY_PROJECT=${{ vars.SENTRY_SERVER_PROJECT != '' && vars.SENTRY_SERVER_PROJECT || 'main-server' }}
-            SENTRY_URL=${{ vars.SENTRY_URL }}
-            SENTRY_REQUIRE_UPLOAD=${{ vars.SENTRY_SKIP_UPLOAD == 'true' && '0' || '1' }}
-          secrets: |
-            sentry_auth_token=${{ secrets.SENTRY_AUTH_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

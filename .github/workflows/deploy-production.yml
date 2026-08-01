@@ -18,17 +18,46 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Commit association for Sentry releases
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Test release candidate
+      - name: Install, test, and build
         env:
           PUPPETEER_SKIP_DOWNLOAD: "true"
         run: |
           npm install
           npm test
+          npm run build
+
+      # Prefer omitting empty SENTRY_URL — empty string breaks sentry-cli ("unknown scheme ()").
+      - name: Configure Sentry URL
+        if: ${{ vars.SENTRY_SKIP_UPLOAD != 'true' && secrets.SENTRY_AUTH_TOKEN != '' }}
+        run: |
+          if [[ -n "${{ vars.SENTRY_URL }}" ]]; then
+            echo "SENTRY_URL=${{ vars.SENTRY_URL }}" >> "$GITHUB_ENV"
+          else
+            # Org is on the DE region; override via vars.SENTRY_URL if that changes.
+            echo "SENTRY_URL=https://de.sentry.io" >> "$GITHUB_ENV"
+          fi
+
+      - name: Create Sentry release and upload sourcemaps
+        if: ${{ vars.SENTRY_SKIP_UPLOAD != 'true' && secrets.SENTRY_AUTH_TOKEN != '' }}
+        uses: getsentry/action-release@v3
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG != '' && vars.SENTRY_ORG || 'the-universal-forums' }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_SERVER_PROJECT != '' && vars.SENTRY_SERVER_PROJECT || 'main-server' }}
+        with:
+          environment: production
+          # Must match GIT_SHA / SENTRY_RELEASE baked into the runtime image.
+          release: ${{ github.sha }}
+          sourcemaps: ./dist
+          inject: true
 
       - uses: docker/setup-buildx-action@v3
 
@@ -48,12 +77,6 @@ jobs:
           labels: org.opencontainers.image.revision=${{ github.sha }}
           build-args: |
             GIT_SHA=${{ github.sha }}
-            SENTRY_ORG=${{ vars.SENTRY_ORG }}
-            SENTRY_PROJECT=${{ vars.SENTRY_SERVER_PROJECT != '' && vars.SENTRY_SERVER_PROJECT || 'main-server' }}
-            SENTRY_URL=${{ vars.SENTRY_URL }}
-            SENTRY_REQUIRE_UPLOAD=${{ vars.SENTRY_SKIP_UPLOAD == 'true' && '0' || '1' }}
-          secrets: |
-            sentry_auth_token=${{ secrets.SENTRY_AUTH_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
