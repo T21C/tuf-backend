@@ -35,8 +35,9 @@ jobs:
           npm run build
 
       # Prefer omitting empty SENTRY_URL — empty string breaks sentry-cli ("unknown scheme ()").
+      # Note: `secrets` cannot be referenced in `if:` — gate with vars only; missing token fails the action.
       - name: Configure Sentry URL
-        if: ${{ vars.SENTRY_SKIP_UPLOAD != 'true' && secrets.SENTRY_AUTH_TOKEN != '' }}
+        if: ${{ vars.SENTRY_SKIP_UPLOAD != 'true' }}
         run: |
           if [[ -n "${{ vars.SENTRY_URL }}" ]]; then
             echo "SENTRY_URL=${{ vars.SENTRY_URL }}" >> "$GITHUB_ENV"
@@ -46,7 +47,7 @@ jobs:
           fi
 
       - name: Create Sentry release and upload sourcemaps
-        if: ${{ vars.SENTRY_SKIP_UPLOAD != 'true' && secrets.SENTRY_AUTH_TOKEN != '' }}
+        if: ${{ vars.SENTRY_SKIP_UPLOAD != 'true' }}
         uses: getsentry/action-release@v3
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
