@@ -3,6 +3,7 @@ import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CDC_PASS_MAX_COALESCE_MS } from '@/server/services/elasticsearch/misc/constants.js';
+import * as Sentry from '@sentry/node';
 
 export interface PassCdcDebouncePayload {
   passId?: number | null;
@@ -112,28 +113,43 @@ class CdcPassProjectorDebounce {
         const { deletePassIds, passIds, levelIds, playerIds } = this.takeSnapshot();
         const es = ElasticsearchService.getInstance();
 
-        for (const id of deletePassIds) {
-          await es.deletePassDocumentById(id);
-        }
+        await Sentry.startSpan(
+          {
+            name: 'cdc.projector.passes.flush',
+            op: 'queue.process',
+            forceTransaction: true,
+            attributes: {
+              'cdc.pass_ids': passIds.length,
+              'cdc.level_ids': levelIds.length,
+              'cdc.player_ids': playerIds.length,
+              'cdc.delete_ids': deletePassIds.length,
+            },
+          },
+          async () => {
+            for (const id of deletePassIds) {
+              await es.deletePassDocumentById(id);
+            }
 
-        if (passIds.length > 0) {
-          await es.reindexPasses(passIds);
-        }
-        if (levelIds.length > 0) {
-          await es.reindexLevels(levelIds);
-        }
-        if (playerIds.length > 0) {
-          await es.reindexPlayers(playerIds);
-        }
+            if (passIds.length > 0) {
+              await es.reindexPasses(passIds);
+            }
+            if (levelIds.length > 0) {
+              await es.reindexLevels(levelIds);
+            }
+            if (playerIds.length > 0) {
+              await es.reindexPlayers(playerIds);
+            }
 
-        if (levelIds.length > 0) {
-          const tags = ['levels:all', 'Passes', ...levelIds.map((id) => `level:${id}`)];
-          await CacheInvalidation.invalidateTags(tags);
-          await invalidatePackLevelsCachesForLevelIds(levelIds);
-        }
+            if (levelIds.length > 0) {
+              const tags = ['levels:all', 'Passes', ...levelIds.map((id) => `level:${id}`)];
+              await CacheInvalidation.invalidateTags(tags);
+              await invalidatePackLevelsCachesForLevelIds(levelIds);
+            }
 
-        logger.debug(
-          `[cdc-projectors] Coalesced pass flush: ${passIds.length} passes, ${levelIds.length} levels, ${playerIds.length} players, ${deletePassIds.length} deletes`,
+            logger.debug(
+              `[cdc-projectors] Coalesced pass flush: ${passIds.length} passes, ${levelIds.length} levels, ${playerIds.length} players, ${deletePassIds.length} deletes`,
+            );
+          },
         );
       } while (this.hasPendingWork());
     } catch (error) {

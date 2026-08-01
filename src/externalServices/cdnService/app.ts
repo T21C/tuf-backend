@@ -1,3 +1,4 @@
+import '@/observability/instrument.js';
 import '@/config/db.js';
 import express from 'express';
 import fs from 'fs';
@@ -12,6 +13,7 @@ import { cdnLocalTemp } from './infra/workspaces/cdnLocalTempManager.js';
 import { setTerminalServiceTitle } from '@/misc/utils/terminalTitle.js';
 
 dotenv.config();
+
 
 setTerminalServiceTitle('TUF CDN');
 registerGlobalProcessHandlers();

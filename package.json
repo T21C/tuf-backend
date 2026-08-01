@@ -45,6 +45,7 @@
     "@elastic/elasticsearch": "^9.0.1",
     "@google-cloud/recaptcha-enterprise": "^5.13.0",
     "@gumlet/gif-resize": "^2.0.0",
+    "@sentry/node": "^10.69.0",
     "@simplewebauthn/server": "^13.3.2",
     "@types/cron": "^2.4.3",
     "@types/multer": "^1.4.12",
@@ -96,6 +97,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@sentry/cli": "^3.6.2",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
