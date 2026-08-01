@@ -3,6 +3,7 @@ import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CDC_LEVEL_CREDITS_COALESCE_MS } from '@/server/services/elasticsearch/misc/constants.js';
+import * as Sentry from '@sentry/node';
 
 export interface LevelCreditsCdcDebouncePayload {
   levelId?: number | null;
@@ -74,21 +75,34 @@ class CdcLevelCreditsProjectorDebounce {
         const { levelIds, creatorIds } = this.takeSnapshot();
         const es = ElasticsearchService.getInstance();
 
-        if (levelIds.length > 0) {
-          await es.reindexLevels(levelIds);
-        }
-        if (creatorIds.length > 0) {
-          await es.reindexCreators(creatorIds);
-        }
+        await Sentry.startSpan(
+          {
+            name: 'cdc.projector.level_credits.flush',
+            op: 'queue.process',
+            forceTransaction: true,
+            attributes: {
+              'cdc.level_ids': levelIds.length,
+              'cdc.creator_ids': creatorIds.length,
+            },
+          },
+          async () => {
+            if (levelIds.length > 0) {
+              await es.reindexLevels(levelIds);
+            }
+            if (creatorIds.length > 0) {
+              await es.reindexCreators(creatorIds);
+            }
 
-        if (levelIds.length > 0) {
-          const tags = ['levels:all', ...levelIds.map((id) => `level:${id}`)];
-          await CacheInvalidation.invalidateTags(tags);
-          await invalidatePackLevelsCachesForLevelIds(levelIds);
-        }
+            if (levelIds.length > 0) {
+              const tags = ['levels:all', ...levelIds.map((id) => `level:${id}`)];
+              await CacheInvalidation.invalidateTags(tags);
+              await invalidatePackLevelsCachesForLevelIds(levelIds);
+            }
 
-        logger.debug(
-          `[cdc-projectors] Coalesced level_credits flush: ${levelIds.length} levels, ${creatorIds.length} creators`,
+            logger.debug(
+              `[cdc-projectors] Coalesced level_credits flush: ${levelIds.length} levels, ${creatorIds.length} creators`,
+            );
+          },
         );
       } while (this.hasPendingWork());
     } catch (error) {

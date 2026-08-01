@@ -7,6 +7,7 @@ import axios from 'axios';
 import path from 'path';
 import fs from 'fs';
 import puppeteer from 'puppeteer';
+import * as Sentry from '@sentry/node';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {getVideoDetails,} from '@/misc/utils/data/videoDetailParser.js';
@@ -407,6 +408,9 @@ async function getBrowser(): Promise<puppeteer.Browser> {
 
 // Function to convert HTML to PNG with retry logic
 export async function htmlToPng(html: string, width: number, height: number, maxRetries = 3): Promise<Buffer> {
+  return Sentry.startSpan(
+    { name: 'puppeteer.html_to_png', op: 'ui.render' },
+    async () => {
   let lastError;
   let page = null;
 
@@ -475,6 +479,8 @@ export async function htmlToPng(html: string, width: number, height: number, max
   }
 
   throw lastError || new Error('HTML to PNG conversion failed');
+    },
+  );
 }
 
 

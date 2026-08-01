@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
 import fs from 'fs';
+import * as Sentry from '@sentry/node';
 import { logger } from './LoggerService.js';
 import { jobProgressService } from './JobProgressService.js';
 import { ImageFileType } from '@/models/cdn/CdnFile.js';
@@ -97,6 +98,22 @@ class CdnService {
             if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
                 config.headers = config.headers ?? {};
                 (config.headers as Record<string, string>)['X-CDN-Ingest-Key'] = getCdnIngestSecret();
+            }
+            // Propagate Sentry trace headers for API → CDN distributed traces.
+            try {
+                if (Sentry.isInitialized()) {
+                    const trace = Sentry.getTraceData();
+                    config.headers = config.headers ?? {};
+                    const headers = config.headers as Record<string, string>;
+                    if (trace['sentry-trace'] && !headers['sentry-trace']) {
+                        headers['sentry-trace'] = trace['sentry-trace'];
+                    }
+                    if (trace.baggage && !headers.baggage) {
+                        headers.baggage = trace.baggage;
+                    }
+                }
+            } catch {
+                // Tracing must never break CDN calls.
             }
             return config;
         });

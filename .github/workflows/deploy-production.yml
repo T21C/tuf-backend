@@ -46,6 +46,14 @@ jobs:
           push: true
           tags: ghcr.io/t21c/tuf-backend:${{ github.sha }}
           labels: org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            SENTRY_ORG=${{ vars.SENTRY_ORG }}
+            SENTRY_PROJECT=${{ vars.SENTRY_SERVER_PROJECT != '' && vars.SENTRY_SERVER_PROJECT || 'main-server' }}
+            SENTRY_URL=${{ vars.SENTRY_URL }}
+            SENTRY_REQUIRE_UPLOAD=${{ vars.SENTRY_SKIP_UPLOAD == 'true' && '0' || '1' }}
+          secrets: |
+            sentry_auth_token=${{ secrets.SENTRY_AUTH_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

@@ -5,6 +5,7 @@ import hash from 'object-hash';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { writeFileAtomic } from '@/misc/utils/fs/fsSafeWrite.js';
+import { instrumentClientMethods } from '@/observability/clientSpanProxy.js';
 
 // Read the CA certificate only in production
 const isProduction = process.env.NODE_ENV === 'production';
@@ -20,7 +21,8 @@ if (isProduction) {
   }
 }
 
-const client = new Client({
+const client = instrumentClientMethods(
+  new Client({
   node: process.env.ELASTICSEARCH_URL || 'https://localhost:9200',
   auth: {
     username: process.env.ELASTICSEARCH_USERNAME || 'elastic',
@@ -35,7 +37,28 @@ const client = new Client({
   maxRetries: 5,
   requestTimeout: 60000,
   sniffOnStart: true
-});
+}),
+  {
+    system: 'elasticsearch',
+    op: 'db.elasticsearch',
+    skipMethods: ['diagnostic', 'helpers', 'serializer', 'transport'],
+    // Only real data-path ops — not indices.exists / cluster.health (those are http noise).
+    onlyMethods: [
+      'search',
+      'scroll',
+      'clearScroll',
+      'count',
+      'mget',
+      'get',
+      'index',
+      'bulk',
+      'delete',
+      'update',
+      'deleteByQuery',
+      'updateByQuery',
+    ],
+  },
+);
 
 const indexPrefix = process.env.ELASTICSEARCH_INDEX_PREFIX?.trim() || '';
 if (!/^[a-z0-9_-]*$/.test(indexPrefix)) {

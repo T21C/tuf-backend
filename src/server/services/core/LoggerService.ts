@@ -3,6 +3,7 @@ import 'winston-daily-rotate-file';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
+import { getTraceLogFields } from '@/observability/traceContextForLogs.js';
 dotenv.config();
 
 /**
@@ -343,16 +344,31 @@ class LoggerService {
 
   public warn(message: string, ...meta: any[]): void {
     const safeMessage = redactSensitiveText(String(message));
-    const safeMeta = meta.map((m) => redactMetaValue(m));
+    const safeMeta = this.withTraceFields(meta.map((m) => redactMetaValue(m)));
     this.logger.warn(safeMessage, ...safeMeta);
     this.emitLogReplay({ level: 'warn', message: safeMessage, meta: safeMeta });
   }
 
   public error(message: string, ...meta: any[]): void {
     const safeMessage = redactSensitiveText(String(message));
-    const safeMeta = meta.map((m) => redactMetaValue(m));
+    const safeMeta = this.withTraceFields(meta.map((m) => redactMetaValue(m)));
     this.logger.error(safeMessage, ...safeMeta);
     this.emitLogReplay({ level: 'error', message: safeMessage, meta: safeMeta });
+  }
+
+  /**
+   * Attach active Sentry trace/span ids to warn/error metadata when present.
+   */
+  private withTraceFields(safeMeta: unknown[]): unknown[] {
+    try {
+      const fields = getTraceLogFields();
+      if (!fields.trace_id && !fields.span_id) {
+        return safeMeta;
+      }
+      return [...safeMeta, fields];
+    } catch {
+      return safeMeta;
+    }
   }
 
   public debug(message: string, ...meta: any[]): void {

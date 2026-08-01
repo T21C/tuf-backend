@@ -1,3 +1,4 @@
+import './observability/instrument.js';
 import express, {Express, Request, Response, NextFunction} from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -26,6 +27,7 @@ setTerminalServiceTitle('TUF Main API');
 
 dotenv.config();
 registerGlobalProcessHandlers();
+
 
 const app: Express = express();
 const httpServer = createServer(app);
