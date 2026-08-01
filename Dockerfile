@@ -1,21 +1,16 @@
 # syntax=docker/dockerfile:1.7
+#
+# Expects a prebuilt `dist/` in the build context (CI: npm run build, then
+# getsentry/action-release injects debug IDs before this image build).
+# Local: run `npm run build` first, then `docker build`.
 
 FROM node:22-bookworm-slim AS build
 
 ARG GIT_SHA=
-ARG SENTRY_ORG=the-universal-forums
-ARG SENTRY_PROJECT=main-server
-ARG SENTRY_URL=
-# Require sourcemap upload unless the build explicitly opts out (0/false).
-ARG SENTRY_REQUIRE_UPLOAD=1
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true \
     GIT_SHA=${GIT_SHA} \
-    SENTRY_RELEASE=${GIT_SHA} \
-    SENTRY_ORG=${SENTRY_ORG} \
-    SENTRY_PROJECT=${SENTRY_PROJECT} \
-    SENTRY_URL=${SENTRY_URL} \
-    SENTRY_REQUIRE_UPLOAD=${SENTRY_REQUIRE_UPLOAD}
+    SENTRY_RELEASE=${GIT_SHA}
 
 WORKDIR /app
 
@@ -29,17 +24,9 @@ COPY package.json ./
 COPY eslint-plugin-tuf ./eslint-plugin-tuf
 RUN --mount=type=cache,target=/root/.npm npm install
 
-COPY tsconfig.json ./
-COPY .eslintrc.security.cjs ./
-COPY scripts ./scripts
-COPY src ./src
+COPY dist ./dist
 
-RUN --mount=type=secret,id=sentry_auth_token,required=false \
-    npm run build \
-    && chmod +x scripts/sentry-upload-sourcemaps.sh \
-    && SENTRY_AUTH_TOKEN_FILE=/run/secrets/sentry_auth_token \
-       ./scripts/sentry-upload-sourcemaps.sh \
-    && npm prune --omit=dev
+RUN npm prune --omit=dev
 
 FROM node:22-bookworm-slim AS runtime
 

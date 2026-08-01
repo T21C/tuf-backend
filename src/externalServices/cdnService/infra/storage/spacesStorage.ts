@@ -29,6 +29,20 @@ interface SpacesFile {
     url: string;
 }
 
+/** HeadObject/GetObject miss — Spaces/S3-compatible APIs vary on code vs statusCode. */
+function isS3NotFoundError(error: unknown): boolean {
+    const e = error as {
+        statusCode?: number;
+        code?: string;
+        name?: string;
+        $metadata?: { httpStatusCode?: number };
+    } | null;
+    if (!e || typeof e !== 'object') return false;
+    if (e.statusCode === 404 || e.$metadata?.httpStatusCode === 404) return true;
+    const code = e.code || e.name;
+    return code === 'NotFound' || code === 'NoSuchKey' || code === '404';
+}
+
 /** Cloudflare R2 (S3 API) for CDN objects: uploads, deletes, public URLs. */
 export class CdnSpacesStorage {
     private static instance: CdnSpacesStorage;
@@ -458,7 +472,7 @@ export class CdnSpacesStorage {
             await this.s3.headObject(headParams).promise();
             return true;
         } catch (error) {
-            if ((error as any).statusCode === 404) {
+            if (isS3NotFoundError(error)) {
                 return false;
             }
             logger.error('Error checking file existence in Spaces', {
@@ -482,7 +496,7 @@ export class CdnSpacesStorage {
             const result = await this.s3.headObject(headParams).promise();
             return result;
         } catch (error) {
-            if ((error as any).statusCode === 404) {
+            if (isS3NotFoundError(error)) {
                 return null;
             }
             logger.error('Error getting file metadata from Spaces', {

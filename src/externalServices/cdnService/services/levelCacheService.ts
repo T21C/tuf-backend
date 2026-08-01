@@ -18,11 +18,16 @@ import {
 } from '../domain/level/levelCacheValidation.js';
 import { buildFullCachePayload } from '../domain/level/levelCacheBuild.js';
 import { downloadLevelToWorkspace, extractLevelSourceFromMetadata } from '../infra/level/levelSourceBytes.js';
+import {
+    isLevelStorageMissingError,
+    LevelStorageMissingError,
+} from '../domain/level/levelStorageMissingError.js';
 
 dotenv.config();
 
 export { SAFE_TO_PARSE_VERSION };
 export type { AnalysisCacheData, LevelCacheData } from '../domain/level/levelCacheContracts.js';
+export { LevelStorageMissingError, isLevelStorageMissingError } from '../domain/level/levelStorageMissingError.js';
 
 /**
  * Stable signature for metadata fields that affect level cache semantics.
@@ -219,7 +224,12 @@ class LevelCacheService {
 
         const levelCheck = await spacesStorage.fileExists(levelPath);
         if (!levelCheck) {
-            throw new Error(`Level file not found in storage: ${levelPath}`);
+            // Missing object is an expected data miss (stale metadata / deleted key), not a 500.
+            logger.debug('getLevelCache: level object missing in storage', {
+                fileId: file.id,
+                levelPath,
+            });
+            throw new LevelStorageMissingError(levelPath);
         }
 
         const parsed = this.parseStoredCacheJson(file.cacheData, fileMetadata);
@@ -256,11 +266,19 @@ class LevelCacheService {
             const { cacheData } = await this.getLevelCache(file, levelPath, metadata, levelData);
             return cacheData;
         } catch (error) {
-            logger.error('Failed to populate cache:', {
-                fileId: file.id,
-                levelPath,
-                error: error instanceof Error ? error.message : String(error)
-            });
+            if (isLevelStorageMissingError(error)) {
+                logger.warn('Failed to populate cache (level missing in storage):', {
+                    fileId: file.id,
+                    levelPath,
+                    error: error.message,
+                });
+            } else {
+                logger.error('Failed to populate cache:', {
+                    fileId: file.id,
+                    levelPath,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            }
             throw error;
         }
     }
@@ -328,10 +346,17 @@ class LevelCacheService {
             const { cacheData } = await this.getLevelCache(file, targetLevel, metadata);
             return cacheData;
         } catch (error) {
-            logger.error('refreshCache: failed', {
-                fileId,
-                error: error instanceof Error ? error.message : String(error)
-            });
+            if (isLevelStorageMissingError(error)) {
+                logger.debug('refreshCache: level object missing in storage', {
+                    fileId,
+                    error: error.message,
+                });
+            } else {
+                logger.error('refreshCache: failed', {
+                    fileId,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            }
             return null;
         }
     }
@@ -369,10 +394,17 @@ class LevelCacheService {
             const durations = levelData.getDurations();
             return durations.filter((d): d is number => d !== undefined);
         } catch (error) {
-            logger.error('Failed to get durations from CDN file:', {
-                fileId,
-                error: error instanceof Error ? error.message : String(error)
-            });
+            if (isLevelStorageMissingError(error)) {
+                logger.debug('Failed to get durations (level missing in storage):', {
+                    fileId,
+                    error: error.message,
+                });
+            } else {
+                logger.error('Failed to get durations from CDN file:', {
+                    fileId,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            }
             return null;
         }
     }

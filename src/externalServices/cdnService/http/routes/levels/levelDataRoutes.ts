@@ -10,7 +10,8 @@ import {
     buildLevelZipFileContents,
     parseClientRelativePath,
     resolveChartStoragePathFromMetadata,
-    resolveSongFileForTransform
+    resolveSongFileForTransform,
+    asRouteHttpError,
 } from './shared/routeUtils.js';
 
 const router = Router();
@@ -149,9 +150,9 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
 
     return res.json(response);
     } catch (error) {
-        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
-            const customError = error as { code: number; error: string };
-            return res.status(customError.code).json({ error: customError.error });
+        const httpError = asRouteHttpError(error);
+        if (httpError) {
+            return res.status(httpError.code).json({ error: httpError.error });
         }
         logger.error('Unexpected error getting level data for ' + req.params.fileId + ':', error);
         return res.status(500).json({ error: 'Unexpected error getting level data' });
@@ -164,9 +165,9 @@ router.get('/:fileId/contents', async (req: Request, res: Response) => {
         const file = loadLevelZipOrThrow(await CdnFile.findByPk(req.params.fileId));
         return res.json(buildLevelZipFileContents(file.metadata));
     } catch (error) {
-        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
-            const customError = error as { code: number; error: string };
-            return res.status(customError.code).json({ error: customError.error });
+        const httpError = asRouteHttpError(error);
+        if (httpError) {
+            return res.status(httpError.code).json({ error: httpError.error });
         }
         logger.error('Unexpected error getting contents for ' + req.params.fileId + ':', error);
         return res.status(500).json({ error: 'Unexpected error getting level contents' });
@@ -193,9 +194,9 @@ router.get('/:fileId/chart', async (req: Request, res: Response) => {
         await redirectToStorageObject(res, storagePath);
         return;
     } catch (error) {
-        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
-            const customError = error as { code: number; error: string };
-            return res.status(customError.code).json({ error: customError.error });
+        const httpError = asRouteHttpError(error);
+        if (httpError) {
+            return res.status(httpError.code).json({ error: httpError.error });
         }
         logger.error('Unexpected error getting chart for ' + req.params.fileId + ':', error);
         return res.status(500).json({ error: 'Unexpected error getting chart file' });
@@ -251,9 +252,9 @@ router.get('/:fileId/song', async (req: Request, res: Response) => {
         await redirectToStorageObject(res, resolved.path);
         return;
     } catch (error) {
-        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
-            const customError = error as { code: number; error: string };
-            return res.status(customError.code).json({ error: customError.error });
+        const httpError = asRouteHttpError(error);
+        if (httpError) {
+            return res.status(httpError.code).json({ error: httpError.error });
         }
         logger.error('Unexpected error getting song for ' + req.params.fileId + ':', error);
         return res.status(500).json({ error: 'Unexpected error getting song file' });
@@ -295,9 +296,9 @@ router.get('/:fileId/level.adofai', async (req: Request, res: Response) => {
         res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
         return res.redirect(301, cdnUrl);
     } catch (error) {
-        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
-            const customError = error as { code: number; error: string };
-            return res.status(customError.code).json({ error: customError.error });
+        const httpError = asRouteHttpError(error);
+        if (httpError) {
+            return res.status(httpError.code).json({ error: httpError.error });
         }
         logger.error('Unexpected error getting level.adofai for ' + req.params.fileId + ':', error);
         return res.status(500).json({ error: 'Unexpected error getting level.adofai' });

@@ -6,7 +6,6 @@
 .codex
 
 node_modules
-dist
 dist.tmp
 ts-traces
 coverage

@@ -15,7 +15,7 @@ import {
 } from '@/externalServices/cdnService/infra/workspaces/cdnSpacesTemp.js';
 import { levelCacheService } from '@/externalServices/cdnService/services/levelCacheService.js';
 import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '@/externalServices/cdnService/constants/levelPackAudio.js';
-import { encodeContentDisposition, resolveSongFileForTransform } from './shared/routeUtils.js';
+import { encodeContentDisposition, resolveSongFileForTransform, asRouteHttpError } from './shared/routeUtils.js';
 
 const router = Router();
 
@@ -118,16 +118,14 @@ router.get('/:fileId/level-v2.adofai', async (req: Request, res: Response) => {
             return;
         }
 
-        const isCustom =
-            error && typeof error === 'object' && 'code' in error && 'error' in error;
+        const isCustom = asRouteHttpError(error);
         if (isCustom) {
-            const customError = error as { code: number; error: string };
             logger.debug('Level v2 conversion request rejected', {
                 fileId: req.params.fileId,
-                code: customError.code,
-                error: customError.error,
+                code: isCustom.code,
+                error: isCustom.error,
             });
-            return res.status(customError.code).json({ error: customError.error });
+            return res.status(isCustom.code).json({ error: isCustom.error });
         }
 
         logger.error('Unexpected level v2 conversion error for ' + req.params.fileId + ':', error);
@@ -487,16 +485,14 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             return;
         }
 
-        const isCustom =
-            error && typeof error === 'object' && 'code' in error && 'error' in error;
-        if (isCustom) {
-            const customError = error as { code: number; error: string };
+        const httpError = asRouteHttpError(error);
+        if (httpError) {
             logger.debug('Level transform request rejected', {
                 fileId: req.params.fileId,
-                code: customError.code,
-                error: customError.error,
+                code: httpError.code,
+                error: httpError.error,
             });
-            return res.status(customError.code).json({ error: customError.error });
+            return res.status(httpError.code).json({ error: httpError.error });
         }
 
         const message = error instanceof Error ? error.message : String(error);
@@ -588,14 +584,12 @@ router.get('/transform-options', async (req: Request, res: Response) => {
             version: cacheData.settings?.version
         });
     } catch (error) {
-        // Handle custom error objects with code
-        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
-            const customError = error as { code: number; error: string };
-            return res.status(customError.code).json({ error: customError.error });
-        } else {
+        const httpError = asRouteHttpError(error);
+        if (httpError) {
+            return res.status(httpError.code).json({ error: httpError.error });
+        }
         logger.error('Unexpected error getting transform options for ' + req.query.fileId + ':', error);
         return res.status(500).json({ error: 'Unexpected error getting transform options' });
-    }
     }
 });
 export default router;
