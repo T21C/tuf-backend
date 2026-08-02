@@ -211,7 +211,7 @@ router.get(
     operationId: 'getAdminRatingZenDeal',
     summary: 'Deal a Zen Mode rating deck',
     description:
-      'Returns a finite snapshot deck for Zen Mode (unrated by user, <4 manager votes, exclude VOTE). Query: deckSize, onlyLowDiff, sort, order. Uncached.',
+      'Returns a finite snapshot deck for Zen Mode (unrated by user, <4 manager votes, exclude VOTE). Query: deckSize, onlyLowDiff, sort, order, randomness (0–100; 0 = strict sort order, 100 = uniform across pool). Uncached.',
     tags: ['Admin', 'Rating'],
     responses: { 200: { description: 'Zen deck' }, ...standardErrorResponses },
   }),
