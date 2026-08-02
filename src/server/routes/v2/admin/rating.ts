@@ -37,8 +37,12 @@ import {
   buildSlimListRowByRatingId,
   getRatingListPage,
   parseRatingListQuery,
-  pruneLevelForRatingBroadcast,
 } from '@/server/services/ratings/ratingListService.js';
+import {
+  dealZenDeck,
+  parseZenDealOptions,
+  sendZenMediaReport,
+} from '@/server/services/ratings/zenRatingService.js';
 
 const router: Router = Router();
 
@@ -196,6 +200,105 @@ router.get(
     } catch (error) {
       logger.error('Error fetching ratings:', error);
       return res.status(500).json({ error: 'Internal Server Error' });
+    }
+  }
+);
+
+router.get(
+  '/zen/deal',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getAdminRatingZenDeal',
+    summary: 'Deal a Zen Mode rating deck',
+    description:
+      'Returns a finite snapshot deck for Zen Mode (unrated by user, <4 manager votes, exclude VOTE). Query: deckSize, onlyLowDiff, sort, order. Uncached.',
+    tags: ['Admin', 'Rating'],
+    responses: { 200: { description: 'Zen deck' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+      if (hasFlag(user, permissionFlags.RATING_BANNED)) {
+        return res.status(403).json({ error: 'User is banned from rating' });
+      }
+
+      const query = (req.query || {}) as Record<string, unknown>;
+      try {
+        parseZenDealOptions(query);
+      } catch (e: any) {
+        return res.status(e?.status || 400).json({ error: e?.message || 'Invalid deal options' });
+      }
+
+      const deck = await dealZenDeck(user.id, query);
+      return res.json(deck);
+    } catch (error) {
+      logger.error('Error dealing Zen deck:', error);
+      return res.status(500).json({ error: 'Failed to deal Zen deck' });
+    }
+  }
+);
+
+router.post(
+  '/zen/report',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postAdminRatingZenReport',
+    summary: 'Report bad media from Zen Mode',
+    description: 'Sends a Discord webhook report for a Zen Mode card (ratingId, levelId, optional note).',
+    tags: ['Admin', 'Rating'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'ratingId, levelId, note',
+      schema: {
+        type: 'object',
+        properties: {
+          ratingId: { type: 'integer' },
+          levelId: { type: 'integer' },
+          note: { type: 'string' },
+        },
+        required: ['ratingId', 'levelId'],
+      },
+      required: true,
+    },
+    responses: { 200: { description: 'Report delivered' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+      if (hasFlag(user, permissionFlags.RATING_BANNED)) {
+        return res.status(403).json({ error: 'User is banned from rating' });
+      }
+
+      const ratingId = Number(req.body?.ratingId);
+      const levelId = Number(req.body?.levelId);
+      if (!Number.isFinite(ratingId) || ratingId <= 0 || !Number.isFinite(levelId) || levelId <= 0) {
+        return res.status(400).json({ error: 'ratingId and levelId are required' });
+      }
+
+      await sendZenMediaReport({
+        reporterId: user.id,
+        reporterName: user.nickname || user.username || user.id,
+        reporterAvatarUrl: user.avatarUrl,
+        reporterPlayerId: user.playerId ?? null,
+        ratingId,
+        levelId,
+        note: typeof req.body?.note === 'string' ? req.body.note : undefined,
+      });
+
+      return res.json({ ok: true, delivered: true });
+    } catch (error: any) {
+      const status = error?.status || 500;
+      if (status === 503) {
+        return res.status(503).json({ error: 'Report webhook is not configured', delivered: false });
+      }
+      logger.error('Error sending Zen media report:', error);
+      return res.status(500).json({ error: 'Failed to send report' });
     }
   }
 );
