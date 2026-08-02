@@ -1,5 +1,15 @@
 import { Webhook, MessageBuilder } from '@/misc/webhook/index.js';
+import { clientUrlEnv } from '@/config/app.config.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import Level from '@/models/levels/Level.js';
+import Difficulty from '@/models/levels/Difficulty.js';
+import Song from '@/models/songs/Song.js';
+import {
+  getArtistDisplayName,
+  getSongDisplayName,
+  getSongName,
+} from '@/misc/utils/data/levelHelpers.js';
+import { getPrimaryVideoLink } from '@/misc/utils/data/videoLinkParts.js';
 import {
   buildCompleteRatingById,
   getRatingListPage,
@@ -110,9 +120,22 @@ export async function dealZenDeck(
 
 const MAX_REPORT_NOTE_LENGTH = 500;
 
+function formatZenLevelTitle(level: Level): string {
+  const artist = getArtistDisplayName(level) || level.artist || 'Unknown Artist';
+  const songBase = getSongDisplayName(level) || getSongName(level) || level.song || 'Unknown Song';
+  // getSongDisplayName only appends suffix when songObject is present; ensure suffix always shows.
+  const song =
+    level.suffix && !songBase.includes(level.suffix)
+      ? `${songBase} ${level.suffix}`.trim()
+      : songBase;
+  return `${artist} - ${song}`;
+}
+
 export async function sendZenMediaReport(opts: {
   reporterId: string;
   reporterName: string;
+  reporterAvatarUrl?: string | null;
+  reporterPlayerId?: number | null;
   ratingId: number;
   levelId: number;
   note?: string;
@@ -130,10 +153,8 @@ export async function sendZenMediaReport(opts: {
       ? opts.note.trim().slice(0, MAX_REPORT_NOTE_LENGTH)
       : '';
 
-  const siteUrl = (process.env.FRONTEND_URL || process.env.CLIENT_URL || '').replace(
-    /\/$/,
-    ''
-  );
+  const siteUrl = String(clientUrlEnv || '').replace(/\/$/, '');
+
   const levelLink = siteUrl
     ? `${siteUrl}/levels/${opts.levelId}`
     : `/levels/${opts.levelId}`;
@@ -141,20 +162,63 @@ export async function sendZenMediaReport(opts: {
     ? `${siteUrl}/rating#${opts.levelId}`
     : `/rating#${opts.levelId}`;
 
+  const profilePath = opts.reporterPlayerId
+    ? `/profile/${opts.reporterPlayerId}`
+    : `/profile/${opts.reporterId}`;
+  const profileUrl = siteUrl ? `${siteUrl}${profilePath}` : profilePath;
+
+  const level = await Level.findByPk(opts.levelId, {
+    include: [
+      { model: Difficulty, as: 'difficulty', required: false },
+      { model: Song, as: 'songObject', required: false },
+    ],
+  });
+
+  const title = level
+    ? formatZenLevelTitle(level)
+    : `Level #${opts.levelId}`;
+  const difficultyName = level?.difficulty?.name || 'Unknown';
+  const clears = typeof level?.clears === 'number' ? level.clears : null;
+  const videoLink = level?.videoLink ? getPrimaryVideoLink(level.videoLink) : '';
+
+  const botAvatar = process.env.BOT_AVATAR_URL || '';
+  const hook = new Webhook({ url: webhookUrl, throwErrors: true });
+  hook.setUsername('Zen Mode media report');
+  if (botAvatar) {
+    hook.setAvatar(botAvatar);
+  }
+
   const embed = new MessageBuilder()
-    .setTitle('Zen Mode media report')
+    .setAuthor(
+      opts.reporterName,
+      opts.reporterAvatarUrl || '',
+      profileUrl
+    )
+    .setTitle(title)
+    .setURL(levelLink)
+    .setThumbnail(level?.difficulty?.icon || '')
     .setColor(0xdc3545)
     .setTimestamp()
-    .addField('Reporter', `${opts.reporterName} (\`${opts.reporterId}\`)`, false)
-    .addField('Rating ID', String(opts.ratingId), true)
-    .addField('Level ID', String(opts.levelId), true)
-    .addField('Level', levelLink, false)
-    .addField('Queue link', ratingLink, false);
+    .addField(
+      `Level #${opts.levelId}`,
+      [
+        `Difficulty: **${difficultyName}**`,
+        clears != null ? `Clears: **${clears}**` : null,
+        videoLink ? `Video: ${videoLink}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      false
+    )
+    .addField(
+      'Links',
+      `Level: ${levelLink}\nRating: ${ratingLink}`,
+      false
+    );
 
   if (note) {
     embed.addField('Note', note, false);
   }
 
-  const hook = new Webhook({ url: webhookUrl, throwErrors: true });
   await hook.send(embed);
 }

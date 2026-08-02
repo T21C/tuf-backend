@@ -284,6 +284,8 @@ router.post(
       await sendZenMediaReport({
         reporterId: user.id,
         reporterName: user.nickname || user.username || user.id,
+        reporterAvatarUrl: user.avatarUrl,
+        reporterPlayerId: user.playerId ?? null,
         ratingId,
         levelId,
         note: typeof req.body?.note === 'string' ? req.body.note : undefined,
