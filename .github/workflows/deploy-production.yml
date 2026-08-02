@@ -34,9 +34,23 @@ jobs:
           npm test
           npm run build
 
+      - name: Decide Sentry upload
+        id: sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_SKIP_UPLOAD: ${{ vars.SENTRY_SKIP_UPLOAD }}
+        run: |
+          set -euo pipefail
+          # secrets.* cannot be referenced in if: expressions; gate via step output instead.
+          if [[ "${SENTRY_SKIP_UPLOAD}" == "true" || -z "${SENTRY_AUTH_TOKEN}" ]]; then
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # Prefer omitting empty SENTRY_URL — empty string breaks sentry-cli ("unknown scheme ()").
       - name: Configure Sentry URL
-        if: ${{ vars.SENTRY_SKIP_UPLOAD != 'true' && secrets.SENTRY_AUTH_TOKEN != '' }}
+        if: steps.sentry.outputs.upload == 'true'
         run: |
           if [[ -n "${{ vars.SENTRY_URL }}" ]]; then
             echo "SENTRY_URL=${{ vars.SENTRY_URL }}" >> "$GITHUB_ENV"
@@ -46,7 +60,7 @@ jobs:
           fi
 
       - name: Create Sentry release and upload sourcemaps
-        if: ${{ vars.SENTRY_SKIP_UPLOAD != 'true' && secrets.SENTRY_AUTH_TOKEN != '' }}
+        if: steps.sentry.outputs.upload == 'true'
         uses: getsentry/action-release@v3
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
