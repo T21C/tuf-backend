@@ -7,7 +7,9 @@ import {
   passwordUtils,
   refreshTokenService,
   cookieUtils,
+  tokenUtils,
 } from '@/misc/utils/auth/auth.js';
+import { buildAuthProfileUser } from '@/server/services/auth/authProfileSerializer.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import CaptchaService from '@/server/services/accounts/CaptchaService.js';
 import { RateLimiter } from '@/server/decorators/rateLimiter.js';
@@ -33,6 +35,7 @@ import {
   rateLimitSubjectAccount,
 } from '@/misc/utils/auth/rateLimitSubjects.js';
 import { STEP_UP_TTL_SEC } from '@/config/auth.config.js';
+import { isAllowedCorsOrigin } from '@/config/app.config.js';
 import { securityNotificationService } from '@/server/services/accounts/SecurityNotificationService.js';
 import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
 
@@ -96,6 +99,21 @@ function mapCredentialError(error: unknown, res: Response, fallback: string): Re
   }
   logger.error(fallback, error);
   return res.status(500).json({ message: fallback });
+}
+
+/**
+ * Rotating the refresh cookie is a state change, and GET is exempt from the CSRF
+ * middleware, so /auth/session must refuse to rotate for cross-site callers.
+ * Without this an attacker page could force rotations and race the victim into a
+ * dead refresh token. Requests with no browser metadata at all are non-browser
+ * clients, which carry no ambient cookies to forge with.
+ */
+function mayRotateRefreshOnGet(req: Request): boolean {
+  const origin = req.get('origin');
+  if (origin) return isAllowedCorsOrigin(origin);
+  const site = req.get('sec-fetch-site');
+  if (!site) return true;
+  return site === 'same-origin' || site === 'same-site';
 }
 
 class AuthController {
@@ -692,6 +710,73 @@ class AuthController {
   public async getCsrf(req: Request, res: Response): Promise<Response> {
     const csrfToken = cookieUtils.ensureCsrfToken(req, res);
     return res.json({ csrfToken });
+  }
+
+  /**
+   * Combined SPA boot: CSRF + optional silent refresh + rich profile in one GET.
+   * Always 200 with user:null when anonymous (never 401 for logged-out).
+   */
+  public async getSession(req: Request, res: Response): Promise<Response> {
+    // Carries the profile and rotates cookies — must never sit in a shared cache.
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      let userId: string | null = null;
+      let rotatedCsrf: string | null = null;
+
+      const accessToken =
+        (typeof req.cookies?.accessToken === 'string' && req.cookies.accessToken) ||
+        (req.headers.authorization?.startsWith('Bearer ')
+          ? req.headers.authorization.slice(7)
+          : null);
+
+      if (accessToken) {
+        try {
+          const decoded = tokenUtils.verifyAccessToken(accessToken);
+          const sessionId = typeof decoded?.sid === 'string' ? decoded.sid : null;
+          if (
+            decoded?.id &&
+            sessionId &&
+            (await refreshTokenService.isSessionActive(sessionId, decoded.id))
+          ) {
+            userId = decoded.id;
+          }
+        } catch {
+          // Expired/invalid access — try refresh below.
+        }
+      }
+
+      if (!userId && mayRotateRefreshOnGet(req)) {
+        const refreshTokenValue = req.cookies?.refreshToken;
+        if (refreshTokenValue) {
+          const reqIp = parseClientIp(req);
+          const rotated = await refreshTokenService.rotateRefreshToken(refreshTokenValue, {
+            userAgent: req.get('user-agent'),
+            ip: reqIp,
+          });
+          if (rotated) {
+            await sessionIssuanceService.reissueForSession(
+              rotated.user,
+              rotated.sessionId,
+              rotated.token,
+              res,
+            );
+            userId = rotated.user.id;
+            // setAuthCookies minted a new CSRF token; req.cookies still holds the
+            // old one, so echo the rotated value instead of the stale request cookie.
+            const header = res.getHeader('X-CSRF-Token');
+            rotatedCsrf = typeof header === 'string' ? header : null;
+          }
+        }
+      }
+
+      const csrfToken = rotatedCsrf ?? cookieUtils.ensureCsrfToken(req, res);
+      const user = userId ? await buildAuthProfileUser(userId) : null;
+      return res.json({ user, csrfToken });
+    } catch (error) {
+      logger.error('Session bootstrap error:', error);
+      const csrfToken = cookieUtils.ensureCsrfToken(req, res);
+      return res.status(200).json({ user: null, csrfToken });
+    }
   }
 
   public async getSessions(req: Request, res: Response): Promise<Response> {

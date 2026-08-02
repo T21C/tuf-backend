@@ -263,6 +263,30 @@ router.get(
   (req, res) => authController.getCsrf(req, res)
 );
 router.get(
+  '/session',
+  ApiDoc({
+    operationId: 'getAuthSession',
+    summary: 'Bootstrap SPA auth session',
+    description:
+      'Ensure CSRF, silently refresh when access is expired, and return the rich profile (or user:null). Always 200 for anonymous clients.',
+    tags: ['Auth'],
+    responses: {
+      200: {
+        description: 'Session bootstrap payload',
+        schema: {
+          type: 'object',
+          properties: {
+            user: { type: 'object', nullable: true },
+            csrfToken: { type: 'string' },
+          },
+          required: ['csrfToken'],
+        },
+      },
+    },
+  }),
+  (req, res) => authController.getSession(req, res)
+);
+router.get(
   '/sessions',
   Auth.user(),
   ApiDoc({

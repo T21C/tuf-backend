@@ -24,6 +24,25 @@ const SITE_NAME = 'The Universal Forums';
 const DEFAULT_DESCRIPTION =
   'A community specialized in custom levels & clears of A Dance of Fire and Ice.';
 
+/** Early credentialed session fetch — races SPA module load (HTML is served from the API origin). */
+const AUTH_SESSION_BOOT_SCRIPT = `
+    <script>
+      (function () {
+        window.__TUF_AUTH_BOOT__ = fetch('/v2/auth/session', {
+          credentials: 'include',
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
+        })
+          .then(function (r) {
+            return r.ok ? r.json() : null;
+          })
+          .catch(function () {
+            return null;
+          });
+      })();
+    </script>
+`;
+
 const levelSongInclude = {
   model: Song,
   as: 'songObject',
@@ -123,7 +142,6 @@ const getBaseHtml = async (clientUrl: string) => {
             window.__vite_plugin_react_preamble_installed__ = true
           </script>
           <script type="module" src="${clientUrl}/@vite/client"></script>
-          <script type="module" src="${clientUrl}/src/main.jsx"></script>
         </head>
         <style>
           .background {
@@ -146,6 +164,8 @@ const getBaseHtml = async (clientUrl: string) => {
         <body>
           <div class="background"></div>
           <div id="root"></div>
+          ${AUTH_SESSION_BOOT_SCRIPT}
+          <script type="module" src="${clientUrl}/src/main.jsx"></script>
         </body>
       </html>
     `;
@@ -194,7 +214,6 @@ const getBaseHtml = async (clientUrl: string) => {
 
         ${modulePreloads}
         ${cssLinks}
-        ${jsScripts}
       </head>
             <style>
         .background {
@@ -221,6 +240,8 @@ const getBaseHtml = async (clientUrl: string) => {
       <body>
         <div class="background"></div>
         <div class="root" id="root"></div>
+        ${AUTH_SESSION_BOOT_SCRIPT}
+        ${jsScripts}
       </body>
     </html>
   `;
