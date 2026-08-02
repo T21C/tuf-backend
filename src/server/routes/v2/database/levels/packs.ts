@@ -53,6 +53,21 @@ const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
 const CDN_METADATA_BATCH_SIZE = 100; // Batch CDN metadata requests to prevent OOM
 const PACK_CDN_METADATA_BATCH_TIMEOUT_MS = 15_000;
+const PACK_DESCRIPTION_MAX_LENGTH = 2000;
+
+/** Trim pack description; blank → null. Throws { error, code: 400 } if invalid. */
+function normalizePackDescription(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') {
+    throw { error: 'Pack description must be a string', code: 400 };
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.length > PACK_DESCRIPTION_MAX_LENGTH) {
+    throw { error: `Pack description cannot exceed ${PACK_DESCRIPTION_MAX_LENGTH} characters`, code: 400 };
+  }
+  return trimmed;
+}
 
 async function resolvePackQuotaForUser(user: NonNullable<Request['user']>): Promise<{ maxPacks: number; maxItems: number }> {
   if (hasFlag(user, permissionFlags.SUPER_ADMIN)) {
@@ -988,10 +1003,10 @@ router.post(
   ApiDoc({
     operationId: 'postPack',
     summary: 'Create pack',
-    description: 'Create a new level pack. Name required; viewMode, iconUrl, cssFlags, isPinned optional.',
+    description: 'Create a new level pack. Name required; description, viewMode, iconUrl, cssFlags, isPinned optional.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    requestBody: { description: 'name, iconUrl, cssFlags, viewMode, isPinned', schema: { type: 'object', properties: { name: { type: 'string' }, iconUrl: { type: 'string' }, cssFlags: { type: 'integer' }, viewMode: { type: 'integer' }, isPinned: { type: 'boolean' } }, required: ['name'] }, required: true },
+    requestBody: { description: 'name, description, iconUrl, cssFlags, viewMode, isPinned', schema: { type: 'object', properties: { name: { type: 'string' }, description: { type: 'string', maxLength: 2000 }, iconUrl: { type: 'string' }, cssFlags: { type: 'integer' }, viewMode: { type: 'integer' }, isPinned: { type: 'boolean' } }, required: ['name'] }, required: true },
     responses: { 201: { description: 'Pack created' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
@@ -999,7 +1014,7 @@ router.post(
 
   try {
     transaction = await sequelize.transaction();
-    const { name, iconUrl, cssFlags, viewMode, isPinned } = req.body;
+    const { name, description, iconUrl, cssFlags, viewMode, isPinned } = req.body;
     if (viewMode === LevelPackViewModes.FORCED_PRIVATE) {
       throw { error: 'Forced private packs are not allowed to be created', code: 400 };
     }
@@ -1083,9 +1098,14 @@ router.post(
       linkCode = extendedCode;
     }
 
+    const normalizedDescription = description !== undefined
+      ? normalizePackDescription(description)
+      : null;
+
     const pack = await LevelPack.create({
       ownerId: queriedUser!.id,
       name: name.trim(),
+      description: normalizedDescription,
       iconUrl: iconUrl || null,
       cssFlags: cssFlags || 0,
       viewMode: finalViewMode,
@@ -1120,11 +1140,11 @@ router.put(
   ApiDoc({
     operationId: 'putPack',
     summary: 'Update pack',
-    description: 'Update pack name, viewMode, cssFlags, isPinned (admin for some fields).',
+    description: 'Update pack name, description, viewMode, cssFlags, isPinned (admin for some fields).',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
-    requestBody: { description: 'name, cssFlags, viewMode, isPinned', schema: { type: 'object', properties: { name: { type: 'string' }, cssFlags: { type: 'integer' }, viewMode: { type: 'integer' }, isPinned: { type: 'boolean' } } }, required: true },
+    requestBody: { description: 'name, description, cssFlags, viewMode, isPinned', schema: { type: 'object', properties: { name: { type: 'string' }, description: { type: 'string', maxLength: 2000 }, cssFlags: { type: 'integer' }, viewMode: { type: 'integer' }, isPinned: { type: 'boolean' } } }, required: true },
     responses: { 200: { description: 'Pack updated' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
@@ -1146,7 +1166,7 @@ router.put(
       throw { error: 'Access denied', code: 403 };
     }
 
-    const { name, cssFlags, viewMode, isPinned } = req.body;
+    const { name, description, cssFlags, viewMode, isPinned } = req.body;
     const updateData: any = {};
 
     if (viewMode === LevelPackViewModes.FORCED_PRIVATE && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
@@ -1158,6 +1178,10 @@ router.put(
         throw { error: 'Pack name cannot be empty', code: 400 };
       }
       updateData.name = name.trim();
+    }
+
+    if (description !== undefined) {
+      updateData.description = normalizePackDescription(description);
     }
 
     if (cssFlags !== undefined) updateData.cssFlags = cssFlags;

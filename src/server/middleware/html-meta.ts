@@ -459,8 +459,13 @@ export const htmlMetaMiddleware = async (
         const owner = await User.findByPk(pack.ownerId);
         const ownerName = escapeHtml(owner?.nickname || owner?.username || 'Unknown Owner');
         const pageTitle = escapeHtml(packName);
+        const rawPackDescription = typeof pack.description === 'string' ? pack.description.trim() : '';
+        const truncatedPackDescription = rawPackDescription.length > 200
+          ? `${rawPackDescription.slice(0, 197)}...`
+          : rawPackDescription;
         const pageDescription = escapeHtml(
-          `Level pack ${packName} by ${ownerName} on ${SITE_NAME}`,
+          truncatedPackDescription
+            || `Level pack ${pack.name} by ${owner?.nickname || owner?.username || 'Unknown Owner'} on ${SITE_NAME}`,
         );
         const canonicalPath = `/packs/${pack.linkCode}`;
         const pageUrl = `${clientUrlEnv}${canonicalPath}`;
