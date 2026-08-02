@@ -56,6 +56,10 @@ WORKDIR /app
 COPY --from=build --chown=tuf:tuf /app/package.json ./
 COPY --from=build --chown=tuf:tuf /app/node_modules ./node_modules
 COPY --from=build --chown=tuf:tuf /app/dist ./dist
+# Sequelize CLI assets (deploy one-shot runs sequelize-cli db:migrate)
+COPY --chown=tuf:tuf .sequelizerc ./
+COPY --chown=tuf:tuf src/config/config.cjs ./src/config/config.cjs
+COPY --chown=tuf:tuf src/database/migrations ./src/database/migrations
 
 USER 10001:10001
 CMD ["node", "dist/app.js"]
