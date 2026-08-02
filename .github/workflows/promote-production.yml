@@ -54,4 +54,4 @@ jobs:
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           ssh -i ~/.ssh/id_ed25519 tuf-deploy@tuf-main-server \
-            "sudo /usr/local/sbin/tuf-deploy-backend '$IMAGE_TAG'"
+            "sudo /srv/tuf/infra/bin/tuf-deploy-backend '$IMAGE_TAG'"

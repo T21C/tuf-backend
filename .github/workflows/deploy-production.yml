@@ -34,9 +34,24 @@ jobs:
           npm test
           npm run build
 
+      - name: Decide Sentry upload
+        id: sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_SKIP_UPLOAD: ${{ vars.SENTRY_SKIP_UPLOAD }}
+        run: |
+          set -euo pipefail
+          # secrets.* cannot be referenced in if: expressions; gate via step output instead.
+          if [[ "${SENTRY_SKIP_UPLOAD}" == "true" || -z "${SENTRY_AUTH_TOKEN}" ]]; then
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # Prefer omitting empty SENTRY_URL — empty string breaks sentry-cli ("unknown scheme ()").
       # Note: `secrets` cannot be referenced in `if:` — gate with vars only; missing token fails the action.
       - name: Configure Sentry URL
+
         if: ${{ vars.SENTRY_SKIP_UPLOAD != 'true' }}
         run: |
           if [[ -n "${{ vars.SENTRY_URL }}" ]]; then
@@ -47,7 +62,9 @@ jobs:
           fi
 
       - name: Create Sentry release and upload sourcemaps
+
         if: ${{ vars.SENTRY_SKIP_UPLOAD != 'true' }}
+
         uses: getsentry/action-release@v3
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -108,4 +125,4 @@ jobs:
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/id_ed25519 tuf-deploy@tuf-main-server \
-            "sudo /usr/local/sbin/tuf-deploy-backend '${{ github.sha }}'"
+            "sudo /srv/tuf/infra/bin/tuf-deploy-backend '${{ github.sha }}'"
