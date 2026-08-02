@@ -6,6 +6,10 @@ import {
   isElasticsearchOutgoingUrl,
   isOrphanElasticsearchClientTransaction,
 } from './elasticsearchNoise.js';
+import {
+  isOrphanRedisTransaction,
+  redisNoiseIgnoreSpans,
+} from './redisNoise.js';
 
 let sentryEnabled = false;
 
@@ -63,13 +67,18 @@ export function initSentry(): void {
     integrations: (defaults) => {
       const filtered = defaults.filter(
         (integration) =>
-          // Redis: CDC XREADGROUP / cache noise
+          // Replace default Redis with cachePrefixes + keep stream noise in ignoreSpans
           integration.name !== 'Redis' &&
           // Replace default Http with ES-aware ignore list below
           integration.name !== 'Http',
       );
       return [
         ...filtered,
+        // Cache GET/SET under HTTP traces; XREADGROUP/etc stay dropped via ignoreSpans.
+        Sentry.redisIntegration({
+          // HTTP Cache() keys: `cache:…`, `admin:ratings:…`
+          cachePrefixes: ['cache:', 'admin:'],
+        }),
         Sentry.httpIntegration({
           // Drop raw http.client to ES (health, HEAD exists, sniff, _search transport).
           // High-level db.elasticsearch spans still come from clientSpanProxy.
@@ -77,12 +86,7 @@ export function initSentry(): void {
         }),
       ];
     },
-    ignoreSpans: [
-      { op: 'db.redis' },
-      { op: 'db.redis.connect' },
-      { op: /^db\.redis/ },
-      { name: /^redis[.-]/i },
-    ],
+    ignoreSpans: [...redisNoiseIgnoreSpans()],
     tracePropagationTargets: buildTracePropagationTargets(),
     tracesSampler: (samplingContext) => {
       const path = extractPathFromSamplingContext(samplingContext);
@@ -90,7 +94,9 @@ export function initSentry(): void {
       if (isTraceDenylistedPath(path) || isTraceDenylistedPath(name)) {
         return 0;
       }
-      if (/^redis[.-]/i.test(name) || (/\bredis\b/i.test(name) && /xread|sadd|get|set|publish/i.test(name))) {
+      // Never start a root transaction for background Redis (CDC streams, pub/sub).
+      // Cache ops still appear as child spans under http.server.
+      if (isOrphanRedisTransaction(name)) {
         return 0;
       }
       if (isOrphanElasticsearchClientTransaction(name)) {
@@ -103,7 +109,7 @@ export function initSentry(): void {
     },
     beforeSendTransaction(event) {
       const tx = (event as { transaction?: string }).transaction || '';
-      if (/^redis[.-]/i.test(tx) || (/redis/i.test(tx) && !/http\.(server|client)/i.test(tx))) {
+      if (isOrphanRedisTransaction(tx)) {
         return null;
       }
       if (isOrphanElasticsearchClientTransaction(tx)) {

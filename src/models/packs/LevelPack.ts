@@ -8,6 +8,7 @@ export interface ILevelPack {
   id: number;
   ownerId: string;
   name: string;
+  description: string | null;
   iconUrl: string | null;
   cssFlags: number;
   isPinned: boolean;
@@ -22,7 +23,7 @@ export interface ILevelPack {
 type LevelPackAttributes = ILevelPack;
 type LevelPackCreationAttributes = Optional<
   LevelPackAttributes,
-  'id' | 'createdAt' | 'updatedAt' | 'linkCode' | 'favoritesCount' | 'levelCount'
+  'id' | 'description' | 'createdAt' | 'updatedAt' | 'linkCode' | 'favoritesCount' | 'levelCount'
 >;
 
 class LevelPack
@@ -32,6 +33,7 @@ class LevelPack
   declare id: number;
   declare ownerId: string;
   declare name: string;
+  declare description: string | null;
   declare iconUrl: string | null;
   declare cssFlags: number;
   declare isPinned: boolean;
@@ -62,6 +64,11 @@ LevelPack.init(
       type: DataTypes.STRING,
       allowNull: false,
       comment: 'Name of the level pack',
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'Optional plain-text description of the pack',
     },
     iconUrl: {
       type: DataTypes.STRING,

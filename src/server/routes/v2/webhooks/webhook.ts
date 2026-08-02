@@ -656,7 +656,9 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
     return new MessageBuilder().setDescription('No level info available');
   const level = levelSubmission.dataValues as LevelSubmission;
 
-  const song = level?.song || null;
+  const songBase = level?.song || null;
+  const song =
+    songBase && level?.suffix ? `${songBase} ${level.suffix}` : songBase;
   const diff = level?.diff || null;
   const artist = level?.artist || null;
   const videoLink = level?.videoLink || null;
