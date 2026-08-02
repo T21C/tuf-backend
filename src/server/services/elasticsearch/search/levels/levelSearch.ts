@@ -207,6 +207,11 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       must.push(idsQuery(filters.likedLevelIds));
     }
 
+    // Rating queue: Level.toRate (do not use indexed `rating` — that is confirmed-only)
+    if (filters.toRate === true || filters.toRate === 'true') {
+      must.push(termField('toRate', true));
+    }
+
     // Handle difficulty filters
     if (filters.pguRange || filters.specialDifficulties) {
       const difficultyConditions = [];
@@ -313,6 +318,78 @@ export async function searchLevelIds(
   return hits
     .map((hit) => Number(hit.id))
     .filter((id) => Number.isFinite(id) && id > 0);
+}
+
+/**
+ * Resolve level IDs matching text search within a known id set (e.g. pending rating queue).
+ * Bypasses {@link searchLevels}' public page `limit` cap of 100 — uses size up to the set length
+ * (max {@link LEVEL_ID_FILTER_CAP}). Always requires `toRate: true` and restricts via `ids` query.
+ */
+export async function searchLevelIdsInSet(
+  query: string,
+  levelIds: number[],
+  filters: { excludeAliases?: boolean | string } = {},
+): Promise<number[]> {
+  const unique = [...new Set(levelIds)].filter((id) => id != null && id > 0);
+  if (unique.length === 0) {
+    return [];
+  }
+
+  const normalized = normalizeLevelSearchQuery(query);
+  if (!normalized.ok || !normalized.query) {
+    return [];
+  }
+
+  let q = normalized.query;
+  if (q.length > 255) {
+    q = q.substring(0, 255);
+  }
+
+  const must: any[] = [
+    idsQuery(unique),
+    termField('toRate', true),
+    termField('isDeleted', false),
+    termField('isHidden', false),
+  ];
+  const should: any[] = [];
+
+  const searchGroups = parseSearchQueryWithPUA(q.trim(), false);
+  if (searchGroups.length > 0) {
+    const excludeAliases = filters.excludeAliases === true || filters.excludeAliases === 'true';
+    for (const group of searchGroups) {
+      const andConditions = group.terms.map((term) => buildFieldSearchQuery(term, excludeAliases));
+      should.push(andConditions.length === 1 ? andConditions[0] : boolMust(andConditions));
+    }
+  }
+
+  if (should.length === 0) {
+    return [];
+  }
+
+  const size = Math.min(unique.length, LEVEL_ID_FILTER_CAP);
+  try {
+    const response = await client.search({
+      index: levelIndexName,
+      query: {
+        bool: {
+          must,
+          should,
+          minimum_should_match: 1,
+        },
+      },
+      from: 0,
+      size,
+      _source: false,
+      track_total_hits: false,
+    });
+
+    return response.hits.hits
+      .map((hit) => parseInt(String(hit._id), 10))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  } catch (error) {
+    logger.error('Error in searchLevelIdsInSet:', error);
+    throw error;
+  }
 }
 
 async function searchLevelsWithScroll(

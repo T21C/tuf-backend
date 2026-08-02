@@ -18,6 +18,7 @@ import {sseManager} from '@/misc/utils/server/sse.js';
 import LevelLikes from '@/models/levels/LevelLikes.js';
 import User from '@/models/auth/User.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { buildLevelUpdateSseData } from '@/server/services/ratings/ratingListService.js';
 
 // Type assertion helper for req.user to User model
 const getUserModel = (user: any): User => user as User;
@@ -417,8 +418,10 @@ async function finalizePassScoreRecalc(
     );
   }
 
-  sseManager.broadcast({ type: 'ratingUpdate' });
-  sseManager.broadcast({ type: 'levelUpdate' });
+  sseManager.broadcast({
+    type: 'levelUpdate',
+    data: await buildLevelUpdateSseData(levelId),
+  });
   sseManager.broadcast({
     type: 'passUpdate',
     data: {
@@ -942,6 +945,15 @@ router.put(
       } else {
         await elasticsearchService.indexLevel(updatedLevel.id);
       }
+      try {
+        await CacheInvalidation.invalidateTag('admin:ratings');
+      } catch (cacheErr) {
+        logger.error('Error invalidating admin ratings cache after level update:', cacheErr);
+      }
+      sseManager.broadcast({
+        type: 'levelUpdate',
+        data: await buildLevelUpdateSseData(levelId),
+      });
     }
 
     return;
@@ -1028,9 +1040,10 @@ router.delete(
           await elasticsearchService.reindexPlayers(Array.from(affectedPlayerIds));
 
 
-            // Broadcast updates
-          sseManager.broadcast({type: 'levelUpdate'});
-          sseManager.broadcast({type: 'ratingUpdate'});
+          sseManager.broadcast({
+            type: 'levelUpdate',
+            data: await buildLevelUpdateSseData(levelId),
+          });
         } catch (error) {
           logger.error(
             'Error in async operations after level deletion:',
@@ -1087,12 +1100,15 @@ router.delete(
             await elasticsearchService.deleteLevel({ id } as Level);
           },
           broadcastAndInvalidate: async ({ levelId: lid, affectedPlayerIds }) => {
-            sseManager.broadcast({ type: 'levelUpdate' });
-            sseManager.broadcast({ type: 'ratingUpdate' });
+            sseManager.broadcast({
+              type: 'levelUpdate',
+              data: { levelId: lid, level: null },
+            });
             await CacheInvalidation.invalidateTags([
               `level:${lid}`,
               'levels:all',
               'Passes',
+              'admin:ratings',
             ]);
             if (affectedPlayerIds.length > 0) {
               await elasticsearchService.reindexPlayers(affectedPlayerIds);
@@ -1194,8 +1210,10 @@ router.patch(
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       (async () => {
         try {
-          sseManager.broadcast({type: 'levelUpdate'});
-          sseManager.broadcast({type: 'ratingUpdate'});
+          sseManager.broadcast({
+            type: 'levelUpdate',
+            data: await buildLevelUpdateSseData(parseInt(id, 10)),
+          });
           // Reindex only players who have passes on this restored level
           const affectedPasses = await Pass.findAll({
             where: {levelId: parseInt(id)},
@@ -1285,7 +1303,10 @@ router.patch(
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       (async () => {
         try {
-          sseManager.broadcast({type: 'levelUpdate'});
+          sseManager.broadcast({
+            type: 'levelUpdate',
+            data: await buildLevelUpdateSseData(parseInt(String(req.params.id), 10)),
+          });
         } catch (error) {
           logger.error('Error in async operations after toggle hidden:', error);
         }
@@ -1502,7 +1523,10 @@ router.patch(
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       (async () => {
         try {
-          sseManager.broadcast({type: 'levelUpdate'});
+          sseManager.broadcast({
+            type: 'levelUpdate',
+            data: await buildLevelUpdateSseData(levelId),
+          });
         } catch (error) {
           logger.error(
             'Error broadcasting after chart-stats patch:',
