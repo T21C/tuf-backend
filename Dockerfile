@@ -56,7 +56,9 @@ WORKDIR /app
 COPY --from=build --chown=tuf:tuf /app/package.json ./
 COPY --from=build --chown=tuf:tuf /app/node_modules ./node_modules
 COPY --from=build --chown=tuf:tuf /app/dist ./dist
-# Sequelize CLI assets (deploy one-shot runs sequelize-cli db:migrate)
+
+# Migrations are .cjs and outside the tsc include list, so they never reach dist/.
+# sequelize-cli resolves these three paths relative to WORKDIR through .sequelizerc.
 COPY --chown=tuf:tuf .sequelizerc ./
 COPY --chown=tuf:tuf src/config/config.cjs ./src/config/config.cjs
 COPY --chown=tuf:tuf src/database/migrations ./src/database/migrations
