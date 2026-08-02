@@ -107,4 +107,4 @@ jobs:
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/id_ed25519 tuf-deploy@tuf-main-server \
-            "sudo /usr/local/sbin/tuf-deploy-backend '${{ github.sha }}'"
+            "sudo /srv/tuf/infra/bin/tuf-deploy-backend '${{ github.sha }}'"
