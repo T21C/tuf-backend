@@ -1,18 +1,23 @@
-import {Auth} from '@/server/middleware/auth.js';
-import {ApiDoc} from '@/server/middleware/apiDoc.js';
-import { standardErrorResponses, standardErrorResponses401404500, standardErrorResponses500, stringIdParamSpec } from '@/server/schemas/v2/admin/index.js';
+import { Auth } from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import {
+  standardErrorResponses,
+  standardErrorResponses401404500,
+  standardErrorResponses500,
+  stringIdParamSpec,
+} from '@/server/schemas/v2/admin/index.js';
 import Rating from '@/models/levels/Rating.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import Level from '@/models/levels/Level.js';
-import {sseManager} from '@/misc/utils/server/sse.js';
+import { sseManager } from '@/misc/utils/server/sse.js';
 import sequelize from '@/config/db.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import User from '@/models/auth/User.js';
-import {Router, Request, Response, NextFunction} from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import Team from '@/models/credits/Team.js';
-import {TeamAlias} from '@/models/credits/TeamAlias.js';
+import { TeamAlias } from '@/models/credits/TeamAlias.js';
 import Creator from '@/models/credits/Creator.js';
-import {CreatorAlias} from '@/models/credits/CreatorAlias.js';
+import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import LevelAlias from '@/models/levels/LevelAlias.js';
 import Song from '@/models/songs/Song.js';
@@ -25,12 +30,21 @@ import { calculateAverageRating } from '@/misc/utils/data/RatingUtils.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
-import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
+import {
+  buildCompleteRatingById,
+  buildCompleteRatingByLevelId,
+  buildSlimListRowByRatingId,
+  getRatingListPage,
+  parseRatingListQuery,
+  pruneLevelForRatingBroadcast,
+} from '@/server/services/ratings/ratingListService.js';
+
 const router: Router = Router();
 
 const MAX_RATING_COMMENT_LENGTH = 10_000;
 
-/** Level includes for rating list/search (aliases for song, artist, creators, team). */
+/** Level includes for mutation / complete responses (aliases for song, artist, creators, team). */
 const ratingLevelSearchIncludes = [
   {
     model: LevelAlias,
@@ -111,7 +125,7 @@ const ratingLevelSearchIncludes = [
   },
 ];
 
-/** Reusable options for fetching a rating with full includes (level, details, difficulties). */
+/** Reusable options for fetching a rating with full includes after mutations. */
 function fullRatingIncludeOptions(transaction: any) {
   return {
     include: [
@@ -143,60 +157,104 @@ function fullRatingIncludeOptions(transaction: any) {
   };
 }
 
+async function broadcastRatingUpsert(ratingId: number, levelId: number) {
+  const listRow = await buildSlimListRowByRatingId(ratingId);
+  const complete = await buildCompleteRatingById(ratingId);
+  sseManager.broadcast({
+    type: 'ratingUpdate',
+    data: {
+      ratingId,
+      levelId,
+      action: listRow ? 'upsert' : 'remove',
+      listRow,
+      complete,
+    },
+  });
+}
 
 // Public read: the rating page renders for anonymous visitors, and signed-in
 // non-raters rate from it as community raters (see PUT /:id below).
 router.get(
   '/',
   Auth.addUserToRequest(),
-  Cache({
-    ttl: 300,
-    prefix: 'admin:ratings',
-    tags: ['admin:ratings', 'levels:all'],
-  }),
   ApiDoc({
     operationId: 'getAdminRatings',
-    summary: 'Unconfirmed ratings',
-    description: 'List ratings with null confirmedAt (pending confirmation). Cached; invalidated on rating updates.',
+    summary: 'Unconfirmed ratings (paged)',
+    description:
+      'Paged pending ratings (confirmedAt null, toRate true). Hybrid ES text search + MySQL filters. Cached public pages; hideRated uncached.',
     tags: ['Admin', 'Rating'],
-    responses: { 200: { description: 'Ratings list' }, ...standardErrorResponses500 },
+    responses: { 200: { description: 'Paged ratings list' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  try {
-    const ratings = await Rating.findAll({
-      where: {
-        confirmedAt: null
-      },
-      include: [
-        {
-          model: Level,
-          as: 'level',
-          where: {
-            isDeleted: false,
-            isHidden: false
-          },
-          include: [...ratingLevelSearchIncludes],
-        },
-        {
-          model: RatingDetail,
-          as: 'details',
-          include: [
-            {
-              model: User,
-              as: 'user',
-              attributes: ['id', 'username', 'nickname', 'avatarUrl'],
-            },
-          ],
-        },
-      ],
-      order: [['levelId', 'ASC']],
-    });
-
-    return res.json(ratings);
-  } catch (error) {
-    logger.error('Error fetching ratings:', error);
-    return res.status(500).json({error: 'Internal Server Error'});
+    try {
+      const params = parseRatingListQuery(
+        req.query as Record<string, unknown>,
+        req.user?.id ?? null
+      );
+      const page = await getRatingListPage(params);
+      return res.json(page);
+    } catch (error) {
+      logger.error('Error fetching ratings:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
   }
+);
+
+router.get(
+  '/by-level/:levelId',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getAdminRatingByLevelId',
+    summary: 'Pending rating by level id',
+    description: 'Fetch pending rating for a level. Pass completeObject=true for popup/deep-link payload.',
+    tags: ['Admin', 'Rating'],
+    params: { levelId: stringIdParamSpec },
+    responses: { 200: { description: 'Rating' }, ...standardErrorResponses401404500 },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const levelId = parseInt(String(req.params.levelId), 10);
+      if (!Number.isFinite(levelId) || levelId <= 0) {
+        return res.status(400).json({ error: 'Invalid level id' });
+      }
+      const rating = await buildCompleteRatingByLevelId(levelId);
+      if (!rating) {
+        return res.status(404).json({ error: 'Rating not found' });
+      }
+      return res.json(rating);
+    } catch (error) {
+      logger.error('Error fetching rating by level:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+  }
+);
+
+router.get(
+  '/:id',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getAdminRatingById',
+    summary: 'Rating by id',
+    description: 'Fetch a single rating. Pass completeObject=true for popup/deep-link payload with comments and users.',
+    tags: ['Admin', 'Rating'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Rating' }, ...standardErrorResponses401404500 },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(String(req.params.id), 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid rating id' });
+      }
+      const rating = await buildCompleteRatingById(id);
+      if (!rating) {
+        return res.status(404).json({ error: 'Rating not found' });
+      }
+      return res.json(rating);
+    } catch (error) {
+      logger.error('Error fetching rating by id:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
   }
 );
 
@@ -207,148 +265,159 @@ router.put(
   ApiDoc({
     operationId: 'putAdminRating',
     summary: 'Update rating',
-    description: 'Submit or update rating detail. Body: rating, comment?, isCommunityRating?. Verified; rater for non-community.',
+    description:
+      'Submit or update rating detail. Body: rating, comment?, isCommunityRating?. Verified; rater for non-community.',
     tags: ['Admin', 'Rating'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
-    requestBody: { description: 'rating, comment, isCommunityRating', schema: { type: 'object', properties: { rating: { type: 'string' }, comment: { type: 'string' }, isCommunityRating: { type: 'boolean' } } }, required: true },
+    requestBody: {
+      description: 'rating, comment, isCommunityRating',
+      schema: {
+        type: 'object',
+        properties: {
+          rating: { type: 'string' },
+          comment: { type: 'string' },
+          isCommunityRating: { type: 'boolean' },
+        },
+      },
+      required: true,
+    },
     responses: { 200: { description: 'Rating updated' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  let transaction: any;
+    let transaction: any;
 
-  try {
-    const {id} = req.params;
-    const {rating: ratingString, comment: commentString, isCommunityRating = false} = req.body;
+    try {
+      const { id } = req.params;
+      const {
+        rating: ratingString,
+        comment: commentString,
+        isCommunityRating = false,
+      } = req.body;
 
-    if (typeof commentString === 'string' && commentString.length > MAX_RATING_COMMENT_LENGTH) {
-      return res.status(400).json({error: `Comment must not exceed ${MAX_RATING_COMMENT_LENGTH} characters`});
-    }
+      if (typeof commentString === 'string' && commentString.length > MAX_RATING_COMMENT_LENGTH) {
+        return res
+          .status(400)
+          .json({ error: `Comment must not exceed ${MAX_RATING_COMMENT_LENGTH} characters` });
+      }
 
-    transaction = await sequelize.transaction();
-    const user = req.user;
-    const rating = typeof ratingString === 'string' ? ratingString.slice(0, 254) : '';
-    const comment = typeof commentString === 'string' ? commentString : '';
-    // Get user to check permissions
-    if (!user) {
-      await safeTransactionRollback(transaction);
-      return res.status(401).json({error: 'User not found'});
-    }
+      transaction = await sequelize.transaction();
+      const user = req.user;
+      const rating = typeof ratingString === 'string' ? ratingString.slice(0, 254) : '';
+      const comment = typeof commentString === 'string' ? commentString : '';
+      if (!user) {
+        await safeTransactionRollback(transaction);
+        return res.status(401).json({ error: 'User not found' });
+      }
 
-    // Check if user is banned from rating
-    if (hasFlag(user, permissionFlags.RATING_BANNED)) {
-      await safeTransactionRollback(transaction);
-      return res.status(403).json({error: 'User is banned from rating'});
-    }
+      if (hasFlag(user, permissionFlags.RATING_BANNED)) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({ error: 'User is banned from rating' });
+      }
 
-    // For non-community ratings, require rater permission
-    if (!isCommunityRating && !hasFlag(user, permissionFlags.RATER)) {
-      await safeTransactionRollback(transaction);
-      return res.status(403).json({error: 'User is not a rater'});
-    }
-    // If rating is empty or null, treat it as a deletion request
-    if (!rating || rating.trim() === '') {
-      // Delete the rating detail
-      await RatingDetail.destroy({
-        where: {
-          ratingId: id,
+      if (!isCommunityRating && !hasFlag(user, permissionFlags.RATER)) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({ error: 'User is not a rater' });
+      }
+
+      if (!rating || rating.trim() === '') {
+        await RatingDetail.destroy({
+          where: {
+            ratingId: id,
+            userId: user.id,
+          },
+          transaction,
+        });
+
+        const details = await RatingDetail.findAll({
+          where: { ratingId: id },
+          transaction,
+        });
+
+        const averageDifficulty = await calculateAverageRating(details, transaction);
+        const communityDifficulty = await calculateAverageRating(details, transaction, true);
+
+        await Rating.update(
+          {
+            averageDifficultyId: averageDifficulty?.id ?? null,
+            communityDifficultyId: communityDifficulty?.id ?? null,
+          },
+          { where: { id }, transaction }
+        );
+
+        const updatedRating = await Rating.findByPk(id, fullRatingIncludeOptions(transaction));
+
+        await transaction.commit();
+        await CacheInvalidation.invalidateTag('admin:ratings');
+
+        const levelId = updatedRating?.levelId ?? (updatedRating as any)?.level?.id;
+        if (levelId) {
+          await broadcastRatingUpsert(Number(id), Number(levelId));
+        }
+
+        return res.json({
+          message: 'Rating detail deleted successfully',
+          rating: updatedRating,
+          listRow: levelId ? await buildSlimListRowByRatingId(Number(id)) : null,
+          complete: await buildCompleteRatingById(Number(id)),
+        });
+      }
+
+      await RatingDetail.upsert(
+        {
+          ratingId: Number(id),
           userId: user.id,
+          rating: rating || '',
+          comment: comment || '',
+          isCommunityRating,
         },
-        transaction,
-      });
-
-      // Get remaining rating details
-      const details = await RatingDetail.findAll({
-        where: {ratingId: id},
-        transaction,
-      });
-
-      // Calculate new average difficulties for both rater and community ratings
-      const averageDifficulty = await calculateAverageRating(details, transaction);
-      logger.debug(`[RatingService] averageDifficulty: ${averageDifficulty} for ${rating}`);
-      const communityDifficulty = await calculateAverageRating(
-        details,
-        transaction,
-        true,
+        { transaction }
       );
 
-      await Rating.update(
+      const details = await RatingDetail.findAll({
+        where: { ratingId: id },
+        transaction,
+      });
+
+      const averageDifficulty = await calculateAverageRating(details, transaction);
+      const communityDifficulty = await calculateAverageRating(details, transaction, true);
+
+      const [updatedCount] = await Rating.update(
         {
           averageDifficultyId: averageDifficulty?.id ?? null,
           communityDifficultyId: communityDifficulty?.id ?? null,
         },
-        { where: { id }, transaction },
+        { where: { id }, transaction }
       );
+      if (updatedCount === 0) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Rating not found' });
+      }
 
       const updatedRating = await Rating.findByPk(id, fullRatingIncludeOptions(transaction));
 
-      sseManager.broadcast({ type: 'ratingUpdate' });
       await transaction.commit();
-      await CacheInvalidation.invalidateTag('admin:ratings')
+
+      await CacheInvalidation.invalidateTag('admin:ratings').catch((err) =>
+        logger.error('Error invalidating admin ratings cache:', err)
+      );
+
+      const levelId = updatedRating?.levelId ?? (updatedRating as any)?.level?.id;
+      if (levelId) {
+        await broadcastRatingUpsert(Number(id), Number(levelId));
+      }
+
       return res.json({
-        message: 'Rating detail deleted successfully',
+        message: 'Rating updated successfully',
         rating: updatedRating,
+        listRow: levelId ? await buildSlimListRowByRatingId(Number(id)) : null,
+        complete: await buildCompleteRatingById(Number(id)),
       });
-    }
-
-    // Upsert rating detail (insert or update in one step)
-    await RatingDetail.upsert(
-      {
-        ratingId: Number(id),
-        userId: user.id,
-        rating: rating || '',
-        comment: comment || '',
-        isCommunityRating,
-      },
-      { transaction },
-    );
-
-    // Get all rating details for this rating
-    const details = await RatingDetail.findAll({
-      where: {ratingId: id},
-      transaction,
-    });
-
-    // Calculate new average difficulties for both rater and community ratings
-    const averageDifficulty = await calculateAverageRating(details, transaction);
-    const communityDifficulty = await calculateAverageRating(
-      details,
-      transaction,
-      true,
-    );
-
-    const [updatedCount] = await Rating.update(
-      {
-        averageDifficultyId: averageDifficulty?.id ?? null,
-        communityDifficultyId: communityDifficulty?.id ?? null,
-      },
-      { where: { id }, transaction },
-    );
-    if (updatedCount === 0) {
+    } catch (error) {
       await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Rating not found' });
+      logger.error('Error updating rating:', error);
+      return res.status(500).json({ error: 'Failed to update rating' });
     }
-
-    const updatedRating = await Rating.findByPk(id, fullRatingIncludeOptions(transaction));
-
-    // Broadcast rating update via SSE
-    sseManager.broadcast({type: 'ratingUpdate'});
-
-    await transaction.commit();
-
-    await CacheInvalidation.invalidateTag('admin:ratings').catch((err) =>
-      logger.error('Error invalidating admin ratings cache:', err),
-    );
-
-    return res.json({
-      message: 'Rating updated successfully',
-      rating: updatedRating,
-    });
-  } catch (error) {
-    await safeTransactionRollback(transaction);
-    logger.error('Error updating rating:', error);
-    return res.status(500).json({error: 'Failed to update rating'});
-  }
   }
 );
 
@@ -358,7 +427,7 @@ router.delete(
   ApiDoc({
     operationId: 'deleteAdminRatingDetail',
     summary: 'Delete rating detail',
-    description: 'Remove a user\'s rating detail. Rater (own) or super admin.',
+    description: "Remove a user's rating detail. Rater (own) or super admin.",
     tags: ['Admin', 'Rating'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec, userId: stringIdParamSpec },
@@ -367,11 +436,9 @@ router.delete(
   [
     Auth.rater(),
     async (req: Request, res: Response, next: NextFunction) => {
-      // Check if it's the user's own rating
       if (req.user?.id === req.params.userId) {
         return next();
       }
-      // If not own rating, require super admin
       return Auth.superAdmin()(req, res, next);
     },
   ],
@@ -380,11 +447,11 @@ router.delete(
 
     try {
       transaction = await sequelize.transaction();
-      const {id, userId} = req.params;
+      const { id, userId } = req.params;
       const currentUser = req.user;
       if (!currentUser) {
         await safeTransactionRollback(transaction);
-        return res.status(401).json({error: 'User not authenticated'});
+        return res.status(401).json({ error: 'User not authenticated' });
       }
 
       await RatingDetail.destroy({
@@ -401,37 +468,40 @@ router.delete(
       });
 
       const averageDifficulty = await calculateAverageRating(details, transaction);
-      const communityDifficulty = await calculateAverageRating(
-        details,
-        transaction,
-        true,
-      );
+      const communityDifficulty = await calculateAverageRating(details, transaction, true);
 
       await Rating.update(
         {
           averageDifficultyId: averageDifficulty?.id ?? null,
           communityDifficultyId: communityDifficulty?.id ?? null,
         },
-        { where: { id }, transaction },
+        { where: { id }, transaction }
       );
 
       const updatedRating = await Rating.findByPk(id, fullRatingIncludeOptions(transaction));
 
-      sseManager.broadcast({ type: 'ratingUpdate' });
       await transaction.commit();
       await CacheInvalidation.invalidateTag('admin:ratings').catch((err) =>
-        logger.error('Error invalidating admin ratings cache:', err),
+        logger.error('Error invalidating admin ratings cache:', err)
       );
+
+      const levelId = updatedRating?.levelId ?? (updatedRating as any)?.level?.id;
+      if (levelId) {
+        await broadcastRatingUpsert(Number(id), Number(levelId));
+      }
+
       return res.json({
         message: 'Rating detail confirmed successfully',
         rating: updatedRating,
+        listRow: levelId ? await buildSlimListRowByRatingId(Number(id)) : null,
+        complete: await buildCompleteRatingById(Number(id)),
       });
     } catch (error: unknown) {
       await safeTransactionRollback(transaction);
       logger.error('Error confirming rating detail:', error);
-      return res.status(500).json({error: 'Failed to confirm rating detail'});
+      return res.status(500).json({ error: 'Failed to confirm rating detail' });
     }
-  },
+  }
 );
 
 export default router;
