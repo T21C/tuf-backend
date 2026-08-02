@@ -4,6 +4,8 @@ import * as Sentry from '@sentry/node';
 import Rating from '@/models/levels/Rating.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import Level from '@/models/levels/Level.js';
+import Difficulty from '@/models/levels/Difficulty.js';
+import Pass from '@/models/passes/Pass.js';
 import User from '@/models/auth/User.js';
 import { searchLevelIdsInSet } from '@/server/services/elasticsearch/search/levels/levelSearch.js';
 import { fetchLevelsByIdsFromElasticsearch } from '@/server/services/elasticsearch/search/levels/fetchLevelsByIdsFromElasticsearch.js';
@@ -535,6 +537,7 @@ export async function buildCompleteRatingById(
 
   const plain = rating.toJSON() as unknown as Record<string, unknown>;
   const levelPlain = plain.level as Record<string, unknown> | undefined;
+  const mysqlLevel = rating.level;
 
   if (levelPlain && typeof levelPlain.id === 'number') {
     const esMap = await fetchLevelsByIdsFromElasticsearch([levelPlain.id]);
@@ -557,7 +560,64 @@ export async function buildCompleteRatingById(
     });
   }
 
+  // Q difficulties are range placeholders until cleared; after a clear enters the
+  // rating queue, raters should watch the first clear video rather than the chart video.
+  const displayVideoLink = await resolveQClearDisplayVideoLink({
+    levelId: typeof mysqlLevel?.id === 'number' ? mysqlLevel.id : null,
+    diffId: mysqlLevel?.diffId ?? null,
+    previousDiffId: mysqlLevel?.previousDiffId ?? null,
+    averageDifficultyId:
+      typeof plain.averageDifficultyId === 'number' ? plain.averageDifficultyId : null,
+  });
+  if (displayVideoLink) {
+    plain.displayVideoLink = displayVideoLink;
+  }
+
   return plain;
+}
+
+/**
+ * When the level (or its average) is still on a Q difficulty, return the earliest
+ * clear's video link so rating UIs can show the clear instead of the chart video.
+ */
+export async function resolveQClearDisplayVideoLink(opts: {
+  levelId: number | null;
+  diffId: number | null;
+  previousDiffId?: number | null;
+  averageDifficultyId?: number | null;
+}): Promise<string | null> {
+  if (!opts.levelId || opts.levelId <= 0) return null;
+
+  const diffIds = [
+    opts.diffId,
+    opts.previousDiffId,
+    opts.averageDifficultyId,
+  ].filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
+
+  if (diffIds.length === 0) return null;
+
+  const difficulties = await Difficulty.findAll({
+    where: { id: [...new Set(diffIds)] },
+    attributes: ['id', 'name'],
+  });
+  const isQ = difficulties.some((d) => String(d.name || '').includes('Q'));
+  if (!isQ) return null;
+
+  const firstPass = await Pass.findOne({
+    where: {
+      levelId: opts.levelId,
+      isDeleted: false,
+      isHidden: false,
+    },
+    order: [
+      ['vidUploadTime', 'ASC'],
+      ['id', 'ASC'],
+    ],
+    attributes: ['id', 'videoLink'],
+  });
+
+  const link = typeof firstPass?.videoLink === 'string' ? firstPass.videoLink.trim() : '';
+  return link || null;
 }
 
 export async function buildCompleteRatingByLevelId(

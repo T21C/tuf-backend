@@ -17,10 +17,14 @@ import {
   type RatingListSort,
 } from '@/server/services/ratings/ratingListService.js';
 import {
+  clampZenRandomness,
   isZenDeckSize,
   peeksAllowedForDeckSize,
+  sampleZenPoolIndices,
+  ZEN_CANDIDATE_POOL_CAP,
   ZEN_DECK_UNIT,
   ZEN_DEFAULT_DECK_SIZE,
+  ZEN_DEFAULT_RANDOMNESS,
   type ZenDeckSize,
 } from '@/server/services/ratings/zenRatingConstants.js';
 
@@ -29,6 +33,7 @@ export interface ZenDealOptions {
   onlyLowDiff?: boolean;
   sort?: RatingListSort;
   order?: RatingListOrder;
+  randomness?: number;
 }
 
 export interface ZenDealResult {
@@ -38,6 +43,7 @@ export interface ZenDealResult {
   sort: RatingListSort;
   order: RatingListOrder;
   onlyLowDiff: boolean;
+  randomness: number;
   dealtAt: string;
   cards: Record<string, unknown>[];
 }
@@ -47,6 +53,7 @@ export function parseZenDealOptions(body: Record<string, unknown>): {
   onlyLowDiff: boolean;
   sort: RatingListSort;
   order: RatingListOrder;
+  randomness: number;
 } {
   const rawSize = body.deckSize ?? ZEN_DEFAULT_DECK_SIZE;
   if (!isZenDeckSize(rawSize)) {
@@ -68,7 +75,13 @@ export function parseZenDealOptions(body: Record<string, unknown>): {
     body.onlyLowDiff === 'true' ||
     body.onlyLowDiff === '1';
 
-  return { deckSize, onlyLowDiff, sort, order };
+  const randomness = clampZenRandomness(
+    body.randomness === undefined || body.randomness === null || body.randomness === ''
+      ? ZEN_DEFAULT_RANDOMNESS
+      : body.randomness
+  );
+
+  return { deckSize, onlyLowDiff, sort, order, randomness };
 }
 
 /**
@@ -82,9 +95,10 @@ export async function dealZenDeck(
 ): Promise<ZenDealResult> {
   const parsed = parseZenDealOptions(options as Record<string, unknown>);
 
+  const poolLimit = Math.max(parsed.deckSize, ZEN_CANDIDATE_POOL_CAP);
   const page = await getRatingListPage({
     offset: 0,
-    limit: parsed.deckSize,
+    limit: poolLimit,
     query: '',
     sort: parsed.sort,
     order: parsed.order,
@@ -96,10 +110,23 @@ export async function dealZenDeck(
     levelIdsFilter: null,
   });
 
-  const cards: Record<string, unknown>[] = [];
+  const candidateIds: number[] = [];
   for (const row of page.results) {
     const id = Number((row as { id?: unknown }).id);
     if (!Number.isFinite(id) || id <= 0) continue;
+    candidateIds.push(id);
+  }
+
+  const selectedIndices = sampleZenPoolIndices(
+    candidateIds.length,
+    parsed.deckSize,
+    parsed.randomness
+  );
+
+  const cards: Record<string, unknown>[] = [];
+  for (const idx of selectedIndices) {
+    const id = candidateIds[idx];
+    if (id == null) continue;
     const complete = await buildCompleteRatingById(id);
     if (complete) {
       cards.push(complete);
@@ -113,6 +140,7 @@ export async function dealZenDeck(
     sort: parsed.sort,
     order: parsed.order,
     onlyLowDiff: parsed.onlyLowDiff,
+    randomness: parsed.randomness,
     dealtAt: new Date().toISOString(),
     cards,
   };
