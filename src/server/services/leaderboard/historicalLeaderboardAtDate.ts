@@ -31,6 +31,12 @@ export interface HistoricalLeaderboardResult {
   maxDate: string | null;
 }
 
+const BOUNDS_CACHE_TTL_MS = 5 * 60 * 1000;
+const boundsCache = new Map<
+  string,
+  { value: HistoricalLeaderboardBounds; expiresAt: number }
+>();
+
 function toIsoDateOnly(raw: string | Date | null | undefined): string | null {
   if (raw == null) return null;
   if (raw instanceof Date) return utcDateOnlyFromDate(raw);
@@ -44,10 +50,16 @@ function metricRankColumn(metric: HistoricalLeaderboardMetric): 'rankedScoreRank
 /**
  * Available date range for historical leaderboard (UTC DATEONLY).
  * `maxDate` is capped at yesterday (last completed daily snapshot).
+ * Result is memoized briefly — bounds only change after the daily snapshot cron.
  */
 export async function fetchHistoricalLeaderboardBounds(
   scoringVersion: string = DEFAULT_LEADERBOARD_RANK_SCORING_VERSION,
 ): Promise<HistoricalLeaderboardBounds> {
+  const cached = boundsCache.get(scoringVersion);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
   const rows = (await sequelize.query(
     `SELECT MIN(effectiveDay) AS minDate, MAX(effectiveDay) AS maxDate
      FROM player_leaderboard_rank_events
@@ -66,10 +78,14 @@ export async function fetchHistoricalLeaderboardBounds(
     maxDate = yesterday;
   }
   if (minDate && maxDate && minDate > maxDate) {
-    return { minDate: null, maxDate: null };
+    const empty = { minDate: null, maxDate: null };
+    boundsCache.set(scoringVersion, { value: empty, expiresAt: Date.now() + BOUNDS_CACHE_TTL_MS });
+    return empty;
   }
 
-  return { minDate, maxDate };
+  const value = { minDate, maxDate };
+  boundsCache.set(scoringVersion, { value, expiresAt: Date.now() + BOUNDS_CACHE_TTL_MS });
+  return value;
 }
 
 /**
@@ -117,10 +133,11 @@ export async function fetchHistoricalLeaderboardAtDate(options: {
       WHERE scoringVersion = :scoringVersion
         AND effectiveDay <= :date
       GROUP BY playerId
-    ) latest ON latest.playerId = e.playerId AND latest.maxDay = e.effectiveDay
+    ) latest ON latest.playerId = e.playerId
+      AND latest.maxDay = e.effectiveDay
+      AND e.scoringVersion = :scoringVersion
     ${nameJoin}
-    WHERE e.scoringVersion = :scoringVersion
-      AND e.${rankCol} != :offBoard
+    WHERE e.${rankCol} != :offBoard
   `;
 
   const replacements: Record<string, unknown> = {

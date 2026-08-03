@@ -22,13 +22,15 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import Player from '@/models/players/Player.js';
 import PlayerAlias from '@/models/players/PlayerAlias.js';
-import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
+import { createRateLimiter } from '@/server/decorators/rateLimiter.js';
 import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 import { DEFAULT_LEADERBOARD_RANK_SCORING_VERSION, RANK_HISTORY_MAX_POINTS } from '@/config/leaderboardRankHistory.js';
 import { buildRankHistorySeries } from '@/server/services/leaderboard/rankHistorySeries.js';
 import {
   fetchHistoricalLeaderboardAtDate,
+  fetchHistoricalLeaderboardBounds,
   hydrateHistoricalLeaderboardPlayers,
   type HistoricalLeaderboardMetric,
 } from '@/server/services/leaderboard/historicalLeaderboardAtDate.js';
@@ -63,6 +65,15 @@ const playerStatsService = PlayerStatsService.getInstance();
 
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
+
+/** Public endpoint; cheap to spam and each miss is a multi-second board rebuild. */
+const leaderboardHistoryLimiter = createRateLimiter({
+  type: 'leaderboard_history',
+  windowMs: 60 * 1000,
+  maxAttempts: 40,
+  blockDuration: 2 * 60 * 1000,
+  failClosed: false,
+});
 
 function parseLimit(raw: unknown, fallback = DEFAULT_LIMIT): number {
   const n = parseInt(String(raw ?? ''), 10);
@@ -263,6 +274,53 @@ router.get(
 );
 
 /**
+ * Lightweight date bounds for the past-leaderboard UI (no board rebuild).
+ */
+router.get(
+  '/leaderboard-history/bounds',
+  leaderboardHistoryLimiter.middleware,
+  Cache({
+    ttl: 300,
+    prefix: 'v3:players:leaderboard-history-bounds',
+    varyByQuery: ['scoringVersion'],
+    tags: ['leaderboard-history'],
+  }),
+  ApiDoc({
+    operationId: 'v3GetLeaderboardHistoryBounds',
+    summary: 'Historical leaderboard date bounds (v3)',
+    description:
+      'Returns min/max selectable UTC dates for past leaderboard without reconstructing a board. Prefer this over probing `/leaderboard-history` with a dummy date.',
+    tags: ['Database', 'Leaderboard', 'v3'],
+    query: {
+      scoringVersion: { schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: 'Date bounds' },
+      429: { description: 'Rate limited' },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const scoringVersion =
+        String(req.query.scoringVersion ?? '').trim() || DEFAULT_LEADERBOARD_RANK_SCORING_VERSION;
+      const bounds = await fetchHistoricalLeaderboardBounds(scoringVersion);
+      return res.json({
+        minDate: bounds.minDate,
+        maxDate: bounds.maxDate,
+        scoringVersion,
+      });
+    } catch (error) {
+      logger.error('[v3 /players/leaderboard-history/bounds] failure', error);
+      return res.status(500).json({
+        error: 'Failed to fetch historical leaderboard bounds',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+/**
  * Rank-only leaderboard reconstructed at a past UTC date from player_leaderboard_rank_events.
  *
  * Query params: date (YYYY-MM-DD), metric (rankedScore|generalScore), order (asc|desc),
@@ -270,11 +328,19 @@ router.get(
  */
 router.get(
   '/leaderboard-history',
+  leaderboardHistoryLimiter.middleware,
+  Cache({
+    // Past days are immutable once snapshotted; short TTL still refreshes avatar/name hydration.
+    ttl: 120,
+    prefix: 'v3:players:leaderboard-history',
+    varyByQuery: ['date', 'metric', 'order', 'query', 'offset', 'limit', 'scoringVersion'],
+    tags: ['leaderboard-history'],
+  }),
   ApiDoc({
     operationId: 'v3GetLeaderboardHistory',
     summary: 'Historical player leaderboard (v3)',
     description:
-      'Rank-only leaderboard as of end-of-day `date` (UTC), reconstructed by forward-filling `player_leaderboard_rank_events`. Hydrates current player names/avatars from Elasticsearch. Supports metric (rankedScore|generalScore), order, name query, and pagination. Newest selectable date is yesterday.',
+      'Rank-only leaderboard as of end-of-day `date` (UTC), reconstructed by forward-filling `player_leaderboard_rank_events`. Hydrates current player names/avatars from Elasticsearch. Supports metric (rankedScore|generalScore), order, name query, and pagination. Newest selectable date is yesterday. Rate-limited per IP.',
     tags: ['Database', 'Leaderboard', 'v3'],
     query: {
       date: { schema: { type: 'string' } },
@@ -288,6 +354,7 @@ router.get(
     responses: {
       200: { description: 'Historical leaderboard results' },
       400: { schema: errorResponseSchema },
+      429: { description: 'Rate limited' },
       ...standardErrorResponses500,
     },
   }),
