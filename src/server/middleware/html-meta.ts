@@ -3,6 +3,7 @@ import Pass from '@/models/passes/Pass.js';
 import Level from '@/models/levels/Level.js';
 import Player from '@/models/players/Player.js';
 import Difficulty from '@/models/levels/Difficulty.js';
+import Rating from '@/models/levels/Rating.js';
 import fs from 'fs';
 import path from 'path';
 import { logger } from '@/server/services/core/LoggerService.js';
@@ -398,6 +399,75 @@ export const htmlMetaMiddleware = async (
       }
       else{
         metaTags = notFoundTags.replace('Not found', 'Level not found');
+      }
+    }
+    else if (/^\/rating\/\d+/.test(req.path)) {
+      const pendingRating = await Rating.findOne({
+        where: { levelId: id, confirmedAt: null },
+        attributes: ['id', 'averageDifficultyId', 'communityDifficultyId'],
+      });
+
+      const level = pendingRating
+        ? await Level.findByPk(id, {
+            include: [
+              { model: Difficulty, as: 'difficulty' },
+              levelSongInclude,
+              {
+                model: LevelCredit,
+                as: 'levelCredits',
+                include: [{ model: Creator, as: 'creator' }],
+              },
+            ],
+          })
+        : null;
+
+      if (pendingRating && level && !level.isDeleted && !level.isHidden) {
+        const creators = escapeHtml(formatCreatorDisplay(level));
+        const songName = escapeHtml(getSongDisplayName(level));
+        const artistName = escapeHtml(getArtistDisplayName(level));
+        const pageTitle = escapeHtml(`${songName} - ${artistName}`);
+        const pageDescription = escapeHtml(
+          `Pending rating for ${songName} by ${artistName} — charted by ${creators} on ${SITE_NAME}`,
+        );
+        const canonicalPath = `/rating/${id}`;
+        const pageUrl = `${clientUrlEnv}${canonicalPath}`;
+        const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/rating/${id}`;
+
+        metaTags = `
+          <title>${pageTitle} | ${SITE_NAME}</title>
+          <meta name="description" content="${pageDescription}" />
+          ${buildCanonicalTag(canonicalPath)}
+          <meta name="robots" content="index,follow" />
+          <meta property="og:site_name" content="${SITE_NAME}" />
+          <meta property="og:type" content="article" />
+          <meta property="og:title" content="${pageTitle}" />
+          <meta property="og:description" content="${pageDescription}" />
+          <meta property="og:image" content="${thumbnailUrl}" />
+          <meta property="og:image:width" content="800" />
+          <meta property="og:image:height" content="420" />
+          <meta property="twitter:card" content="summary_large_image" />
+          <meta property="twitter:title" content="${pageTitle}" />
+          <meta property="twitter:description" content="${pageDescription}" />
+          <meta property="twitter:image" content="${thumbnailUrl}" />
+          <meta name="theme-color" content="${level.difficulty?.color || '#090909'}" />
+          <meta property="og:url" content="${pageUrl}" />
+          ${buildJsonLdScripts([
+            {
+              '@context': 'https://schema.org',
+              '@type': 'CreativeWork',
+              name: pageTitle,
+              description: pageDescription,
+              url: pageUrl,
+              image: thumbnailUrl,
+              creator: {
+                '@type': 'Person',
+                name: creators,
+              },
+            },
+          ])}`;
+      }
+      else {
+        metaTags = notFoundTags.replace('Not found', 'Rating not found');
       }
     }
     else if (req.path.startsWith('/profile/')) {
