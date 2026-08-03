@@ -65,7 +65,7 @@ const CACHE_TTL = process.env.NODE_ENV === 'production' ? 48 * 60 * 60 * 1000 : 
 const CLEANUP_INTERVAL = 5 * 60 * 1000;
 
 function logWithCondition(message: string, source: string): void {
-  if (source === 'thumbnail' && 1!==1) {
+  if (source === 'thumbnail') {
     logger.debug('[Thumbnail] ' + message);
   }
 }
@@ -143,8 +143,8 @@ function getThumbnailPath(levelId: number, size: keyof typeof THUMBNAIL_SIZES): 
   return path.join(THUMBNAILS_CACHE_DIR, `${levelId}_${size}.png`);
 }
 
-// Function to get cached thumbnail path for player/pass/pack
-function getThumbnailPathForEntity(entityId: number, entityType: 'player' | 'pass' | 'pack', size: keyof typeof THUMBNAIL_SIZES): string {
+// Function to get cached thumbnail path for player/pass/pack/rating
+function getThumbnailPathForEntity(entityId: number, entityType: 'player' | 'pass' | 'pack' | 'rating', size: keyof typeof THUMBNAIL_SIZES): string {
   return path.join(THUMBNAILS_CACHE_DIR, `${entityType}_${entityId}_${size}.png`);
 }
 
@@ -169,15 +169,20 @@ async function resolvePackId(param: string): Promise<number | null> {
   return null;
 }
 
+// Set EXPORT_THUMBNAIL_HTML=false to disable. Default: on (local review of generated cards).
+const EXPORT_THUMBNAIL_HTML = process.env.EXPORT_THUMBNAIL_HTML !== 'false';
+
 // Function to export HTML to file for review
-async function exportHtmlToFile(html: string, entityType: 'level' | 'player' | 'pass' | 'pack', entityId: number | string): Promise<void> {
+async function exportHtmlToFile(html: string, entityType: 'level' | 'player' | 'pass' | 'pack' | 'rating', entityId: number | string): Promise<void> {
+  if (!EXPORT_THUMBNAIL_HTML) return;
+
   const htmlExportDir = path.join(CACHE_PATH, 'thumbnail-html-exports');
   if (!fs.existsSync(htmlExportDir)) {
     fs.mkdirSync(htmlExportDir, { recursive: true });
   }
   const htmlPath = path.join(htmlExportDir, `${entityType}_${entityId}.html`);
   await fs.promises.writeFile(htmlPath, html);
-  logger.debug(`Exported HTML for ${entityType} ${entityId} to ${htmlPath}`);
+  logger.info(`Exported thumbnail HTML for ${entityType} ${entityId} → ${htmlPath}`);
 }
 
 // Helper function for retrying image downloads
@@ -210,21 +215,52 @@ async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 500
   throw lastError;
 }
 
+/** Load a difficulty icon from cache or URL; optionally resize. Returns null if unavailable. */
+async function loadDifficultyIconBuffer(
+  iconUrl: string | null | undefined,
+  resizeTo?: number,
+): Promise<Buffer | null> {
+  if (!iconUrl) return null;
+  try {
+    let iconBuffer: Buffer;
+    const parsed = new URL(iconUrl);
+    const iconPath = parsed.pathname.split('/').pop();
+    if (!iconPath) throw new Error('Invalid icon URL');
+
+    const sanitizedPath = path
+      .normalize(iconPath)
+      .replace(/^(\.\.(\/|\\|$))+/, '');
+    const basePath = path.join(CACHE_PATH, 'icons');
+    const fullPath = path.join(basePath, sanitizedPath);
+    if (!fullPath.startsWith(basePath)) {
+      throw new Error('Access denied');
+    }
+
+    if (fs.existsSync(fullPath)) {
+      iconBuffer = await fs.promises.readFile(fullPath);
+    } else {
+      iconBuffer = await downloadImageWithRetry(iconUrl);
+    }
+
+    if (resizeTo && resizeTo > 0) {
+      iconBuffer = await sharp(iconBuffer)
+        .resize(resizeTo, resizeTo, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .png()
+        .toBuffer();
+    }
+    return iconBuffer;
+  } catch (error: unknown) {
+    logger.error(`Failed to get difficulty icon: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
 const router: Router = express.Router();
 
 // Level thumbnail route
-router.get(
-  '/thumbnail/level/:levelId([0-9]{1,20})',
-  ApiDoc({
-    operationId: 'getThumbnailLevel',
-    summary: 'Level thumbnail',
-    description: 'Returns thumbnail image for a level',
-    tags: ['Media'],
-    params: { levelId: { schema: { type: 'string' } } },
-    responses: { 200: { description: 'Image' }, 404: { description: 'Not found' } },
-  }),
-  async (req: Request, res: Response) => {
+const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
   const levelId = parseInt(req.params.levelId);
+  const isRatingEmbed = req.path.includes('/thumbnail/rating/');
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const level = await Level.findByPk(levelId);
@@ -232,11 +268,26 @@ router.get(
       return res.status(404).send('Level not found');
     }
 
-    logWithCondition(`Thumbnail requested for level ${levelId} with size ${size}`, 'thumbnail');
+    if (isRatingEmbed) {
+      const pendingRating = await Rating.findOne({
+        where: { levelId, confirmedAt: null },
+        attributes: ['id'],
+      });
+      if (!pendingRating) {
+        return res.status(404).send('Pending rating not found');
+      }
+    }
+
+    logWithCondition(
+      `Thumbnail requested for ${isRatingEmbed ? 'rating' : 'level'} ${levelId} with size ${size}`,
+      'thumbnail',
+    );
 
     // Get the cache path for LARGE version only
-    const largeCachePath = getThumbnailPath(levelId, 'LARGE');
-    const promiseKey = `level-${levelId}`;
+    const largeCachePath = isRatingEmbed
+      ? getThumbnailPathForEntity(levelId, 'rating', 'LARGE')
+      : getThumbnailPath(levelId, 'LARGE');
+    const promiseKey = `${isRatingEmbed ? 'rating' : 'level'}-${levelId}`;
 
     // Clean expired cache file
     cleanExpiredCache(largeCachePath);
@@ -299,7 +350,15 @@ router.get(
                   {model: TeamAlias, as: 'teamAliases', attributes: ['name']}
                 ],
               },
-              {model: Rating, as: 'ratings', attributes: ['averageDifficultyId'], limit: 1, order: [['confirmedAt', 'DESC']]},
+              {
+                model: Rating,
+                as: 'ratings',
+                attributes: ['averageDifficultyId', 'communityDifficultyId'],
+                ...(isRatingEmbed ? { where: { confirmedAt: null } } : {}),
+                required: false,
+                limit: 1,
+                order: [['confirmedAt', 'DESC']],
+              },
               {model: LevelTag, as: 'tags'},
               {
                 model: Song,
@@ -323,7 +382,17 @@ router.get(
             throw new Error('Level or difficulty not found');
           }
 
-          const averageDifficulty = level?.ratings?.[0]?.averageDifficultyId && level.difficulty?.name[0] === 'Q' ? await Difficulty.findByPk(level.ratings?.[0]?.averageDifficultyId) : undefined;
+          const pendingRatingRow = level?.ratings?.[0];
+          if (isRatingEmbed && !pendingRatingRow) {
+            throw new Error('Pending rating not found');
+          }
+
+          const managerAverageDifficulty = isRatingEmbed && pendingRatingRow?.averageDifficultyId
+            ? await Difficulty.findByPk(pendingRatingRow.averageDifficultyId)
+            : undefined;
+          const communityAverageDifficulty = isRatingEmbed && pendingRatingRow?.communityDifficultyId
+            ? await Difficulty.findByPk(pendingRatingRow.communityDifficultyId)
+            : undefined;
 
           const diff = level.difficulty;
           if (!diff) {
@@ -364,40 +433,29 @@ router.get(
 
           // Download difficulty icon with retry logic
           let iconBuffer: Buffer;
-          try {
-            // Extract the icon path from the URL
-            const iconUrl = new URL(diff.icon);
-            const iconPath = iconUrl.pathname.split('/').pop();
-
-            if (!iconPath) {
-              throw new Error('Invalid icon URL');
-            }
-
-            // Sanitize the path to prevent directory traversal
-            const sanitizedPath = path
-              .normalize(iconPath)
-              .replace(/^(\.\.(\/|\\|$))+/, '');
-
-            // Construct the full path to the icon in the cache
-            const basePath = path.join(CACHE_PATH, 'icons');
-            const fullPath = path.join(basePath, sanitizedPath);
-
-            // Verify the path is within the allowed directory
-            if (!fullPath.startsWith(basePath)) {
-              throw new Error('Access denied');
-            }
-
-            // Check if file exists in cache
-            if (fs.existsSync(fullPath)) {
-              iconBuffer = await fs.promises.readFile(fullPath);
-            } else {
-              iconBuffer = await downloadImageWithRetry(diff.icon);
-            }
-          } catch (error: unknown) {
-            logger.error(`Failed to get difficulty icon for level ${levelId}: ${error instanceof Error ? error.message : String(error)}`);
-            // Create a placeholder icon
-            iconBuffer = Buffer.alloc(iconSize * iconSize * 4, 100);
+          const loadedMainIcon = await loadDifficultyIconBuffer(diff.icon, iconSize);
+          if (loadedMainIcon) {
+            iconBuffer = loadedMainIcon;
+          } else {
+            iconBuffer = await sharp({
+              create: {
+                width: iconSize,
+                height: iconSize,
+                channels: 4,
+                background: { r: 100, g: 100, b: 100, alpha: 1 },
+              },
+            })
+              .png()
+              .toBuffer();
           }
+
+          const ratingAvgIconSize = Math.round(36 * multiplier);
+          const managerIconBuffer = isRatingEmbed
+            ? await loadDifficultyIconBuffer(managerAverageDifficulty?.icon, ratingAvgIconSize)
+            : null;
+          const communityIconBuffer = isRatingEmbed
+            ? await loadDifficultyIconBuffer(communityAverageDifficulty?.icon, ratingAvgIconSize)
+            : null;
           const artistOverflow = (artist || '').length > 35;
           const songOverflow = (song || '').length > 35;
 
@@ -443,6 +501,7 @@ router.get(
                     position: relative;
                     overflow: hidden;
                     font-family: 'NotoSansKR', 'NotoSansJP', 'NotoSansSC', 'NotoSansTC', sans-serif;
+                  }
                   .text {
                     overflow: hidden;
                     display: -webkit-box;
@@ -590,6 +649,7 @@ router.get(
                     display: flex;
                     align-items: start;
                     flex-direction: column;
+                    gap: ${6*multiplier}px;
                   }
                   .footer-right {
                       display: flex;
@@ -600,6 +660,27 @@ router.get(
                   .pp-value, .pass-count {
                     font-weight: 700;
                     font-size: ${30*multiplier}px;
+                    color: #bbbbbb;
+                  }
+                  .rating-avg-row {
+                    display: flex;
+                    align-items: center;
+                    gap: ${10*multiplier}px;
+                  }
+                  .rating-avg-label {
+                    font-weight: 700;
+                    font-size: ${24*multiplier}px;
+                    color: #bbbbbb;
+                    min-width: ${140*multiplier}px;
+                  }
+                  .rating-avg-icon {
+                    width: ${36*multiplier}px;
+                    height: ${36*multiplier}px;
+                    object-fit: contain;
+                  }
+                  .rating-avg-empty {
+                    font-weight: 700;
+                    font-size: ${28*multiplier}px;
                     color: #bbbbbb;
                   }
                   .creator-name {
@@ -641,9 +722,6 @@ router.get(
                       alt="Difficulty Icon"
                     />
                     ${curationIconsHtml}
-                    ${ // removed by request
-                    // averageDifficulty ? `<img class="average-diff-icon" src="${averageDifficulty.icon}" alt="Average Difficulty Icon">` : ''}
-                    null}
                     </div>
                     <div class="song-info">
                       <div class="song-title text">${escapeHtml(song)}</div>
@@ -700,8 +778,23 @@ router.get(
                 <!-- Footer -->
                 <div class="footer">
                   <div class="footer-left">
+                    ${isRatingEmbed ? `
+                    <div class="rating-avg-row">
+                      <span class="rating-avg-label">Manager</span>
+                      ${managerIconBuffer
+                        ? `<img class="rating-avg-icon" src="data:image/png;base64,${managerIconBuffer.toString('base64')}" alt="${escapeHtml(managerAverageDifficulty?.name || 'Manager')}" />`
+                        : `<span class="rating-avg-empty">—</span>`}
+                    </div>
+                    <div class="rating-avg-row">
+                      <span class="rating-avg-label">Community</span>
+                      ${communityIconBuffer
+                        ? `<img class="rating-avg-icon" src="data:image/png;base64,${communityIconBuffer.toString('base64')}" alt="${escapeHtml(communityAverageDifficulty?.name || 'Community')}" />`
+                        : `<span class="rating-avg-empty">—</span>`}
+                    </div>
+                    ` : `
                     <div class="pp-value">${level.baseScore || diff.baseScore || 0}PP</div>
                     <div class="pass-count">${level.clears || 0} pass${(level.clears || 0) === 1 ? '' : 'es'}</div>
+                    `}
                   </div>
                   <div class="footer-right">
                     <div class="creator-name">${escapeHtml(firstRow)}</div>
@@ -713,7 +806,7 @@ router.get(
           `;
 
           // Export HTML to file for review
-          await exportHtmlToFile(html, 'level', levelId);
+          await exportHtmlToFile(html, isRatingEmbed ? 'rating' : 'level', levelId);
 
           // Convert to PNG
           const buffer = await htmlToPng(html, width, height);
@@ -798,8 +891,11 @@ router.get(
     return;
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('Video details not found')) {
-      logger.debug(`Error generating image for level ${req.params.levelId} due to missing video details`);
+      logger.debug(`Error generating image for ${isRatingEmbed ? 'rating' : 'level'} ${req.params.levelId} due to missing video details`);
       return res.status(404).send('Generation failed: missing video details');
+    }
+    if (error instanceof Error && error.message === 'Pending rating not found') {
+      return res.status(404).send('Pending rating not found');
     }
     if (error instanceof Error && (error.message.startsWith('ProtocolError') || error.message.startsWith('Error: Protocol error'))) {
       logger.error(`Error generating image for level ${req.params.levelId} due to puppeteer protocol error`);
@@ -814,10 +910,36 @@ router.get(
       }
       return res.status(500).send('Error generating image: corrupted cache file');
     }
-    logger.error(`Error generating image for level ${req.params.levelId}:`, error);
+    logger.error(`Error generating image for ${isRatingEmbed ? 'rating' : 'level'} ${req.params.levelId}:`, error);
     return res.status(500).send('Error generating image');
   }
-});
+};
+
+router.get(
+  '/thumbnail/level/:levelId([0-9]{1,20})',
+  ApiDoc({
+    operationId: 'getThumbnailLevel',
+    summary: 'Level thumbnail',
+    description: 'Returns thumbnail image for a level',
+    tags: ['Media'],
+    params: { levelId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Image' }, 404: { description: 'Not found' } },
+  }),
+  handleLevelStyleThumbnail,
+);
+
+router.get(
+  '/thumbnail/rating/:levelId([0-9]{1,20})',
+  ApiDoc({
+    operationId: 'getThumbnailRating',
+    summary: 'Pending rating thumbnail',
+    description: 'Returns thumbnail image for a pending level rating (manager/community averages instead of PP/clears)',
+    tags: ['Media'],
+    params: { levelId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Image' }, 404: { description: 'Not found' } },
+  }),
+  handleLevelStyleThumbnail,
+);
 
 // Player thumbnail route
 router.get(

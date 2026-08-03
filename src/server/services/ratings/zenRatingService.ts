@@ -187,8 +187,8 @@ export async function sendZenMediaReport(opts: {
     ? `${siteUrl}/levels/${opts.levelId}`
     : `/levels/${opts.levelId}`;
   const ratingLink = siteUrl
-    ? `${siteUrl}/rating#${opts.levelId}`
-    : `/rating#${opts.levelId}`;
+    ? `${siteUrl}/rating/${opts.levelId}`
+    : `/rating/${opts.levelId}`;
 
   const profilePath = opts.reporterPlayerId
     ? `/profile/${opts.reporterPlayerId}`
