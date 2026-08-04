@@ -31,6 +31,7 @@ import {
 export interface ZenDealOptions {
   deckSize?: number;
   onlyLowDiff?: boolean;
+  excludeUniversals?: boolean;
   sort?: RatingListSort;
   order?: RatingListOrder;
   randomness?: number;
@@ -43,6 +44,7 @@ export interface ZenDealResult {
   sort: RatingListSort;
   order: RatingListOrder;
   onlyLowDiff: boolean;
+  excludeUniversals: boolean;
   randomness: number;
   dealtAt: string;
   cards: Record<string, unknown>[];
@@ -51,6 +53,7 @@ export interface ZenDealResult {
 export function parseZenDealOptions(body: Record<string, unknown>): {
   deckSize: ZenDeckSize;
   onlyLowDiff: boolean;
+  excludeUniversals: boolean;
   sort: RatingListSort;
   order: RatingListOrder;
   randomness: number;
@@ -75,13 +78,18 @@ export function parseZenDealOptions(body: Record<string, unknown>): {
     body.onlyLowDiff === 'true' ||
     body.onlyLowDiff === '1';
 
+  const excludeUniversals =
+    body.excludeUniversals === true ||
+    body.excludeUniversals === 'true' ||
+    body.excludeUniversals === '1';
+
   const randomness = clampZenRandomness(
     body.randomness === undefined || body.randomness === null || body.randomness === ''
       ? ZEN_DEFAULT_RANDOMNESS
       : body.randomness
   );
 
-  return { deckSize, onlyLowDiff, sort, order, randomness };
+  return { deckSize, onlyLowDiff, excludeUniversals, sort, order, randomness };
 }
 
 /**
@@ -106,6 +114,7 @@ export async function dealZenDeck(
     fourVote: 'hide',
     hideRated: true,
     vote: 'exclude',
+    excludeUniversals: parsed.excludeUniversals,
     userId,
     levelIdsFilter: null,
   });
@@ -140,6 +149,7 @@ export async function dealZenDeck(
     sort: parsed.sort,
     order: parsed.order,
     onlyLowDiff: parsed.onlyLowDiff,
+    excludeUniversals: parsed.excludeUniversals,
     randomness: parsed.randomness,
     dealtAt: new Date().toISOString(),
     cards,

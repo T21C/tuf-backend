@@ -10,6 +10,7 @@ interface RatingDetailAttributes {
   rating: string;
   comment: string;
   isCommunityRating: boolean;
+  ratedInZen: boolean;
   createdAt?: Date;
   updatedAt?: Date;
   user?: User;
@@ -17,7 +18,7 @@ interface RatingDetailAttributes {
 
 type RatingDetailCreationAttributes = Optional<
   RatingDetailAttributes,
-  'id' | 'comment'
+  'id' | 'comment' | 'ratedInZen'
 >;
 
 class RatingDetail
@@ -30,6 +31,7 @@ class RatingDetail
   declare rating: string;
   declare comment: string;
   declare isCommunityRating: boolean;
+  declare ratedInZen: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
   // Virtual fields
@@ -68,6 +70,11 @@ RatingDetail.init(
       allowNull: true,
     },
     isCommunityRating: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    ratedInZen: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,

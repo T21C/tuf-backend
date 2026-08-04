@@ -89,6 +89,118 @@ export function parseRatingRange(
   return [firstPart, lastPart];
 }
 
+/**
+ * Letter-ladder numeric values (same as client Utility getRatingValue):
+ * P1=1 … P20=20, G1=21 … G20=40, U1=41 … U20=60.
+ * Universal floor convention: legacy 21 = U1 = Q0.
+ */
+const PGU_LETTER_BASE: Record<string, number> = { P: 0, G: 20, U: 40 };
+const UNIVERSAL_LEGACY_FLOOR = 21;
+const UNIVERSAL_PGU_FLOOR = 41; // U1
+
+function stripTrailingPlus(token: string): string {
+  return token.replace(/\+$/, '');
+}
+
+/** P/G/U token → ladder value, or null if not a PGU letter difficulty. */
+function pguLetterLadderValue(token: string): number | null {
+  const m = token.trim().match(/^([PGU])([1-9]|1[0-9]|20)$/i);
+  if (!m?.[1]) return null;
+  const base = PGU_LETTER_BASE[m[1].toUpperCase()];
+  if (base === undefined) return null;
+  return base + Number(m[2]);
+}
+
+/**
+ * Legacy feeling token → numeric value (1–21.4), matching validateFeelingRating shapes.
+ * Returns null if the token is not a legacy number.
+ */
+function legacyFeelingValue(token: string): number | null {
+  const t = stripTrailingPlus(token.trim());
+  if (!/^(?:[1-9]|1[0-9]|20(?:\.\d)?|21(?:\.[0-4])?)$/.test(t)) {
+    return null;
+  }
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Q0+, UQ*, and Qq specials sit at or above the universal floor. */
+function isUniversalSpecialToken(token: string): boolean {
+  const t = stripTrailingPlus(token.trim()).toUpperCase();
+  if (t === 'QQ') return true;
+  if (/^Q\d+$/.test(t)) return true;
+  if (/^UQ\d*$/.test(t)) return true;
+  return false;
+}
+
+function isUniversalEndpoint(token: string): boolean {
+  if (isUniversalSpecialToken(token)) return true;
+  const pgu = pguLetterLadderValue(token);
+  if (pgu !== null) return pgu >= UNIVERSAL_PGU_FLOOR;
+  const legacy = legacyFeelingValue(token);
+  if (legacy !== null) return legacy >= UNIVERSAL_LEGACY_FLOOR;
+  // Bare ladder sortOrder indices sometimes appear (U1 ≈ 41 on DB axis)
+  if (/^\d+$/.test(token.trim())) {
+    const n = Number(token.trim());
+    if (n >= UNIVERSAL_PGU_FLOOR) return true;
+  }
+  return false;
+}
+
+/**
+ * True when a proposed feeling/rerate string is at or above the universal floor
+ * (legacy 21 = U1 = Q0), including ranges that touch that segment
+ * (e.g. G20-U1, U11-13, 20-21, 21.1+, Q0, UQ2).
+ */
+export function isUniversalFeelingRating(raw: string | null | undefined): boolean {
+  if (raw == null) return false;
+  const input = String(raw).trim();
+  if (!input) return false;
+
+  // Freeform / mixed text: U1–U20, UQ*, Q* tokens
+  if (
+    /\bU(?:[1-9]|1[0-9]|20)\b/i.test(input) ||
+    /\bUQ\d*\b/i.test(input) ||
+    /\bQ\d+\b/i.test(input)
+  ) {
+    return true;
+  }
+  // Legacy 21 / 21.x+ as a standalone token
+  if (/(?:^|[^0-9.])(21(?:\.[0-4])?\+?)(?:$|[^0-9])/.test(input)) {
+    return true;
+  }
+
+  const parts = parseRatingRange(input, new Set());
+  if (parts.some((p) => isUniversalEndpoint(p))) {
+    return true;
+  }
+
+  // Midpoint of PGU/legacy ranges: exclude if average reaches the universal floor
+  if (parts.length === 2) {
+    const aPgu = pguLetterLadderValue(parts[0]);
+    const bPgu = pguLetterLadderValue(parts[1]);
+    if (aPgu !== null && bPgu !== null) {
+      return (aPgu + bPgu) / 2 >= UNIVERSAL_PGU_FLOOR;
+    }
+    const aLeg = legacyFeelingValue(parts[0]);
+    const bLeg = legacyFeelingValue(parts[1]);
+    if (aLeg !== null && bLeg !== null) {
+      return (aLeg + bLeg) / 2 >= UNIVERSAL_LEGACY_FLOOR;
+    }
+  }
+
+  return false;
+}
+
+/** Proposed request string preferred the same way as rating UI: rerateNum, else requesterFR. */
+export function isUniversalRatingProposal(
+  rerateNum: string | null | undefined,
+  requesterFR: string | null | undefined,
+): boolean {
+  const primary = rerateNum != null && String(rerateNum).trim() !== '' ? rerateNum : requesterFR;
+  return isUniversalFeelingRating(primary);
+}
+
 /** PGU difficulties closest to `targetSortOrder`; on equal distance prefer higher sortOrder (e.g. 40.5 → U1 not G20). */
 function comparePguByDistanceToSortOrder(a: any, b: any, targetSortOrder: number): number {
   const distA = Math.abs(a.sortOrder - targetSortOrder);

@@ -369,18 +369,19 @@ router.put(
     operationId: 'putAdminRating',
     summary: 'Update rating',
     description:
-      'Submit or update rating detail. Body: rating, comment?, isCommunityRating?. Verified; rater for non-community.',
+      'Submit or update rating detail. Body: rating, comment?, isCommunityRating?, ratedInZen?. Verified; rater for non-community.',
     tags: ['Admin', 'Rating'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
     requestBody: {
-      description: 'rating, comment, isCommunityRating',
+      description: 'rating, comment, isCommunityRating, ratedInZen',
       schema: {
         type: 'object',
         properties: {
           rating: { type: 'string' },
           comment: { type: 'string' },
           isCommunityRating: { type: 'boolean' },
+          ratedInZen: { type: 'boolean' },
         },
       },
       required: true,
@@ -396,6 +397,7 @@ router.put(
         rating: ratingString,
         comment: commentString,
         isCommunityRating = false,
+        ratedInZen: ratedInZenBody,
       } = req.body;
 
       if (typeof commentString === 'string' && commentString.length > MAX_RATING_COMMENT_LENGTH) {
@@ -466,6 +468,14 @@ router.put(
         });
       }
 
+      const bodyRatedInZen =
+        ratedInZenBody === true || ratedInZenBody === 'true' || ratedInZenBody === '1';
+      const existingDetail = await RatingDetail.findOne({
+        where: { ratingId: Number(id), userId: user.id },
+        transaction,
+      });
+      const ratedInZen = bodyRatedInZen || Boolean(existingDetail?.ratedInZen);
+
       await RatingDetail.upsert(
         {
           ratingId: Number(id),
@@ -473,6 +483,7 @@ router.put(
           rating: rating || '',
           comment: comment || '',
           isCommunityRating,
+          ratedInZen,
         },
         { transaction }
       );
