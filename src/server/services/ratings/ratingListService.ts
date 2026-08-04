@@ -12,6 +12,7 @@ import { fetchLevelsByIdsFromElasticsearch } from '@/server/services/elasticsear
 import { pruneLevelForRatingList } from '@/server/services/elasticsearch/search/levels/ratingReferencedLevelSerialize.js';
 import { getOrFetchCacheLayer } from '@/server/middleware/stackedCacheLayers.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { isUniversalRatingProposal } from '@/misc/utils/data/RatingUtils.js';
 
 export const RATING_LIST_PAGE_SIZE = 30;
 export const RATING_LIST_CACHE_TTL_SEC = 300;
@@ -32,6 +33,7 @@ export interface RatingListQuery {
   fourVote: ShowHideOnly;
   hideRated: boolean;
   vote: VoteFilter;
+  excludeUniversals: boolean;
   userId: string | null;
   levelIdsFilter: number[] | null;
 }
@@ -131,6 +133,7 @@ export function parseRatingListQuery(
     fourVote,
     hideRated,
     vote,
+    excludeUniversals: false,
     userId: userId || null,
     levelIdsFilter: box.levelIds,
   };
@@ -144,6 +147,7 @@ export function ratingListPageCacheKey(params: RatingListQuery): string {
     lowDiff: params.lowDiff,
     fourVote: params.fourVote,
     vote: params.vote ?? null,
+    excludeUniversals: params.excludeUniversals,
     offset: params.offset,
     limit: params.limit,
     levelIds: params.levelIdsFilter ?? null,
@@ -454,14 +458,26 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
   }
 
   const ratings = await Rating.findAll(findOptions);
-  const results = await hydrateRatingListRows(ratings);
+  let results = await hydrateRatingListRows(ratings);
+
+  if (params.excludeUniversals) {
+    results = results.filter((row) => {
+      const level = row.level as { rerateNum?: string | null } | undefined;
+      return !isUniversalRatingProposal(
+        level?.rerateNum,
+        row.requesterFR as string | null | undefined
+      );
+    });
+  }
 
   return {
     results,
-    total,
+    total: params.excludeUniversals ? results.length : total,
     offset: params.offset,
     limit: params.limit,
-    hasMore: params.offset + params.limit < total,
+    hasMore: params.excludeUniversals
+      ? false
+      : params.offset + params.limit < total,
   };
 }
 
