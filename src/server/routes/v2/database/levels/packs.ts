@@ -711,19 +711,34 @@ router.get(
 
     const linkCode = pack!.linkCode ?? null;
 
-    const [clearedLevelIds, { flatItemsMerged: mergedFlat }] = await Promise.all([
+    const [clearSets, { flatItemsMerged: mergedFlat }] = await Promise.all([
       req.user
         ? Pass.findAll({
             where: { playerId: req.user.playerId, isDeleted: false },
-            attributes: ['levelId'],
-          }).then((passes) => passes.map((pass) => pass.levelId))
-        : Promise.resolve([] as number[]),
+            attributes: ['levelId', 'accuracy'],
+          }).then((passes) => {
+            const cleared = new Set<number>();
+            const purePerfect = new Set<number>();
+            for (const pass of passes) {
+              if (pass.levelId == null) continue;
+              cleared.add(pass.levelId);
+              if (Number(pass.accuracy) >= 1 - 1e-9) {
+                purePerfect.add(pass.levelId);
+              }
+            }
+            return { cleared, purePerfect };
+          })
+        : Promise.resolve({
+            cleared: new Set<number>(),
+            purePerfect: new Set<number>(),
+          }),
       resolvePackItemsWithStackedCache(resolvedPackId, linkCode, []),
     ]);
 
     const itemsWithClears = mergedFlat.map((item: any) => ({
       ...item,
-      isCleared: clearedLevelIds.includes(item.levelId || 0),
+      isCleared: clearSets.cleared.has(item.levelId || 0),
+      isPurePerfect: clearSets.purePerfect.has(item.levelId || 0),
     }));
 
     const items = await annotateReferencedLevelsWithLikeState(

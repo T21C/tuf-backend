@@ -484,7 +484,7 @@ export class PlayerStatsService {
       FROM player_pass_summary p
       WHERE p.playerId = :playerId
       AND p.availability_status != 'Not Available'
-      ORDER BY p.scoreV2 DESC
+      ORDER BY p.scoreV2 DESC, p.id DESC
       LIMIT 20
       `, {
         replacements: {
@@ -664,9 +664,14 @@ export class PlayerStatsService {
         const stats = await playerStatsService.getPlayerStats(player.id).then(stats => stats?.[0]);
         const uniquePasses = new Map();
         passes.forEach(pass => {
+          const existing = uniquePasses.get(pass.levelId);
+          const passScore = pass.scoreV2 || 0;
+          const existingScore = existing?.scoreV2 || 0;
+          // Match impact CTE: best per level by scoreV2 DESC, id DESC.
           if (
-            !uniquePasses.has(pass.levelId) ||
-            (pass.scoreV2 || 0) > (uniquePasses.get(pass.levelId).scoreV2 || 0)
+            !existing ||
+            passScore > existingScore ||
+            (passScore === existingScore && (pass.id || 0) > (existing.id || 0))
           ) {
             uniquePasses.set(pass.levelId, pass);
           }
@@ -676,9 +681,14 @@ export class PlayerStatsService {
           return level.isExternallyAvailable || level.dlLink || level.workshopLink;
         }
 
+        // Tie-break score ties by id DESC — must match getPlayerPasses impact CTE
+        // (`ORDER BY scoreV2 DESC, id DESC`) so badge impacts agree with sort-by-impact.
+        const byScoreThenIdDesc = (a: any, b: any) =>
+          (b.scoreV2 || 0) - (a.scoreV2 || 0) || (b.id || 0) - (a.id || 0);
+
         const topScores = Array.from(uniquePasses.values())
           .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate && isLevelAvailable(pass.level) && !pass.isHidden)
-          .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
+          .sort(byScoreThenIdDesc)
           .slice(0, 20)
           .map((pass, index) => ({
             id: pass.id,
@@ -687,7 +697,7 @@ export class PlayerStatsService {
 
         const potentialTopScores = Array.from(uniquePasses.values())
           .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate && !pass.isHidden)
-          .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
+          .sort(byScoreThenIdDesc)
           .slice(0, 20)
           .map((pass, index) => ({
             id: pass.id,
@@ -866,7 +876,10 @@ export class PlayerStatsService {
         // Mirrors `getEnrichedPlayer` topScores / potentialTopScores: best
         // non-duplicate pass per level, then scoreV2 * 0.9^(rank-1) for the
         // top 20 of the stricter list (level available) or else the potential list.
-        orderSql = `ic.sort_impact ${dir}, p.scoreV2 ${dir}, p.id DESC`;
+        // Primary: contribution weight (0 for reclears / outside top 20).
+        // Secondary: raw scoreV2 so equal-impact ties (esp. all zeros) resolve
+        // and high-score zero-impact reclears stay below any non-zero impact.
+        orderSql = `ic.sort_impact ${dir}, IFNULL(p.scoreV2, 0) ${dir}, p.id DESC`;
         break;
       case 'score':
       default:
