@@ -369,12 +369,12 @@ router.put(
     operationId: 'putAdminRating',
     summary: 'Update rating',
     description:
-      'Submit or update rating detail. Body: rating, comment?, isCommunityRating?, ratedInZen?. Verified; rater for non-community.',
+      'Submit or update rating detail. Body: rating, comment?, isCommunityRating?, ratedInZen?, viewDurationSeconds?. Verified; rater for non-community.',
     tags: ['Admin', 'Rating'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
     requestBody: {
-      description: 'rating, comment, isCommunityRating, ratedInZen',
+      description: 'rating, comment, isCommunityRating, ratedInZen, viewDurationSeconds',
       schema: {
         type: 'object',
         properties: {
@@ -382,6 +382,7 @@ router.put(
           comment: { type: 'string' },
           isCommunityRating: { type: 'boolean' },
           ratedInZen: { type: 'boolean' },
+          viewDurationSeconds: { type: 'integer', minimum: 0 },
         },
       },
       required: true,
@@ -398,6 +399,7 @@ router.put(
         comment: commentString,
         isCommunityRating = false,
         ratedInZen: ratedInZenBody,
+        viewDurationSeconds: viewDurationSecondsBody,
       } = req.body;
 
       if (typeof commentString === 'string' && commentString.length > MAX_RATING_COMMENT_LENGTH) {
@@ -476,6 +478,29 @@ router.put(
       });
       const ratedInZen = bodyRatedInZen || Boolean(existingDetail?.ratedInZen);
 
+      const parentRating = await Rating.findByPk(Number(id), {
+        attributes: ['id', 'createdAt'],
+        transaction,
+      });
+      if (!parentRating) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Rating not found' });
+      }
+
+      const parsedViewDuration = Number(viewDurationSecondsBody);
+      const clientViewSeconds =
+        Number.isFinite(parsedViewDuration) && parsedViewDuration > 0
+          ? Math.floor(parsedViewDuration)
+          : 0;
+      const ratingCreatedAt = (parentRating as Rating & { createdAt?: Date }).createdAt;
+      const maxAgeSec = Math.max(
+        0,
+        Math.floor((Date.now() - new Date(ratingCreatedAt ?? Date.now()).getTime()) / 1000)
+      );
+      const clampedClient = Math.min(Math.max(0, clientViewSeconds), maxAgeSec);
+      const existingViewSeconds = Math.max(0, existingDetail?.viewDurationSeconds ?? 0);
+      const viewDurationSeconds = Math.min(maxAgeSec, Math.max(existingViewSeconds, clampedClient));
+
       await RatingDetail.upsert(
         {
           ratingId: Number(id),
@@ -484,6 +509,7 @@ router.put(
           comment: comment || '',
           isCommunityRating,
           ratedInZen,
+          viewDurationSeconds,
         },
         { transaction }
       );

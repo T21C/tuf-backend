@@ -408,6 +408,34 @@ export const AnnouncementJobService = {
     }
   },
 
+  /**
+   * Terminal status for items that intentionally have no webhook destinations
+   * (e.g. difficulty has no matching PASS/LEVEL directives).
+   */
+  async markItemsSkipped(kind: AnnouncementKind, itemIds: number[]): Promise<void> {
+    for (const itemId of itemIds) {
+      const item = await getItem(kind, itemId);
+      if (!item) continue;
+      if (item.status === 'delivered' || item.status === 'skipped') continue;
+      const updated: AnnouncementItemState = {
+        ...item,
+        status: 'skipped',
+        updatedAt: Date.now(),
+        batches: (item.batches || []).map(b =>
+          b.status === 'sending' || b.status === 'pending'
+            ? { ...b, status: 'sent', destinationsDone: b.destinationsRequired }
+            : b,
+        ),
+      };
+      await saveItem(updated);
+      await redis.sRem(conveyorKey(kind), String(itemId));
+      broadcast('announcement.item.completed', { item: updated });
+      for (const requestId of item.requestIds) {
+        await recomputeRequestStatus(requestId);
+      }
+    }
+  },
+
   async markItemsFailed(
     kind: AnnouncementKind,
     itemIds: number[],

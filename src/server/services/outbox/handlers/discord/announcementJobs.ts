@@ -19,6 +19,7 @@ import { createRerateEmbedFromQueue } from '@/server/routes/v2/webhooks/rerateEm
 import {
   computeAnnouncementFacets,
   hasMeaningfulAnnouncementChange,
+  markQueueRowsAnnounced,
 } from '@/server/services/announcements/levelAnnouncementQueue.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import type { ChannelMessage, ChannelMessages } from '@/server/routes/v2/webhooks/webhook.js';
@@ -132,26 +133,67 @@ export async function runPassAnnouncementJob(passIds: number[]): Promise<void> {
       return;
     }
 
-    const configs = new Map();
+    // Already-announced (or missing) IDs still marked sending above — finalize them.
+    const foundIds = new Set(passes.map(p => p.id));
+    const alreadyDoneIds = passIds.filter(id => !foundIds.has(id));
+    if (alreadyDoneIds.length > 0) {
+      await AnnouncementJobService.markItemsDelivered('pass', alreadyDoneIds);
+      await AnnouncementJobService.releaseConveyor('pass', alreadyDoneIds);
+    }
+
+    const configs = new Map<number, Awaited<ReturnType<typeof getPassAnnouncementConfig>>>();
     for (const pass of passes) {
       if (!pass.level?.diffId) continue;
       const config = await getPassAnnouncementConfig(pass);
       configs.set(pass.id, config);
     }
 
-    const requiredWebhooksByItemId = buildRequiredWebhooksByPassId(passes, configs);
+    // Passes with no matching directives must not stay in `sending` forever.
+    // Treat them like silent-remove: leave the unannounced list, mark tracker skipped.
+    const noDestinationIds: number[] = [];
+    const announceablePasses: Pass[] = [];
+    for (const pass of passes) {
+      const channels = configs.get(pass.id)?.channels || [];
+      if (channels.length === 0) {
+        noDestinationIds.push(pass.id);
+      } else {
+        announceablePasses.push(pass);
+      }
+    }
+
+    if (noDestinationIds.length > 0) {
+      logger.info('[pass-announcement-job] Skipping passes with no announcement destinations', {
+        passIds: noDestinationIds,
+      });
+      await Pass.update(
+        { isAnnounced: true },
+        { where: { id: { [Op.in]: noDestinationIds }, isAnnounced: false } },
+      );
+      await AnnouncementJobService.markItemsSkipped('pass', noDestinationIds);
+    }
+
+    if (announceablePasses.length === 0) {
+      await AnnouncementJobService.releaseConveyor('pass', passIds);
+      return;
+    }
+
+    const requiredWebhooksByItemId = buildRequiredWebhooksByPassId(announceablePasses, configs);
     const allWebhookUrls = [...new Set(
       [...requiredWebhooksByItemId.values()].flat(),
     )];
     const alreadyDelivered = await AnnouncementDeliveryTracker.buildAlreadyDeliveredSet(
       'pass',
-      passes.map(p => p.id),
+      announceablePasses.map(p => p.id),
       allWebhookUrls,
     );
 
-    const channels = await createChannelMessages(passes, configs, { alreadyDelivered });
+    const channels = await createChannelMessages(announceablePasses, configs, { alreadyDelivered });
     if (channels.length === 0) {
-      await AnnouncementJobService.markItemsDelivered('pass', passes.map(p => p.id));
+      // All destinations already delivered (retry) — complete remaining items.
+      await AnnouncementJobService.markItemsDelivered(
+        'pass',
+        announceablePasses.map(p => p.id),
+      );
       await AnnouncementJobService.releaseConveyor('pass', passIds);
       return;
     }
@@ -206,6 +248,13 @@ export async function runLevelAnnouncementJob(queueRowIds: number[]): Promise<vo
       return;
     }
 
+    const foundIds = new Set(rows.map(r => r.id));
+    const alreadyDoneIds = queueRowIds.filter(id => !foundIds.has(id));
+    if (alreadyDoneIds.length > 0) {
+      await AnnouncementJobService.markItemsDelivered('level', alreadyDoneIds);
+      await AnnouncementJobService.releaseConveyor('level', alreadyDoneIds);
+    }
+
     const levels = rows.map(r => r.level!).filter(Boolean);
     const trackingIdByEntityId = new Map<number, number>();
     const levelIdByItemId = new Map<number, number>();
@@ -220,8 +269,41 @@ export async function runLevelAnnouncementJob(queueRowIds: number[]): Promise<vo
       configs.set(level.id, await getLevelAnnouncementConfig(level));
     }
 
+    const noDestinationRows: typeof rows = [];
+    const announceableRows: typeof rows = [];
+    for (const row of rows) {
+      const channels = configs.get(row.levelId)?.channels || [];
+      if (channels.length === 0) {
+        noDestinationRows.push(row);
+      } else {
+        announceableRows.push(row);
+      }
+    }
+
+    if (noDestinationRows.length > 0) {
+      const skipItemIds = noDestinationRows.map(r => r.id);
+      const skipLevelIds = noDestinationRows.map(r => r.levelId);
+      logger.info('[level-announcement-job] Skipping levels with no announcement destinations', {
+        queueRowIds: skipItemIds,
+        levelIds: skipLevelIds,
+      });
+      await markQueueRowsAnnounced(skipItemIds);
+      await Level.update(
+        { isAnnounced: true },
+        { where: { id: { [Op.in]: skipLevelIds } } },
+      );
+      await AnnouncementJobService.markItemsSkipped('level', skipItemIds);
+    }
+
+    if (announceableRows.length === 0) {
+      await AnnouncementJobService.releaseConveyor('level', queueRowIds);
+      return;
+    }
+
+    const announceableLevels = announceableRows.map(r => r.level!).filter(Boolean);
+
     const requiredWebhooksByItemId = buildRequiredWebhooksByLevelTrackingId(
-      rows.map(r => ({ id: r.id, levelId: r.levelId })),
+      announceableRows.map(r => ({ id: r.id, levelId: r.levelId })),
       configs,
     );
     const allWebhookUrls = [...new Set(
@@ -229,16 +311,16 @@ export async function runLevelAnnouncementJob(queueRowIds: number[]): Promise<vo
     )];
     const alreadyDelivered = await AnnouncementDeliveryTracker.buildAlreadyDeliveredSet(
       'level',
-      rows.map(r => r.id),
+      announceableRows.map(r => r.id),
       allWebhookUrls,
     );
 
-    const channels = await createChannelMessages(levels, configs, {
+    const channels = await createChannelMessages(announceableLevels, configs, {
       alreadyDelivered,
       trackingIdByEntityId,
     });
     if (channels.length === 0) {
-      await AnnouncementJobService.markItemsDelivered('level', rows.map(r => r.id));
+      await AnnouncementJobService.markItemsDelivered('level', announceableRows.map(r => r.id));
       await AnnouncementJobService.releaseConveyor('level', queueRowIds);
       return;
     }
