@@ -3,7 +3,7 @@ import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import {Request, Response} from 'express';
 import User from '@/models/auth/User.js';
-import { clientUrlEnv } from '@/config/app.config.js';
+import { clientUrlEnv, isAllowedCorsOrigin } from '@/config/app.config.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasAnyFlag } from '@/misc/utils/auth/permissionUtils.js';
 
@@ -44,13 +44,7 @@ router.get(
 
   // Set CORS headers matching main app configuration
   const origin = req.headers.origin;
-  const allowedOrigins = [
-    clientUrlEnv,
-    'https://tuforums.com',
-    'https://api.tuforums.com'
-  ];
-
-  if (origin && allowedOrigins.includes(origin)) {
+  if (origin && isAllowedCorsOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
     res.setHeader('Access-Control-Allow-Origin', clientUrlEnv || 'http://localhost:5173');
