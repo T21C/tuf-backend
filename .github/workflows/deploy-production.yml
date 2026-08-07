@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -57,8 +57,7 @@ jobs:
           if [[ -n "${{ vars.SENTRY_URL }}" ]]; then
             echo "SENTRY_URL=${{ vars.SENTRY_URL }}" >> "$GITHUB_ENV"
           else
-            # Org is on the DE region; override via vars.SENTRY_URL if that changes.
-            echo "SENTRY_URL=https://de.sentry.io" >> "$GITHUB_ENV"
+            echo "SENTRY_URL=https://sentry.tuforums.com" >> "$GITHUB_ENV"
           fi
 
       - name: Create Sentry release and upload sourcemaps
