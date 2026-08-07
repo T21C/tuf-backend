@@ -10,15 +10,13 @@ import {
 } from '@/server/services/core/JobProgressService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { redis } from '@/server/services/core/RedisService.js';
-import { clientUrlEnv } from '@/config/app.config.js';
+import { clientUrlEnv, isAllowedCorsOrigin } from '@/config/app.config.js';
 
 const router = Router();
 
 function applyJobStreamCors(req: Request, res: Response): void {
   const origin = req.headers.origin;
-  const allowedOrigins = [clientUrlEnv, 'https://tuforums.com', 'https://api.tuforums.com'];
-
-  if (origin && allowedOrigins.includes(origin)) {
+  if (origin && isAllowedCorsOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
     res.setHeader('Access-Control-Allow-Origin', clientUrlEnv || 'http://localhost:5173');

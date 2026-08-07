@@ -176,18 +176,14 @@ const corsOriginAllowlist = new Set(
     .filter(Boolean),
 );
 
-const localDevOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+const loopbackOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 /** Whether the browser Origin may use credentialed CORS against this API. */
 export function isAllowedCorsOrigin(origin: string | undefined): boolean {
   if (!origin) return true;
   if (corsOriginAllowlist.has(origin)) return true;
-  if (
-    process.env.NODE_ENV === 'development' &&
-    localDevOriginPattern.test(origin)
-  ) {
-    return true;
-  }
+  // Any loopback origin (any port) — local OAuth / app testing against prod or staging.
+  if (loopbackOriginPattern.test(origin)) return true;
   return false;
 }
 
