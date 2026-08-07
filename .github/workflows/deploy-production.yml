@@ -25,12 +25,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install, test, and build
         env:
           PUPPETEER_SKIP_DOWNLOAD: "true"
         run: |
-          npm install
+          npm ci
           npm test
           npm run build
 

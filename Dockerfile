@@ -20,9 +20,9 @@ RUN apt-get update \
         python3 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json ./
+COPY package.json package-lock.json ./
 COPY eslint-plugin-tuf ./eslint-plugin-tuf
-RUN --mount=type=cache,target=/root/.npm npm install
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 COPY dist ./dist
 
