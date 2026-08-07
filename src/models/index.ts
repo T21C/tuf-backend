@@ -64,6 +64,10 @@ import PlacementReward from './tournaments/PlacementReward.js';
 import PlacementEntitlement from './tournaments/PlacementEntitlement.js';
 import EquippedCosmetic from './tournaments/EquippedCosmetic.js';
 import ProfileCustomizationPiece from './profile/ProfileCustomizationPiece.js';
+import OAuthClient from './oauth/OAuthClient.js';
+import OAuthGrant from './oauth/OAuthGrant.js';
+import OAuthAuthorizationCode from './oauth/OAuthAuthorizationCode.js';
+import OAuthRefreshToken from './oauth/OAuthRefreshToken.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -134,6 +138,10 @@ export const db = {
     PlacementEntitlement,
     EquippedCosmetic,
     ProfileCustomizationPiece,
+    OAuthClient,
+    OAuthGrant,
+    OAuthAuthorizationCode,
+    OAuthRefreshToken,
   },
 };
 
@@ -160,6 +168,10 @@ export {
   UserTufStellarBilling,
   UserTufStellarEntitlementSegment,
   UserTufStellarAdminGrant,
+  OAuthClient,
+  OAuthGrant,
+  OAuthAuthorizationCode,
+  OAuthRefreshToken,
 };
 
 // Export Discord models

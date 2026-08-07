@@ -145,6 +145,16 @@ export const IMAGE_TYPES = {
         formats: ['jpg', 'jpeg', 'png', 'webp', 'gif'] as const,
         maxSize: 5 * 1024 * 1024 // 5MB
     },
+    OAUTH_CLIENT_ICON: {
+        name: 'oauth_client_icon',
+        sizes: {
+            original: { width: 256, height: 256 },
+            medium: { width: 128, height: 128 },
+            small: { width: 64, height: 64 }
+        },
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif'] as const,
+        maxSize: 5 * 1024 * 1024 // 5MB
+    },
     TAG_ICON: {
         name: 'tag_icon',
         sizes: {
@@ -195,6 +205,7 @@ export const MIME_TYPES = {
     'DIFFICULTY_ICON': 'image/png',
     'LEVEL_THUMBNAIL': 'image/png',
     'PACK_ICON': 'image/png',
+    'OAUTH_CLIENT_ICON': 'image/png',
     'TAG_ICON': 'image/png',
     'LEVELZIP': 'application/zip',
     'EVIDENCE': 'image/png',

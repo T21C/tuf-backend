@@ -6,11 +6,19 @@ import webhookRoutes from './webhooks/index.js';
 import miscRoutes from './misc/index.js';
 import healthRoutes from './misc/health.js';
 import cdnProgressRoutes from './misc/cdnProgress.js';
+import developersRoutes from './developers/index.js';
+import oauthConsentRoutes from './oauth/index.js';
 
 const router: Router = Router();
 
 // Auth routes
 router.use('/auth', authRoutes);
+
+// Developer portal (OAuth apps)
+router.use('/developers', developersRoutes);
+
+// OAuth consent APIs (SPA companion; protocol endpoints stay on /oauth/*)
+router.use('/oauth', oauthConsentRoutes);
 
 // Admin routes
 router.use('/admin', adminRoutes);
