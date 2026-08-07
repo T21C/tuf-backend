@@ -6,6 +6,7 @@ import cors from 'cors';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { CDN_CONFIG } from './config.js';
 import router from './routes/index.js';
+import { rewriteDevLanOriginsMiddleware } from './http/middleware/rewriteDevLanOrigins.js';
 import dotenv from 'dotenv';
 import { registerGlobalProcessHandlers } from '@/server/bootstrap/processHandlers.js';
 import { sweepWorkspaceRootOnBoot } from '@/server/services/core/WorkspaceService.js';
@@ -51,6 +52,9 @@ app.use((req, res, next) => {
 });
 app.use(express.json());
 
+// Dev + CDN_DEV_PUBLIC_HOST: rewrite localhost file links in write JSON to LAN IP.
+app.use(rewriteDevLanOriginsMiddleware);
+
 // Cheap liveness probe target for the standalone health service. Mounted
 // before the main router so it can't be blocked by heavy upload/parse routes
 // or any future middleware that touches the DB.
@@ -79,6 +83,12 @@ app.use('/', router);
 const bindAddress = process.env.CDN_BIND_ADDRESS || '127.0.0.1';
 app.listen(CDN_CONFIG.port, bindAddress, () => {
     logger.info(`CDN service running on http://${bindAddress}:${CDN_CONFIG.port}`);
+    const lanHost = process.env.NODE_ENV === 'development'
+        ? process.env.CDN_DEV_PUBLIC_HOST?.trim()
+        : undefined;
+    if (lanHost) {
+        logger.info(`CDN write responses rewrite localhost origins to ${lanHost}`);
+    }
 });
 
 export default app;

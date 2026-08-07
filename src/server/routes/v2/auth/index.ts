@@ -16,6 +16,8 @@ import {
   stringIdParamSpec,
 } from '@/server/schemas/v2/auth/index.js';
 import { stepUpGrantService } from '@/server/services/auth/StepUpGrantService.js';
+import { oauthUserGrantsController } from '@/server/controllers/oauthDeveloper.js';
+import { requireCsrfForCookieAuth } from '@/server/middleware/csrf.js';
 
 const router: Router = Router();
 
@@ -339,6 +341,18 @@ router.delete(
     },
   }),
   (req, res) => authController.revokeSession(req, res)
+);
+
+router.get(
+  '/oauth-apps',
+  Auth.user(),
+  (req, res) => oauthUserGrantsController.list(req, res),
+);
+router.delete(
+  '/oauth-apps/:grantId',
+  Auth.user(),
+  requireCsrfForCookieAuth,
+  (req, res) => oauthUserGrantsController.revoke(req, res),
 );
 
 export default router;
