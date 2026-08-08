@@ -39,11 +39,15 @@ import {
 } from '@/misc/utils/data/curationOrdering.js';
 import { parseFacetQueryString } from '@/misc/utils/search/facetQuery.js';
 import { annotateLevelsWithLikeState } from '@/misc/utils/data/levelLikeState.js';
+import {
+  isRandomSortParam,
+  resolveSearchSeed,
+} from '@/server/services/elasticsearch/search/tools/seededRandomSort.js';
 
 const router: Router = Router()
 const elasticsearchService = ElasticsearchService.getInstance();
 
-function emptyLevelSearchPage(page: number, offset: number, limit: number) {
+function emptyLevelSearchPage(page: number, offset: number, limit: number, seed?: number) {
   return {
     results: [] as unknown[],
     page,
@@ -51,6 +55,7 @@ function emptyLevelSearchPage(page: number, offset: number, limit: number) {
     limit,
     hasMore: false,
     total: 0,
+    ...(seed !== undefined ? { seed } : {}),
   };
 }
 
@@ -69,6 +74,7 @@ router.get(
       facetQuery: { description: 'Facet filter JSON v1 (tags + curationTypes)', schema: { type: 'string' } },
       pguRange: { description: 'PGU range', schema: { type: 'string' } },
       sort: { schema: { type: 'string' } },
+      seed: { description: 'Seed for RANDOM sort (stable pagination). Generated when omitted.', schema: { type: 'integer' } },
       page: { schema: { type: 'integer' } },
       offset: { schema: { type: 'integer' } },
       limit: { schema: { type: 'integer' } },
@@ -85,6 +91,7 @@ router.get(
       pguRange,
       specialDifficulties,
       sort,
+      seed: seedQuery,
       deletedFilter,
       clearedFilter,
       availableDlFilter,
@@ -97,6 +104,8 @@ router.get(
     } = req.query;
 
     const startTime = Date.now();
+    const sortStr = sort as string | undefined;
+    const seed = isRandomSortParam(sortStr) ? resolveSearchSeed(seedQuery) : undefined;
 
     // Parse pguRange from comma-separated string
     let parsedPguRange;
@@ -116,14 +125,14 @@ router.get(
     let likedLevelIds: number[] | undefined;
     if (onlyMyLikes === 'true') {
       if (!req.user?.id) {
-        return res.json(emptyLevelSearchPage(page, offset, limit));
+        return res.json(emptyLevelSearchPage(page, offset, limit, seed));
       }
       likedLevelIds = await LevelLikes.findAll({
         where: { userId: req.user.id },
         attributes: ['levelId']
       }).then(likes => likes.map(l => l.levelId));
       if (likedLevelIds && likedLevelIds.length === 0) {
-        return res.json(emptyLevelSearchPage(page, offset, limit));
+        return res.json(emptyLevelSearchPage(page, offset, limit, seed));
       }
     }
 
@@ -161,7 +170,8 @@ router.get(
       {
         pguRange: parsedPguRange,
         specialDifficulties: parsedSpecialDifficulties,
-        sort: sort as string,
+        sort: sortStr,
+        seed,
         deletedFilter: deletedFilter as string,
         clearedFilter: clearedFilter as string,
         availableDlFilter: availableDlFilter as string,
@@ -202,7 +212,8 @@ router.get(
       offset,
       limit,
       hasMore: offset + limit < total,
-      total
+      total,
+      ...(seed !== undefined ? { seed } : {}),
     });
   } catch (error) {
     logger.error('Error in level search:', error);

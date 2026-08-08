@@ -28,7 +28,13 @@ import {
   idsQuery,
 } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 import { buildFieldSearchQuery } from '@/server/services/elasticsearch/search/levels/levelFieldQuery.js';
-import { shouldUseRegularSearch, isRandomSort, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/tools/scrollHelpers.js';
+import { shouldUseRegularSearch, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/tools/scrollHelpers.js';
+import {
+  getSeededRandomSortOptions,
+  isRandomSortParam,
+  resolveSearchSeed,
+  wrapQueryWithSeededRandom,
+} from '@/server/services/elasticsearch/search/tools/seededRandomSort.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { Op } from 'sequelize';
 import type { estypes } from '@elastic/elasticsearch';
@@ -238,12 +244,16 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       }
     }
 
-    const searchQuery = {
+    let searchQuery: any = {
       bool: {
         must,
         ...(should.length > 0 && { should, minimum_should_match: 1 })
       }
     };
+
+    if (isRandomSortParam(filters.sort)) {
+      searchQuery = wrapQueryWithSeededRandom(searchQuery, resolveSearchSeed(filters.seed));
+    }
 
     // Validate and limit offset to prevent integer overflow
     const maxOffset = 2147483647; // Maximum 32-bit integer
@@ -487,12 +497,6 @@ async function searchLevelsWithRegularSearch(
   limit: number
 ): Promise<{ hits: any[], total: number }> {
   try {
-    // For random sorting, we'll use a different approach
-    if (isRandomSort(sortOptions)) {
-      return searchLevelsWithRandomSort(searchQuery, offset, limit);
-    }
-
-    // For other cases, use regular search with increased max_result_window
     const response = await client.search({
       index: levelIndexName,
       query: searchQuery,
@@ -522,68 +526,6 @@ async function searchLevelsWithRegularSearch(
     };
   } catch (error) {
     logger.error('Error in regular search:', error);
-    throw error;
-  }
-}
-
-async function searchLevelsWithRandomSort(
-  searchQuery: any,
-  offset: number,
-  limit: number
-): Promise<{ hits: any[], total: number }> {
-  try {
-    // For random sorting, we'll use a different approach:
-    // 1. Get total count
-    const countResponse = await client.count({
-      index: levelIndexName,
-      query: searchQuery
-    });
-
-    const total = countResponse.count;
-
-    // 2. Generate random offsets
-    const randomOffsets = new Set<number>();
-    while (randomOffsets.size < limit) {
-      const randomOffset = Math.floor(Math.random() * total);
-      randomOffsets.add(randomOffset);
-    }
-
-    // 3. Fetch results for each random offset
-    const sources = await Promise.all(
-      Array.from(randomOffsets).map(async (randomOffset) => {
-        const response = await client.search({
-          index: levelIndexName,
-          query: searchQuery,
-          from: randomOffset,
-          size: 1
-        });
-
-        if (response.hits.hits.length > 0) {
-          return response.hits.hits[0]._source as Record<string, any>;
-        }
-        return null;
-      })
-    );
-
-    const nonNullSources = sources.filter((s): s is Record<string, any> => s !== null);
-
-    let diffs: Difficulty[] = [];
-    if (nonNullSources.length > 0) {
-      diffs = await Difficulty.findAll({
-        where: {
-          id: { [Op.in]: nonNullSources.map((s) => s.diffId) },
-        },
-      });
-    }
-
-    const hits = nonNullSources.map((source) => convertLevelSearchHit(source, diffs));
-
-    return {
-      hits,
-      total
-    };
-  } catch (error) {
-    logger.error('Error in random sort search:', error);
     throw error;
   }
 }
@@ -797,7 +739,7 @@ async function getLevelSortOptions(sort?: string): Promise<any[]> {
     case 'TIME':
       return [{ levelLengthInMs: { order: direction, missing: '_last' } }, { id: 'desc' }];
     case 'RANDOM':
-      return [{ _script: { script: 'Math.random()', type: 'number' } }];
+      return getSeededRandomSortOptions(direction);
     default:
       return [{ id: 'desc' }];
   }

@@ -124,8 +124,9 @@ export function getDateSeed(date: Date): number {
 }
 
 
+/** Unsigned 32-bit seed suitable for Elasticsearch random_score and local PRNGs. */
 export function getRandomSeed() {
-  return Math.floor(Math.random() * 100000);
+  return Math.floor(Math.random() * 0x100000000) >>> 0;
 }
 
 

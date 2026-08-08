@@ -99,6 +99,7 @@ export async function searchPasses(query: any, userPlayerId?: number, isSuperAdm
         wfFilter: query.wfFilter,
         specialDifficulties: query.specialDifficulties,
         sort: query.sort,
+        seed: query.seed,
         offset: query.offset,
         limit: query.limit
       }, userPlayerId, isSuperAdmin);

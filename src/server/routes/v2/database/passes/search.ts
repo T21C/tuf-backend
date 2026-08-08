@@ -19,6 +19,10 @@ import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
+import {
+  isRandomSortParam,
+  resolveSearchSeed,
+} from '@/server/services/elasticsearch/search/tools/seededRandomSort.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const router = Router();
@@ -334,6 +338,7 @@ router.get(
       player: { schema: { type: 'string' } },
       specialDifficulties: { schema: { type: 'string' } },
       sort: { schema: { type: 'string' } },
+      seed: { description: 'Seed for RANDOM sort (stable pagination). Generated when omitted.', schema: { type: 'integer' } },
       page: { schema: { type: 'string' } },
       offset: { schema: { type: 'string' } },
       limit: { schema: { type: 'string' } },
@@ -354,10 +359,13 @@ router.get(
         specialDifficulties,
         query: searchQuery,
         sort,
+        seed: seedQuery,
       } = req.query;
 
       // Get user's playerId if logged in
       const userPlayerId = req.user?.playerId;
+      const sortStr = ensureString(sort);
+      const seed = isRandomSortParam(sortStr) ? resolveSearchSeed(seedQuery) : undefined;
 
       const result = await searchPasses({
         deletedFilter: ensureString(deletedFilter),
@@ -371,10 +379,17 @@ router.get(
         query: ensureString(searchQuery),
         offset,
         limit,
-        sort: ensureString(sort)
+        sort: sortStr,
+        seed,
       }, userPlayerId, hasFlag(req.user, permissionFlags.SUPER_ADMIN));
 
-      return res.json({ ...result, page, offset, limit });
+      return res.json({
+        ...result,
+        page,
+        offset,
+        limit,
+        ...(seed !== undefined ? { seed } : {}),
+      });
     } catch (error) {
       logger.error('Error fetching passes:', error);
       return res.status(500).json({error: 'Failed to fetch passes'});
