@@ -320,7 +320,7 @@ router.get(
   ApiDoc({
     operationId: 'searchPasses',
     summary: 'Search passes',
-    description: 'Search passes with filters (query, deletedFilter, minDiff, maxDiff, keyFlag, levelId, player, specialDifficulties, sort). Query: page, offset, limit. Uses Elasticsearch.',
+    description: 'Search passes with filters (query, deletedFilter, minDiff, maxDiff, keyFlag, wfFilter, levelId, player, specialDifficulties, sort). Query: page, offset, limit. Uses Elasticsearch.',
     tags: ['Passes'],
     security: ['bearerAuth'],
     query: {
@@ -329,6 +329,7 @@ router.get(
       minDiff: { schema: { type: 'string' } },
       maxDiff: { schema: { type: 'string' } },
       keyFlag: { schema: { type: 'string' } },
+      wfFilter: { schema: { type: 'string' } },
       levelId: { schema: { type: 'string' } },
       player: { schema: { type: 'string' } },
       specialDifficulties: { schema: { type: 'string' } },
@@ -347,6 +348,7 @@ router.get(
         minDiff,
         maxDiff,
         keyFlag,
+        wfFilter,
         levelId,
         player,
         specialDifficulties,
@@ -362,6 +364,7 @@ router.get(
         minDiff: ensureString(minDiff),
         maxDiff: ensureString(maxDiff),
         keyFlag: ensureString(keyFlag),
+        wfFilter: ensureString(wfFilter),
         levelId: ensureString(levelId),
         player: ensureString(player),
         specialDifficulties,

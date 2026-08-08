@@ -81,6 +81,30 @@ export async function searchPasses(query: string, filters: any = {}, userPlayerI
       }
     }
 
+    // Handle world's first filter
+    if (filters.wfFilter && filters.wfFilter !== 'none') {
+      switch (filters.wfFilter) {
+        case 'wf':
+          must.push(termField('isWorldsFirst', true));
+          break;
+        case 'wfpp':
+          must.push(termField('isWorldsFirstPP', true));
+          break;
+        case 'either':
+          must.push(
+            boolShould(1, [
+              termField('isWorldsFirst', true),
+              termField('isWorldsFirstPP', true),
+            ]),
+          );
+          break;
+        case 'both':
+          must.push(termField('isWorldsFirst', true));
+          must.push(termField('isWorldsFirstPP', true));
+          break;
+      }
+    }
+
     const sortType = filters.sort?.split('_').slice(0, -1).join('_');
     if (sortType === 'SPEED') {
       must.push(rangeGt('speed', 1));
