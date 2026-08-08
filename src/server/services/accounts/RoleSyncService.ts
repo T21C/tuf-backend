@@ -363,6 +363,7 @@ class RoleSyncService {
             model: Curation,
             as: 'curations',
             required: true,
+            where: { isDuplicate: { [Op.ne]: true } },
             include: [{
               model: CurationType,
               as: 'types',
@@ -431,6 +432,7 @@ class RoleSyncService {
             model: Curation,
             as: 'curations',
             required: true,
+            where: { isDuplicate: { [Op.ne]: true } },
             include: [{
               model: CurationType,
               as: 'types',
