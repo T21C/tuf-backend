@@ -1,4 +1,5 @@
-import { Auth } from '@/server/middleware/auth.js';
+import Rating from '@/models/levels/Rating.js';
+import Level from '@/models/levels/Level.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import {
   standardErrorResponses,
@@ -6,10 +7,7 @@ import {
   standardErrorResponses500,
   stringIdParamSpec,
 } from '@/server/schemas/v2/admin/index.js';
-import Rating from '@/models/levels/Rating.js';
-import RatingDetail from '@/models/levels/RatingDetail.js';
-import Level from '@/models/levels/Level.js';
-import { sseManager } from '@/misc/utils/server/sse.js';
+import { Auth } from '@/server/middleware/auth.js';
 import sequelize from '@/config/db.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import User from '@/models/auth/User.js';
@@ -32,12 +30,14 @@ import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import {
+  broadcastRatingUpsert,
   buildCompleteRatingById,
   buildCompleteRatingByLevelId,
   buildSlimListRowByRatingId,
   getRatingListPage,
   parseRatingListQuery,
 } from '@/server/services/ratings/ratingListService.js';
+import RatingDetail from '@/models/levels/RatingDetail.js';
 import {
   dealZenDeck,
   parseZenDealOptions,
@@ -159,21 +159,6 @@ function fullRatingIncludeOptions(transaction: any) {
     ],
     transaction,
   };
-}
-
-async function broadcastRatingUpsert(ratingId: number, levelId: number) {
-  const listRow = await buildSlimListRowByRatingId(ratingId);
-  const complete = await buildCompleteRatingById(ratingId);
-  sseManager.broadcast({
-    type: 'ratingUpdate',
-    data: {
-      ratingId,
-      levelId,
-      action: listRow ? 'upsert' : 'remove',
-      listRow,
-      complete,
-    },
-  });
 }
 
 // Public read: the rating page renders for anonymous visitors, and signed-in

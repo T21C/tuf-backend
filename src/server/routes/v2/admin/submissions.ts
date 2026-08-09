@@ -63,6 +63,8 @@ import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
 import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { resolveLevelCreatedAtFromVideoLink } from '@/misc/utils/data/levelCreatedAtFromVideoLink.js';
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { broadcastRatingUpsert } from '@/server/services/ratings/ratingListService.js';
 import { fetchLevelWithRelations } from '@/server/services/elasticsearch/fetching/levelFetch.js';
 
 const router: Router = Router();
@@ -183,6 +185,7 @@ interface ApprovePassSubmissionResult {
   pass: Pass;
   newPass: Pass;
   playerStats: Awaited<ReturnType<typeof playerStatsService.getPlayerStats>>[0] | null;
+  createdRatingId: number | null;
 }
 
 /**
@@ -343,15 +346,17 @@ async function approvePassSubmission(
     });
   }
 
+  let createdRatingId: number | null = null;
   if (level.clears === 0 && difficulty.name.includes('Q') && speed === 1) {
     let reqFr = (submission.feelingDifficulty ?? '');
     if (difficulty.name.includes('UQ')) {
       reqFr = `vote (${submission.feelingDifficulty ?? ''})`;
     }
-    await Rating.create(
+    const newRating = await Rating.create(
       { levelId: submission.levelId, lowDiff: false, requesterFR: submission.feelingDifficulty?.substring(0, 60) || 'cleared' },
       { transaction },
     );
+    createdRatingId = newRating.id;
     await Level.update({ 
       toRate: true, 
       previousDiffId: level.diffId,
@@ -362,7 +367,7 @@ async function approvePassSubmission(
       transaction });
   }
 
-  return { pass, newPass: newPass as Pass, playerStats };
+  return { pass, newPass: newPass as Pass, playerStats, createdRatingId };
 }
 
 interface CreditStats {
@@ -1122,19 +1127,6 @@ router.put(
           },
         );
 
-
-        // Broadcast updates
-        sseManager.broadcast({type: 'submissionUpdate'});
-        sseManager.broadcast({type: 'levelUpdate'});
-        sseManager.broadcast({
-          type: 'submissionUpdate',
-          data: {
-            action: 'approve',
-            submissionId: id,
-            submissionType: 'level',
-          },
-        });
-
         // Move evidence from submission to song/artist if approved
         if (submission.evidence && submission.evidence.length > 0) {
           for (const evidence of submission.evidence) {
@@ -1158,6 +1150,28 @@ router.put(
         }
 
         await transaction.commit();
+
+        sseManager.broadcast({
+          type: 'submissionUpdate',
+          data: {
+            action: 'approve',
+            submissionId: id,
+            submissionType: 'level',
+          },
+        });
+
+        await CacheInvalidation.invalidateTag('admin:ratings').catch((err) =>
+          logger.warn('Failed to invalidate admin:ratings cache after level approve', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+        await broadcastRatingUpsert(newRating.id, newLevel.id).catch((err) =>
+          logger.warn('Failed to broadcast rating upsert after level approve', {
+            levelId: newLevel.id,
+            ratingId: newRating.id,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
 
         void autoraterService.autorateRating(newRating.id).catch((err) => {
           logger.warn('Failed to auto-autorate new level submission rating', {
@@ -1327,7 +1341,7 @@ router.put(
         return res.status(404).json({error: 'Submission not found or already processed'});
       }
 
-      const { pass, newPass, playerStats } = await approvePassSubmission(submission.id, transaction);
+      const { pass, newPass, playerStats, createdRatingId } = await approvePassSubmission(submission.id, transaction);
 
       await transaction.commit();
 
@@ -1338,6 +1352,21 @@ router.put(
         type: 'submissionUpdate',
         data: { action: 'create', submissionId: submission.id, submissionType: 'pass' },
       });
+
+      if (createdRatingId && submission.levelId) {
+        await CacheInvalidation.invalidateTag('admin:ratings').catch((err) =>
+          logger.warn('Failed to invalidate admin:ratings cache after pass approve', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+        await broadcastRatingUpsert(createdRatingId, submission.levelId).catch((err) =>
+          logger.warn('Failed to broadcast rating upsert after pass approve', {
+            levelId: submission.levelId,
+            ratingId: createdRatingId,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      }
 
       if (submission.assignedPlayerId && playerStats) {
         sseManager.broadcast({
@@ -1907,12 +1936,27 @@ router.post(
           throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
         }
 
-        const { newPass, playerStats } = await approvePassSubmission(lockedSubmission.id, transaction);
+        const { newPass, playerStats, createdRatingId } = await approvePassSubmission(lockedSubmission.id, transaction);
 
         await transaction.commit();
 
         await elasticsearchService.indexPass(newPass);
         await elasticsearchService.indexLevel(newPass.level!);
+
+        if (createdRatingId && lockedSubmission.levelId) {
+          await CacheInvalidation.invalidateTag('admin:ratings').catch((err) =>
+            logger.warn('Failed to invalidate admin:ratings cache after auto-approve pass', {
+              error: err instanceof Error ? err.message : String(err),
+            }),
+          );
+          await broadcastRatingUpsert(createdRatingId, lockedSubmission.levelId).catch((err) =>
+            logger.warn('Failed to broadcast rating upsert after auto-approve pass', {
+              levelId: lockedSubmission.levelId,
+              ratingId: createdRatingId,
+              error: err instanceof Error ? err.message : String(err),
+            }),
+          );
+        }
 
         if (lockedSubmission.assignedPlayerId && playerStats) {
           sseManager.broadcast({
