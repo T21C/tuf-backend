@@ -55,7 +55,8 @@ const sqlCreatorCurationTypedLevelsFrom = `
   INNER JOIN curation_curation_types cct ON c.id = cct.curationId
   INNER JOIN levels l ON l.id = c.levelId AND IFNULL(l.isDeleted, 0) = 0
   INNER JOIN curation_types ct ON ct.id = cct.typeId
-  WHERE ${sqlCreatorCreditedLevelFilter}
+  WHERE IFNULL(c.isDuplicate, 0) = 0
+  AND ${sqlCreatorCreditedLevelFilter}
   AND ${sqlCurationTypeRowEligibleForCreator}
 `;
 
@@ -342,7 +343,8 @@ INNER JOIN curation_types ct ON ct.id = cct.typeId
 INNER JOIN level_credits lc_outer ON lc_outer.levelId = c.levelId
   AND lc_outer.creatorId IN (:creatorIds)
   AND lc_outer.role IN ('charter', 'vfxer')
-WHERE c.levelId IN (
+WHERE IFNULL(c.isDuplicate, 0) = 0
+AND c.levelId IN (
   SELECT lc.levelId FROM level_credits lc
   WHERE lc.creatorId = lc_outer.creatorId
     AND lc.role IN ('charter', 'vfxer')

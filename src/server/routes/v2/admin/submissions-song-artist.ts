@@ -1287,4 +1287,58 @@ router.put(
   }
 );
 
+// Update video link (moderators fixing malformed embeds)
+router.put(
+  '/levels/:id/video-link',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionVideoLink',
+    summary: 'Update submission video link',
+    description: 'Update videoLink on a pending level submission. Body: videoLink (non-empty string). Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: {
+      description: 'videoLink',
+      schema: { type: 'object', properties: { videoLink: { type: 'string' } }, required: ['videoLink'] },
+      required: true,
+    },
+    responses: { 200: { description: 'Updated videoLink' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+    try {
+      transaction = await sequelize.transaction();
+      const raw = req.body?.videoLink;
+      const normalized =
+        typeof raw === 'string' ? raw.trim() : '';
+
+      if (!normalized) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'videoLink is required' });
+      }
+
+      const submission = await LevelSubmission.findByPk(req.params.id, { transaction });
+      if (!submission) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Submission not found' });
+      }
+
+      if (submission.status !== 'pending') {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Only pending level submissions can be edited' });
+      }
+
+      await submission.update({ videoLink: normalized }, { transaction });
+      await transaction.commit();
+
+      return res.json({ videoLink: normalized });
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error updating level submission videoLink:', error);
+      return res.status(500).json({ error: 'Failed to update video link' });
+    }
+  },
+);
+
 export default router;

@@ -1,10 +1,9 @@
-/** Only non-deterministic sorts need from/size instead of scroll (e.g. Math.random()). */
-export function shouldUseRegularSearch(sortOptions: any[]): boolean {
-  return isRandomSort(sortOptions);
-}
-
-export function isRandomSort(sortOptions: any[]): boolean {
-  return sortOptions.some(option => option._script?.script === 'Math.random()');
+/**
+ * Previously used to divert non-deterministic Math.random() sorts away from scroll.
+ * Seeded random_score sorts are deterministic, so scroll/from-size work like any other sort.
+ */
+export function shouldUseRegularSearch(_sortOptions: any[]): boolean {
+  return false;
 }
 
 export function optimizeQueryForScroll(searchQuery: any): any {
@@ -25,6 +24,11 @@ export function optimizeQueryForScroll(searchQuery: any): any {
       }
       return should;
     });
+  }
+
+  // function_score wrapper (seeded random) — optimize the inner bool query
+  if (optimizedQuery.function_score?.query?.bool?.should) {
+    optimizedQuery.function_score.query = optimizeQueryForScroll(optimizedQuery.function_score.query);
   }
 
   return optimizedQuery;

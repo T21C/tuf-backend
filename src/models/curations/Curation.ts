@@ -14,6 +14,8 @@ export interface ICuration {
   customCSS: string | null;
   customColor: string | null;
   assignedBy: string;
+  /** Duplicate curation of another level variant; excluded from creator earned-type counts. */
+  isDuplicate: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -21,7 +23,7 @@ export interface ICuration {
 type CurationAttributes = ICuration;
 type CurationCreationAttributes = Optional<
   CurationAttributes,
-  'id' | 'createdAt' | 'updatedAt'
+  'id' | 'isDuplicate' | 'createdAt' | 'updatedAt'
 >;
 
 class Curation
@@ -36,6 +38,7 @@ class Curation
   declare customCSS: string | null;
   declare customColor: string | null;
   declare assignedBy: string;
+  declare isDuplicate: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -90,6 +93,13 @@ Curation.init(
       type: DataTypes.UUID,
       allowNull: false,
     },
+    isDuplicate: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      comment:
+        'Duplicate curation of another level variant; excluded from creator earned-type counts',
+    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -111,6 +121,9 @@ Curation.init(
       },
       {
         fields: ['createdAt'],
+      },
+      {
+        fields: ['isDuplicate'],
       },
     ],
   }

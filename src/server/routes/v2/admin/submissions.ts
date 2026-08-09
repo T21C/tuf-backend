@@ -1450,19 +1450,20 @@ router.put(
     operationId: 'putAdminPassSubmissionPartial',
     summary: 'Partially update pending pass submission',
     description:
-      'Update levelId, speed, judgements, keyCount, and/or flags on a pending pass submission. Omitted nested keys are unchanged. keyCount syncs is12K/is16K flags. Super admin.',
+      'Update levelId, speed, judgements, keyCount, flags, and/or videoLink on a pending pass submission. Omitted nested keys are unchanged. keyCount syncs is12K/is16K flags. Super admin.',
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
     requestBody: {
       description:
-        'Partial fields: levelId (number), speed (number), keyCount (number|null), judgements (partial object), flags (partial object). At least one required.',
+        'Partial fields: levelId (number), speed (number), keyCount (number|null), judgements (partial object), flags (partial object), videoLink (string). At least one required.',
       schema: {
         type: 'object',
         properties: {
           levelId: { type: 'number' },
           speed: { type: 'number' },
           keyCount: { type: 'integer', nullable: true },
+          videoLink: { type: 'string' },
           judgements: {
             type: 'object',
             properties: {
@@ -1504,6 +1505,7 @@ router.put(
         levelId?: unknown;
         speed?: unknown;
         keyCount?: unknown;
+        videoLink?: unknown;
         judgements?: Record<string, unknown>;
         flags?: Record<string, unknown>;
       };
@@ -1513,12 +1515,13 @@ router.put(
       const hasKeyCount = Object.prototype.hasOwnProperty.call(body, 'keyCount');
       const hasJudgements = Object.prototype.hasOwnProperty.call(body, 'judgements');
       const hasFlags = Object.prototype.hasOwnProperty.call(body, 'flags');
+      const hasVideoLink = Object.prototype.hasOwnProperty.call(body, 'videoLink');
 
-      if (!hasLevelId && !hasSpeed && !hasKeyCount && !hasJudgements && !hasFlags) {
+      if (!hasLevelId && !hasSpeed && !hasKeyCount && !hasJudgements && !hasFlags && !hasVideoLink) {
         await safeTransactionRollback(transaction, logger);
         return res.status(400).json({
           error:
-            'Request body must include at least one of: levelId, speed, keyCount, judgements, flags',
+            'Request body must include at least one of: levelId, speed, keyCount, judgements, flags, videoLink',
         });
       }
 
@@ -1563,6 +1566,16 @@ router.put(
         const speed = validateSpeedFloatInput(body.speed);
         await submission.update({ speed }, { transaction });
         touchedScoreInputs = true;
+      }
+
+      if (hasVideoLink) {
+        const normalized =
+          typeof body.videoLink === 'string' ? body.videoLink.trim() : '';
+        if (!normalized) {
+          await safeTransactionRollback(transaction, logger);
+          return res.status(400).json({ error: 'videoLink must be a non-empty string' });
+        }
+        await submission.update({ videoLink: normalized }, { transaction });
       }
 
       if (hasKeyCount) {

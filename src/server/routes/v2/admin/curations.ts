@@ -227,6 +227,14 @@ const syncRolesForLevel = async (
     // For create, we still want to notify since it's a new curation
     await roleSyncService.notifyBotOfRoleSyncByCreatorIds(creatorIds);
   }
+
+  // CDC reindexes the level only; refresh creator ES docs so earned-type badges stay in sync
+  // (e.g. isDuplicate toggles that change curation type counts without a level document change).
+  try {
+    await elasticsearchService.reindexCreators(creatorIds);
+  } catch (error) {
+    logger.error(`[curations] Failed to reindex creators after curation change on level ${levelId}:`, error);
+  }
 };
 
 
@@ -1108,6 +1116,8 @@ type PutLevelCurationBody = {
   description?: string | null;
   customCSS?: string | null;
   customColor?: string | null;
+  /** Duplicate curation of another level variant; excluded from creator earned-type counts */
+  isDuplicate?: boolean;
   /** Replace the set of curation types (required for PUT /level/:levelId) */
   typeIds?: number[];
 };
@@ -1523,6 +1533,7 @@ router.put(
           description: { type: 'string' },
           customCSS: { type: 'string' },
           customColor: { type: 'string' },
+          isDuplicate: { type: 'boolean' },
         },
         required: ['typeIds'],
       },
@@ -1637,6 +1648,7 @@ router.put(
       const wantsCss = bodyHas('customCSS');
       const wantsColor = bodyHas('customColor');
       const wantsDescription = bodyHas('description');
+      const wantsIsDuplicate = bodyHas('isDuplicate');
       const wantsAnyDescriptionField = wantsShortDescription || wantsDescription;
 
       // Visual field gating (OR): if any selected type enables CSS/color/description, that field may be updated.
@@ -1699,6 +1711,10 @@ router.put(
 
       // Upsert then reload: MySQL upsert often does not populate `id` on the returned instance,
       // and BelongsToMany.setTypes requires a defined primary key for the junction WHERE.
+      const isDuplicateVal = wantsIsDuplicate
+        ? Boolean(body.isDuplicate)
+        : (existingRow?.isDuplicate ?? false);
+
       await Curation.upsert(
         {
           levelId,
@@ -1707,6 +1723,7 @@ router.put(
           description: wantsDescription ? (description ?? null) : (existingRow?.description ?? null),
           customCSS: wantsCss ? (customCSS ?? null) : (existingRow?.customCSS ?? null),
           customColor: wantsColor ? (customColor ?? null) : (existingRow?.customColor ?? null),
+          isDuplicate: isDuplicateVal,
         },
         { transaction },
       );
@@ -1767,11 +1784,11 @@ router.put(
   ApiDoc({
     operationId: 'putAdminCuration',
     summary: 'Update curation',
-    description: 'Update curation. Body: shortDescription?, description?, customCSS?, customColor?, typeIds?. Requires curation permission.',
+    description: 'Update curation. Body: shortDescription?, description?, customCSS?, customColor?, isDuplicate?, typeIds?. Requires curation permission.',
     tags: ['Admin', 'Curations'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
-    requestBody: { description: 'shortDescription, description, customCSS, customColor, typeIds', schema: { type: 'object' }, required: true },
+    requestBody: { description: 'shortDescription, description, customCSS, customColor, isDuplicate, typeIds', schema: { type: 'object' }, required: true },
     responses: { 200: { description: 'Curation updated' }, ...standardErrorResponses403404500 },
   }),
   async (req: Request, res: Response) => {
@@ -1787,6 +1804,7 @@ router.put(
     const wantsDesc = bodyHasPut('description');
     const wantsCssPut = bodyHasPut('customCSS');
     const wantsColorPut = bodyHasPut('customColor');
+    const wantsIsDuplicatePut = bodyHasPut('isDuplicate');
     const wantsAnyDescriptionFieldPut = wantsShort || wantsDesc;
 
     const curation = await Curation.findByPk(id, {
@@ -1863,6 +1881,7 @@ router.put(
         ...(wantsDesc ? { description } : {}),
         ...(wantsCssPut ? { customCSS } : {}),
         ...(wantsColorPut ? { customColor } : {}),
+        ...(wantsIsDuplicatePut ? { isDuplicate: Boolean(body.isDuplicate) } : {}),
       },
       { transaction }
     );
