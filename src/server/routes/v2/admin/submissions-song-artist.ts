@@ -661,11 +661,11 @@ router.post(
   ApiDoc({
     operationId: 'postAdminLevelSubmissionSongs',
     summary: 'Create and assign song',
-    description: 'Create or find song and assign to submission. Body: name, aliases?, songRequestId?. Super admin.',
+    description: 'Create or find song and assign to submission. Body: name, aliases?, songRequestId?, verificationState?. Super admin.',
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
-    requestBody: { description: 'name, aliases, songRequestId', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, songRequestId: { type: 'number' } }, required: ['name'] }, required: true },
+    requestBody: { description: 'name, aliases, songRequestId, verificationState', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, songRequestId: { type: 'number' }, verificationState: { type: 'string' } }, required: ['name'] }, required: true },
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
@@ -673,7 +673,7 @@ router.post(
   try {
     transaction = await sequelize.transaction();
     const { id } = req.params;
-    const { name, aliases, songRequestId } = req.body;
+    const { name, aliases, songRequestId, verificationState: bodyVerificationState } = req.body;
 
     if (!name) {
       await safeTransactionRollback(transaction);
@@ -700,6 +700,12 @@ router.post(
       return res.status(404).json({ error: 'Submission not found' });
     }
 
+    // Prefer explicit body state, then existing song request state, then pending
+    const verificationState =
+      (typeof bodyVerificationState === 'string' && bodyVerificationState.trim()) ||
+      submission.songRequest?.verificationState ||
+      'pending';
+
     // Create or find song: same title only reuses a row when credit artist set matches submission artists
     const resolvedArtistIds =
       await artistService.resolveArtistIdsFromLevelSubmissionArtistRequests(submission);
@@ -717,7 +723,7 @@ router.post(
         song = await Song.create(
           {
             name: trimmedName,
-            verificationState: 'pending',
+            verificationState: verificationState,
           },
           { transaction }
         );
@@ -727,7 +733,7 @@ router.post(
         where: { name: trimmedName },
         defaults: {
           name: trimmedName,
-          verificationState: 'pending',
+          verificationState: verificationState,
         },
         transaction,
       });
@@ -753,7 +759,7 @@ router.post(
         songId: song.id,
         songName: song.name,
         isNewRequest: false,
-        verificationState: 'pending'
+        verificationState: verificationState,
       }, { transaction });
     } else if (!submission.songRequest) {
       // Create new song request if doesn't exist
@@ -762,7 +768,7 @@ router.post(
         songId: song.id,
         songName: song.name,
         isNewRequest: false,
-        verificationState: 'pending'
+        verificationState: verificationState,
       }, { transaction });
     }
 
