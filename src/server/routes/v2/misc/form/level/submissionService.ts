@@ -135,6 +135,8 @@ export async function createLevelSubmission(
           transaction: preTx,
         });
         songRequiresYsModFlag = isYsmodOnlyState(song?.verificationState);
+      } else if (sanitized.isNewSongRequest) {
+        songRequiresYsModFlag = isYsmodOnlyState(sanitized.songVerificationState);
       }
       await assertNoDuplicateLevelSubmission(sanitized, userId, preTx);
       const evidence = await computeEvidenceRequirements(sanitized, preTx);
@@ -378,6 +380,9 @@ async function createSubmissionRows(args: {
         songId: sanitized.songId,
         songName: sanitized.isNewSongRequest ? sanitized.song : null,
         isNewRequest: sanitized.isNewSongRequest,
+        verificationState: sanitized.isNewSongRequest
+          ? ((sanitized.songVerificationState as Song['verificationState'] | null) || 'pending')
+          : null,
       },
       { transaction },
     );

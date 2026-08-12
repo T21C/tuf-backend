@@ -1,6 +1,7 @@
 import express, { Router, type Request, type Response } from 'express';
 
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
+import LevelSubmissionSongRequest from '@/models/submissions/LevelSubmissionSongRequest.js';
 import Song from '@/models/songs/Song.js';
 import cdnService, { CdnError } from '@/server/services/core/CdnService.js';
 import { isYsmodOnlyState } from '@/server/submissions/submissionEvidenceRules.js';
@@ -75,6 +76,14 @@ router.post(
           userId: req.user?.id,
           status: 'pending',
         },
+        include: [
+          {
+            model: LevelSubmissionSongRequest,
+            as: 'songRequest',
+            attributes: ['verificationState'],
+            required: false,
+          },
+        ],
       });
 
       if (!submission) {
@@ -123,9 +132,15 @@ router.post(
         });
       }
 
-      if (submission.songId != null && !selectedFile.hasYouTubeStream) {
-        const song = await Song.findByPk(submission.songId, { attributes: ['verificationState'] });
-        if (isYsmodOnlyState(song?.verificationState)) {
+      if (!selectedFile.hasYouTubeStream) {
+        let songVerificationState: string | null | undefined;
+        if (submission.songId != null) {
+          const song = await Song.findByPk(submission.songId, { attributes: ['verificationState'] });
+          songVerificationState = song?.verificationState;
+        } else {
+          songVerificationState = submission.songRequest?.verificationState;
+        }
+        if (isYsmodOnlyState(songVerificationState)) {
           return res.status(400).json({
             success: false,
             error: 'This song is YSMod-only: the selected chart must require the YouTubeStream mod',

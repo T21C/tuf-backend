@@ -10,6 +10,21 @@ import type { CreatorRequestLike, TeamRequestLike } from '../shared/validators.j
  * Shape of the normalised level submission payload that both `/validate` and
  * `/submit` work against. Producing this is pure: no DB, no I/O.
  */
+const SONG_VERIFICATION_STATES = new Set([
+  'declined',
+  'pending',
+  'conditional',
+  'ysmod_only',
+  'allowed',
+  'tuf_verified',
+]);
+
+function parseSongVerificationState(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  return SONG_VERIFICATION_STATES.has(trimmed) ? trimmed : null;
+}
+
 export interface LevelFormSanitised {
   artist: string;
   song: string;
@@ -21,6 +36,8 @@ export interface LevelFormSanitised {
   songId: number | null;
   artistId: number | null;
   isNewSongRequest: boolean;
+  /** Claimed verification for a new song request; null when linking an existing song. */
+  songVerificationState: string | null;
   isNewArtistRequest: boolean;
   creatorRequests: CreatorRequestLike[];
   teamRequest: TeamRequestLike | null;
@@ -86,6 +103,9 @@ export function parseAndSanitizeLevelForm(body: Record<string, unknown>): Parsed
   const isNewArtistRequest = asBool(body.isNewArtistRequest);
   const songId = isNewSongRequest ? null : parsePositiveIntOrNull(body.songId);
   const artistId = isNewArtistRequest ? null : parsePositiveIntOrNull(body.artistId);
+  const songVerificationState = isNewSongRequest
+    ? parseSongVerificationState(body.songVerificationState) || 'pending'
+    : null;
 
   const creatorRequestsRaw = safeParseJSON<unknown>(body.creatorRequests as string | object | null | undefined);
   const creatorRequests: CreatorRequestLike[] = Array.isArray(creatorRequestsRaw)
@@ -140,6 +160,7 @@ export function parseAndSanitizeLevelForm(body: Record<string, unknown>): Parsed
     songId,
     artistId,
     isNewSongRequest,
+    songVerificationState,
     isNewArtistRequest,
     creatorRequests,
     teamRequest,
