@@ -1,17 +1,32 @@
 import {Router, Request, Response} from 'express';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses500 } from '@/server/schemas/v2/database/index.js';
-import {Op, fn, col, literal, Sequelize} from 'sequelize';
+import {Op, fn, col, literal, QueryTypes} from 'sequelize';
+import sequelize from '@/config/db.js';
 import Level from '@/models/levels/Level.js';
 import Pass from '@/models/passes/Pass.js';
 import Player from '@/models/players/Player.js';
-import Difficulty from '@/models/levels/Difficulty.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import {PassSubmission} from '@/models/submissions/PassSubmission.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { Cache } from '@/server/middleware/cache.js';
 
 const router: Router = Router();
+
+type CountRow = { cnt: number | string };
+type DifficultyStatRow = {
+  id: number;
+  name: string;
+  type: string;
+  sortOrder: number;
+  color: string;
+  levelCount: number | string;
+  passCount: number | string;
+};
+
+function toCount(value: number | string | undefined): number {
+  return Number(value ?? 0);
+}
 
 // Tags: `levels:all` + `Passes` are invalidated from Level/Pass hooks (models/levels/hooks.ts).
 // Submission queue counts are not on those hooks; they refresh at TTL or if something invalidates `database:statistics`.
@@ -32,180 +47,113 @@ router.get(
   }),
   async (req: Request, res: Response) => {
   try {
-    try {
-      const totalLevels = await Level.count({
-        where: {isDeleted: false, isHidden: false},
-      });
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-      const totalPasses = await Pass.count({
-        where: {isDeleted: false, isHidden: false},
-      });
-
-      const totalPlayers = await Player.count();
-
-      const totalActivePlayers = await Player.count({
-        include: [
-          {
-            model: Pass,
-            as: 'passes',
-            required: true,
-            where: {isDeleted: false},
-            limit: 1,
-          },
-        ],
-      });
-
-      const difficultyStats = await Difficulty.findAll({
-        attributes: [
-          'id',
-          'name',
-          'type',
-          'sortOrder',
-          'color',
-          [
-            fn('COUNT', Sequelize.fn('DISTINCT', col('levels.id'))),
-            'levelCount',
-          ],
-          [fn('COUNT', col('levels.passes.id')), 'passCount'],
-        ],
-        include: [
-          {
-            model: Level,
-            as: 'levels',
-            attributes: [],
-            required: false,
-            include: [
-              {
-                model: Pass,
-                as: 'passes',
-                attributes: [],
-                where: {isDeleted: false},
-                required: false,
-              },
-            ],
-          },
-        ],
-        group: [
-          'Difficulty.id',
-          'Difficulty.name',
-          'Difficulty.type',
-          'Difficulty.sortOrder',
-          'Difficulty.color',
-        ],
-        order: [['sortOrder', 'ASC']],
-        subQuery: false,
-      });
-
-      const recentPassStats = await Pass.count({
+    const [
+      totalLevels,
+      totalPasses,
+      totalPlayers,
+      activePlayerRows,
+      difficultyRows,
+      recentPassStats,
+      pendingLevels,
+      pendingPassSubmissions,
+      totalPassSubmissions,
+    ] = await Promise.all([
+      Level.count({where: {isDeleted: false, isHidden: false}}),
+      Pass.count({where: {isDeleted: false, isHidden: false}}),
+      Player.count(),
+      sequelize.query<CountRow>(
+        `SELECT COUNT(DISTINCT p.playerId) AS cnt
+         FROM passes p
+         WHERE p.isDeleted = 0`,
+        {type: QueryTypes.SELECT},
+      ),
+      // Aggregates only: GROUP BY counts, never join levels×passes into one result set.
+      sequelize.query<DifficultyStatRow>(
+        `SELECT
+           d.id,
+           d.name,
+           d.type,
+           d.sortOrder,
+           d.color,
+           COALESCE(lc.cnt, 0) AS levelCount,
+           COALESCE(pc.cnt, 0) AS passCount
+         FROM difficulties d
+         LEFT JOIN (
+           SELECT diffId, COUNT(*) AS cnt
+           FROM levels
+           GROUP BY diffId
+         ) lc ON lc.diffId = d.id
+         LEFT JOIN (
+           SELECT l.diffId AS diffId, COUNT(*) AS cnt
+           FROM passes p
+           INNER JOIN levels l ON l.id = p.levelId
+           WHERE p.isDeleted = 0
+           GROUP BY l.diffId
+         ) pc ON pc.diffId = d.id
+         ORDER BY d.sortOrder ASC`,
+        {type: QueryTypes.SELECT},
+      ),
+      Pass.count({
         where: {
           isDeleted: false,
-          vidUploadTime: {
-            [Op.gte]: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-          },
+          vidUploadTime: {[Op.gte]: thirtyDaysAgo},
         },
-      });
+      }),
+      LevelSubmission.count({where: {status: 'pending'}}),
+      PassSubmission.count({where: {status: 'pending'}}),
+      PassSubmission.count(),
+    ]);
 
-      const topDifficulties = await Difficulty.findAll({
-        attributes: [
-          'id',
-          'name',
-          'type',
-          'sortOrder',
-          'color',
-          [
-            fn('COUNT', Sequelize.fn('DISTINCT', col('levels.id'))),
-            'levelCount',
-          ],
-          [fn('COUNT', col('levels.passes.id')), 'passCount'],
-        ],
-        include: [
-          {
-            model: Level,
-            as: 'levels',
-            attributes: [],
-            required: true,
-            include: [
-              {
-                model: Pass,
-                as: 'passes',
-                attributes: [],
-                where: {isDeleted: false},
-                required: true,
-              },
-            ],
-          },
-        ],
-        group: [
-          'Difficulty.id',
-          'Difficulty.name',
-          'Difficulty.type',
-          'Difficulty.sortOrder',
-          'Difficulty.color',
-        ],
-        order: [[fn('COUNT', col('levels.passes.id')), 'DESC']],
-        limit: 5,
-        subQuery: false,
-      });
+    const difficultyStats = difficultyRows.map(row => ({
+      id: row.id,
+      name: row.name,
+      type: row.type,
+      sortOrder: row.sortOrder,
+      color: row.color,
+      levelCount: toCount(row.levelCount),
+      passCount: toCount(row.passCount),
+    }));
 
-      // Level Submission Stats
-      const levelSubmissionStats = await LevelSubmission.count({
-        where: {status: 'pending'},
-      });
+    const byType = difficultyStats.reduce(
+      (acc, diff) => {
+        const type = diff.type;
+        if (!acc[type]) {
+          acc[type] = [];
+        }
+        acc[type].push(diff);
+        return acc;
+      },
+      {} as Record<string, typeof difficultyStats>,
+    );
 
-      // Pass Submission Stats
-      const [pendingPassSubmissions, totalPassSubmissions] = await Promise.all([
-        PassSubmission.count({
-          where: {status: 'pending'},
-        }),
-        PassSubmission.count(),
-      ]);
+    const top = [...difficultyStats]
+      .filter(diff => diff.passCount > 0)
+      .sort((a, b) => b.passCount - a.passCount)
+      .slice(0, 5);
 
-      return res.json({
-        overview: {
-          totalLevels,
-          totalPasses,
-          totalPlayers,
-          totalActivePlayers,
-          passesLast30Days: recentPassStats,
+    return res.json({
+      overview: {
+        totalLevels,
+        totalPasses,
+        totalPlayers,
+        totalActivePlayers: toCount(activePlayerRows[0]?.cnt),
+        passesLast30Days: recentPassStats,
+      },
+      difficulties: {
+        all: difficultyStats,
+        byType,
+        top,
+      },
+      submissions: {
+        pendingLevels,
+        passes: {
+          pending: pendingPassSubmissions,
+          total: totalPassSubmissions,
         },
-        difficulties: {
-          all: difficultyStats.map(diff => ({
-            ...diff.get(),
-            levelCount: Number(diff.get('levelCount')),
-            passCount: Number(diff.get('passCount')),
-          })),
-          byType: difficultyStats.reduce(
-            (acc, diff) => {
-              const type = diff.type;
-              if (!acc[type]) {
-                acc[type] = [];
-              }
-              acc[type].push({
-                ...diff.get(),
-                levelCount: Number(diff.get('levelCount')),
-                passCount: Number(diff.get('passCount')),
-              });
-              return acc;
-            },
-            {} as Record<string, Array<any>>,
-          ),
-          top: topDifficulties.map(diff => ({
-            ...diff.get(),
-            passCount: Number(diff.get('passCount')),
-          })),
-        },
-        submissions: {
-          pendingLevels: levelSubmissionStats,
-          passes: {
-            pending: pendingPassSubmissions,
-            total: totalPassSubmissions,
-          },
-        },
-      });
-    } catch (queryError) {
-      logger.error('Query execution failed:', queryError);
-      throw queryError;
-    }
+      },
+    });
   } catch (error) {
     logger.error('Error fetching statistics:', error);
     return res.status(500).json({
