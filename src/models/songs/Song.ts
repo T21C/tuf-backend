@@ -2,10 +2,33 @@ import {Model, DataTypes, Optional} from 'sequelize';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
+export const SONG_VERIFICATION_STATES = [
+  'declined',
+  'pending',
+  'conditional',
+  'ysmod_only',
+  'allowed',
+  'tuf_verified',
+] as const;
+
+export type SongVerificationState = (typeof SONG_VERIFICATION_STATES)[number];
+
+const SONG_VERIFICATION_STATE_SET: ReadonlySet<string> = new Set(SONG_VERIFICATION_STATES);
+
+export function isSongVerificationState(value: unknown): value is SongVerificationState {
+  return typeof value === 'string' && SONG_VERIFICATION_STATE_SET.has(value);
+}
+
+export function parseSongVerificationState(value: unknown): SongVerificationState | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  return isSongVerificationState(trimmed) ? trimmed : null;
+}
+
 type SongAttributes = {
   id: number;
   name: string;
-  verificationState: 'declined' | 'pending' | 'conditional' | 'ysmod_only' | 'allowed' | 'tuf_verified';
+  verificationState: SongVerificationState;
   extraInfo: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -42,7 +65,7 @@ Song.init(
       allowNull: false,
     },
     verificationState: {
-      type: DataTypes.ENUM('declined', 'pending', 'conditional', 'ysmod_only', 'allowed', 'tuf_verified'),
+      type: DataTypes.ENUM(...SONG_VERIFICATION_STATES),
       allowNull: false,
       defaultValue: 'pending',
     },

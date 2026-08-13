@@ -5,7 +5,7 @@ import { errorResponseSchema, standardErrorResponses, standardErrorResponses4005
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import LevelSubmissionSongRequest from '@/models/submissions/LevelSubmissionSongRequest.js';
 import LevelSubmissionArtistRequest from '@/models/submissions/LevelSubmissionArtistRequest.js';
-import Song from '@/models/songs/Song.js';
+import Song, { parseSongVerificationState, SONG_VERIFICATION_STATES } from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import sequelize from '@/config/db.js';
 import {logger} from '@/server/services/core/LoggerService.js';
@@ -665,7 +665,7 @@ router.post(
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
-    requestBody: { description: 'name, aliases, songRequestId, verificationState', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, songRequestId: { type: 'number' }, verificationState: { type: 'string' } }, required: ['name'] }, required: true },
+    requestBody: { description: 'name, aliases, songRequestId, verificationState', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, songRequestId: { type: 'number' }, verificationState: { type: 'string', enum: [...SONG_VERIFICATION_STATES] } }, required: ['name'] }, required: true },
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
@@ -700,11 +700,25 @@ router.post(
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    // Prefer explicit body state, then existing song request state, then pending
-    const verificationState =
-      (typeof bodyVerificationState === 'string' && bodyVerificationState.trim()) ||
-      submission.songRequest?.verificationState ||
-      'pending';
+    const verificationStateOmitted =
+      bodyVerificationState === undefined ||
+      bodyVerificationState === null ||
+      (typeof bodyVerificationState === 'string' && bodyVerificationState.trim() === '');
+
+    let verificationState: Song['verificationState'];
+    if (!verificationStateOmitted) {
+      const parsed = parseSongVerificationState(bodyVerificationState);
+      if (!parsed) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({
+          error: `Invalid verificationState. Allowed values: ${SONG_VERIFICATION_STATES.join(', ')}`,
+        });
+      }
+      verificationState = parsed;
+    } else {
+      // Prefer existing song request state, then pending
+      verificationState = submission.songRequest?.verificationState ?? 'pending';
+    }
 
     // Create or find song: same title only reuses a row when credit artist set matches submission artists
     const resolvedArtistIds =
