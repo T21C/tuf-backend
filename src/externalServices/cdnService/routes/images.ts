@@ -7,6 +7,8 @@ import fs from 'fs';
 import path from 'path';
 import { cdnLocalTemp } from '@/externalServices/cdnService/infra/workspaces/cdnLocalTempManager.js';
 import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
+import { mimeTypeForImageExtension } from '@/externalServices/cdnService/services/imageProcessor.js';
+import { streamStorageObjectResponse } from '@/externalServices/cdnService/http/responses/streamStorageObjectResponse.js';
 
 /**
  * Image routes: sync processing today. If you add async / 202 + `X-Upload-Id` (or another job id),
@@ -61,16 +63,12 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
                 return res.status(404).json({ error: 'Image file not found' });
             }
 
-            if (fileExists) {
-                const url = await spacesStorage.getPresignedUrl(variantRef.path);
-                // Cache the redirect itself aggressively since the target URL is immutable.
-                res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
-                return res.redirect(301, url);
-            }
-
-            res.setHeader('Content-Type', MIME_TYPES[file.type as ImageType]);
-            res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
-            fs.createReadStream(variantRef.path).pipe(res);
+            await streamStorageObjectResponse(res, {
+                storagePath: variantRef.path,
+                contentType: mimeTypeForImageExtension(path.extname(variantRef.path)),
+                cacheControl: CDN_CONFIG.cacheControl,
+                openStream: storagePath => spacesStorage.getFileStream(storagePath),
+            });
             return;
         }
 
@@ -98,7 +96,9 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
         fs.createReadStream(fsPath).pipe(res);
     } catch (error) {
         logger.error('Image delivery error:', error);
-        res.status(500).json({ error: 'Image delivery failed' });
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Image delivery failed' });
+        }
     }
     return;
 });

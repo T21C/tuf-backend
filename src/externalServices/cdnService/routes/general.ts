@@ -1,11 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '@/server/services/core/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
-import { CDN_CONFIG, IMAGE_TYPES, MIME_TYPES } from '@/externalServices/cdnService/config.js';
+import { CDN_CONFIG, IMAGE_TYPES } from '@/externalServices/cdnService/config.js';
 import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
 import axios from 'axios';
+import path from 'path';
+import { mimeTypeForImageExtension } from '@/externalServices/cdnService/services/imageProcessor.js';
+import { streamStorageObjectResponse } from '@/externalServices/cdnService/http/responses/streamStorageObjectResponse.js';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -198,7 +201,7 @@ router.get('/:fileId', async (req: Request, res: Response) => {
             return handleZipRequest(req, res, file);
         }
 
-        // Handle image types - redirect to proper image endpoint or serve original
+        // Handle image types by proxying the original through this CORS-enabled service.
         if (IMAGE_TYPES[file.type as keyof typeof IMAGE_TYPES]) {
             const imageMetadata = (file.metadata || {}) as any;
             const originalVariant = imageMetadata?.variants?.original;
@@ -207,10 +210,13 @@ router.get('/:fileId', async (req: Request, res: Response) => {
                 if (!imageExists) {
                     return res.status(404).json({ error: 'File not found' });
                 }
-                const url = await spacesStorage.getPresignedUrl(originalVariant.path);
-                // Cache the redirect itself aggressively since the target URL is immutable.
-                res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
-                return res.redirect(301, url);
+                await streamStorageObjectResponse(res, {
+                    storagePath: originalVariant.path,
+                    contentType: mimeTypeForImageExtension(path.extname(originalVariant.path)),
+                    cacheControl: CDN_CONFIG.cacheControl,
+                    openStream: storagePath => spacesStorage.getFileStream(storagePath),
+                });
+                return;
             }
         }
 
@@ -289,7 +295,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                     fileType,
                     timestamp: new Date().toISOString()
                 });
-            } 
+            }
             else {
                 if (IMAGE_TYPES[fileType as keyof typeof IMAGE_TYPES]) {
                     const imageTypeConfig = IMAGE_TYPES[fileType as keyof typeof IMAGE_TYPES];
