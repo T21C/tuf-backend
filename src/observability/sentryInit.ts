@@ -1,5 +1,10 @@
 import * as Sentry from '@sentry/node';
-import { redactSentryEvent, redactSentryTransaction } from './redactForSentry.js';
+import {
+  redactSentryBreadcrumb,
+  redactSentryEvent,
+  redactSentrySpan,
+  redactSentryTransaction,
+} from './redactForSentry.js';
 import { extractPathFromSamplingContext, isTraceDenylistedPath } from './traceDenylist.js';
 import { shouldKeepTransaction } from './transactionKeep.js';
 import {
@@ -83,6 +88,8 @@ export function initSentry(): void {
           // Drop raw http.client to ES (health, HEAD exists, sniff, _search transport).
           // High-level db.elasticsearch spans still come from clientSpanProxy.
           ignoreOutgoingRequests: (url) => isElasticsearchOutgoingUrl(url),
+          // Bodies may contain webhook URLs / API keys; never attach them.
+          maxRequestBodySize: 'none',
         }),
       ];
     },
@@ -106,6 +113,14 @@ export function initSentry(): void {
     },
     beforeSend(event) {
       return redactSentryEvent(event as unknown as Record<string, unknown>) as unknown as typeof event;
+    },
+    beforeSendSpan(span) {
+      return redactSentrySpan(span as unknown as Record<string, unknown>) as unknown as typeof span;
+    },
+    beforeBreadcrumb(breadcrumb) {
+      return redactSentryBreadcrumb(
+        breadcrumb as unknown as Record<string, unknown>,
+      ) as unknown as typeof breadcrumb;
     },
     beforeSendTransaction(event) {
       const tx = (event as { transaction?: string }).transaction || '';
