@@ -39,17 +39,15 @@ function redactExceptionValues(
     if (typeof ex.type === 'string') {
       ex.type = redactSensitiveText(ex.type);
     }
-    const stacktrace = ex.stacktrace as
-      | { frames?: Array<Record<string, unknown>> }
-      | undefined;
-    if (Array.isArray(stacktrace?.frames)) {
-      for (const frame of stacktrace.frames) {
-        if (frame.vars && typeof frame.vars === 'object') {
-          frame.vars = redactSensitiveValue(frame.vars) as Record<string, unknown>;
-        }
-        if (typeof frame.abs_path === 'string') {
-          frame.abs_path = redactSensitiveText(frame.abs_path);
-        }
+    const frames = (ex.stacktrace as { frames?: Array<Record<string, unknown>> } | undefined)
+      ?.frames;
+    if (!Array.isArray(frames)) continue;
+    for (const frame of frames) {
+      if (frame.vars && typeof frame.vars === 'object') {
+        frame.vars = redactSensitiveValue(frame.vars) as Record<string, unknown>;
+      }
+      if (typeof frame.abs_path === 'string') {
+        frame.abs_path = redactSensitiveText(frame.abs_path);
       }
     }
   }

@@ -89,7 +89,7 @@ export function initSentry(): void {
           // High-level db.elasticsearch spans still come from clientSpanProxy.
           ignoreOutgoingRequests: (url) => isElasticsearchOutgoingUrl(url),
           // Bodies may contain webhook URLs / API keys; never attach them.
-          maxRequestBodySize: 'none',
+          maxIncomingRequestBodySize: 'none',
         }),
       ];
     },
