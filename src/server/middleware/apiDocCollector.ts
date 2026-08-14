@@ -312,7 +312,7 @@ export interface GenerateOpenApiOptions {
   title?: string;
   version?: string;
   description?: string;
-  /** If set, write the spec JSON to this path (e.g. dist.tmp/openapi.json). */
+  /** If set, write the spec JSON to this path (e.g. dist/openapi.json). */
   writePath?: string;
 }
 
