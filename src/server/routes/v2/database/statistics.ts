@@ -69,7 +69,8 @@ router.get(
          WHERE p.isDeleted = 0`,
         {type: QueryTypes.SELECT},
       ),
-      // Aggregates only: GROUP BY counts, never join levels×passes into one result set.
+      // One scan of `levels`. Pass counts use denormalized `clears` (maintained by
+      // recalculate_level_clear_count) so we never join the passes table here.
       sequelize.query<DifficultyStatRow>(
         `SELECT
            d.id,
@@ -77,21 +78,17 @@ router.get(
            d.type,
            d.sortOrder,
            d.color,
-           COALESCE(lc.cnt, 0) AS levelCount,
-           COALESCE(pc.cnt, 0) AS passCount
+           COALESCE(s.levelCount, 0) AS levelCount,
+           COALESCE(s.passCount, 0) AS passCount
          FROM difficulties d
          LEFT JOIN (
-           SELECT diffId, COUNT(*) AS cnt
+           SELECT
+             diffId,
+             COUNT(*) AS levelCount,
+             COALESCE(SUM(clears), 0) AS passCount
            FROM levels
            GROUP BY diffId
-         ) lc ON lc.diffId = d.id
-         LEFT JOIN (
-           SELECT l.diffId AS diffId, COUNT(*) AS cnt
-           FROM passes p
-           INNER JOIN levels l ON l.id = p.levelId
-           WHERE p.isDeleted = 0
-           GROUP BY l.diffId
-         ) pc ON pc.diffId = d.id
+         ) s ON s.diffId = d.id
          ORDER BY d.sortOrder ASC`,
         {type: QueryTypes.SELECT},
       ),
