@@ -8,7 +8,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { sseManager } from '@/misc/utils/server/sse.js';
 import { randomUUID } from 'crypto';
 
-import cdnService from '@/server/services/core/CdnService.js';
+import cdnService, { CdnError } from '@/server/services/core/CdnService.js';
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
 import EvidenceService from '@/server/services/data/EvidenceService.js';
 
@@ -188,7 +188,10 @@ export async function createLevelSubmission(
       if (resolvedSession) {
         await safeCancelSession(resolvedSession);
       }
-      throw formError.bad('Failed to upload zip file to CDN', {
+      if (err instanceof CdnError) {
+        throw err;
+      }
+      throw formError.bad(msg || 'Failed to upload zip file to CDN', {
         details: { error: msg },
       });
     }

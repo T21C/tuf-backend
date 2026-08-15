@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
+import type { Response } from 'express';
 import FormData from 'form-data';
 import fs from 'fs';
 import * as Sentry from '@sentry/node';
@@ -78,6 +79,93 @@ export class CdnError extends Error {
         super(message);
         this.name = 'CdnError';
     }
+
+    /**
+     * HTTP status from the CDN response when present. `CdnError.code` is a
+     * string error code (e.g. `SET_TARGET_ERROR`), not an HTTP status — callers
+     * that treat `.code` as numeric otherwise collapse 400/404 into 500.
+     */
+    get httpStatus(): number {
+        const status = this.details && typeof this.details === 'object'
+            ? (this.details as { status?: unknown }).status
+            : undefined;
+        const knownStatus = CDN_ERROR_CODE_HTTP_STATUS[this.code];
+        // Known business codes win over a generic CDN 500 so callers don't
+        // surface PACK_DISK_FULL / VALIDATION_ERROR as Internal Server Error.
+        if (typeof knownStatus === 'number' && (typeof status !== 'number' || status >= 500)) {
+            return knownStatus;
+        }
+        if (typeof status === 'number' && status >= 400 && status < 600) {
+            return status;
+        }
+        return 500;
+    }
+
+    toResponseBody(): { error: string; code: string; details?: unknown } {
+        const body: { error: string; code: string; details?: unknown } = {
+            error: this.message,
+            code: this.code,
+        };
+        if (this.details !== undefined) {
+            body.details = this.details;
+        }
+        return body;
+    }
+}
+
+/** HTTP status for `{ code: number }` throws and {@link CdnError} (uses CDN status). */
+export function httpStatusFromHandlerError(error: unknown, fallback = 500): number {
+    if (error instanceof CdnError) {
+        return error.httpStatus;
+    }
+    if (error && typeof error === 'object' && 'code' in error) {
+        const code = (error as { code: unknown }).code;
+        if (typeof code === 'number' && code >= 100 && code < 600) {
+            return code;
+        }
+    }
+    return fallback;
+}
+
+/** JSON body with a top-level `error` string (Error instances serialize without `message`). */
+export function jsonBodyFromHandlerError(
+    error: unknown,
+    fallbackMessage: string
+): Record<string, unknown> {
+    if (error instanceof CdnError) {
+        return error.toResponseBody();
+    }
+    if (error && typeof error === 'object') {
+        const e = error as { error?: unknown; details?: unknown; code?: unknown };
+        if (typeof e.error === 'string') {
+            const body: Record<string, unknown> = { error: e.error };
+            if (typeof e.code === 'number') {
+                body.code = e.code;
+            }
+            if (e.details !== undefined) {
+                body.details = e.details;
+            }
+            return body;
+        }
+    }
+    if (error instanceof Error && error.message) {
+        return { error: error.message };
+    }
+    return { error: fallbackMessage };
+}
+
+const CDN_ERROR_CODE_HTTP_STATUS: Record<string, number> = {
+    VALIDATION_ERROR: 400,
+    TARGET_LEVEL_NOT_FOUND: 400,
+    PACK_SIZE_LIMIT_EXCEEDED: 400,
+    INVALID_EXTERNAL_URL: 400,
+    PACK_DISK_FULL: 503,
+    PACK_QUEUE_BUSY: 503,
+};
+
+/** Send the CDN error message, code, details, and HTTP status to the client. */
+export function respondWithCdnError(res: Response, error: CdnError): Response {
+    return res.status(error.httpStatus).json(error.toResponseBody());
 }
 
 export type LevelMetadataTypes = 'settings' | 'actions' | 'decorations' | 'angles' | 'relativeAngles' | 'accessCount' | 'tilecount' | 'analysis';
@@ -988,12 +1076,19 @@ class CdnService {
             const shouldLog = !allIgnoredCodes.includes(errorCode) && !allIgnoredCodes.includes(errorMessage);
 
             if (shouldLog) {
-                logger.error(`Failed to ${operation}:`, {
+                const status = error.response.status;
+                const payload = {
                     error: errorMessage,
                     code: errorCode,
+                    status,
                     details: errorData.details,
                     timestamp: new Date().toISOString()
-                });
+                };
+                if (typeof status === 'number' && status >= 400 && status < 500) {
+                    logger.warn(`Failed to ${operation}:`, payload);
+                } else {
+                    logger.error(`Failed to ${operation}:`, payload);
+                }
             }
 
             throw new CdnError(

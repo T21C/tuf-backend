@@ -43,7 +43,7 @@ import {
 } from '@/server/services/tournaments/tournamentOwnership.js';
 import LevelCredit, {CreditRole} from '@/models/levels/LevelCredit.js';
 import Level from '@/models/levels/Level.js';
-import cdnService, {CdnError} from '@/server/services/core/CdnService.js';
+import cdnService, {CdnError, respondWithCdnError} from '@/server/services/core/CdnService.js';
 import {getSequelizeForModelGroup} from '@/config/db.js';
 import {hasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import {permissionFlags} from '@/config/constants.js';
@@ -781,7 +781,7 @@ router.post(
       return res.json(tournament);
     } catch (error: any) {
       if (error instanceof CdnError) {
-        return res.status(400).json({error: error.message, code: error.code});
+        return respondWithCdnError(res, error);
       }
       return respondMysqlClientError(res, error, 'Failed to upload tournament icon', {
         logLabel: 'Upload tournament icon failed:',
@@ -811,7 +811,7 @@ router.post(
       return res.json(tournament);
     } catch (error: any) {
       if (error instanceof CdnError) {
-        return res.status(400).json({error: error.message, code: error.code});
+        return respondWithCdnError(res, error);
       }
       return respondMysqlClientError(res, error, 'Failed to upload card background', {
         logLabel: 'Upload tournament card background failed:',
@@ -891,7 +891,7 @@ router.post(
       return res.json(tier);
     } catch (error: any) {
       if (error instanceof CdnError) {
-        return res.status(400).json({error: error.message, code: error.code});
+        return respondWithCdnError(res, error);
       }
       return respondMysqlClientError(res, error, 'Failed to upload tier icon', {
         logLabel: 'Upload tier icon failed:',
@@ -925,7 +925,7 @@ router.post(
       return res.json(tier);
     } catch (error: any) {
       if (error instanceof CdnError) {
-        return res.status(400).json({error: error.message, code: error.code});
+        return respondWithCdnError(res, error);
       }
       return respondMysqlClientError(res, error, 'Failed to upload tier card background', {
         logLabel: 'Upload tier card background failed:',
@@ -1668,10 +1668,7 @@ router.post(
       return res.json(reward);
     } catch (error) {
       if (error instanceof CdnError) {
-        return res.status(400).json({
-          error: error.message,
-          code: error.code,
-        });
+        return respondWithCdnError(res, error);
       }
       return respondMysqlClientError(res, error, 'Failed to upload reward asset', {
         logLabel: 'Upload reward asset failed:',

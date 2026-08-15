@@ -99,7 +99,7 @@ router.get('/:fileId/level-v2.adofai', async (req: Request, res: Response) => {
         const levelExists = await spacesStorage.fileExists(targetLevel);
 
         if (!levelExists) {
-            throw { error: 'Target level file not found in storage', code: 400 };
+            throw { error: 'Target level file not found in storage', code: 404 };
         }
 
         const { levelData } = await levelCacheService.loadLevelData(file, targetLevel, metadata);
@@ -246,7 +246,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                         fileId,
                         targetLevel: metadata.targetLevel,
                     });
-                    throw { error: 'Target level file not found in storage', code: 400 };
+                    throw { error: 'Target level file not found in storage', code: 404 };
                 }
 
                 logger.debug('Target level found using fallback logic:', {
@@ -280,7 +280,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 
                 const levelPath = metadata.targetLevel;
                 if (!levelExists) {
-                    throw { error: 'Target level file not found in storage', code: 400 };
+                    throw { error: 'Target level file not found in storage', code: 404 };
                 }
 
                 const { levelData: parsedLevel } = await levelCacheService.loadLevelData(
@@ -357,7 +357,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                                 songFilename: selectedSongFile.name,
                                 songPath: selectedSongFile.path,
                             });
-                            throw { error: 'Song file not found in storage', code: 400 };
+                            throw { error: 'Song file not found in storage', code: 404 };
                         }
 
                         if (songExists) {
@@ -365,7 +365,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                             await spacesStorage.downloadFileToPathStreaming(selectedSongFile.path, tempSongPath);
                             songFilePath = tempSongPath;
                         } else {
-                            throw { error: 'Song file not found in storage', code: 400 };
+                            throw { error: 'Song file not found in storage', code: 404 };
                         }
                     }
 

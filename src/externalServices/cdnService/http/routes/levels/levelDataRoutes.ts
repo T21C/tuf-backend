@@ -71,7 +71,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         targetLevel
     );
     if (!levelExists) {
-        throw { error: 'Target level file not found', code: 400 };
+        throw { error: 'Target level file not found in storage', code: 404 };
     }
 
     let response: {

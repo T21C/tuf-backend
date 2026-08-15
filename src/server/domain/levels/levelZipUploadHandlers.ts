@@ -5,7 +5,10 @@ import Level from '@/models/levels/Level.js';
 import User from '@/models/auth/User.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { isCdnUrl, safeTransactionRollback } from '@/misc/utils/Utility.js';
-import cdnService from '@/server/services/core/CdnService.js';
+import cdnService, {
+  httpStatusFromHandlerError,
+  jsonBodyFromHandlerError,
+} from '@/server/services/core/CdnService.js';
 import { jobProgressService, isUuidJobId } from '@/server/services/core/JobProgressService.js';
 import UploadSession from '@/models/upload/UploadSession.js';
 import {
@@ -39,6 +42,17 @@ import { activeLevelZipFinalizeByLevelId } from '@/server/domain/levels/levelZip
 
 const getUserModel = (user: any): User => user as User;
 const elasticsearchService = ElasticsearchService.getInstance();
+
+function sendLevelZipHandlerError(res: Response, error: unknown, fallbackMessage: string): void {
+  const statusCode = httpStatusFromHandlerError(error);
+  if (statusCode >= 500) {
+    logger.error(fallbackMessage, error);
+  }
+  if (res.headersSent) {
+    return;
+  }
+  res.status(statusCode).json(jsonBodyFromHandlerError(error, fallbackMessage));
+}
 
 /** Chunked session zip only (`sessionId`); optional `uploadJobId` for async job progress. */
 export async function handlePostLevelZipUpload(req: Request, res: Response): Promise<void> {
@@ -236,17 +250,19 @@ export async function handlePostLevelZipUpload(req: Request, res: Response): Pro
       return;
     }
 
-    let statusCode =
-      typeof error?.code === 'number' && error.code >= 100 && error.code < 600 ? error.code : 500;
-    if (statusCode === 500 && isAssembledZipMissingError(error)) {
-      statusCode = 409;
+    if (isAssembledZipMissingError(error)) {
+      if (!res.headersSent) {
+        res.status(409).json({
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Assembled upload file is missing. Start a fresh chunked upload.',
+          code: 409,
+        });
+      }
+      return;
     }
-    const body =
-      typeof error?.error === 'string'
-        ? error
-        : { error: error instanceof Error ? error.message : String(error), code: statusCode };
-    if (statusCode === 500) logger.error('Error uploading level file:', error);
-    res.status(statusCode).json(body);
+    sendLevelZipHandlerError(res, error, 'Failed to upload level file');
   }
 }
 
@@ -461,10 +477,7 @@ export async function handlePostLevelZipUploadFromUrl(req: Request, res: Respons
         })
         .catch(() => undefined);
     }
-    const statusCode =
-      typeof error.code === 'number' && error.code >= 100 && error.code < 600 ? error.code : 500;
-    if (statusCode === 500) logger.error('Error uploading level file from URL:', error);
-    res.status(statusCode).json(error);
+    sendLevelZipHandlerError(res, error, 'Failed to upload level file from URL');
   }
 }
 
@@ -540,10 +553,7 @@ export async function handlePostLevelSelectLevel(req: Request, res: Response): P
     });
   } catch (error: any) {
     await safeTransactionRollback(transaction);
-    const statusCode =
-      typeof error.code === 'number' && error.code >= 100 && error.code < 600 ? error.code : 500;
-    if (statusCode === 500) logger.error('Error selecting level file:', error);
-    res.status(statusCode).json(error);
+    sendLevelZipHandlerError(res, error, 'Failed to select level file');
   }
 }
 
@@ -612,9 +622,6 @@ export async function handleDeleteLevelZipUpload(req: Request, res: Response): P
     });
   } catch (error: any) {
     await safeTransactionRollback(transaction);
-    const statusCode =
-      typeof error.code === 'number' && error.code >= 100 && error.code < 600 ? error.code : 500;
-    if (statusCode === 500) logger.error('Error deleting level file:', error);
-    res.status(statusCode).json(error);
+    sendLevelZipHandlerError(res, error, 'Failed to delete level file');
   }
 }

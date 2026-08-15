@@ -5,7 +5,7 @@ import { errorResponseSchema, docRequestBody, standardErrorResponses, standardEr
 import {Op, QueryTypes} from 'sequelize';
 import { getFileIdFromCdnUrl, isCdnUrl, safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
-import CdnService, { CdnError } from '@/server/services/core/CdnService.js';
+import CdnService, { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationCurationType from '@/models/curations/CurationCurationType.js';
 import CurationType from '@/models/curations/CurationType.js';
@@ -503,15 +503,12 @@ router.post(
     });
   } catch (error) {
     if (error instanceof CdnError) {
-      const statusCode = error.code === 'VALIDATION_ERROR' ? 400 : 500;
-      return res.status(statusCode).json({
-        error: error.message,
-        code: error.code,
-        details: error.details,
-      });
+      return respondWithCdnError(res, error);
     }
     logger.error('Error uploading curation icon:', error);
-    return res.status(500).json({error: 'Failed to upload icon'});
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to upload icon',
+    });
   }
   }
 );
@@ -2639,15 +2636,12 @@ router.post(
     });
   } catch (error) {
     if (error instanceof CdnError) {
-      const statusCode = error.code === 'VALIDATION_ERROR' ? 400 : 500;
-      return res.status(statusCode).json({
-        error: error.message,
-        code: error.code,
-        details: error.details,
-      });
+      return respondWithCdnError(res, error);
     }
     logger.error('Error uploading level thumbnail:', error);
-    return res.status(500).json({error: 'Failed to upload thumbnail'});
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to upload thumbnail',
+    });
   }
   }
 );

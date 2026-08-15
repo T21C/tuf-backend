@@ -5,7 +5,7 @@ import CurationType from '@/models/curations/CurationType.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import { DirectiveConditionType, DirectiveCondition } from '@/server/interfaces/models/index.js';
 import { DirectiveParser } from '@/misc/utils/data/directiveParser.js';
-import cdnService, { CdnError } from '@/server/services/core/CdnService.js';
+import cdnService, { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import { multerMemoryCdnImage5Mb } from '@/config/multerMemoryUploads.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 
@@ -118,21 +118,16 @@ export async function cleanupOldDifficultyIcon(
  */
 export function sendCdnErrorResponse(res: Response, uploadError: unknown, logPrefix: string): Response {
   if (uploadError instanceof CdnError) {
-    const statusCode = uploadError.code === 'VALIDATION_ERROR' ? 400 : 500;
-    const errorResponse: { error: string; code: string; details?: unknown } = {
-      error: uploadError.message,
-      code: uploadError.code,
-    };
-    if (uploadError.details) {
-      errorResponse.details = uploadError.details;
+    if (uploadError.httpStatus >= 500) {
+      logger.error(`${logPrefix}:`, uploadError);
+    } else {
+      logger.debug(`${logPrefix}:`, uploadError);
     }
-    logger.debug(`${logPrefix}:`, uploadError);
-    return res.status(statusCode).json(errorResponse);
+    return respondWithCdnError(res, uploadError);
   }
   logger.error(`${logPrefix}:`, uploadError);
   return res.status(500).json({
-    error: 'Failed to upload icon to CDN',
-    details: uploadError instanceof Error ? uploadError.message : String(uploadError),
+    error: uploadError instanceof Error ? uploadError.message : 'Failed to upload icon to CDN',
   });
 }
 

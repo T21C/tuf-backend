@@ -18,7 +18,7 @@ import {safeTransactionRollback, getFileIdFromCdnUrl} from '@/misc/utils/Utility
 import {respondMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
 import ArtistService from '@/server/services/data/ArtistService.js';
 import EvidenceService from '@/server/services/data/EvidenceService.js';
-import cdnServiceInstance, { CdnError } from '@/server/services/core/CdnService.js';
+import cdnServiceInstance, { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 
@@ -413,16 +413,12 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
       } catch (error: any) {
         await safeTransactionRollback(transaction);
         if (error instanceof CdnError) {
-          const statusCode = error.details?.status || (error.code === 'VALIDATION_ERROR' ? 400 : 500);
-          logger.error('Error uploading avatar during creation:', error);
-          return res.status(statusCode).json({
-            error: error.message || 'Failed to upload avatar',
-            code: error.code,
-            details: error.details
-          });
+          return respondWithCdnError(res, error);
         }
-        logger.error('Error uploading avatar:', error);
-        return res.status(500).json({error: 'Failed to upload avatar'});
+        logger.error('Error uploading avatar during creation:', error);
+        return res.status(500).json({
+          error: error instanceof Error ? error.message : 'Failed to upload avatar',
+        });
       }
     }
 
@@ -578,17 +574,13 @@ router.post('/:id([0-9]{1,20})/avatar', Auth.superAdmin(), upload.single('avatar
   } catch (error: any) {
     // Check if it's a CdnError and propagate the actual error details
     if (error instanceof CdnError) {
-      const statusCode = error.details?.status || (error.code === 'VALIDATION_ERROR' ? 400 : 500);
-      logger.error('Error uploading avatar:', error);
-      return res.status(statusCode).json({
-        error: error.message || 'Failed to upload avatar',
-        code: error.code,
-        details: error.details
-      });
+      return respondWithCdnError(res, error);
     }
 
     logger.error('Error uploading avatar:', error);
-    return res.status(500).json({error: 'Failed to upload avatar'});
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to upload avatar',
+    });
   }
 });
 
@@ -914,17 +906,13 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
 
     // Check if it's a CdnError and propagate the actual error details
     if (error instanceof CdnError) {
-      const statusCode = error.details?.status || (error.code === 'VALIDATION_ERROR' ? 400 : 500);
-      logger.error('Error uploading evidence:', error);
-      return res.status(statusCode).json({
-        error: error.message || 'Failed to upload evidence',
-        code: error.code,
-        details: error.details
-      });
+      return respondWithCdnError(res, error);
     }
 
     logger.error('Error uploading evidence:', error);
-    return res.status(500).json({error: 'Failed to upload evidence'});
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to upload evidence',
+    });
   }
 });
 
@@ -962,8 +950,10 @@ router.delete('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.super
     await evidenceService.deleteArtistEvidence(parseInt(req.params.evidenceId));
     return res.json({success: true});
   } catch (error) {
-    logger.error('Error deleting evidence:', error);
-    return res.status(500).json({error: 'Failed to delete evidence'});
+    const message = error instanceof Error ? error.message : 'Failed to delete evidence';
+    const statusCode = message === 'Evidence not found' ? 404 : 500;
+    if (statusCode >= 500) logger.error('Error deleting evidence:', error);
+    return res.status(statusCode).json({ error: message });
   }
 });
 

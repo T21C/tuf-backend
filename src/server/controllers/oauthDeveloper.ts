@@ -13,7 +13,7 @@ import {
   listGrantsForUser,
   revokeGrantById,
 } from '@/server/services/oauth/OAuthTokenService.js';
-import cdnService, { CdnError } from '@/server/services/core/CdnService.js';
+import cdnService, { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import { isCdnUrl, getFileIdFromCdnUrl } from '@/misc/utils/Utility.js';
 
 function serializeClient(client: Awaited<ReturnType<typeof oauthClientService.create>>) {
@@ -151,15 +151,13 @@ export const oauthDeveloperController = {
         icon: { id: result.fileId, urls: result.urls },
       });
     } catch (err) {
-      logger.error('oauth_dev_icon_upload_error', err);
       if (err instanceof CdnError) {
-        return res.status(400).json({
-          error: err.message,
-          code: err.code,
-          details: err.details,
-        });
+        return respondWithCdnError(res, err);
       }
-      return res.status(500).json({ error: 'Failed to upload icon' });
+      logger.error('oauth_dev_icon_upload_error', err);
+      return res.status(500).json({
+        error: err instanceof Error ? err.message : 'Failed to upload icon',
+      });
     }
   },
 

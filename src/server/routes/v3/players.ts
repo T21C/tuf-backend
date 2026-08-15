@@ -36,7 +36,7 @@ import {
 } from '@/server/services/leaderboard/historicalLeaderboardAtDate.js';
 import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import cdnService from '@/server/services/core/CdnService.js';
-import { CdnError } from '@/server/services/core/CdnService.js';
+import { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import {
   BioCanvasProfileError,
   parseBioCanvasBlockId,
@@ -868,14 +868,12 @@ router.post(
         return res.status(error.status).json({ error: error.message });
       }
       if (error instanceof CdnError) {
-        return res.status(400).json({
-          error: error.message,
-          code: error.code,
-          details: error.details,
-        });
+        return respondWithCdnError(res, error);
       }
       logger.error('[v3 POST /players/me/bio-canvas/image] failure', error);
-      return res.status(500).json({ error: 'Failed to upload bio canvas image' });
+      return res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to upload bio canvas image',
+      });
     }
   },
 );
