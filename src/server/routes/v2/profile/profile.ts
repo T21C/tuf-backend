@@ -10,7 +10,7 @@ import Player from '@/models/players/Player.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import cdnService from '@/server/services/core/CdnService.js';
-import { CdnError } from '@/server/services/core/CdnService.js';
+import { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
@@ -585,17 +585,12 @@ router.post(
         });
     } catch (error) {
         if (error instanceof CdnError) {
-            return res.status(400).json({
-                error: error.message,
-                code: error.code,
-                details: error.details
-            });
+            return respondWithCdnError(res, error);
         }
 
         return res.status(500).json({
-            error: 'Failed to upload avatar',
+            error: error instanceof Error ? error.message : 'Failed to upload avatar',
             code: 'SERVER_ERROR',
-            details: error instanceof Error ? error.message : String(error)
         });
     }
   }
@@ -840,14 +835,12 @@ router.post(
       return res.json(uploaded);
     } catch (error) {
       if (error instanceof CdnError) {
-        return res.status(400).json({
-          error: error.message,
-          code: error.code,
-          details: error.details,
-        });
+        return respondWithCdnError(res, error);
       }
       logger.error('Error uploading player banner:', error);
-      return res.status(500).json({ error: 'Failed to upload banner' });
+      return res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to upload banner',
+      });
     }
   },
 );
@@ -994,14 +987,12 @@ router.post(
       }
     } catch (error) {
       if (error instanceof CdnError) {
-        return res.status(400).json({
-          error: error.message,
-          code: error.code,
-          details: error.details,
-        });
+        return respondWithCdnError(res, error);
       }
       logger.error('Error uploading player header surface image:', error);
-      return res.status(500).json({ error: 'Failed to upload header surface image' });
+      return res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to upload header surface image',
+      });
     }
   },
 );

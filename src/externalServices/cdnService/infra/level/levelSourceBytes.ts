@@ -11,6 +11,7 @@ import {
 } from '../archive/archiveService.js';
 import { normalizeRelativePath, toCopyRelativePath, toSourceRelativePath } from '../../domain/archive/ingestPaths.js';
 import { matchLevelFileBySelection } from '../../domain/level/matchLevelFileSelection.js';
+import { LevelStorageMissingError } from '../../domain/level/levelStorageMissingError.js';
 
 export type LevelMetadataEntry = {
     name?: string;
@@ -170,7 +171,7 @@ export function resolveLevelSourceStoragePath(levelEntry: any): string | null {
 export async function downloadLevelToWorkspace(levelPath: string, join: (...parts: string[]) => string): Promise<{ localPath: string }> {
     const levelExists = await spacesStorage.fileExists(levelPath);
     if (!levelExists) {
-        throw new Error(`Target level file not found in storage: ${levelPath}`);
+        throw new LevelStorageMissingError(levelPath);
     }
 
     const ext = path.extname(levelPath) || '.adofai';
@@ -198,7 +199,7 @@ export async function extractLevelSourceFromMetadata(params: {
         if (sourceStoragePath) {
             const sourceCheck = await spacesStorage.fileExists(sourceStoragePath);
             if (!sourceCheck) {
-                throw new Error(`Level source file not found in storage: ${sourceStoragePath}`);
+                throw new LevelStorageMissingError(sourceStoragePath);
             }
 
             const ext = path.extname(String(targetLevelEntry?.relativePath || targetLevelPath)) || '.adofai';

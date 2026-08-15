@@ -15,7 +15,7 @@ import { parseSearchQuery,  queryParserConfigs, type SearchGroup } from '@/misc/
 import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
 import { multerMemoryCdnImage5Mb as upload } from '@/config/multerMemoryUploads.js';
 import cdnService from '@/server/services/core/CdnService.js';
-import { CdnError } from '@/server/services/core/CdnService.js';
+import { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import { jobProgressService } from '@/server/services/core/JobProgressService.js';
 import Pass from '@/models/passes/Pass.js';
 import Curation from '@/models/curations/Curation.js';
@@ -990,23 +990,16 @@ router.post(
     });
   } catch (error) {
     if (error instanceof CdnError) {
-      if (error.code === 'PACK_SIZE_LIMIT_EXCEEDED') {
-        return res.status(400).json({ error: error.message, code: error.code });
-      }
-      if (error.code === 'PACK_DISK_FULL') {
-        return res.status(503).json({ error: error.message, code: error.code });
-      }
-      if (error.code === 'PACK_QUEUE_BUSY') {
-        return res.status(503).json({ error: error.message, code: error.code });
-      }
-      return res.status(500).json({ error: error.message, code: error.code });
+      return respondWithCdnError(res, error);
     }
     logger.error('Error generating pack download link:', {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
       packParam: req.params.id
     });
-    return res.status(500).json({ error: 'Failed to generate download link' });
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to generate download link',
+    });
   }
   }
 );
@@ -1363,17 +1356,12 @@ router.post(
         logger.error('Error uploading pack icon:', error);
 
         if (error instanceof CdnError) {
-            return res.status(400).json({
-                error: error.message,
-                code: error.code,
-                details: error.details
-            });
+            return respondWithCdnError(res, error);
         }
 
         return res.status(500).json({
-            error: 'Failed to upload pack icon',
+            error: error instanceof Error ? error.message : 'Failed to upload pack icon',
             code: 'SERVER_ERROR',
-            details: error instanceof Error ? error.message : String(error)
         });
     }
   }

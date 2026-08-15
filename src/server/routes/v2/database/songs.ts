@@ -18,7 +18,7 @@ import {logger} from '@/server/services/core/LoggerService.js';
 import {safeTransactionRollback} from '@/misc/utils/Utility.js';
 import SongService from '@/server/services/data/SongService.js';
 import EvidenceService from '@/server/services/data/EvidenceService.js';
-import cdnServiceInstance, { CdnError } from '@/server/services/core/CdnService.js';
+import cdnServiceInstance, { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { parseSearchQuery, queryParserConfigs, extractFieldValues, extractGeneralSearchTerms } from '@/misc/utils/data/queryParser.js';
@@ -1079,17 +1079,13 @@ router.post(
 
     // Check if it's a CdnError and propagate the actual error details
     if (error instanceof CdnError) {
-      const statusCode = error.details?.status || (error.code === 'VALIDATION_ERROR' ? 400 : 500);
-      logger.error('Error uploading evidence:', error);
-      return res.status(statusCode).json({
-        error: error.message || 'Failed to upload evidence',
-        code: error.code,
-        details: error.details
-      });
+      return respondWithCdnError(res, error);
     }
 
     logger.error('Error uploading evidence:', error);
-    return res.status(500).json({error: 'Failed to upload evidence'});
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to upload evidence',
+    });
   }
   }
 );
@@ -1154,8 +1150,10 @@ router.delete(
     await evidenceService.deleteSongEvidence(parseInt(req.params.evidenceId));
     return res.json({success: true});
   } catch (error) {
-    logger.error('Error deleting evidence:', error);
-    return res.status(500).json({error: 'Failed to delete evidence'});
+    const message = error instanceof Error ? error.message : 'Failed to delete evidence';
+    const statusCode = message === 'Evidence not found' ? 404 : 500;
+    if (statusCode >= 500) logger.error('Error deleting evidence:', error);
+    return res.status(statusCode).json({ error: message });
   }
   }
 );

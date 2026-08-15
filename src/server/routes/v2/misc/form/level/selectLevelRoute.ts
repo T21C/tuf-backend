@@ -171,6 +171,34 @@ router.post(
         },
       });
     } catch (error) {
+      if (error instanceof CdnError) {
+        const status = error.httpStatus;
+        if (status >= 500) {
+          logger.error('Failed to process level selection:', {
+            error: { message: error.message, stack: error.stack, code: error.code, details: error.details },
+            submissionId: parsedSubmissionId,
+            selectedLevel,
+            userId: req.user?.id,
+            timestamp: new Date().toISOString(),
+          });
+        } else {
+          logger.warn('Level selection rejected by CDN:', {
+            error: error.message,
+            code: error.code,
+            status,
+            submissionId: parsedSubmissionId,
+            selectedLevel,
+            userId: req.user?.id,
+          });
+        }
+        return res.status(status).json({
+          success: false,
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        });
+      }
+
       logger.error('Failed to process level selection:', {
         error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
         submissionId: parsedSubmissionId,
@@ -178,15 +206,6 @@ router.post(
         userId: req.user?.id,
         timestamp: new Date().toISOString(),
       });
-
-      if (error instanceof CdnError) {
-        return res.status(400).json({
-          success: false,
-          error: error.message,
-          code: error.code,
-          details: error.details,
-        });
-      }
 
       return res.status(500).json({
         success: false,

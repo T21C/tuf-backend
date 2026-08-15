@@ -191,16 +191,24 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
 
         if (!matchingLevel) {
             await safeTransactionRollback(transaction);
-            logger.error('Target level not found in zip:', {
+            const availableLevels = metadata.allLevelFiles.map(f => ({
+                path: f.path,
+                relativePath: f.relativePath,
+                name: f.name
+            }));
+            logger.warn('Target level not found in zip:', {
                 fileId,
                 targetLevel,
-                availableLevels: metadata.allLevelFiles.map(f => ({
-                    path: f.path,
-                    relativePath: f.relativePath,
-                    name: f.name
-                }))
+                availableLevels
             });
-            return res.status(400).json({ error: 'Target level not found in zip' });
+            return res.status(400).json({
+                error: `Target level not found in zip: ${targetLevel}`,
+                code: 'TARGET_LEVEL_NOT_FOUND',
+                details: {
+                    targetLevel,
+                    availableLevels
+                }
+            });
         }
 
         // Update metadata with the actual file path from the zip within transaction

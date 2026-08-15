@@ -205,6 +205,194 @@ router.get(
 );
 
 router.get(
+  '/level/:levelId([0-9]{1,20})/placement',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getPassPlacementByLevelId',
+    summary: 'Level leaderboard placement for a score',
+    description:
+      'Cheap best-per-player rank: how many players have a higher max scoreV2 on this level. Matches level-page dedupe.',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    params: { levelId: { description: 'Level ID', schema: { type: 'string' } } },
+    query: {
+      score: { description: 'Simulated scoreV2', schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: '{ rank, total, tied }' },
+      404: { description: 'Level not found' },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const levelId = parseInt(req.params.levelId, 10);
+      const score = Number(req.query.score);
+      if (!Number.isFinite(levelId) || levelId <= 0) {
+        return res.status(400).json({ error: 'Invalid level ID' });
+      }
+      if (!Number.isFinite(score)) {
+        return res.status(400).json({ error: 'Invalid score' });
+      }
+
+      const level = await Level.findByPk(levelId);
+      if (
+        !level ||
+        ((level.isDeleted || level.isHidden) &&
+          (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN)))
+      ) {
+        return res.status(404).json({ error: 'Level not found' });
+      }
+
+      const sequelize = Pass.sequelize!;
+      const [rows] = (await sequelize.query(
+        `
+        SELECT
+          (SELECT COUNT(*) FROM (
+            SELECT playerId FROM passes
+            WHERE levelId = :levelId AND IFNULL(isDeleted, 0) = 0 AND IFNULL(isHidden, 0) = 0
+              AND playerId IS NOT NULL
+            GROUP BY playerId
+          ) t) AS total,
+          (SELECT COUNT(*) FROM (
+            SELECT playerId, MAX(scoreV2) AS best
+            FROM passes
+            WHERE levelId = :levelId AND IFNULL(isDeleted, 0) = 0 AND IFNULL(isHidden, 0) = 0
+              AND playerId IS NOT NULL
+            GROUP BY playerId
+          ) bests WHERE best > :score) AS better,
+          (SELECT COUNT(*) FROM (
+            SELECT playerId, MAX(scoreV2) AS best
+            FROM passes
+            WHERE levelId = :levelId AND IFNULL(isDeleted, 0) = 0 AND IFNULL(isHidden, 0) = 0
+              AND playerId IS NOT NULL
+            GROUP BY playerId
+          ) ties WHERE ABS(best - :score) < 0.005) AS tied
+        `,
+        { replacements: { levelId, score } },
+      )) as [{ total: number; better: number; tied: number }[], unknown];
+
+      const row = Array.isArray(rows) ? rows[0] : null;
+      const total = Number(row?.total) || 0;
+      const better = Number(row?.better) || 0;
+      const tied = Number(row?.tied) || 0;
+      return res.json({
+        rank: better + 1,
+        total,
+        tied,
+      });
+    } catch (error) {
+      logger.error('Error computing pass placement:', error);
+      return res.status(500).json({ error: 'Failed to compute placement' });
+    }
+  },
+);
+
+router.get(
+  '/level/:levelId([0-9]{1,20})/calculator-player',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getPassCalculatorPlayerContext',
+    summary: 'Player context for pass score calculator',
+    description:
+      'Best pass on this level for a player, plus their top-20 best-per-level scores for ranked impact preview.',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    params: { levelId: { description: 'Level ID', schema: { type: 'string' } } },
+    query: {
+      playerId: { description: 'Player ID', schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: '{ bestOnLevel, top20 }' },
+      404: { description: 'Level or player not found' },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const levelId = parseInt(req.params.levelId, 10);
+      const playerId = parseInt(String(req.query.playerId), 10);
+      if (!Number.isFinite(levelId) || levelId <= 0) {
+        return res.status(400).json({ error: 'Invalid level ID' });
+      }
+      if (!Number.isFinite(playerId) || playerId <= 0) {
+        return res.status(400).json({ error: 'Invalid player ID' });
+      }
+
+      const level = await Level.findByPk(levelId);
+      if (
+        !level ||
+        ((level.isDeleted || level.isHidden) &&
+          (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN)))
+      ) {
+        return res.status(404).json({ error: 'Level not found' });
+      }
+
+      const player = await Player.findByPk(playerId);
+      if (!player || player.isBanned) {
+        return res.status(404).json({ error: 'Player not found' });
+      }
+
+      const bestOnLevel = await Pass.findOne({
+        where: {
+          levelId,
+          playerId,
+          isDeleted: false,
+          isHidden: false,
+        },
+        attributes: ['id', 'scoreV2', 'levelId'],
+        order: [
+          ['scoreV2', 'DESC'],
+          ['id', 'DESC'],
+        ],
+      });
+
+      const sequelize = Pass.sequelize!;
+      const [topRows] = (await sequelize.query(
+        `
+        SELECT b.levelId, b.scoreV2
+        FROM (
+          SELECT p.levelId, MAX(p.scoreV2) AS scoreV2
+          FROM passes p
+          INNER JOIN levels l ON l.id = p.levelId AND IFNULL(l.isDeleted, 0) = 0
+          WHERE p.playerId = :playerId
+            AND IFNULL(p.isDeleted, 0) = 0
+            AND IFNULL(p.isHidden, 0) = 0
+            AND IFNULL(p.isDuplicate, 0) = 0
+            AND (
+              IFNULL(l.isExternallyAvailable, 0) = 1
+              OR (l.dlLink IS NOT NULL AND l.dlLink != '')
+              OR (l.workshopLink IS NOT NULL AND l.workshopLink != '')
+            )
+          GROUP BY p.levelId
+        ) b
+        ORDER BY b.scoreV2 DESC
+        LIMIT 20
+        `,
+        { replacements: { playerId } },
+      )) as [{ levelId: number; scoreV2: number }[], unknown];
+
+      return res.json({
+        bestOnLevel: bestOnLevel
+          ? {
+              id: bestOnLevel.id,
+              scoreV2: bestOnLevel.scoreV2,
+              levelId: bestOnLevel.levelId,
+            }
+          : null,
+        top20: (Array.isArray(topRows) ? topRows : []).map((r) => ({
+          levelId: Number(r.levelId),
+          scoreV2: Number(r.scoreV2) || 0,
+        })),
+      });
+    } catch (error) {
+      logger.error('Error fetching calculator player context:', error);
+      return res.status(500).json({ error: 'Failed to fetch player context' });
+    }
+  },
+);
+
+router.get(
   '/level/:levelId([0-9]{1,20})',
   Auth.addUserToRequest(),
   ApiDoc({

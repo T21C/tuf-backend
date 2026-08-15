@@ -22,7 +22,7 @@ import CurationType from '@/models/curations/CurationType.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
-import cdnService from '@/server/services/core/CdnService.js';
+import cdnService, { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import CurationSchedule from '@/models/curations/CurationSchedule.js';
 import Song from '@/models/songs/Song.js';
 import SongAlias from '@/models/songs/SongAlias.js';
@@ -335,8 +335,13 @@ router.get(
       }
       return res.json({ fileId: row.fileId, metadata: row.metadata });
     } catch (error) {
+      if (error instanceof CdnError) {
+        return respondWithCdnError(res, error);
+      }
       logger.error('Error fetching CDN zip metadata by fileId:', error);
-      return res.status(500).json({ error: 'Failed to fetch CDN metadata' });
+      return res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to fetch CDN metadata',
+      });
     }
   }
 );

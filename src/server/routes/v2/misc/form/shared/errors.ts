@@ -1,5 +1,6 @@
 import type { Response } from 'express';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 
 /**
  * Canonical error shape used by every new form route. Throw one of these from
@@ -36,6 +37,11 @@ export function sendFormError(res: Response, err: unknown, fallback = 'Failed to
     if (err.details) payload.details = err.details;
     if (err.field) payload.field = err.field;
     res.status(err.code).json(payload);
+    return;
+  }
+  if (err instanceof CdnError) {
+    if (err.httpStatus >= 500) logger.error(fallback, err);
+    respondWithCdnError(res, err);
     return;
   }
   // Legacy `{ code, error }` shape still thrown in places we haven't touched yet.

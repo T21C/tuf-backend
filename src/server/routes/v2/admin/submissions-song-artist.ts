@@ -11,6 +11,7 @@ import sequelize from '@/config/db.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {safeTransactionRollback} from '@/misc/utils/Utility.js';
 import EvidenceService from '@/server/services/data/EvidenceService.js';
+import { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import SongAlias from '@/models/songs/SongAlias.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
@@ -306,8 +307,13 @@ router.post(
 
     return res.json({evidences});
   } catch (error) {
-    logger.error('Error uploading evidence:', error);
-    return res.status(500).json({error: 'Failed to upload evidence'});
+    if (error instanceof CdnError) {
+      return respondWithCdnError(res, error);
+    }
+    const message = error instanceof Error ? error.message : 'Failed to upload evidence';
+    const statusCode = message === 'Evidence not found' ? 404 : 500;
+    if (statusCode >= 500) logger.error('Error uploading evidence:', error);
+    return res.status(statusCode).json({ error: message });
   }
   }
 );
@@ -330,8 +336,10 @@ router.delete(
     await evidenceService.deleteEvidenceImage(parseInt(req.params.evidenceId));
     return res.json({success: true});
   } catch (error) {
-    logger.error('Error deleting evidence:', error);
-    return res.status(500).json({error: 'Failed to delete evidence'});
+    const message = error instanceof Error ? error.message : 'Failed to delete evidence';
+    const statusCode = message === 'Evidence not found' ? 404 : 500;
+    if (statusCode >= 500) logger.error('Error deleting evidence:', error);
+    return res.status(statusCode).json({ error: message });
   }
   }
 );

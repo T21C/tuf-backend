@@ -42,7 +42,7 @@ import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils
 import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
 import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { multerMemoryCdnImage10Mb as bannerUpload } from '@/config/multerMemoryUploads.js';
-import { CdnError } from '@/server/services/core/CdnService.js';
+import { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import { parseBannerPresetForStorage } from '@/misc/utils/profileBannerPreset.js';
 import {PlacementUtilizationService} from '@/server/services/tournaments/PlacementUtilizationService.js';
 import {
@@ -641,14 +641,12 @@ router.post(
         return res.status(error.status).json({ error: error.message });
       }
       if (error instanceof CdnError) {
-        return res.status(400).json({
-          error: error.message,
-          code: error.code,
-          details: error.details,
-        });
+        return respondWithCdnError(res, error);
       }
       logger.error('[v3 POST /creators/me/bio-canvas/image] failure', error);
-      return res.status(500).json({ error: 'Failed to upload bio canvas image' });
+      return res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to upload bio canvas image',
+      });
     }
   },
 );
@@ -1563,16 +1561,11 @@ router.post(
       return res.json(uploaded);
     } catch (error) {
       if (error instanceof CdnError) {
-        return res.status(400).json({
-          error: error.message,
-          code: error.code,
-          details: error.details,
-        });
+        return respondWithCdnError(res, error);
       }
       logger.error('[v3 POST /creators/:id/banner-custom] failure', error);
       return res.status(500).json({
-        error: 'Failed to upload creator banner',
-        details: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? error.message : 'Failed to upload creator banner',
       });
     }
   },
@@ -1709,16 +1702,11 @@ router.post(
       }
     } catch (error) {
       if (error instanceof CdnError) {
-        return res.status(400).json({
-          error: error.message,
-          code: error.code,
-          details: error.details,
-        });
+        return respondWithCdnError(res, error);
       }
       logger.error('[v3 POST /creators/:id/header-surface-image] failure', error);
       return res.status(500).json({
-        error: 'Failed to upload header surface image',
-        details: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? error.message : 'Failed to upload header surface image',
       });
     }
   },
