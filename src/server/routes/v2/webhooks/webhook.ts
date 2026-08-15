@@ -742,7 +742,7 @@ export async function passSubmissionHook(
   const additionalInfo = (
     `${pass.flags?.is12K ? '12K  |  ' : ''}` +
     `${pass.flags?.is16K ? '16K  |  ' : ''}` +
-    `${pass.flags?.isNoHoldTap ? 'Alt. Tap Option  |  ' : ''}` +
+    `${pass.flags?.isNoHoldTap ? 'Alt. Hold Option  |  ' : ''}` +
     `${pass.flags?.isAdofaiV2 ? 'ADOFAI v2  |  ' : ''}`
   ).replace(/\|\s*$/, '');
   const judgementLine = sanitizedJudgements
