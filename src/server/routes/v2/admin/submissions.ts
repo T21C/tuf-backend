@@ -16,9 +16,8 @@ import {
   PassScoreCalculationError,
 } from '@/misc/utils/pass/scoreService.js';
 import {deriveKeyFlags, normalizeKeyCount} from '@/misc/utils/pass/keyCount.js';
-import {getIO} from '@/misc/utils/server/socket.js';
 import sequelize from '@/config/db.js';
-import {sseManager} from '@/misc/utils/server/sse.js';
+import {sseManager, SSE_SOURCES} from '@/misc/utils/server/sse.js';
 import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
 import {updateWorldsFirstFlags} from '@/server/routes/v2/database/passes/index.js';
 import {IPassSubmissionJudgements} from '@/server/interfaces/models/index.js';
@@ -60,6 +59,8 @@ import SongService from '@/server/services/data/SongService.js';
 import EvidenceService from '@/server/services/data/EvidenceService.js';
 import submissionSongArtistRoutes from './submissions-song-artist.js';
 import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
+import { notifyPassSubmissionOutcome } from '@/server/services/notifications/passSubmissionNotify.js';
+import { notifyChartSubmission } from '@/server/services/notifications/levelSubmissionNotify.js';
 import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { resolveLevelCreatedAtFromVideoLink } from '@/misc/utils/data/levelCreatedAtFromVideoLink.js';
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
@@ -246,6 +247,7 @@ interface ApprovePassSubmissionResult {
 async function approvePassSubmission(
   submissionId: number,
   transaction: Transaction,
+  actorId?: string | null,
 ): Promise<ApprovePassSubmissionResult> {
 
   const submission = await PassSubmission.findByPk(submissionId, 
@@ -407,15 +409,23 @@ async function approvePassSubmission(
       { transaction },
     );
     createdRatingId = newRating.id;
-    await Level.update({ 
-      toRate: true, 
+    await Level.update({
+      toRate: true,
       previousDiffId: level.diffId,
       previousBaseScore: level.baseScore || difficulty.baseScore || 0,
-      rerateNum: reqFr.substring(0, 60) || '', 
-      rerateReason: 'cleared'}, 
-      { where: { id: submission.levelId }, 
+      rerateNum: reqFr.substring(0, 60) || '',
+      rerateReason: 'cleared'},
+      { where: { id: submission.levelId },
       transaction });
   }
+
+  await notifyPassSubmissionOutcome({
+    submission,
+    outcome: 'approved',
+    passId: pass.id,
+    actorId: actorId ?? null,
+    transaction,
+  });
 
   return { pass, newPass: newPass as Pass, playerStats, createdRatingId };
 }
@@ -1111,6 +1121,7 @@ router.put(
             clears: 0,
             likes: 0,
             publicComments: '',
+            notes: submission.notes || '',
             rerateReason: '',
             rerateNum: '',
             previousDiffId: 0,
@@ -1202,6 +1213,19 @@ router.put(
           },
         );
 
+        await notifyChartSubmission({
+          outcome: 'approved',
+          submissionId: Number(id),
+          userId: submission.userId,
+          level: {
+            id: newLevel.id,
+            song: newLevel.song,
+            artist: newLevel.artist,
+          },
+          actorId: req.user?.id ?? null,
+          transaction,
+        });
+
         // Move evidence from submission to song/artist if approved
         if (submission.evidence && submission.evidence.length > 0) {
           for (const evidence of submission.evidence) {
@@ -1226,7 +1250,7 @@ router.put(
 
         await transaction.commit();
 
-        sseManager.broadcast({
+        sseManager.broadcastToSources([SSE_SOURCES.admin], {
           type: 'submissionUpdate',
           data: {
             action: 'approve',
@@ -1358,11 +1382,21 @@ router.put(
         },
       );
 
+      await notifyChartSubmission({
+        outcome: 'declined',
+        submissionId: Number(id),
+        userId: submission.userId,
+        level: {
+          song: submission.song,
+          artist: submission.artist,
+        },
+        actorId: req.user?.id ?? null,
+        transaction,
+      });
 
 
-      // Broadcast updates
-      sseManager.broadcast({type: 'submissionUpdate'});
-      sseManager.broadcast({
+
+      sseManager.broadcastToSources([SSE_SOURCES.admin], {
         type: 'submissionUpdate',
         data: {
           action: 'decline',
@@ -1416,14 +1450,18 @@ router.put(
         return res.status(404).json({error: 'Submission not found or already processed'});
       }
 
-      const { pass, newPass, playerStats, createdRatingId } = await approvePassSubmission(submission.id, transaction);
+      const { pass, newPass, createdRatingId } = await approvePassSubmission(
+        submission.id,
+        transaction,
+        req.user?.id,
+      );
 
       await transaction.commit();
 
       await elasticsearchService.indexPass(newPass);
       await elasticsearchService.indexLevel(newPass.level!);
 
-      sseManager.broadcast({
+      sseManager.broadcastToSources([SSE_SOURCES.admin], {
         type: 'submissionUpdate',
         data: { action: 'create', submissionId: submission.id, submissionType: 'pass' },
       });
@@ -1441,18 +1479,6 @@ router.put(
             error: err instanceof Error ? err.message : String(err),
           }),
         );
-      }
-
-      if (submission.assignedPlayerId && playerStats) {
-        sseManager.broadcast({
-          type: 'passUpdate',
-          data: {
-            playerId: submission.assignedPlayerId,
-            passedLevelId: submission.levelId,
-            newScore: playerStats?.rankedScore || 0,
-            action: 'create',
-          },
-        });
       }
 
       if (submission.assignedPlayerId) {
@@ -1508,17 +1534,30 @@ router.put(
     let transaction: any;
     try {
       transaction = await sequelize.transaction();
-      await PassSubmission.update(
-        {status: 'declined'},
-        {
-          where: {id: parseInt(req.params.id)},
-          transaction,
-        }
-      );
+      const submission = await PassSubmission.findOne({
+        where: {[Op.and]: [{id: parseInt(req.params.id)}, {status: 'pending'}]},
+        include: [{model: Level, as: 'level'}],
+        lock: true,
+        transaction,
+      });
 
-      // Broadcast updates
-      sseManager.broadcast({type: 'submissionUpdate'});
-      sseManager.broadcast({
+      if (!submission) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(404).json({error: 'Submission not found or already processed'});
+      }
+
+      await submission.update({status: 'declined'}, {transaction});
+      await notifyPassSubmissionOutcome({
+        submission,
+        outcome: 'declined',
+        passId: null,
+        actorId: req.user?.id ?? null,
+        transaction,
+      });
+
+      await transaction.commit();
+
+      sseManager.broadcastToSources([SSE_SOURCES.admin], {
         type: 'submissionUpdate',
         data: {
           action: 'decline',
@@ -1526,8 +1565,6 @@ router.put(
           submissionType: 'pass',
         },
       });
-
-      await transaction.commit();
 
       return res.json({message: 'Pass submission rejected successfully'});
     } catch (error) {
@@ -1790,7 +1827,7 @@ router.put(
         transaction,
       });
 
-      sseManager.broadcast({
+      sseManager.broadcastToSources([SSE_SOURCES.admin], {
         type: 'submissionUpdate',
         data: {
           action: 'update',
@@ -1920,8 +1957,7 @@ router.put(
         transaction,
       });
 
-      // Broadcast the update
-      sseManager.broadcast({
+      sseManager.broadcastToSources([SSE_SOURCES.admin], {
         type: 'submissionUpdate',
         data: {
           action: 'assign-player',
@@ -2011,7 +2047,11 @@ router.post(
           throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
         }
 
-        const { newPass, playerStats, createdRatingId } = await approvePassSubmission(lockedSubmission.id, transaction);
+        const { newPass, createdRatingId } = await approvePassSubmission(
+          lockedSubmission.id,
+          transaction,
+          req.user?.id,
+        );
 
         await transaction.commit();
 
@@ -2031,18 +2071,6 @@ router.post(
               error: err instanceof Error ? err.message : String(err),
             }),
           );
-        }
-
-        if (lockedSubmission.assignedPlayerId && playerStats) {
-          sseManager.broadcast({
-            type: 'passUpdate',
-            data: {
-              playerId: lockedSubmission.assignedPlayerId,
-              passedLevelId: lockedSubmission.levelId,
-              newScore: playerStats?.rankedScore || 0,
-              action: 'create',
-            },
-          });
         }
 
         if (lockedSubmission.assignedPlayerId) {
@@ -2082,8 +2110,7 @@ router.post(
       }
     }
 
-    sseManager.broadcast({ type: 'submissionUpdate' });
-    sseManager.broadcast({
+    sseManager.broadcastToSources([SSE_SOURCES.admin], {
       type: 'submissionUpdate',
       data: {
         action: 'auto-approve',
@@ -2091,8 +2118,6 @@ router.post(
         count: results.filter(r => r.success).length,
       },
     });
-
-    getIO().emit('leaderboardUpdated');
 
     const successCount = results.filter(r => r.success).length;
     const failCount = results.filter(r => !r.success).length;

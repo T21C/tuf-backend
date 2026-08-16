@@ -270,6 +270,12 @@ export const levelMapping = {
           keyword: { type: 'keyword' as const, ignore_above: 256 }
         }
       },
+      notes: {
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
       toRate: { type: 'boolean' as const },
       rerateReason: {
         type: 'text' as const,

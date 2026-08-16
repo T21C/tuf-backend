@@ -13,7 +13,7 @@ import { pruneLevelForRatingList } from '@/server/services/elasticsearch/search/
 import { getOrFetchCacheLayer } from '@/server/middleware/stackedCacheLayers.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { isUniversalRatingProposal } from '@/misc/utils/data/RatingUtils.js';
-import { sseManager } from '@/misc/utils/server/sse.js';
+import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
 
 export const RATING_LIST_PAGE_SIZE = 30;
 export const RATING_LIST_CACHE_TTL_SEC = 300;
@@ -200,6 +200,7 @@ export async function hydrateRatingListRows(
         'clears',
         'rerateNum',
         'rerateReason',
+        'notes',
         'suffix',
         'songId',
         'team',
@@ -597,7 +598,7 @@ export async function buildCompleteRatingById(
 export async function broadcastRatingUpsert(ratingId: number, levelId: number) {
   const listRow = await buildSlimListRowByRatingId(ratingId);
   const complete = await buildCompleteRatingById(ratingId);
-  sseManager.broadcast({
+  sseManager.broadcastToSources([SSE_SOURCES.admin, SSE_SOURCES.rating], {
     type: 'ratingUpdate',
     data: {
       ratingId,

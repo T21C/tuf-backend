@@ -1,7 +1,18 @@
 import {Response} from 'express';
+import {logger} from '@/server/services/core/LoggerService.js';
+import {redis} from '@/server/services/core/RedisService.js';
+
+export const SSE_NOTIFICATIONS_CHANNEL = 'sse:notifications';
+
+export const SSE_SOURCES = {
+  rating: 'rating',
+  admin: 'admin',
+  announcement: 'announcement',
+  inbox: 'inbox',
+} as const;
 
 interface ClientMetadata {
-  userId: string;
+  userId: string | null;
   source: string;
   isManager: boolean;
 }
@@ -13,11 +24,18 @@ interface SSEClient {
   metadata: ClientMetadata;
 }
 
+export interface SSEEvent {
+  type: string;
+  data?: unknown;
+}
+
 class SSEManager {
   private clients: Map<string, SSEClient> = new Map();
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private readonly HEARTBEAT_INTERVAL = 30000; // 30 seconds
   private readonly CLIENT_TIMEOUT = 60000; // 60 seconds
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private subscriber: any = null;
 
   constructor() {
     this.startHeartbeat();
@@ -84,11 +102,9 @@ class SSEManager {
   }
 
   private broadcastUserCount() {
-    // Get stats for rating-specific connections only
-    const ratingStats = this.getConnectionStats('rating');
+    const ratingStats = this.getConnectionStats(SSE_SOURCES.rating);
 
-    // Broadcast only rating-specific counts to clients
-    this.broadcast({
+    this.broadcastToSources([SSE_SOURCES.rating], {
       type: 'userCount',
       data: {
         total: ratingStats.total,
@@ -131,20 +147,96 @@ class SSEManager {
     }
   }
 
-  broadcast(event: {type: string; data?: any}) {
+  broadcast(event: SSEEvent) {
+    this.writeToClients(event, () => true);
+  }
+
+  broadcastToSources(sources: readonly string[], event: SSEEvent) {
+    if (!sources.length) return;
+    const allowed = new Set<string>(sources);
+    this.writeToClients(event, (client) => allowed.has(client.metadata.source));
+  }
+
+  sendToUser(userId: string, event: SSEEvent): void {
+    if (!userId) return;
+    this.writeToClients(
+      event,
+      (client) =>
+        client.metadata.userId === userId && client.metadata.source === SSE_SOURCES.inbox,
+    );
+  }
+
+  /**
+   * Publish to Redis so every API process can push to its local SSE clients.
+   * If Redis is unavailable, deliver locally only.
+   */
+  async fanoutToUser(userId: string, event: SSEEvent): Promise<void> {
+    if (!userId) return;
+    if (this.subscriber) {
+      const published = await redis.publish(
+        SSE_NOTIFICATIONS_CHANNEL,
+        JSON.stringify({userId, event}),
+      );
+      if (published) return;
+    }
+    this.sendToUser(userId, event);
+  }
+
+  async startRedisFanout(): Promise<void> {
+    if (this.subscriber) return;
+    const sub = await redis.createSubscriberClient();
+    if (!sub) {
+      logger.warn('[sse] Redis subscriber unavailable; inbox fan-out is local-only');
+      return;
+    }
+
+    await sub.subscribe(SSE_NOTIFICATIONS_CHANNEL, (message: string) => {
+      try {
+        const parsed = JSON.parse(message) as {userId?: string; event?: SSEEvent};
+        if (!parsed?.userId || !parsed.event) return;
+        this.sendToUser(parsed.userId, parsed.event);
+      } catch (error) {
+        logger.warn('[sse] Failed to parse inbox fan-out message', {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
+
+    this.subscriber = sub;
+    logger.info('[sse] Redis inbox fan-out subscribed');
+  }
+
+  async stopRedisFanout(): Promise<void> {
+    if (!this.subscriber) return;
+    try {
+      await this.subscriber.unsubscribe(SSE_NOTIFICATIONS_CHANNEL);
+      await this.subscriber.quit();
+    } catch (error) {
+      logger.debug('[sse] Redis subscriber quit failed', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    this.subscriber = null;
+  }
+
+  private writeToClients(
+    event: SSEEvent,
+    predicate: (client: SSEClient) => boolean,
+  ): void {
     const failedClients: string[] = [];
+    const payload = `data: ${JSON.stringify(event)}\n\n`;
 
     this.clients.forEach((client, clientId) => {
+      if (!predicate(client)) return;
       try {
-        client.res.write(`data: ${JSON.stringify(event)}\n\n`);
-        client.lastPing = Date.now(); // Update last ping time on successful broadcast
-      } catch (error) {
+        client.res.write(payload);
+        client.lastPing = Date.now();
+      } catch {
         failedClients.push(clientId);
       }
     });
 
-    // Clean up failed clients after iteration
-    failedClients.forEach(clientId => this.removeClient(clientId));
+    failedClients.forEach((clientId) => this.removeClient(clientId));
   }
 
   getClientCount(source?: string): number {
@@ -159,6 +251,7 @@ class SSEManager {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
     }
+    void this.stopRedisFanout();
     this.clients.forEach((client, clientId) => this.removeClient(clientId));
     this.clients.clear();
   }

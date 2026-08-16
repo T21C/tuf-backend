@@ -8,7 +8,6 @@ import Level from '@/models/levels/Level.js';
 import Judgement from '@/models/passes/Judgement.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { getIO } from '@/misc/utils/server/socket.js';
 import sequelize from '@/config/db.js';
 import { updateWorldsFirstFlags, updateWorldsFirstPPStatus } from './index.js';
 import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
@@ -19,15 +18,14 @@ import {
 } from '@/misc/utils/pass/scoreService.js';
 import { sanitizeJudgements } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { deriveKeyFlags, normalizeKeyCount } from '@/misc/utils/pass/keyCount.js';
-import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
-import { sseManager } from '@/misc/utils/server/sse.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { User } from '@/models/index.js';
 import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
+import { notifyPassLifecycle } from '@/server/services/notifications/passSubmissionNotify.js';
+import { NOTIFICATION_TYPES } from '@/server/services/notifications/types.js';
 
-const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 const router = Router();
 
@@ -347,6 +345,17 @@ router.put(
         transaction,
       });
 
+      await notifyPassLifecycle({
+        type: NOTIFICATION_TYPES.PassModified,
+        pass: {
+          id: Number(updatedPass?.id ?? id),
+          playerId: updatedPass?.playerId ?? updatedPass?.player?.id ?? pass.playerId,
+          levelId: Number(updatedPass?.levelId ?? pass.levelId),
+          level: updatedPass?.level ?? pass.level,
+        },
+        actorId: req.user?.id ?? null,
+        transaction,
+      });
 
       await transaction.commit();
 
@@ -364,28 +373,6 @@ router.put(
       if (oldPass.levelId !== updatedPass?.levelId) {
         // eslint-disable-next-line @typescript-eslint/no-floating-promises
         elasticsearchService.indexLevel(oldPass.levelId);
-      }
-
-      // Get player's new stats
-      if (updatedPass?.player) {
-        try {
-          // Emit SSE event with pass update data
-          const updateData = {
-            playerId: updatedPass.player.id,
-            passedLevelId: updatedPass.levelId,
-            action: 'update',
-          }
-          const io = getIO();
-          io.emit('passUpdated', updateData);
-          sseManager.broadcast({
-            type: 'passUpdate',
-            data: updateData,
-          });
-
-        } catch (error) {
-          logger.error('[Passes PUT] Error getting player stats or emitting SSE event:', error);
-          // Continue with the response even if this fails
-        }
       }
 
 
@@ -514,25 +501,22 @@ router.delete(
           transaction,
         });
 
+        await notifyPassLifecycle({
+          type: NOTIFICATION_TYPES.PassDeleted,
+          pass: {
+            id: pass.id,
+            playerId: pass.playerId ?? pass.player?.id,
+            levelId: pass.levelId,
+            level: pass.level,
+          },
+          actorId: req.user?.id ?? null,
+          transaction,
+        });
+
         await transaction.commit();
         // Reindex player in Elasticsearch
         if (playerId) {
           await elasticsearchService.reindexPlayers([playerId]);
-          const playerStats = await playerStatsService.getPlayerStats(playerId).then(stats => stats?.[0]);
-
-
-          const updateData = {
-            playerId,
-            passedLevelId: levelId,
-            newScore: playerStats?.rankedScore || 0,
-            action: 'delete',
-          }
-          const io = getIO();
-          io.emit('passDeleted', updateData);
-          sseManager.broadcast({
-            type: 'passUpdate',
-            data: updateData,
-          });
         }
         return res.json({
           message: 'Pass soft deleted successfully',
@@ -620,24 +604,24 @@ router.patch(
         // Update world's first / world's first PP status for this level
         await updateWorldsFirstFlags(levelId, transaction);
 
+        await notifyPassLifecycle({
+          type: NOTIFICATION_TYPES.PassRestored,
+          pass: {
+            id: pass.id,
+            playerId: pass.playerId ?? playerId,
+            levelId: pass.levelId,
+            level: pass.level,
+          },
+          actorId: req.user?.id ?? null,
+          transaction,
+        });
+
         await transaction.commit();
 
         await elasticsearchService.indexLevel(pass.level!);
         // Reindex player in Elasticsearch
         if (playerId) {
           await elasticsearchService.reindexPlayers([playerId]);
-
-          const updateData = {
-            playerId,
-            passedLevelId: levelId,
-            action: 'restore',
-          }
-          const io = getIO();
-          io.emit('passUpdated', updateData);
-          sseManager.broadcast({
-            type: 'passUpdate',
-            data: updateData,
-          });
         }
 
         return res.json({

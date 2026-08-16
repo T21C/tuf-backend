@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { redis } from '@/server/services/core/RedisService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { sseManager } from '@/misc/utils/server/sse.js';
+import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
 import { DiscordWebhookGate } from '@/server/services/discord/DiscordWebhookGate.js';
 import type { AnnouncementDeliveryKind } from '@/server/services/discord/AnnouncementDeliveryTracker.js';
 
@@ -127,7 +127,7 @@ async function pushRecent(kind: AnnouncementKind, requestId: string): Promise<vo
 
 function broadcast(type: string, data: unknown): void {
   try {
-    sseManager.broadcast({ type, data });
+    sseManager.broadcastToSources([SSE_SOURCES.announcement], { type, data });
   } catch (err) {
     logger.warn('[AnnouncementJobService] SSE broadcast failed', err);
   }

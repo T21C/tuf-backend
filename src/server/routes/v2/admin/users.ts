@@ -14,7 +14,6 @@ import { AccountDeletionService } from '@/server/services/accounts/AccountDeleti
 import { isValidUsername, normalizeUsername } from '@/misc/utils/auth/username.js';
 import sequelize from '@/config/db.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
-import { sseManager } from '@/misc/utils/server/sse.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -537,7 +536,6 @@ router.patch(
 
       await CacheInvalidation.invalidateUser(player.user.id);
       await elasticsearchService.reindexPlayers([player.id]);
-      sseManager.broadcast({type: 'playerUpdate'});
 
       return res.json({
         message: 'Rating ban status updated successfully',

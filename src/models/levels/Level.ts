@@ -44,6 +44,7 @@ class Level
   declare legacyDllink: string | null;
   declare workshopLink: string;
   declare publicComments: string;
+  declare notes: string | null;
   declare toRate: boolean;
   declare rerateReason: string;
   declare rerateNum: string;
@@ -152,6 +153,11 @@ Level.init(
     publicComments: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    notes: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
     },
     toRate: {
       type: DataTypes.BOOLEAN,

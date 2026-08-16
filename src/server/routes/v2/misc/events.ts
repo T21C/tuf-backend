@@ -2,10 +2,10 @@ import {Router} from 'express';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import {Request, Response} from 'express';
-import User from '@/models/auth/User.js';
 import { clientUrlEnv, isAllowedCorsOrigin } from '@/config/app.config.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasAnyFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { Auth } from '@/server/middleware/auth.js';
 
 const router: Router = Router();
 
@@ -20,15 +20,14 @@ interface SSERequest extends Request {
 // SSE endpoint
 router.get(
   '/',
+  Auth.tryUser(),
   ApiDoc({
     operationId: 'getEventsSSE',
     summary: 'SSE stream',
-    description: 'Server-Sent Events stream for real-time updates (e.g. rating room user counts). Query: userId, source, isManager. Response is text/event-stream; connection stays open.',
+    description: 'Server-Sent Events stream for real-time updates (e.g. rating room user counts, inbox notifications). Query: source. Authenticated user id is taken from the session, not the query string. Response is text/event-stream; connection stays open.',
     tags: ['Events'],
     query: {
-      userId: { description: 'User ID for scoped events', schema: { type: 'string' } },
       source: { description: 'Client source identifier', schema: { type: 'string' } },
-      isManager: { description: 'Manager flag', schema: { type: 'string' } },
     },
     responses: {
       200: { description: 'Event stream (text/event-stream)' },
@@ -84,15 +83,14 @@ router.get(
     res.write(': keepalive\n\n');
   }, 15000);
 
-  // Get connection parameters
-  const userId = req.query.userId || req.user?.id;
+  // Get connection parameters from the authenticated session only
+  const userId = req.user?.id ?? null;
   const source = req.query.source || 'unknown';
-  const user = await User.findByPk(userId);
-  const isManager = hasAnyFlag(user, [permissionFlags.RATER, permissionFlags.SUPER_ADMIN]);
+  const isManager = hasAnyFlag(req.user, [permissionFlags.RATER, permissionFlags.SUPER_ADMIN]);
 
   // Add client to SSE manager
   const clientId = sseManager.addClient(res, {
-    userId: userId as string,
+    userId,
     source,
     isManager
   });

@@ -79,7 +79,7 @@ export function startDiscordOutboxDispatcher(): void {
           );
           break;
         default:
-          logger.warn(`[discord-outbox] Unknown event type: ${eventType}`);
+          break;
       }
     },
   });

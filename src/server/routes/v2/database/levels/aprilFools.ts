@@ -7,7 +7,7 @@ import { sanitizeTextInput } from '@/misc/utils/Utility.js';
 import { getRandomSeed, seededShuffle } from '@/misc/utils/server/random.js';
 import { Op, Transaction } from 'sequelize';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { sseManager } from '@/misc/utils/server/sse.js';
+import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
 import Pass from '@/models/passes/Pass.js';
 import Judgement from '@/models/passes/Judgement.js';
 import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
@@ -107,15 +107,7 @@ const handlePassUpdates = async (levelId: number, diffId: number, baseScore: num
 
       await recalcTransaction.commit();
 
-      // Broadcast updates
-      sseManager.broadcast({ type: 'levelUpdate' });
-      sseManager.broadcast({
-        type: 'passUpdate',
-        data: {
-          levelId,
-          action: 'levelUpdate',
-        },
-      });
+      sseManager.broadcastToSources([SSE_SOURCES.rating], { type: 'levelUpdate' });
     } catch (error) {
       await recalcTransaction.rollback();
       throw error;

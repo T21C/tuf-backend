@@ -55,8 +55,9 @@ export const HEALTH_CONFIG = {
   /** When unset the nginx probe is skipped entirely. */
   nginxUrl: envString('HEALTH_NGINX_URL', ''),
   /**
-   * Interval for persisting latency samples (DB + optional HTTP). History charts merge
-   * into one value per minute using a median so brief spikes do not dominate the graph.
+   * Interval for persisting the latest live-probe latencies (database, main server, CDN).
+   * History charts merge into one value per minute using a median so brief spikes
+   * do not dominate the graph.
    */
   latencySamplerIntervalMs: envInt('HEALTH_LATENCY_SAMPLER_INTERVAL_MS', 10_000),
 } as const;

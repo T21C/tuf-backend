@@ -8,11 +8,15 @@ import healthRoutes from './misc/health.js';
 import cdnProgressRoutes from './misc/cdnProgress.js';
 import developersRoutes from './developers/index.js';
 import oauthConsentRoutes from './oauth/index.js';
+import notificationRoutes from './notifications/index.js';
 
 const router: Router = Router();
 
 // Auth routes
 router.use('/auth', authRoutes);
+
+// User inbox
+router.use('/notifications', notificationRoutes);
 
 // Developer portal (OAuth apps)
 router.use('/developers', developersRoutes);

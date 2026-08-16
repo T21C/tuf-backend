@@ -156,6 +156,7 @@ const defaultPoolConfig: PoolConfiguration = {
     passes: 'passes',
 
     auth: 'auth',
+    notifications: 'auth',
     admin: 'admin',
     curations: 'curations',
     packs: 'packs',

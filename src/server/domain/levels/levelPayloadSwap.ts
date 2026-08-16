@@ -21,6 +21,7 @@ export const LEVEL_PAYLOAD_SWAP_FIELDS = [
   'legacyDllink',
   'workshopLink',
   'publicComments',
+  'notes',
   'toRate',
   'rerateReason',
   'rerateNum',

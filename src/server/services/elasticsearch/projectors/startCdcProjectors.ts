@@ -103,6 +103,7 @@ function levelCdcChangeRequiresPassReindex(
     'suffix',
     'songId',
     'dlLink',
+    'notes',
     'isHidden',
     'isDeleted',
   ] as const;

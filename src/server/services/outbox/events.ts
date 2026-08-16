@@ -57,6 +57,12 @@ export type DiscordRerateBatchAnnouncementPayload = {
   queueRowIds: number[];
 };
 
+export type NotificationCreatedPayload = {
+  notificationId: number;
+  userId: string;
+  type: string;
+};
+
 export const OUTBOX_EVENT_TYPES = {
   DiscordLevelFileUpdated: 'DiscordLevelFileUpdated',
   DiscordLevelFileDeleted: 'DiscordLevelFileDeleted',
@@ -66,6 +72,7 @@ export const OUTBOX_EVENT_TYPES = {
   DiscordPassBatchAnnouncement: 'DiscordPassBatchAnnouncement',
   DiscordLevelBatchAnnouncement: 'DiscordLevelBatchAnnouncement',
   DiscordRerateBatchAnnouncement: 'DiscordRerateBatchAnnouncement',
+  NotificationCreated: 'NotificationCreated',
 } as const;
 
 export type OutboxEventType = (typeof OUTBOX_EVENT_TYPES)[keyof typeof OUTBOX_EVENT_TYPES];
@@ -79,4 +86,5 @@ export type OutboxPayloadByType = {
   [OUTBOX_EVENT_TYPES.DiscordPassBatchAnnouncement]: DiscordPassBatchAnnouncementPayload;
   [OUTBOX_EVENT_TYPES.DiscordLevelBatchAnnouncement]: DiscordLevelBatchAnnouncementPayload;
   [OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement]: DiscordRerateBatchAnnouncementPayload;
+  [OUTBOX_EVENT_TYPES.NotificationCreated]: NotificationCreatedPayload;
 };
