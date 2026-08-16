@@ -163,6 +163,8 @@ PassSubmission.init(
       {fields: ['status']},
       {fields: ['assignedPlayerId']},
       {fields: ['levelId']},
+      {fields: ['userId']},
+      {fields: ['userId', 'createdAt']},
     ],
   },
 );
