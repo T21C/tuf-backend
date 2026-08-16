@@ -7,6 +7,7 @@ import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
 import { randomUUID } from 'crypto';
+import { isYsmodOnlyState } from '@/server/submissions/submissionEvidenceRules.js';
 
 import cdnService, { CdnError } from '@/server/services/core/CdnService.js';
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
@@ -345,6 +346,7 @@ async function createSubmissionRows(args: {
       directDL: directDLFromCdn || sanitized.directDL || '',
       userId,
       wsLink: sanitized.wsLink || '',
+      notes: sanitized.notes,
       status: 'pending',
       charter: '',
       vfxer: '',

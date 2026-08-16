@@ -32,6 +32,7 @@ import {
   safeTransactionRollback,
   sanitizeTextInput,
 } from '@/misc/utils/Utility.js';
+import { sanitizeNotes } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
 import LevelTag from '@/models/levels/LevelTag.js';
@@ -812,6 +813,7 @@ router.put(
     updateData.dlLink = sanitizeTextInput(req.body.dlLink);
     updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
     updateData.publicComments = sanitizeTextInput(req.body.publicComments);
+    updateData.notes = sanitizeNotes(req.body.notes) ?? '';
     updateData.rerateNum = sanitizeTextInput(req.body.rerateNum);
     updateData.toRate = req.body.toRate ?? level.toRate;
     updateData.rerateReason = sanitizeTextInput(req.body.rerateReason);

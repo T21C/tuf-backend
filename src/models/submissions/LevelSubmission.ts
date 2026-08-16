@@ -22,6 +22,7 @@ class LevelSubmission extends BaseModel {
   declare videoLink: string;
   declare directDL: string;
   declare wsLink: string;
+  declare notes: string | null;
   declare submitterId: string;
   declare status: 'pending' | 'approved' | 'declined';
   declare charterId: number | null;
@@ -89,6 +90,11 @@ LevelSubmission.init(
     wsLink: {
       type: DataTypes.TEXT,
       defaultValue: '',
+    },
+    notes: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
     },
     status: {
       type: DataTypes.ENUM('pending', 'approved', 'declined'),

@@ -83,6 +83,7 @@ export interface ILevel extends IBaseModel {
   legacyDllink?: string | null;
   workshopLink: string;
   publicComments: string;
+  notes?: string | null;
   toRate: boolean;
   rerateReason?: string;
   rerateNum: string;

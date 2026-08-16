@@ -7,6 +7,15 @@ export function sanitizeTextInput(input: string | null | undefined, maxLength = 
   return String(input).trim().slice(0, maxLength);
 }
 
+export const NOTES_MAX_LENGTH = 4000;
+
+/** Optional notes: trim, cap length, empty → null. */
+export function sanitizeNotes(input: unknown): string | null {
+  if (typeof input !== 'string') return null;
+  const cleaned = sanitizeTextInput(input, NOTES_MAX_LENGTH);
+  return cleaned.length > 0 ? cleaned : null;
+}
+
 /**
  * Accepts a loose date-like value and returns a Date inside the [2020-01-01, now+1d]
  * window, or null if the input is not parseable / out of range.

@@ -59,6 +59,7 @@ export function pruneLevelForRatingList(
     clears: level.clears,
     rerateNum: level.rerateNum,
     rerateReason: level.rerateReason,
+    notes: level.notes ?? null,
     suffix: level.suffix ?? null,
     songId: level.songId ?? null,
     team: teamStr,

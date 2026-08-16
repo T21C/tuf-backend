@@ -1121,6 +1121,7 @@ router.put(
             clears: 0,
             likes: 0,
             publicComments: '',
+            notes: submission.notes || '',
             rerateReason: '',
             rerateNum: '',
             previousDiffId: 0,

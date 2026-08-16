@@ -1,7 +1,7 @@
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
 
 import { cleanVideoUrl } from '../shared/videoUrl.js';
-import { sanitizeTextInput } from '../shared/sanitize.js';
+import { sanitizeNotes, sanitizeTextInput } from '../shared/sanitize.js';
 import { safeParseJSON } from '../shared/json.js';
 import { validateCreatorRequest, validateTeamRequest } from '../shared/validators.js';
 import type { CreatorRequestLike, TeamRequestLike } from '../shared/validators.js';
@@ -33,6 +33,7 @@ export interface LevelFormSanitised {
   videoLink: string;
   directDL: string;
   wsLink: string;
+  notes: string | null;
   songId: number | null;
   artistId: number | null;
   isNewSongRequest: boolean;
@@ -98,6 +99,7 @@ export function parseAndSanitizeLevelForm(body: Record<string, unknown>): Parsed
 
   const suffixRaw = typeof body.suffix === 'string' ? body.suffix : '';
   const suffix = suffixRaw ? sanitizeTextInput(suffixRaw).trim() || null : null;
+  const notes = sanitizeNotes(body.notes);
 
   const isNewSongRequest = asBool(body.isNewSongRequest);
   const isNewArtistRequest = asBool(body.isNewArtistRequest);
@@ -157,6 +159,7 @@ export function parseAndSanitizeLevelForm(body: Record<string, unknown>): Parsed
     videoLink,
     directDL,
     wsLink,
+    notes,
     songId,
     artistId,
     isNewSongRequest,

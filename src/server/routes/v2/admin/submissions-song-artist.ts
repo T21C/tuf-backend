@@ -18,6 +18,7 @@ import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import SongCredit from '@/models/songs/SongCredit.js';
 import SongService from '@/server/services/data/SongService.js';
 import ArtistService from '@/server/services/data/ArtistService.js';
+import { sanitizeNotes } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 
 const router: Router = Router();
 const evidenceService = EvidenceService.getInstance();
@@ -1365,6 +1366,52 @@ router.put(
       await safeTransactionRollback(transaction);
       logger.error('Error updating level submission videoLink:', error);
       return res.status(500).json({ error: 'Failed to update video link' });
+    }
+  },
+);
+
+// Update notes (submitter text staff can edit before approve)
+router.put(
+  '/levels/:id/notes',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionNotes',
+    summary: 'Update submission notes',
+    description: 'Update notes on a pending level submission. Body: notes (string, empty clears). Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: {
+      description: 'notes',
+      schema: { type: 'object', properties: { notes: { type: 'string' } } },
+      required: true,
+    },
+    responses: { 200: { description: 'Updated notes' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+    try {
+      transaction = await sequelize.transaction();
+      const submission = await LevelSubmission.findByPk(req.params.id, { transaction });
+      if (!submission) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Submission not found' });
+      }
+
+      if (submission.status !== 'pending') {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Only pending level submissions can be edited' });
+      }
+
+      const notes = sanitizeNotes(req.body?.notes);
+      await submission.update({ notes }, { transaction });
+      await transaction.commit();
+
+      return res.json({ notes });
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error updating level submission notes:', error);
+      return res.status(500).json({ error: 'Failed to update notes' });
     }
   },
 );

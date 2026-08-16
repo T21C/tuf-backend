@@ -200,6 +200,7 @@ export async function hydrateRatingListRows(
         'clears',
         'rerateNum',
         'rerateReason',
+        'notes',
         'suffix',
         'songId',
         'team',
