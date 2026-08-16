@@ -604,6 +604,18 @@ router.patch(
         // Update world's first / world's first PP status for this level
         await updateWorldsFirstFlags(levelId, transaction);
 
+        await notifyPassLifecycle({
+          type: NOTIFICATION_TYPES.PassRestored,
+          pass: {
+            id: pass.id,
+            playerId: pass.playerId ?? playerId,
+            levelId: pass.levelId,
+            level: pass.level,
+          },
+          actorId: req.user?.id ?? null,
+          transaction,
+        });
+
         await transaction.commit();
 
         await elasticsearchService.indexLevel(pass.level!);

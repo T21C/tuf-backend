@@ -17,6 +17,7 @@ export function chartSnapshot(level: {
 export async function notifyChartOwners(args: {
   type:
     | typeof NOTIFICATION_TYPES.ChartDeleted
+    | typeof NOTIFICATION_TYPES.ChartRestored
     | typeof NOTIFICATION_TYPES.ChartModified
     | typeof NOTIFICATION_TYPES.ChartCurated
     | typeof NOTIFICATION_TYPES.ChartCurationRemoved;

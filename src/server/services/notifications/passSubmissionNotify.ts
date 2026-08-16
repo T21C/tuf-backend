@@ -73,7 +73,10 @@ export async function notifyPassSubmissionOutcome(args: {
 }
 
 export async function notifyPassLifecycle(args: {
-  type: typeof NOTIFICATION_TYPES.PassModified | typeof NOTIFICATION_TYPES.PassDeleted;
+  type:
+    | typeof NOTIFICATION_TYPES.PassModified
+    | typeof NOTIFICATION_TYPES.PassDeleted
+    | typeof NOTIFICATION_TYPES.PassRestored;
   pass: {
     id: number;
     playerId?: number | null;

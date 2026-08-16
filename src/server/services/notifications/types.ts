@@ -6,10 +6,12 @@ export const NOTIFICATION_TYPES = {
   PassSubmissionDeclined: 'pass.submission.declined',
   PassModified: 'pass.modified',
   PassDeleted: 'pass.deleted',
+  PassRestored: 'pass.restored',
   ChartSubmissionSubmitted: 'chart.submission.submitted',
   ChartSubmissionApproved: 'chart.submission.approved',
   ChartSubmissionDeclined: 'chart.submission.declined',
   ChartDeleted: 'chart.deleted',
+  ChartRestored: 'chart.restored',
   ChartVisibilityChanged: 'chart.visibility.changed',
   ChartModified: 'chart.modified',
   ChartCurated: 'chart.curated',
@@ -73,10 +75,12 @@ export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.PassSubmissionDeclined]: PassSubmissionPayload;
   [NOTIFICATION_TYPES.PassModified]: PassLifecyclePayload;
   [NOTIFICATION_TYPES.PassDeleted]: PassLifecyclePayload;
+  [NOTIFICATION_TYPES.PassRestored]: PassLifecyclePayload;
   [NOTIFICATION_TYPES.ChartSubmissionSubmitted]: ChartSubmissionPayload;
   [NOTIFICATION_TYPES.ChartSubmissionApproved]: ChartSubmissionPayload;
   [NOTIFICATION_TYPES.ChartSubmissionDeclined]: ChartSubmissionPayload;
   [NOTIFICATION_TYPES.ChartDeleted]: ChartSnapshotPayload;
+  [NOTIFICATION_TYPES.ChartRestored]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartVisibilityChanged]: ChartVisibilityPayload;
   [NOTIFICATION_TYPES.ChartModified]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartCurated]: ChartSnapshotPayload;
@@ -168,6 +172,12 @@ const notificationTypeRegistry: {
     passLifecyclePayloadSchema,
     (payload) => `/passes/${payload.passId}`,
   ),
+  [NOTIFICATION_TYPES.PassRestored]: def(
+    NOTIFICATION_TYPES.PassRestored,
+    'clears',
+    passLifecyclePayloadSchema,
+    (payload) => `/passes/${payload.passId}`,
+  ),
   [NOTIFICATION_TYPES.ChartSubmissionSubmitted]: def(
     NOTIFICATION_TYPES.ChartSubmissionSubmitted,
     'submissions',
@@ -188,6 +198,12 @@ const notificationTypeRegistry: {
   ),
   [NOTIFICATION_TYPES.ChartDeleted]: def(
     NOTIFICATION_TYPES.ChartDeleted,
+    'chart',
+    chartSnapshotPayloadSchema,
+    levelHref,
+  ),
+  [NOTIFICATION_TYPES.ChartRestored]: def(
+    NOTIFICATION_TYPES.ChartRestored,
     'chart',
     chartSnapshotPayloadSchema,
     levelHref,

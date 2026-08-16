@@ -1227,6 +1227,18 @@ router.patch(
         transaction,
       });
 
+      await notifyChartOwners({
+        type: NOTIFICATION_TYPES.ChartRestored,
+        level: {
+          id: level.id,
+          song: level.song,
+          artist: level.artist,
+        },
+        actorId: req.user?.id ?? null,
+        dedupKey: `chart-restored:${level.id}:${Date.now()}`,
+        transaction,
+      });
+
       await transaction.commit();
 
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
