@@ -31,7 +31,7 @@ import LevelSubmissionTeamRequest from '@/models/submissions/LevelSubmissionTeam
 import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import User from '@/models/auth/User.js';
-import { Op, Transaction } from 'sequelize';
+import { Op, Transaction, fn, col } from 'sequelize';
 import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
@@ -179,6 +179,56 @@ function buildKeyCountUpdateFields(keyCountBody: unknown): {
   const keyCount = normalizeKeyCount(keyCountBody);
   const derived = deriveKeyFlags(keyCount);
   return { keyCount, is12K: derived.is12K, is16K: derived.is16K };
+}
+
+interface SubmitterRecordStats {
+  accepted: number;
+  declined: number;
+}
+
+interface SubmitterStatusCountRow {
+  userId: string;
+  status: string;
+  count: string | number;
+}
+
+async function getSubmitterRecordStats(
+  model: typeof LevelSubmission | typeof PassSubmission,
+  userIds: Array<string | null | undefined>,
+): Promise<Map<string, SubmitterRecordStats>> {
+  const stats = new Map<string, SubmitterRecordStats>();
+  const uniqueIds = [...new Set(userIds.filter((id): id is string => Boolean(id)))];
+  if (uniqueIds.length === 0) {
+    return stats;
+  }
+
+  for (const id of uniqueIds) {
+    stats.set(id, { accepted: 0, declined: 0 });
+  }
+
+  const rows = (await (model as typeof LevelSubmission).findAll({
+    where: {
+      userId: { [Op.in]: uniqueIds },
+      status: { [Op.in]: ['approved', 'declined'] },
+    },
+    attributes: [
+      'userId',
+      'status',
+      [fn('COUNT', col('id')), 'count'],
+    ],
+    group: ['userId', 'status'],
+    raw: true,
+  })) as unknown as SubmitterStatusCountRow[];
+
+  for (const row of rows) {
+    const current = stats.get(row.userId);
+    if (!current) continue;
+    const count = Number(row.count) || 0;
+    if (row.status === 'approved') current.accepted = count;
+    else if (row.status === 'declined') current.declined = count;
+  }
+
+  return stats;
 }
 
 interface ApprovePassSubmissionResult {
@@ -535,6 +585,11 @@ router.get(
       ]
     });
 
+    const recordStats = await getSubmitterRecordStats(
+      LevelSubmission,
+      pendingLevelSubmissions.map((submission) => submission.userId),
+    );
+
     const submissionsWithStats = pendingLevelSubmissions.map(submission => {
       const submissionData = submission.toJSON();
 
@@ -561,6 +616,11 @@ router.get(
         };
         // Clean up levels array to avoid sending too much data
         delete team.levels;
+      }
+
+      if (submissionData.levelSubmitter) {
+        (submissionData.levelSubmitter as { submissionStats?: SubmitterRecordStats }).submissionStats =
+          recordStats.get(submissionData.levelSubmitter.id) || { accepted: 0, declined: 0 };
       }
 
       return submissionData;
@@ -656,7 +716,22 @@ router.get(
         ],
         order: [['createdAt', 'DESC']],
       });
-      return res.json(submissions);
+
+      const recordStats = await getSubmitterRecordStats(
+        PassSubmission,
+        submissions.map((submission) => submission.userId),
+      );
+
+      const submissionsWithStats = submissions.map((submission) => {
+        const submissionData = submission.toJSON() as { passSubmitter?: { id: string; submissionStats?: SubmitterRecordStats } };
+        if (submissionData.passSubmitter) {
+          submissionData.passSubmitter.submissionStats =
+            recordStats.get(submissionData.passSubmitter.id) || { accepted: 0, declined: 0 };
+        }
+        return submissionData;
+      });
+
+      return res.json(submissionsWithStats);
     } catch (error) {
       logger.error('Error fetching pending pass submissions:', error);
       return res
