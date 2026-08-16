@@ -1,27 +1,17 @@
 import { Op } from 'sequelize';
 import HealthLatencySample from '@/models/health/HealthLatencySample.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { HEALTH_CONFIG } from './config.js';
-import { httpProbe } from './probes/httpProbe.js';
-import { runProbe as dbProbe } from './probes/dbProbe.js';
 import type { HealthLatencyComponent } from '@/models/health/HealthLatencySample.js';
+import type { ProbeName, ProbeResult } from './probes/types.js';
 
-function isLoopbackUrl(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
-  } catch {
-    return true;
-  }
-}
-
-function mainServerProbeUrl(): string {
-  return HEALTH_CONFIG.mainServerUrl.replace(/\/$/, '');
-}
-
-function cdnProbeUrl(): string {
-  return HEALTH_CONFIG.cdnUrl.replace(/\/$/, '');
-}
+const SAMPLE_COMPONENTS: ReadonlyArray<{
+  probe: ProbeName;
+  component: HealthLatencyComponent;
+}> = [
+  { probe: 'database', component: 'database' },
+  { probe: 'mainServer', component: 'main_server' },
+  { probe: 'cdn', component: 'cdn' },
+];
 
 async function purgeOlderThan14Days(): Promise<void> {
   const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
@@ -39,14 +29,16 @@ async function purgeOlderThan14Days(): Promise<void> {
 }
 
 /**
- * Record latency samples on a fixed interval (see `HEALTH_CONFIG.latencySamplerIntervalMs`).
- * Short-window history charts merge rows into one point per minute using a median so
+ * Persist the latest live-probe latencies (see `HEALTH_CONFIG.latencySamplerIntervalMs`).
+ * Status probes already hit loopback API/CDN and log slow/down/recovered; this tick
+ * only writes those measurements so history charts match `/health/api`.
+ * Short-window charts merge rows into one point per minute using a median so
  * isolated slow probes do not skew the curve.
  */
-export async function runLatencyMinuteSamplerTick(): Promise<void> {
+export async function runLatencyMinuteSamplerTick(
+  results: ReadonlyMap<ProbeName, ProbeResult>,
+): Promise<void> {
   const recordedAt = new Date();
-  const timeoutMs = HEALTH_CONFIG.probeTimeoutMs;
-
   const payloads: Array<{
     component: HealthLatencyComponent;
     recordedAt: Date;
@@ -54,73 +46,20 @@ export async function runLatencyMinuteSamplerTick(): Promise<void> {
     ok: boolean;
   }> = [];
 
-  try {
-    const dbResult = await dbProbe(timeoutMs);
+  for (const { probe, component } of SAMPLE_COMPONENTS) {
+    const result = results.get(probe);
+    if (!result || result.skipped) continue;
     payloads.push({
-      component: 'database',
+      component,
       recordedAt,
-      durationMs: Number.isFinite(dbResult.durationMs) ? dbResult.durationMs : null,
-      ok: dbResult.ok === true,
-    });
-  } catch (error) {
-    logger.warn('[health] latency sampler database probe threw', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    payloads.push({
-      component: 'database',
-      recordedAt,
-      durationMs: null,
-      ok: false,
+      durationMs: Number.isFinite(result.durationMs) ? result.durationMs : null,
+      ok: result.ok === true,
     });
   }
 
-  const mainUrl = mainServerProbeUrl();
-  if (!isLoopbackUrl(mainUrl)) {
-    try {
-      const mainResult = await httpProbe(mainUrl, timeoutMs);
-      payloads.push({
-        component: 'main_server',
-        recordedAt,
-        durationMs: Number.isFinite(mainResult.durationMs) ? mainResult.durationMs : null,
-        ok: mainResult.ok === true,
-      });
-    } catch (error) {
-      logger.warn('[health] latency sampler main HTTP probe threw', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      payloads.push({
-        component: 'main_server',
-        recordedAt,
-        durationMs: null,
-        ok: false,
-      });
-    }
+  if (payloads.length > 0) {
+    await HealthLatencySample.bulkCreate(payloads);
   }
-
-  const cdnUrlFull = cdnProbeUrl();
-  if (!isLoopbackUrl(cdnUrlFull)) {
-    try {
-      const cdnResult = await httpProbe(cdnUrlFull, timeoutMs);
-      payloads.push({
-        component: 'cdn',
-        recordedAt,
-        durationMs: Number.isFinite(cdnResult.durationMs) ? cdnResult.durationMs : null,
-        ok: cdnResult.ok === true,
-      });
-    } catch (error) {
-      logger.warn('[health] latency sampler CDN HTTP probe threw', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      payloads.push({
-        component: 'cdn',
-        recordedAt,
-        durationMs: null,
-        ok: false,
-      });
-    }
-  }
-
-  await HealthLatencySample.bulkCreate(payloads);
 
   try {
     await purgeOlderThan14Days();

@@ -289,14 +289,14 @@ export class HealthService {
       }, HEALTH_CONFIG.probeIntervalMs);
       this.checkInterval.unref?.();
 
-      void runLatencyMinuteSamplerTick().catch((error) => {
+      void runLatencyMinuteSamplerTick(this.results).catch((error) => {
         logger.error('[health] initial latency sampler failed', {
           error: error instanceof Error ? error.message : String(error),
         });
       });
 
       this.latencySamplerInterval = setInterval(() => {
-        void runLatencyMinuteSamplerTick().catch((error) => {
+        void runLatencyMinuteSamplerTick(this.results).catch((error) => {
           logger.error('[health] latency sampler failed', {
             error: error instanceof Error ? error.message : String(error),
           });
