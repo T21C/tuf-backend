@@ -13,8 +13,6 @@ import {
   idParamSpec,
 } from '@/server/schemas/v2/database/index.js';
 import sequelize from '@/config/db.js';
-import { getIO } from '@/misc/utils/server/socket.js';
-import { sseManager } from '@/misc/utils/server/sse.js';
 import { safeTransactionRollback, getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
@@ -82,17 +80,6 @@ router.put(
 
       await updateDifficultiesHash();
 
-      const io = getIO();
-      io.emit('tagsReordered');
-
-      sseManager.broadcast({
-        type: 'tagsReordered',
-        data: {
-          action: 'reorder',
-          count: sortOrders.length,
-        },
-      });
-
       return res.json({ message: 'Tag sort orders updated successfully' });
     } catch (error) {
       await safeTransactionRollback(transaction);
@@ -151,17 +138,6 @@ router.put(
       await transaction.commit();
 
       await updateDifficultiesHash();
-
-      const io = getIO();
-      io.emit('tagsReordered');
-
-      sseManager.broadcast({
-        type: 'tagsReordered',
-        data: {
-          action: 'groupReorder',
-          count: groups.length,
-        },
-      });
 
       return res.json({ message: 'Group sort orders updated successfully' });
     } catch (error) {

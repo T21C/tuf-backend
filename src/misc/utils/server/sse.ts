@@ -4,6 +4,13 @@ import {redis} from '@/server/services/core/RedisService.js';
 
 export const SSE_NOTIFICATIONS_CHANNEL = 'sse:notifications';
 
+export const SSE_SOURCES = {
+  rating: 'rating',
+  admin: 'admin',
+  announcement: 'announcement',
+  inbox: 'inbox',
+} as const;
+
 interface ClientMetadata {
   userId: string | null;
   source: string;
@@ -95,11 +102,9 @@ class SSEManager {
   }
 
   private broadcastUserCount() {
-    // Get stats for rating-specific connections only
-    const ratingStats = this.getConnectionStats('rating');
+    const ratingStats = this.getConnectionStats(SSE_SOURCES.rating);
 
-    // Broadcast only rating-specific counts to clients
-    this.broadcast({
+    this.broadcastToSources([SSE_SOURCES.rating], {
       type: 'userCount',
       data: {
         total: ratingStats.total,
@@ -143,36 +148,22 @@ class SSEManager {
   }
 
   broadcast(event: SSEEvent) {
-    const failedClients: string[] = [];
+    this.writeToClients(event, () => true);
+  }
 
-    this.clients.forEach((client, clientId) => {
-      try {
-        client.res.write(`data: ${JSON.stringify(event)}\n\n`);
-        client.lastPing = Date.now(); // Update last ping time on successful broadcast
-      } catch (error) {
-        failedClients.push(clientId);
-      }
-    });
-
-    // Clean up failed clients after iteration
-    failedClients.forEach(clientId => this.removeClient(clientId));
+  broadcastToSources(sources: readonly string[], event: SSEEvent) {
+    if (!sources.length) return;
+    const allowed = new Set<string>(sources);
+    this.writeToClients(event, (client) => allowed.has(client.metadata.source));
   }
 
   sendToUser(userId: string, event: SSEEvent): void {
     if (!userId) return;
-    const failedClients: string[] = [];
-
-    this.clients.forEach((client, clientId) => {
-      if (client.metadata.userId !== userId) return;
-      try {
-        client.res.write(`data: ${JSON.stringify(event)}\n\n`);
-        client.lastPing = Date.now();
-      } catch (error) {
-        failedClients.push(clientId);
-      }
-    });
-
-    failedClients.forEach(clientId => this.removeClient(clientId));
+    this.writeToClients(
+      event,
+      (client) =>
+        client.metadata.userId === userId && client.metadata.source === SSE_SOURCES.inbox,
+    );
   }
 
   /**
@@ -226,6 +217,26 @@ class SSEManager {
       });
     }
     this.subscriber = null;
+  }
+
+  private writeToClients(
+    event: SSEEvent,
+    predicate: (client: SSEClient) => boolean,
+  ): void {
+    const failedClients: string[] = [];
+    const payload = `data: ${JSON.stringify(event)}\n\n`;
+
+    this.clients.forEach((client, clientId) => {
+      if (!predicate(client)) return;
+      try {
+        client.res.write(payload);
+        client.lastPing = Date.now();
+      } catch {
+        failedClients.push(clientId);
+      }
+    });
+
+    failedClients.forEach((clientId) => this.removeClient(clientId));
   }
 
   getClientCount(source?: string): number {

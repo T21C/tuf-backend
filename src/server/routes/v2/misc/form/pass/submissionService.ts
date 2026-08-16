@@ -4,7 +4,7 @@ import type { Transaction } from 'sequelize';
 import sequelize from '@/config/db.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { sseManager } from '@/misc/utils/server/sse.js';
+import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
 
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
@@ -25,6 +25,7 @@ import {
   PassScoreCalculationError,
 } from '@/misc/utils/pass/scoreService.js';
 import { passSubmissionHook } from '@/server/routes/v2/webhooks/webhook.js';
+import { notifyPassSubmissionSubmitted } from '@/server/services/notifications/passSubmissionNotify.js';
 
 import { formError } from '../shared/errors.js';
 import { assertPassKeyCountForDifficulty, MAX_PASS_KEY_COUNT } from '@/misc/utils/pass/keyCount.js';
@@ -158,6 +159,11 @@ export async function createPassSubmission(
 
     if (!passObj) throw formError.server('Failed to create pass submission');
 
+    await notifyPassSubmissionSubmitted({
+      submission: passObj,
+      transaction,
+    });
+
     await transaction.commit();
     transaction = undefined;
 
@@ -167,7 +173,7 @@ export async function createPassSubmission(
       logger.warn('passSubmissionHook failed:', hookError);
     }
 
-    sseManager.broadcast({
+    sseManager.broadcastToSources([SSE_SOURCES.admin], {
       type: 'submissionUpdate',
       data: { action: 'create', submissionId: submission.id, submissionType: 'pass' },
     });

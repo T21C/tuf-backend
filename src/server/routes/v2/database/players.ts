@@ -1,13 +1,11 @@
 import {Op} from 'sequelize';
 import Player from '@/models/players/Player.js';
 import Pass from '@/models/passes/Pass.js';
-import {getIO} from '@/misc/utils/server/socket.js';
 import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/index.js';
 import sequelize from '@/config/db.js';
 import {updateWorldsFirstFlags} from './passes/index.js';
-import {sseManager} from '@/misc/utils/server/sse.js';
 import User from '@/models/auth/User.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
@@ -435,8 +433,6 @@ router.put('/:userId/discord', Auth.superAdmin(), async (req: Request, res: Resp
 
       await transaction.commit();
 
-      sseManager.broadcast({type: 'playerUpdate'});
-
       return res.json({message: 'Discord info updated successfully'});
     } catch (error) {
       await safeTransactionRollback(transaction);
@@ -464,9 +460,6 @@ router.delete('/:id([0-9]+)/discord', Auth.superAdmin(), async (req: Request, re
         discordAvatar: null,
         discordAvatarId: null,
       });
-
-      const io = getIO();
-      io.emit('leaderboardUpdated');
 
       return res.json({message: 'Discord info removed successfully'});
     } catch (error) {
@@ -519,9 +512,6 @@ router.post(
         createdAt: new Date(),
         updatedAt: new Date(),
       });
-
-      const io = getIO();
-      io.emit('leaderboardUpdated');
 
       const enrichedPlayer = await playerStatsService.getEnrichedPlayer(player.id);
       return res.status(201).json(enrichedPlayer);
@@ -663,8 +653,6 @@ router.put('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
 
       await transaction.commit();
 
-      sseManager.broadcast({type: 'playerUpdate'});
-
       return res.json({
         message: 'Discord info updated successfully',
         discordInfo: profile,
@@ -744,9 +732,6 @@ router.put(
       if (player.user) {
         await CacheInvalidation.invalidateUser(player.user.id);
       }
-
-      const io = getIO();
-      io.emit('leaderboardUpdated');
 
       return res.json({
         message: 'Player name updated successfully',
@@ -870,9 +855,6 @@ router.put(
       }
 
       await player.update({country: country.toUpperCase()});
-
-      const io = getIO();
-      io.emit('leaderboardUpdated');
 
       return res.json({
         message: 'Player country updated successfully',
@@ -999,8 +981,6 @@ router.patch(
         logger.warn('Failed to reindex players affected by ban worlds-first shift', err);
       }
 
-      sseManager.broadcast({type: 'playerUpdate'});
-
       return res.json({
         message: `Player ${isBanned ? 'banned' : 'unbanned'} successfully`,
         player: {
@@ -1065,8 +1045,6 @@ router.patch(
       if (player.user) {
         await CacheInvalidation.invalidateUser(player.user.id);
       }
-
-      sseManager.broadcast({type: 'playerUpdate'});
 
       return res.json({
         message: `Player submissions ${isSubmissionsPaused ? 'paused' : 'resumed'} successfully`,
@@ -1318,9 +1296,6 @@ router.post(
       // Reindex target player in Elasticsearch; delete source player's ES doc
       await elasticsearchService.deletePlayerDocumentById(sourcePlayer.id);
       await elasticsearchService.reindexPlayers([targetPlayer.id]);
-
-      const io = getIO();
-      io.emit('leaderboardUpdated');
 
       return res.json({message: 'Players merged successfully'});
     } catch (error) {

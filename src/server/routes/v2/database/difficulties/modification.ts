@@ -15,8 +15,6 @@ import {
   idParamSpec,
 } from '@/server/schemas/v2/database/index.js';
 import sequelize from '@/config/db.js';
-import { getIO } from '@/misc/utils/server/socket.js';
-import { sseManager } from '@/misc/utils/server/sse.js';
 import { computePassScoreV2 } from '@/misc/utils/pass/scoreService.js';
 import { safeTransactionRollback, getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
@@ -112,17 +110,6 @@ router.put(
       await transaction.commit();
 
       await updateDifficultiesHash();
-
-      const io = getIO();
-      io.emit('difficultiesReordered');
-
-      sseManager.broadcast({
-        type: 'difficultiesReordered',
-        data: {
-          action: 'reorder',
-          count: sortOrders.length,
-        },
-      });
 
       return res.json({ message: 'Sort orders updated successfully' });
     } catch (error) {
@@ -511,8 +498,6 @@ router.put(
       }
 
       await difficulty.update(updateData, { transaction });
-
-      let affectedPassCount = 0;
       const affectedPlayerIds: Set<number> = new Set();
 
       if (isBaseScoreChanged) {
@@ -601,8 +586,6 @@ router.put(
               { transaction },
             );
           }
-
-          affectedPassCount = scoreUpdates.length;
         }
       }
 
@@ -630,20 +613,6 @@ router.put(
           // Reindex affected players in ES; ranks are recomputed at read time
           // so no extra rank-update pass is required.
           await elasticsearchService.reindexPlayers(Array.from(affectedPlayerIds));
-
-          const io = getIO();
-          io.emit('leaderboardUpdated');
-          io.emit('difficultyUpdated', { difficultyId: diffId });
-
-          sseManager.broadcast({
-            type: 'difficultyUpdate',
-            data: {
-              difficultyId: diffId,
-              action: 'update',
-              affectedPasses: affectedPassCount,
-              affectedPlayers: affectedPlayerIds.size,
-            },
-          });
         } catch (error) {
           logger.error('Error updating player stats:', error);
           return res.status(500).json({
@@ -652,19 +621,6 @@ router.put(
             details: error instanceof Error ? error.message : String(error),
           });
         }
-      } else {
-        const io = getIO();
-        io.emit('difficultyUpdated', { difficultyId: diffId });
-
-        sseManager.broadcast({
-          type: 'difficultyUpdate',
-          data: {
-            difficultyId: diffId,
-            action: 'update',
-            affectedPasses: 0,
-            affectedPlayers: 0,
-          },
-        });
       }
 
       await updateDifficultiesHash();

@@ -70,6 +70,7 @@ import OAuthAuthorizationCode from './oauth/OAuthAuthorizationCode.js';
 import OAuthRefreshToken from './oauth/OAuthRefreshToken.js';
 import Notification from './notifications/Notification.js';
 import NotificationPreference from './notifications/NotificationPreference.js';
+import NotificationCategoryPreference from './notifications/NotificationCategoryPreference.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -146,6 +147,7 @@ export const db = {
     OAuthRefreshToken,
     Notification,
     NotificationPreference,
+    NotificationCategoryPreference,
   },
 };
 
@@ -178,6 +180,7 @@ export {
   OAuthRefreshToken,
   Notification,
   NotificationPreference,
+  NotificationCategoryPreference,
 };
 
 // Export Discord models

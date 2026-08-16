@@ -14,7 +14,7 @@ import {
   computePassScoreV2,
 } from '@/misc/utils/pass/scoreService.js';
 import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
-import {sseManager} from '@/misc/utils/server/sse.js';
+import {sseManager, SSE_SOURCES} from '@/misc/utils/server/sse.js';
 import LevelLikes from '@/models/levels/LevelLikes.js';
 import User from '@/models/auth/User.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
@@ -49,6 +49,11 @@ import {
   syncAnnouncementQueueAfterCurveChange,
 } from '@/server/services/announcements/levelAnnouncementQueue.js';
 import { createUserRateLimiter } from '@/server/middleware/userRateLimit.js';
+import {
+  notifyChartOwners,
+  notifyChartVisibilityChanged,
+} from '@/server/services/notifications/chartOwnerNotify.js';
+import { NOTIFICATION_TYPES } from '@/server/services/notifications/types.js';
 import {
   validateXaccCurveParams,
   XACC_CURVE_DEFAULTS,
@@ -418,16 +423,9 @@ async function finalizePassScoreRecalc(
     );
   }
 
-  sseManager.broadcast({
+  sseManager.broadcastToSources([SSE_SOURCES.rating], {
     type: 'levelUpdate',
     data: await buildLevelUpdateSseData(levelId),
-  });
-  sseManager.broadcast({
-    type: 'passUpdate',
-    data: {
-      levelId,
-      action: 'levelUpdate',
-    },
   });
 }
 
@@ -580,6 +578,18 @@ router.put(
           ],
         },
       ],
+      transaction,
+    });
+
+    await notifyChartOwners({
+      type: NOTIFICATION_TYPES.ChartModified,
+      level: {
+        id: levelId,
+        song: updatedLevel?.song ?? level.song,
+        artist: updatedLevel?.artist ?? level.artist,
+      },
+      actorId: req.user?.id ?? null,
+      dedupKey: `chart-modified:${levelId}:${Date.now()}`,
       transaction,
     });
 
@@ -950,7 +960,7 @@ router.put(
       } catch (cacheErr) {
         logger.error('Error invalidating admin ratings cache after level update:', cacheErr);
       }
-      sseManager.broadcast({
+      sseManager.broadcastToSources([SSE_SOURCES.rating], {
         type: 'levelUpdate',
         data: await buildLevelUpdateSseData(levelId),
       });
@@ -1013,6 +1023,18 @@ router.delete(
         },
       );
 
+      await notifyChartOwners({
+        type: NOTIFICATION_TYPES.ChartDeleted,
+        level: {
+          id: levelId,
+          song: level.song,
+          artist: level.artist,
+        },
+        actorId: req.user?.id ?? null,
+        dedupKey: `chart-deleted:${levelId}`,
+        transaction,
+      });
+
       await transaction.commit();
 
       res.json({
@@ -1040,7 +1062,7 @@ router.delete(
           await elasticsearchService.reindexPlayers(Array.from(affectedPlayerIds));
 
 
-          sseManager.broadcast({
+          sseManager.broadcastToSources([SSE_SOURCES.rating], {
             type: 'levelUpdate',
             data: await buildLevelUpdateSseData(levelId),
           });
@@ -1100,7 +1122,7 @@ router.delete(
             await elasticsearchService.deleteLevel({ id } as Level);
           },
           broadcastAndInvalidate: async ({ levelId: lid, affectedPlayerIds }) => {
-            sseManager.broadcast({
+            sseManager.broadcastToSources([SSE_SOURCES.rating], {
               type: 'levelUpdate',
               data: { levelId: lid, level: null },
             });
@@ -1210,7 +1232,7 @@ router.patch(
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       (async () => {
         try {
-          sseManager.broadcast({
+          sseManager.broadcastToSources([SSE_SOURCES.rating], {
             type: 'levelUpdate',
             data: await buildLevelUpdateSseData(parseInt(id, 10)),
           });
@@ -1298,12 +1320,23 @@ router.patch(
         },
       );
 
+      await notifyChartVisibilityChanged({
+        level: {
+          id: levelId,
+          song: level.song,
+          artist: level.artist,
+        },
+        isHidden: !level.isHidden,
+        actorId: req.user?.id ?? null,
+        transaction,
+      });
+
       await transaction.commit();
 
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       (async () => {
         try {
-          sseManager.broadcast({
+          sseManager.broadcastToSources([SSE_SOURCES.rating], {
             type: 'levelUpdate',
             data: await buildLevelUpdateSseData(parseInt(String(req.params.id), 10)),
           });
@@ -1523,7 +1556,7 @@ router.patch(
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       (async () => {
         try {
-          sseManager.broadcast({
+          sseManager.broadcastToSources([SSE_SOURCES.rating], {
             type: 'levelUpdate',
             data: await buildLevelUpdateSseData(levelId),
           });

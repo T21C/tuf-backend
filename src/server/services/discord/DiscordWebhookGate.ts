@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { redis } from '@/server/services/core/RedisService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { WebhookRateLimitError } from '@/misc/webhook/classes/webhookErrors.js';
-import { sseManager } from '@/misc/utils/server/sse.js';
+import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
 
 const BLOCKED_UNTIL_KEY = 'discord:webhook:blockedUntil';
 const BLOCKED_META_KEY = 'discord:webhook:blockedMeta';
@@ -19,7 +19,7 @@ export type DiscordWebhookBlockMeta = {
 
 function broadcastGateChanged(retryAfterMs: number): void {
   try {
-    sseManager.broadcast({
+    sseManager.broadcastToSources([SSE_SOURCES.announcement], {
       type: 'discord.gate.changed',
       data: {
         blocked: retryAfterMs > 0,

@@ -1,27 +1,31 @@
 import type {Transaction} from 'sequelize';
 import {Op} from 'sequelize';
-import User from '@/models/auth/User.js';
 import Notification from '@/models/notifications/Notification.js';
 import NotificationPreference from '@/models/notifications/NotificationPreference.js';
+import NotificationCategoryPreference from '@/models/notifications/NotificationCategoryPreference.js';
 import {OutboxService} from '@/server/services/outbox/OutboxService.js';
 import {OUTBOX_EVENT_TYPES} from '@/server/services/outbox/events.js';
 import {mapMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {
+  resolveRecipientUserIds,
+  type NotificationRecipients,
+} from './recipients.js';
+import {
   channelEnabled,
   getNotificationTypeDefinition,
+  isNotificationCategory,
   isNotificationType,
+  listNotificationCategories,
   listNotificationTypeDefinitions,
   resolveNotificationHref,
+  type NotificationCategory,
   type NotificationChannel,
   type NotificationPayloadByType,
   type NotificationType,
 } from './types.js';
 
-export interface NotificationRecipients {
-  userIds?: string[];
-  playerIds?: number[];
-}
+export type {NotificationRecipients};
 
 export interface NotifyArgs<K extends NotificationType> {
   type: K;
@@ -31,6 +35,7 @@ export interface NotifyArgs<K extends NotificationType> {
   groupKey?: string | null;
   entity?: {type: string; id: string} | null;
   actorId?: string | null;
+  skipActor?: boolean;
   transaction?: Transaction;
 }
 
@@ -51,9 +56,20 @@ export interface EffectivePreference {
   category: string;
   i18nKey: string;
   inApp: boolean;
+  categoryInApp: boolean;
   email: boolean;
   discord: boolean;
   lockedChannels: Partial<Record<NotificationChannel, boolean>>;
+}
+
+export interface EffectiveCategoryPreference {
+  category: NotificationCategory;
+  inApp: boolean;
+}
+
+export interface PreferenceState {
+  preferences: EffectivePreference[];
+  categories: EffectiveCategoryPreference[];
 }
 
 function toIso(value: Date | string | null | undefined): string | null {
@@ -78,44 +94,39 @@ export function serializeNotification(row: Notification): SerializedNotification
   };
 }
 
-async function resolveRecipientUserIds(
-  recipients: NotificationRecipients,
-  transaction?: Transaction,
-): Promise<string[]> {
-  const ids = new Set<string>();
-  for (const userId of recipients.userIds ?? []) {
-    if (typeof userId === 'string' && userId.trim()) ids.add(userId);
-  }
-
-  const playerIds = [...new Set((recipients.playerIds ?? []).filter((id) => Number.isFinite(id)))];
-  if (playerIds.length) {
-    const users = await User.findAll({
-      attributes: ['id'],
-      where: {playerId: {[Op.in]: playerIds}},
-      transaction,
-    });
-    for (const user of users) ids.add(user.id);
-  }
-
-  return [...ids];
+function categoryInAppEnabled(override: boolean | undefined): boolean {
+  if (typeof override === 'boolean') return override;
+  return true;
 }
 
 class NotificationService {
   async notify<K extends NotificationType>(args: NotifyArgs<K>): Promise<void> {
     const definition = getNotificationTypeDefinition(args.type);
     const payload = definition.payload.parse(args.payload);
-    const userIds = await resolveRecipientUserIds(args.recipients, args.transaction);
+    const skipActor = args.skipActor !== false;
+    const userIds = (await resolveRecipientUserIds(args.recipients, args.transaction)).filter(
+      (userId) => !skipActor || !args.actorId || userId !== args.actorId,
+    );
     if (!userIds.length) return;
 
-    const prefs = await NotificationPreference.findAll({
-      where: {userId: {[Op.in]: userIds}, type: args.type},
-      transaction: args.transaction,
-    });
+    const [prefs, categoryPrefs] = await Promise.all([
+      NotificationPreference.findAll({
+        where: {userId: {[Op.in]: userIds}, type: args.type},
+        transaction: args.transaction,
+      }),
+      NotificationCategoryPreference.findAll({
+        where: {userId: {[Op.in]: userIds}, category: definition.category},
+        transaction: args.transaction,
+      }),
+    ]);
     const prefByUser = new Map(prefs.map((row) => [row.userId, row]));
+    const categoryPrefByUser = new Map(categoryPrefs.map((row) => [row.userId, row]));
 
     for (const userId of userIds) {
       const pref = prefByUser.get(userId);
+      const categoryPref = categoryPrefByUser.get(userId);
       if (!channelEnabled(definition, 'inApp', pref?.inApp)) continue;
+      if (!categoryInAppEnabled(categoryPref?.inApp)) continue;
 
       let row: Notification;
       try {
@@ -165,9 +176,7 @@ class NotificationService {
 
     const rows = await Notification.findAll({
       where,
-      order: [
-        ['id', 'DESC'],
-      ],
+      order: [['id', 'DESC']],
       limit: args.limit + 1,
     });
 
@@ -215,22 +224,38 @@ class NotificationService {
     return count;
   }
 
-  async getPreferences(userId: string): Promise<EffectivePreference[]> {
-    const rows = await NotificationPreference.findAll({where: {userId}});
-    const byType = new Map(rows.map((row) => [row.type, row]));
+  async getPreferenceState(userId: string): Promise<PreferenceState> {
+    const [typeRows, categoryRows] = await Promise.all([
+      NotificationPreference.findAll({where: {userId}}),
+      NotificationCategoryPreference.findAll({where: {userId}}),
+    ]);
+    const byType = new Map(typeRows.map((row) => [row.type, row]));
+    const byCategory = new Map(categoryRows.map((row) => [row.category, row]));
 
-    return listNotificationTypeDefinitions().map((definition) => {
+    const categories: EffectiveCategoryPreference[] = listNotificationCategories().map(
+      (category) => ({
+        category,
+        inApp: categoryInAppEnabled(byCategory.get(category)?.inApp),
+      }),
+    );
+    const categoryEnabled = new Map(categories.map((row) => [row.category, row.inApp]));
+
+    const preferences = listNotificationTypeDefinitions().map((definition) => {
       const override = byType.get(definition.id);
+      const categoryInApp = categoryEnabled.get(definition.category) ?? true;
       return {
         type: definition.id,
         category: definition.category,
         i18nKey: definition.i18nKey,
-        inApp: channelEnabled(definition, 'inApp', override?.inApp),
+        categoryInApp,
+        inApp: categoryInApp && channelEnabled(definition, 'inApp', override?.inApp),
         email: channelEnabled(definition, 'email', override?.email),
         discord: channelEnabled(definition, 'discord', override?.discord),
         lockedChannels: definition.lockedChannels,
       };
     });
+
+    return {preferences, categories};
   }
 
   async upsertInAppPreference(
@@ -241,7 +266,7 @@ class NotificationService {
     if (!isNotificationType(type)) return null;
     const definition = getNotificationTypeDefinition(type);
     if (definition.lockedChannels.inApp) {
-      return (await this.getPreferences(userId)).find((row) => row.type === type) ?? null;
+      return (await this.getPreferenceState(userId)).preferences.find((row) => row.type === type) ?? null;
     }
 
     const existing = await NotificationPreference.findOne({where: {userId, type}});
@@ -253,7 +278,17 @@ class NotificationService {
       discord: existing?.discord ?? definition.defaults.discord,
     });
 
-    return (await this.getPreferences(userId)).find((row) => row.type === type) ?? null;
+    return (await this.getPreferenceState(userId)).preferences.find((row) => row.type === type) ?? null;
+  }
+
+  async upsertCategoryInAppPreference(
+    userId: string,
+    category: string,
+    inApp: boolean,
+  ): Promise<PreferenceState | null> {
+    if (!isNotificationCategory(category)) return null;
+    await NotificationCategoryPreference.upsert({userId, category, inApp});
+    return this.getPreferenceState(userId);
   }
 }
 

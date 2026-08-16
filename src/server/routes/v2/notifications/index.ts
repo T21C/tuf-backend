@@ -100,13 +100,19 @@ router.get(
   ApiDoc({
     operationId: 'getNotificationPreferences',
     summary: 'Notification preferences',
-    description: 'Effective per-type channel preferences merged with registry defaults.',
+    description: 'Effective per-type and per-category in-app preferences merged with registry defaults.',
     tags: ['Notifications'],
     security: ['bearerAuth'],
     responses: {
       200: {
         description: 'Preferences',
-        schema: {type: 'object', properties: {preferences: {type: 'array', items: {type: 'object'}}}},
+        schema: {
+          type: 'object',
+          properties: {
+            preferences: {type: 'array', items: {type: 'object'}},
+            categories: {type: 'array', items: {type: 'object'}},
+          },
+        },
       },
       ...standardErrorResponses401500,
     },
@@ -115,8 +121,8 @@ router.get(
     try {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({error: 'User not authenticated'});
-      const preferences = await notificationService.getPreferences(userId);
-      return res.json({preferences});
+      const state = await notificationService.getPreferenceState(userId);
+      return res.json(state);
     } catch (error) {
       logger.error('Error fetching notification preferences:', error);
       return res.status(500).json({error: 'Failed to fetch notification preferences'});
@@ -130,24 +136,32 @@ router.put(
   ApiDoc({
     operationId: 'putNotificationPreferences',
     summary: 'Update a notification preference',
-    description: 'Upsert in-app preference for one registry type. Locked channels cannot be changed.',
+    description: 'Upsert in-app preference for one registry type or one category. Locked channels cannot be changed.',
     tags: ['Notifications'],
     security: ['bearerAuth'],
     requestBody: {
-      description: 'Type id and inApp flag',
+      description: 'Type or category id and inApp flag',
       schema: {
         type: 'object',
         properties: {
           type: {type: 'string'},
+          category: {type: 'string'},
           inApp: {type: 'boolean'},
         },
-        required: ['type', 'inApp'],
+        required: ['inApp'],
       },
     },
     responses: {
       200: {
         description: 'Updated preference',
-        schema: {type: 'object', properties: {preference: {type: 'object'}}},
+        schema: {
+          type: 'object',
+          properties: {
+            preference: {type: 'object'},
+            preferences: {type: 'array', items: {type: 'object'}},
+            categories: {type: 'array', items: {type: 'object'}},
+          },
+        },
       },
       400: {schema: errorResponseSchema},
       ...standardErrorResponses401500,
@@ -157,10 +171,20 @@ router.put(
     try {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({error: 'User not authenticated'});
-      const type = typeof req.body?.type === 'string' ? req.body.type : '';
       if (typeof req.body?.inApp !== 'boolean') {
         return res.status(400).json({error: 'inApp must be a boolean'});
       }
+      const category = typeof req.body?.category === 'string' ? req.body.category : '';
+      if (category) {
+        const state = await notificationService.upsertCategoryInAppPreference(
+          userId,
+          category,
+          req.body.inApp,
+        );
+        if (!state) return res.status(400).json({error: 'Unknown notification category'});
+        return res.json(state);
+      }
+      const type = typeof req.body?.type === 'string' ? req.body.type : '';
       const preference = await notificationService.upsertInAppPreference(userId, type, req.body.inApp);
       if (!preference) return res.status(400).json({error: 'Unknown notification type'});
       return res.json({preference});

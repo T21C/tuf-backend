@@ -1,6 +1,7 @@
 import User from '@/models/auth/User.js';
 import Notification from './Notification.js';
 import NotificationPreference from './NotificationPreference.js';
+import NotificationCategoryPreference from './NotificationCategoryPreference.js';
 
 export function initializeNotificationAssociations(): void {
   User.hasMany(Notification, {
@@ -21,6 +22,15 @@ export function initializeNotificationAssociations(): void {
     as: 'notificationPreferences',
   });
   NotificationPreference.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  User.hasMany(NotificationCategoryPreference, {
+    foreignKey: 'userId',
+    as: 'notificationCategoryPreferences',
+  });
+  NotificationCategoryPreference.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
   });

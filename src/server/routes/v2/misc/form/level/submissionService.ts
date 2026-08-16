@@ -5,7 +5,7 @@ import type { Transaction } from 'sequelize';
 import sequelize from '@/config/db.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { sseManager } from '@/misc/utils/server/sse.js';
+import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
 import { randomUUID } from 'crypto';
 
 import cdnService, { CdnError } from '@/server/services/core/CdnService.js';
@@ -36,7 +36,7 @@ import { applyResolvedVideoLinkToPayload } from '../shared/videoUrl.js';
 import { computeEvidenceRequirements, validateLevelReferences } from './referenceCheck.js';
 import { assertNoDuplicateLevelSubmission } from './duplicateCheck.js';
 import { resolveLevelZipSession, type ResolvedLevelZipSession } from './uploadSessionResolver.js';
-import { isYsmodOnlyState } from '@/server/submissions/submissionEvidenceRules.js';
+import { notifyChartSubmission } from '@/server/services/notifications/levelSubmissionNotify.js';
 
 const evidenceService = EvidenceService.getInstance();
 
@@ -262,6 +262,20 @@ export async function createLevelSubmission(
       transaction,
     });
 
+    if (submissionWithAssociations) {
+      await notifyChartSubmission({
+        outcome: 'submitted',
+        submissionId: submissionWithAssociations.id,
+        userId: submissionWithAssociations.userId,
+        level: {
+          song: submissionWithAssociations.song,
+          artist: submissionWithAssociations.artist,
+        },
+        actorId: userId,
+        transaction,
+      });
+    }
+
     await transaction.commit();
 
     // Phase 5: post-commit side effects. Best-effort, never block the response.
@@ -273,7 +287,7 @@ export async function createLevelSubmission(
       }
     }
 
-    sseManager.broadcast({
+    sseManager.broadcastToSources([SSE_SOURCES.admin], {
       type: 'submissionUpdate',
       data: { action: 'create', submissionId: rowIds.submissionId, submissionType: 'level' },
     });
@@ -283,13 +297,6 @@ export async function createLevelSubmission(
     }
 
     if (levelFiles.length > 1) {
-      sseManager.broadcast({
-        type: 'levelSelection',
-        data: {
-          fileId: uploadedFileId,
-          levelFiles: levelFiles.map(mapLevelFile),
-        },
-      });
       return {
         success: true,
         submissionId: rowIds.submissionId,

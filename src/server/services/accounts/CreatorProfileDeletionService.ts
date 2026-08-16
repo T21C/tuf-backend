@@ -5,7 +5,7 @@ import {CreatorAlias} from '@/models/credits/CreatorAlias.js';
 import Pass from '@/models/passes/Pass.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
-import {sseManager} from '@/misc/utils/server/sse.js';
+import {sseManager, SSE_SOURCES} from '@/misc/utils/server/sse.js';
 import {CacheInvalidation} from '@/server/middleware/cache.js';
 import Level from '@/models/levels/Level.js';
 import User from '@/models/auth/User.js';
@@ -69,8 +69,8 @@ export class CreatorProfileDeletionService {
       });
     }
 
-    sseManager.broadcast({type: 'levelUpdate'});
-    sseManager.broadcast({type: 'ratingUpdate'});
+    sseManager.broadcastToSources([SSE_SOURCES.rating], {type: 'levelUpdate'});
+    sseManager.broadcastToSources([SSE_SOURCES.admin, SSE_SOURCES.rating], {type: 'ratingUpdate'});
     await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all', 'Passes']).catch(
       () => undefined,
     );

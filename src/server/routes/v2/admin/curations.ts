@@ -25,8 +25,6 @@ import Team from '@/models/credits/Team.js';
 import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import { updateDifficultiesHash } from '@/server/routes/v2/database/difficulties/index.js';
-import { getIO } from '@/misc/utils/server/socket.js';
-import { sseManager } from '@/misc/utils/server/sse.js';
 import { serializeCurationJson, sortCurationsByTypeOrder } from '@/misc/utils/data/curationOrdering.js';
 import { parseFacetQueryString } from '@/misc/utils/search/facetQuery.js';
 import { normalizeLevelSearchQuery } from '@/server/services/elasticsearch/search/tools/parseSearch.js';
@@ -35,6 +33,11 @@ import {
   mergeFacetLevelIds,
 } from '@/misc/utils/search/facetQueryCurationSql.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
+import {
+  notifyChartOwners,
+  notifyChartWeeklySelected,
+} from '@/server/services/notifications/chartOwnerNotify.js';
+import { NOTIFICATION_TYPES } from '@/server/services/notifications/types.js';
 
 const router: Router = Router();
 
@@ -612,12 +615,6 @@ router.put(
     await transaction.commit();
 
     await updateDifficultiesHash();
-    const io = getIO();
-    io.emit('curationTypesReordered');
-    sseManager.broadcast({
-      type: 'curationTypesReordered',
-      data: { action: 'reorder', count: sortOrders.length },
-    });
 
     logger.debug(`Successfully updated sort orders for ${sortOrders.length} curation types`);
     return res.json({success: true, message: 'Sort orders updated successfully'});
@@ -688,12 +685,6 @@ router.put(
       await transaction.commit();
 
       await updateDifficultiesHash();
-      const io = getIO();
-      io.emit('curationTypesReordered');
-      sseManager.broadcast({
-        type: 'curationTypesReordered',
-        data: { action: 'groupReorder', count: groups.length },
-      });
 
       return res.json({ message: 'Group sort orders updated successfully' });
     } catch (error) {
@@ -1325,6 +1316,17 @@ router.post(
             const curation = await Curation.create({ levelId, assignedBy }, { transaction });
             await curation.setTypes(typeIds, { transaction });
             created += 1;
+            await notifyChartOwners({
+              type: NOTIFICATION_TYPES.ChartCurated,
+              level: {
+                id: levelId,
+                song: levelWithCreators?.song,
+                artist: levelWithCreators?.artist,
+              },
+              actorId: req.user?.id ?? null,
+              dedupKey: `chart-curated:${levelId}:${curation.id}`,
+              transaction,
+            });
           } else {
             if (!userCanManageExistingCurationTypes(req, existing.types || [])) {
               invalid.push({ levelId, reason: 'cannot_manage' });
@@ -1432,6 +1434,19 @@ router.post(
       levelId,
       assignedBy,
     });
+
+    if (level) {
+      await notifyChartOwners({
+        type: NOTIFICATION_TYPES.ChartCurated,
+        level: {
+          id: level.id,
+          song: level.song,
+          artist: level.artist,
+        },
+        actorId: req.user?.id ?? null,
+        dedupKey: `chart-curated:${level.id}:${curation.id}`,
+      });
+    }
 
     // Fetch the complete curation with related data
     const completeCuration = await Curation.findByPk(curation.id, {
@@ -2094,6 +2109,18 @@ router.delete(
     // Delete the curation (this will cascade delete related schedules)
     await curation.destroy({ transaction });
 
+    await notifyChartOwners({
+      type: NOTIFICATION_TYPES.ChartCurationRemoved,
+      level: {
+        id: curation.levelId,
+        song: levelWithCreators?.song,
+        artist: levelWithCreators?.artist,
+      },
+      actorId: req.user?.id ?? null,
+      dedupKey: `chart-curation-removed:${curation.levelId}:${id}`,
+      transaction,
+    });
+
     await transaction.commit();
 
     // Reindex the level
@@ -2499,6 +2526,19 @@ router.post(
             : null,
         }
       : null;
+
+    const weeklyLevel = completeSchedule?.scheduledCuration?.level;
+    if (weeklyLevel) {
+      await notifyChartWeeklySelected({
+        level: {
+          id: weeklyLevel.id,
+          song: weeklyLevel.song,
+          artist: weeklyLevel.artist,
+        },
+        weekStart: weekStartDate.toISOString(),
+        actorId: req.user?.id ?? null,
+      });
+    }
 
     return res.status(201).json(serializedSchedule);
   } catch (error) {
