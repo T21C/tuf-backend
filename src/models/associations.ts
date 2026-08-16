@@ -12,11 +12,13 @@ import { initializeSongsAssociations } from './songs/associations.js';
 import { initializeDiscordAssociations } from './discord/associations.js';
 import { initializeTournamentsAssociations } from './tournaments/associations.js';
 import { initializeOAuthAsAssociations } from './oauth/associations.js';
+import { initializeNotificationAssociations } from './notifications/associations.js';
 import { initializeLevelCacheHooks } from './levels/hooks.js';
 
 export function initializeAssociations() {
   // Initialize all model associations by calling individual association functions
   initializeAuthAssociations();
+  initializeNotificationAssociations();
   initializeCreditsAssociations();
   initializeLevelsAssociations();
   initializePassesAssociations();

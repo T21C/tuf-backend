@@ -60,6 +60,7 @@ import SongService from '@/server/services/data/SongService.js';
 import EvidenceService from '@/server/services/data/EvidenceService.js';
 import submissionSongArtistRoutes from './submissions-song-artist.js';
 import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
+import { notifyPassSubmissionOutcome } from '@/server/services/notifications/passSubmissionNotify.js';
 import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { resolveLevelCreatedAtFromVideoLink } from '@/misc/utils/data/levelCreatedAtFromVideoLink.js';
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
@@ -407,15 +408,22 @@ async function approvePassSubmission(
       { transaction },
     );
     createdRatingId = newRating.id;
-    await Level.update({ 
-      toRate: true, 
+    await Level.update({
+      toRate: true,
       previousDiffId: level.diffId,
       previousBaseScore: level.baseScore || difficulty.baseScore || 0,
-      rerateNum: reqFr.substring(0, 60) || '', 
-      rerateReason: 'cleared'}, 
-      { where: { id: submission.levelId }, 
+      rerateNum: reqFr.substring(0, 60) || '',
+      rerateReason: 'cleared'},
+      { where: { id: submission.levelId },
       transaction });
   }
+
+  await notifyPassSubmissionOutcome({
+    submission,
+    outcome: 'approved',
+    passId: pass.id,
+    transaction,
+  });
 
   return { pass, newPass: newPass as Pass, playerStats, createdRatingId };
 }
@@ -1508,15 +1516,28 @@ router.put(
     let transaction: any;
     try {
       transaction = await sequelize.transaction();
-      await PassSubmission.update(
-        {status: 'declined'},
-        {
-          where: {id: parseInt(req.params.id)},
-          transaction,
-        }
-      );
+      const submission = await PassSubmission.findOne({
+        where: {[Op.and]: [{id: parseInt(req.params.id)}, {status: 'pending'}]},
+        include: [{model: Level, as: 'level'}],
+        lock: true,
+        transaction,
+      });
 
-      // Broadcast updates
+      if (!submission) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(404).json({error: 'Submission not found or already processed'});
+      }
+
+      await submission.update({status: 'declined'}, {transaction});
+      await notifyPassSubmissionOutcome({
+        submission,
+        outcome: 'declined',
+        passId: null,
+        transaction,
+      });
+
+      await transaction.commit();
+
       sseManager.broadcast({type: 'submissionUpdate'});
       sseManager.broadcast({
         type: 'submissionUpdate',
@@ -1526,8 +1547,6 @@ router.put(
           submissionType: 'pass',
         },
       });
-
-      await transaction.commit();
 
       return res.json({message: 'Pass submission rejected successfully'});
     } catch (error) {

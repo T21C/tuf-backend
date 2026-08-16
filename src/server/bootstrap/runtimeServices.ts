@@ -29,15 +29,28 @@ export async function initializeRuntimeServices(): Promise<void> {
   if (redis.isConnected()) {
     const { startOutboxRelay, stopOutboxRelay } = await import('@/server/services/outbox/outboxRelay.js');
     const { startDiscordOutboxDispatcher } = await import('@/server/services/outbox/discordOutboxDispatcher.js');
+    const { startNotificationOutboxDispatcher } = await import(
+      '@/server/services/outbox/notificationOutboxDispatcher.js'
+    );
     const { OutboxRetentionService } = await import('@/server/services/outbox/OutboxRetentionService.js');
+    const { sseManager } = await import('@/misc/utils/server/sse.js');
     startOutboxRelay();
     startDiscordOutboxDispatcher();
+    startNotificationOutboxDispatcher();
+    await sseManager.startRedisFanout();
     OutboxRetentionService.startScheduledRetention();
     registerShutdownStep({
       name: 'outbox-relay',
       priority: 44,
       fn: async () => {
         stopOutboxRelay();
+      },
+    });
+    registerShutdownStep({
+      name: 'sse-fanout',
+      priority: 45,
+      fn: async () => {
+        await sseManager.stopRedisFanout();
       },
     });
   }
