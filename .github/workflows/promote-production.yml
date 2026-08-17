@@ -35,7 +35,7 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:gh-runner
-          ping: tuf-main-server
+          ping: ${{ vars.TUF_DEPLOY_HOST }}
 
       - name: Configure deploy SSH identity
         env:
@@ -52,6 +52,8 @@ jobs:
       - name: Promote backend
         env:
           IMAGE_TAG: ${{ inputs.image_tag }}
+          DEPLOY_HOST: ${{ vars.TUF_DEPLOY_HOST }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 tuf-deploy@tuf-main-server \
+          [[ -n "$DEPLOY_HOST" ]] || { echo "Repository variable TUF_DEPLOY_HOST is required" >&2; exit 64; }
+          ssh -i ~/.ssh/id_ed25519 "tuf-deploy@${DEPLOY_HOST}" \
             "sudo /srv/tuf/infra/bin/tuf-deploy-backend '$IMAGE_TAG'"
