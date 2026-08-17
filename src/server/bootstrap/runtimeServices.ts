@@ -76,6 +76,9 @@ export async function initializeRuntimeServices(): Promise<void> {
   const { AccountDeletionCleanupService } = await import('@/server/services/accounts/AccountDeletionCleanupService.js');
   AccountDeletionCleanupService.getInstance();
 
+  const { PlayerBanExpiryService } = await import('@/server/services/accounts/PlayerBanExpiryService.js');
+  PlayerBanExpiryService.getInstance();
+
   const { AuditLogService } = await import('@/server/services/core/AuditLogService.js');
   AuditLogService.startScheduledRetention();
 

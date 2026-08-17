@@ -560,7 +560,7 @@ export class PlayerStatsService {
   public async getEnrichedPlayer(playerId: number, user?: any): Promise<EnrichedPlayer | null> {
 
     const player = await Player.findByPk(playerId, {
-      attributes: ['id', 'name', 'country', 'isBanned', 'isSubmissionsPaused', 'pfp', 'createdAt', 'updatedAt'],
+      attributes: ['id', 'name', 'country', 'isBanned', 'bannedUntil', 'isSubmissionsPaused', 'pfp', 'createdAt', 'updatedAt'],
     });
 
     if (!player) return null;
@@ -711,6 +711,7 @@ export class PlayerStatsService {
           name: playerData.name,
           country: playerData.country,
           isBanned: playerData.isBanned || hasFlag(userData, permissionFlags.BANNED),
+          bannedUntil: playerData.bannedUntil ?? null,
           isSubmissionsPaused:
             playerData.isSubmissionsPaused || hasFlag(userData, permissionFlags.SUBMISSIONS_PAUSED),
           pfp: playerData.pfp,

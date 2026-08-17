@@ -15,6 +15,7 @@ import { env } from 'process';
 import { logger } from '../core/LoggerService.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { isAdminBanActive } from '@/server/services/accounts/playerBanUtils.js';
 
 const ENABLE_MODIFIERS = env.APRIL_FOOLS === 'true';
 
@@ -292,6 +293,10 @@ export class ModifierService {
       return;
     }
     if (!ban) {
+      const user = await User.findOne({ where: { playerId } });
+      if (isAdminBanActive(player, user)) {
+        return;
+      }
       await player.update({
         isBanned: false
       });

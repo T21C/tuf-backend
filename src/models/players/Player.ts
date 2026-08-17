@@ -25,6 +25,8 @@ class Player
   declare name: string;
   declare country: string;
   declare isBanned: boolean;
+  /** Temporary ban expiry. Null with isBanned means permanent / not timed. */
+  declare bannedUntil: Date | null;
   declare isSubmissionsPaused: boolean;
   declare pfp: string | null;
   /** Placement ids pinned on the profile tournaments section (max 5). */
@@ -66,6 +68,11 @@ Player.init(
     isBanned: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
+    },
+    bannedUntil: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
     isSubmissionsPaused: {
       type: DataTypes.BOOLEAN,
@@ -116,7 +123,7 @@ Player.init(
   {
     sequelize,
     tableName: 'players',
-    indexes: [{fields: ['name']}, {fields: ['country']}],
+    indexes: [{fields: ['name']}, {fields: ['country']}, {fields: ['bannedUntil']}],
   },
 );
 
