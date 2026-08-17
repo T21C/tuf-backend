@@ -201,9 +201,94 @@ export function logWithCondition(message: string, source: string): void {
 // Singleton Puppeteer instance
 let browser: puppeteer.Browser | null = null;
 let browserRetries = 0;
-const MAX_BROWSER_RETRIES = 5;
-const MAX_CONCURRENT_PAGES = 5;
+const MAX_BROWSER_RETRIES = 2;
+const MAX_CONCURRENT_PAGES = 2;
+const MAX_QUEUED_PAGE_REQUESTS = 20;
+const PAGE_SLOT_WAIT_TIMEOUT_MS = 10_000;
+const BROWSER_ACQUIRE_TIMEOUT_MS = 70_000;
+const BROWSER_PROCESS_CLEANUP_TIMEOUT_MS = 5_000;
+const PAGE_CREATE_TIMEOUT_MS = 10_000;
+const PAGE_SETUP_TIMEOUT_MS = 5_000;
+const PAGE_CONTENT_TIMEOUT_MS = 30_000;
+const PAGE_SCREENSHOT_TIMEOUT_MS = 20_000;
+const PAGE_CLOSE_TIMEOUT_MS = 3_000;
 let activePages = 0;
+
+class PuppeteerOperationTimeoutError extends Error {
+  constructor(operation: string, timeoutMs: number) {
+    super(`${operation} timed out after ${timeoutMs}ms`);
+    this.name = 'PuppeteerOperationTimeoutError';
+  }
+}
+
+async function withPuppeteerTimeout<T>(
+  operation: string,
+  timeoutMs: number,
+  promise: Promise<T>,
+): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(
+      () => reject(new PuppeteerOperationTimeoutError(operation, timeoutMs)),
+      timeoutMs,
+    );
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+type PageSlotRelease = () => void;
+
+interface PageSlotWaiter {
+  resolve: (release: PageSlotRelease) => void;
+  timeout: NodeJS.Timeout;
+}
+
+const pageSlotWaiters: PageSlotWaiter[] = [];
+
+function createPageSlotRelease(): PageSlotRelease {
+  let released = false;
+
+  return () => {
+    if (released) return;
+    released = true;
+    activePages = Math.max(0, activePages - 1);
+
+    const next = pageSlotWaiters.shift();
+    if (!next) return;
+
+    clearTimeout(next.timeout);
+    activePages++;
+    next.resolve(createPageSlotRelease());
+  };
+}
+
+async function acquirePageSlot(): Promise<PageSlotRelease> {
+  if (activePages < MAX_CONCURRENT_PAGES) {
+    activePages++;
+    return createPageSlotRelease();
+  }
+
+  if (pageSlotWaiters.length >= MAX_QUEUED_PAGE_REQUESTS) {
+    throw new Error(`Puppeteer render queue is full (${MAX_QUEUED_PAGE_REQUESTS})`);
+  }
+
+  return new Promise<PageSlotRelease>((resolve, reject) => {
+    let waiter: PageSlotWaiter;
+    const timeout = setTimeout(() => {
+      const index = pageSlotWaiters.indexOf(waiter);
+      if (index >= 0) pageSlotWaiters.splice(index, 1);
+      reject(new PuppeteerOperationTimeoutError('Puppeteer page slot wait', PAGE_SLOT_WAIT_TIMEOUT_MS));
+    }, PAGE_SLOT_WAIT_TIMEOUT_MS);
+
+    waiter = {resolve, timeout};
+    pageSlotWaiters.push(waiter);
+  });
+}
 
 // Add browser management lock
 let browserCreationLock: Promise<void> | null = null;
@@ -306,7 +391,11 @@ async function createBrowser(): Promise<puppeteer.Browser> {
     }
 
     // Kill any existing Puppeteer processes before creating a new one
-    await killExistingPuppeteerProcesses();
+    await withPuppeteerTimeout(
+      'Puppeteer process cleanup',
+      BROWSER_PROCESS_CLEANUP_TIMEOUT_MS,
+      killExistingPuppeteerProcesses(),
+    );
     logger.debug('Waiting for 1 second before creating new browser instance');
     await new Promise(resolve => setTimeout(resolve, 1000));
     logger.debug(`Creating new browser instance (attempt ${browserRetries + 1}/${MAX_BROWSER_RETRIES})`);
@@ -355,18 +444,16 @@ async function createBrowser(): Promise<puppeteer.Browser> {
         '--window-size=1920,1080',
         '--js-flags="--max-old-space-size=512"' // Limit V8 heap size
       ],
-      timeout: 60000,
+      timeout: 30000,
     });
 
     // Reset retry counter after successful launch
     browserRetries = 0;
 
     // Set up disconnection handler to mark the browser as needing recreation
-    newBrowser.on('disconnected', async () => {
+    newBrowser.on('disconnected', () => {
       logger.debug('Browser disconnected, will recreate on next request');
-      browser = null;
-      // Kill any zombie processes
-      await killExistingPuppeteerProcesses();
+      if (browser === newBrowser) browser = null;
     });
 
     // Set the browser instance before returning
@@ -381,11 +468,45 @@ async function createBrowser(): Promise<puppeteer.Browser> {
       throw new Error(`Failed to create browser after ${MAX_BROWSER_RETRIES} attempts`);
     }
 
-    // Wait before retrying
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    return createBrowser();
   } finally {
     releaseBrowserCreationLock();
+  }
+
+  // Retry only after releasing the creation lock. Recursing from the catch block
+  // would wait on the lock held by this same invocation forever.
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  return createBrowser();
+}
+
+function forceTerminateBrowser(targetBrowser: puppeteer.Browser, reason: string): void {
+  if (browser === targetBrowser) browser = null;
+
+  const childProcess = targetBrowser.process();
+  if (!childProcess || childProcess.killed) return;
+
+  logger.warn(`Force terminating Puppeteer browser: ${reason}`);
+  try {
+    childProcess.kill('SIGKILL');
+  } catch (error) {
+    logger.warn(`Failed to force terminate Puppeteer browser: ${error}`);
+  }
+}
+
+async function closeBrowserWithTimeout(
+  targetBrowser: puppeteer.Browser,
+  operation: string,
+): Promise<void> {
+  try {
+    await withPuppeteerTimeout(
+      operation,
+      PAGE_CLOSE_TIMEOUT_MS,
+      targetBrowser.close(),
+    );
+  } catch (error) {
+    logger.warn(`Failed to close Puppeteer browser: ${error}`);
+    forceTerminateBrowser(targetBrowser, `${operation} failed`);
+  } finally {
+    if (browser === targetBrowser) browser = null;
   }
 }
 
@@ -393,13 +514,8 @@ async function createBrowser(): Promise<puppeteer.Browser> {
 async function getBrowser(): Promise<puppeteer.Browser> {
   if (!browser || !browser.isConnected()) {
     if (browser) {
-      // Try to close properly before recreating
-      try {
-        await browser.close();
-      } catch (err) {
-        logger.warn(`Failed to close existing browser: ${err}`);
-      }
-      browser = null;
+      const disconnectedBrowser = browser;
+      await closeBrowserWithTimeout(disconnectedBrowser, 'Puppeteer stale browser close');
     }
     browser = await createBrowser();
   }
@@ -412,19 +528,25 @@ export async function htmlToPng(html: string, width: number, height: number, max
     { name: 'puppeteer.html_to_png', op: 'ui.render' },
     async () => {
   let lastError;
-  let page = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      // Wait if we have too many active pages
-      while (activePages >= MAX_CONCURRENT_PAGES) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
+    let page: puppeteer.Page | null = null;
+    let renderBrowser: puppeteer.Browser | null = null;
+    let releasePageSlot: PageSlotRelease | null = null;
 
+    try {
+      releasePageSlot = await acquirePageSlot();
       logWithCondition(`HTML to PNG conversion attempt ${attempt}/${maxRetries}`, 'thumbnail');
-      const browser = await getBrowser();
-      activePages++;
-      page = await browser.newPage();
+      renderBrowser = await withPuppeteerTimeout(
+        'Puppeteer browser acquisition',
+        BROWSER_ACQUIRE_TIMEOUT_MS,
+        getBrowser(),
+      );
+      page = await withPuppeteerTimeout(
+        'Puppeteer page creation',
+        PAGE_CREATE_TIMEOUT_MS,
+        renderBrowser.newPage(),
+      );
 
       // Set up page error handling
       page.on('error', err => {
@@ -438,40 +560,69 @@ export async function htmlToPng(html: string, width: number, height: number, max
 
       // Thumbnail templates are static HTML/CSS. Disabling JavaScript provides a
       // second line of defense if an untrusted value is ever interpolated without escaping.
-      await page.setJavaScriptEnabled(false);
-      await page.setViewport({ width, height });
-      await page.setContent(html, { timeout: 30000 });
+      await withPuppeteerTimeout(
+        'Puppeteer JavaScript setup',
+        PAGE_SETUP_TIMEOUT_MS,
+        page.setJavaScriptEnabled(false),
+      );
+      await withPuppeteerTimeout(
+        'Puppeteer viewport setup',
+        PAGE_SETUP_TIMEOUT_MS,
+        page.setViewport({width, height}),
+      );
+      await withPuppeteerTimeout(
+        'Puppeteer HTML rendering',
+        PAGE_CONTENT_TIMEOUT_MS,
+        page.setContent(html, {timeout: PAGE_CONTENT_TIMEOUT_MS}),
+      );
 
       // Force garbage collection if available
       if (global.gc) {
         global.gc();
       }
 
-      const pngBuffer = await page.screenshot({
-        type: 'png',
-        omitBackground: true,
-      });
+      const pngBuffer = await withPuppeteerTimeout(
+        'Puppeteer screenshot',
+        PAGE_SCREENSHOT_TIMEOUT_MS,
+        page.screenshot({
+          type: 'png',
+          omitBackground: true,
+        }),
+      );
 
       return Buffer.from(pngBuffer);
     } catch (error) {
       lastError = error;
-      //logger.warn(`HTML to PNG conversion failed (attempt ${attempt}/${maxRetries}): ${error instanceof Error ? error.message : String(error)}`);
+      logger.warn(`HTML to PNG conversion failed (attempt ${attempt}/${maxRetries}): ${error instanceof Error ? error.message : String(error)}`);
 
-      if (error instanceof Error &&
-          (error.message.includes('Protocol error') ||
-           error.message.includes('Connection closed') ||
-           error.message.includes('Target closed'))) {
-        browser = null;
+      if (renderBrowser && error instanceof PuppeteerOperationTimeoutError) {
+        forceTerminateBrowser(renderBrowser, error.message);
+      } else if (error instanceof Error &&
+                 (error.message.includes('Protocol error') ||
+                  error.message.includes('Connection closed') ||
+                  error.message.includes('Target closed'))) {
+        if (renderBrowser) {
+          forceTerminateBrowser(renderBrowser, error.message);
+        } else {
+          browser = null;
+        }
       }
     } finally {
       if (page) {
         try {
-          await page.close();
+          await withPuppeteerTimeout(
+            'Puppeteer page close',
+            PAGE_CLOSE_TIMEOUT_MS,
+            page.close(),
+          );
         } catch (err) {
           logger.warn(`Failed to close page: ${err}`);
+          if (err instanceof PuppeteerOperationTimeoutError && renderBrowser) {
+            forceTerminateBrowser(renderBrowser, 'page close timed out');
+          }
         }
-        activePages--;
       }
+      releasePageSlot?.();
     }
 
     // Wait before retrying
@@ -489,15 +640,14 @@ async function cleanupBrowser(): Promise<void> {
   await acquireBrowserCreationLock();
   try {
     if (browser) {
-      try {
-        await browser.close();
-      } catch (err) {
-        logger.error(`Error closing browser: ${err}`);
-      }
-      browser = null;
+      await closeBrowserWithTimeout(browser, 'Puppeteer shutdown browser close');
     }
     // Kill any remaining processes
-    await killExistingPuppeteerProcesses();
+    await withPuppeteerTimeout(
+      'Puppeteer shutdown process cleanup',
+      BROWSER_PROCESS_CLEANUP_TIMEOUT_MS,
+      killExistingPuppeteerProcesses(),
+    );
   } finally {
     releaseBrowserCreationLock();
   }
@@ -513,15 +663,20 @@ registerShutdownStep({
 });
 
 // Add periodic browser cleanup
+let periodicBrowserCleanupRunning = false;
 setInterval(async () => {
-  if (browser && activePages === 0) {
-    logger.debug('Performing periodic browser cleanup');
-    try {
-      await browser.close();
-      browser = null;
-    } catch (err) {
-      logger.warn(`Failed to perform periodic browser cleanup: ${err}`);
+  if (periodicBrowserCleanupRunning) return;
+  periodicBrowserCleanupRunning = true;
+
+  await acquireBrowserCreationLock();
+  try {
+    if (browser && activePages === 0) {
+      logger.debug('Performing periodic browser cleanup');
+      await closeBrowserWithTimeout(browser, 'Puppeteer periodic browser close');
     }
+  } finally {
+    releaseBrowserCreationLock();
+    periodicBrowserCleanupRunning = false;
   }
 }, 5 * 60 * 1000); // Every 5 minutes
 
