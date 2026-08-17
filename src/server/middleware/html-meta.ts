@@ -304,7 +304,7 @@ export const htmlMetaMiddleware = async (
         );
         const canonicalPath = req.path;
         const pageUrl = `${clientUrlEnv}${canonicalPath}`;
-        const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/pass/${id}`;
+        const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/pass/${id}?wait=og`;
 
         metaTags = `
           <title>${pageTitle} | ${SITE_NAME}</title>
@@ -362,7 +362,7 @@ export const htmlMetaMiddleware = async (
         );
         const canonicalPath = req.path;
         const pageUrl = `${clientUrlEnv}${canonicalPath}`;
-        const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/level/${id}`;
+        const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/level/${id}?wait=og`;
 
         metaTags = `
           <title>${pageTitle} | ${SITE_NAME}</title>
@@ -431,7 +431,7 @@ export const htmlMetaMiddleware = async (
         );
         const canonicalPath = `/rating/${id}`;
         const pageUrl = `${clientUrlEnv}${canonicalPath}`;
-        const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/rating/${id}`;
+        const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/rating/${id}?wait=og`;
 
         metaTags = `
           <title>${pageTitle} | ${SITE_NAME}</title>
@@ -483,7 +483,7 @@ export const htmlMetaMiddleware = async (
         );
         const canonicalPath = req.path;
         const pageUrl = `${clientUrlEnv}${canonicalPath}`;
-        const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/player/${id}`;
+        const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/player/${id}?wait=og`;
 
         metaTags = `
           <title>${pageTitle} | ${SITE_NAME}</title>
@@ -539,7 +539,7 @@ export const htmlMetaMiddleware = async (
         );
         const canonicalPath = `/packs/${pack.linkCode}`;
         const pageUrl = `${clientUrlEnv}${canonicalPath}`;
-        const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/pack/${pack.linkCode}`;
+        const thumbnailUrl = `${ownUrl}/v2/media/thumbnail/pack/${pack.linkCode}?wait=og`;
 
         metaTags = `
           <title>${pageTitle} - Pack | ${SITE_NAME}</title>

@@ -33,6 +33,13 @@ import LevelTag from '@/models/levels/LevelTag.js';
 import { getSongDisplayName, getArtistDisplayName, formatDuration } from '@/misc/utils/data/levelHelpers.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
+import {
+  outputFileNameFromPath,
+  renderHtmlToPng,
+  sendThumbnailRenderError,
+  thumbnailGenerationKey,
+  thumbnailWaitMs,
+} from '@/externalServices/thumbnailWorker/renderClient.js';
 
 dotenv.config();
 
@@ -287,7 +294,10 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
     const largeCachePath = isRatingEmbed
       ? getThumbnailPathForEntity(levelId, 'rating', 'LARGE')
       : getThumbnailPath(levelId, 'LARGE');
-    const promiseKey = `${isRatingEmbed ? 'rating' : 'level'}-${levelId}`;
+    const promiseKey = thumbnailGenerationKey(
+      `${isRatingEmbed ? 'rating' : 'level'}-${levelId}`,
+      req,
+    );
 
     // Clean expired cache file
     cleanExpiredCache(largeCachePath);
@@ -809,7 +819,16 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
           await exportHtmlToFile(html, isRatingEmbed ? 'rating' : 'level', levelId);
 
           // Convert to PNG
-          const buffer = await htmlToPng(html, width, height);
+          const buffer = await renderHtmlToPng({
+            entityType: isRatingEmbed ? 'rating' : 'level',
+            entityId: levelId,
+            html,
+            outputFileName: outputFileNameFromPath(largeCachePath),
+            width,
+            height,
+            waitMs: thumbnailWaitMs(req),
+            localRender: () => htmlToPng(html, width, height),
+          });
 
           // Save the LARGE version to cache
           await fs.promises.writeFile(largeCachePath, buffer);
@@ -890,6 +909,7 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
     logWithCondition('Memory usage after generation', 'thumbnail');
     return;
   } catch (error) {
+    if (sendThumbnailRenderError(res, error)) return;
     if (error instanceof Error && error.message.startsWith('Video details not found')) {
       logger.debug(`Error generating image for ${isRatingEmbed ? 'rating' : 'level'} ${req.params.levelId} due to missing video details`);
       return res.status(404).send('Generation failed: missing video details');
@@ -923,7 +943,7 @@ router.get(
     description: 'Returns thumbnail image for a level',
     tags: ['Media'],
     params: { levelId: { schema: { type: 'string' } } },
-    responses: { 200: { description: 'Image' }, 404: { description: 'Not found' } },
+    responses: { 200: { description: 'Image' }, 204: { description: 'Image is still processing' }, 404: { description: 'Not found' }, 503: { description: 'Renderer unavailable' } },
   }),
   handleLevelStyleThumbnail,
 );
@@ -936,7 +956,7 @@ router.get(
     description: 'Returns thumbnail image for a pending level rating (manager/community averages instead of PP/clears)',
     tags: ['Media'],
     params: { levelId: { schema: { type: 'string' } } },
-    responses: { 200: { description: 'Image' }, 404: { description: 'Not found' } },
+    responses: { 200: { description: 'Image' }, 204: { description: 'Image is still processing' }, 404: { description: 'Not found' }, 503: { description: 'Renderer unavailable' } },
   }),
   handleLevelStyleThumbnail,
 );
@@ -944,7 +964,7 @@ router.get(
 // Player thumbnail route
 router.get(
   '/thumbnail/player/:id([0-9]{1,20})',
-  ApiDoc({ operationId: 'getThumbnailPlayer', summary: 'Player thumbnail', tags: ['Media'], params: { id: idParamSpec }, responses: { 200: { description: 'Image' }, 404: { description: 'Not found' } } }),
+  ApiDoc({ operationId: 'getThumbnailPlayer', summary: 'Player thumbnail', tags: ['Media'], params: { id: idParamSpec }, responses: { 200: { description: 'Image' }, 204: { description: 'Image is still processing' }, 404: { description: 'Not found' }, 503: { description: 'Renderer unavailable' } } }),
   async (req: Request, res: Response) => {
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
@@ -964,7 +984,7 @@ router.get(
     logWithCondition(`Thumbnail requested for player ${playerId} with size ${size}`, 'thumbnail');
 
     const largeCachePath = getThumbnailPathForEntity(playerId, 'player', 'LARGE');
-    const promiseKey = `player-${playerId}`;
+    const promiseKey = thumbnailGenerationKey(`player-${playerId}`, req);
 
     cleanExpiredCache(largeCachePath);
 
@@ -1115,7 +1135,16 @@ router.get(
           // Export HTML to file for review
           await exportHtmlToFile(html, 'player', playerId);
 
-          const buffer = await htmlToPng(html, width, height);
+          const buffer = await renderHtmlToPng({
+            entityType: 'player',
+            entityId: playerId,
+            html,
+            outputFileName: outputFileNameFromPath(largeCachePath),
+            width,
+            height,
+            waitMs: thumbnailWaitMs(req),
+            localRender: () => htmlToPng(html, width, height),
+          });
           await fs.promises.writeFile(largeCachePath, buffer);
           logWithCondition(`Saved LARGE thumbnail for player ${playerId} to cache`, 'thumbnail');
 
@@ -1181,6 +1210,7 @@ router.get(
     res.send(resizedBuffer);
     return;
   } catch (error) {
+    if (sendThumbnailRenderError(res, error)) return;
     logger.error(`Error generating image for player ${req.params.id}:`, error);
     return res.status(500).send('Error generating image');
   }
@@ -1189,7 +1219,7 @@ router.get(
 // Pass thumbnail route
 router.get(
   '/thumbnail/pass/:id([0-9]{1,20})',
-  ApiDoc({ operationId: 'getThumbnailPass', summary: 'Pass thumbnail', tags: ['Media'], params: { id: idParamSpec }, responses: { 200: { description: 'Image' }, 404: { description: 'Not found' } } }),
+  ApiDoc({ operationId: 'getThumbnailPass', summary: 'Pass thumbnail', tags: ['Media'], params: { id: idParamSpec }, responses: { 200: { description: 'Image' }, 204: { description: 'Image is still processing' }, 404: { description: 'Not found' }, 503: { description: 'Renderer unavailable' } } }),
   async (req: Request, res: Response) => {
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
@@ -1228,7 +1258,7 @@ router.get(
     logWithCondition(`Thumbnail requested for pass ${passId} with size ${size}`, 'thumbnail');
 
     const largeCachePath = getThumbnailPathForEntity(passId, 'pass', 'LARGE');
-    const promiseKey = `pass-${passId}`;
+    const promiseKey = thumbnailGenerationKey(`pass-${passId}`, req);
 
     cleanExpiredCache(largeCachePath);
 
@@ -1392,7 +1422,16 @@ router.get(
           // Export HTML to file for review
           await exportHtmlToFile(html, 'pass', passId);
 
-          const buffer = await htmlToPng(html, width, height);
+          const buffer = await renderHtmlToPng({
+            entityType: 'pass',
+            entityId: passId,
+            html,
+            outputFileName: outputFileNameFromPath(largeCachePath),
+            width,
+            height,
+            waitMs: thumbnailWaitMs(req),
+            localRender: () => htmlToPng(html, width, height),
+          });
           await fs.promises.writeFile(largeCachePath, buffer);
           logWithCondition(`Saved LARGE thumbnail for pass ${passId} to cache`, 'thumbnail');
 
@@ -1458,6 +1497,7 @@ router.get(
     res.send(resizedBuffer);
     return;
   } catch (error) {
+    if (sendThumbnailRenderError(res, error)) return;
     logger.error(`Error generating image for pass ${req.params.id}:`, error);
     return res.status(500).send('Error generating image');
   }
@@ -1466,7 +1506,7 @@ router.get(
 // Pack thumbnail route
 router.get(
   '/thumbnail/pack/:id([0-9A-Za-z]+)',
-  ApiDoc({ operationId: 'getThumbnailPack', summary: 'Pack thumbnail', tags: ['Media'], params: { id: idParamSpec }, responses: { 200: { description: 'Image' }, 404: { description: 'Not found' } } }),
+  ApiDoc({ operationId: 'getThumbnailPack', summary: 'Pack thumbnail', tags: ['Media'], params: { id: idParamSpec }, responses: { 200: { description: 'Image' }, 204: { description: 'Image is still processing' }, 404: { description: 'Not found' }, 503: { description: 'Renderer unavailable' } } }),
   async (req: Request, res: Response) => {
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
@@ -1537,7 +1577,7 @@ router.get(
     logWithCondition(`Thumbnail requested for pack ${resolvedPackId} with size ${size}`, 'thumbnail');
 
     const largeCachePath = getThumbnailPathForEntity(resolvedPackId, 'pack', 'LARGE');
-    const promiseKey = `pack-${resolvedPackId}`;
+    const promiseKey = thumbnailGenerationKey(`pack-${resolvedPackId}`, req);
 
     cleanExpiredCache(largeCachePath);
 
@@ -1876,7 +1916,16 @@ router.get(
           // Export HTML to file for review
           await exportHtmlToFile(html, 'pack', pack.linkCode);
 
-          const buffer = await htmlToPng(html, width, height);
+          const buffer = await renderHtmlToPng({
+            entityType: 'pack',
+            entityId: resolvedPackId,
+            html,
+            outputFileName: outputFileNameFromPath(largeCachePath),
+            width,
+            height,
+            waitMs: thumbnailWaitMs(req),
+            localRender: () => htmlToPng(html, width, height),
+          });
           await fs.promises.writeFile(largeCachePath, buffer);
           logWithCondition(`Saved LARGE thumbnail for pack ${resolvedPackId} to cache`, 'thumbnail');
 
@@ -1942,6 +1991,7 @@ router.get(
     res.send(resizedBuffer);
     return;
   } catch (error) {
+    if (sendThumbnailRenderError(res, error)) return;
     logger.error(`Error generating image for pack ${req.params.id}:`, error);
     return res.status(500).send('Error generating image');
   }

@@ -27,10 +27,22 @@ import { registerShutdownStep } from '@/server/bootstrap/shutdownCoordinator.js'
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import thumbnailsRouter from './thumbnails.js';
+import {
+  renderHtmlToPng,
+  sendThumbnailRenderError,
+  thumbnailWaitMs,
+} from '@/externalServices/thumbnailWorker/renderClient.js';
+import {THUMBNAIL_WORKER_CONFIG} from '@/externalServices/thumbnailWorker/config.js';
+import {
+  ensureThumbnailWorkerDirectories,
+  outputPath as thumbnailOutputPath,
+  writePngOutputAtomically,
+} from '@/externalServices/thumbnailWorker/fileStore.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
 const CACHE_PATH = process.env.CACHE_PATH || path.join(process.cwd(), 'cache');
+const WHEEL_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const execAsync = promisify(exec);
 
@@ -656,29 +668,32 @@ async function cleanupBrowser(): Promise<void> {
 // Browser cleanup registered with the shared shutdown coordinator; duplicate SIGINT/SIGTERM
 // handlers are owned centrally in processHandlers.ts. Uncaught exception / unhandled rejection
 // are also handled there, so we don't duplicate them here.
-registerShutdownStep({
-  name: 'puppeteer-browser',
-  priority: 40,
-  fn: () => cleanupBrowser(),
-});
+if (THUMBNAIL_WORKER_CONFIG.renderMode === 'local') {
+  registerShutdownStep({
+    name: 'puppeteer-browser',
+    priority: 40,
+    fn: () => cleanupBrowser(),
+  });
 
-// Add periodic browser cleanup
-let periodicBrowserCleanupRunning = false;
-setInterval(async () => {
-  if (periodicBrowserCleanupRunning) return;
-  periodicBrowserCleanupRunning = true;
+  // Queue mode never owns Chromium. Do not register legacy browser timers or
+  // process cleanup in the API once rendering has moved to the worker.
+  let periodicBrowserCleanupRunning = false;
+  setInterval(async () => {
+    if (periodicBrowserCleanupRunning) return;
+    periodicBrowserCleanupRunning = true;
 
-  await acquireBrowserCreationLock();
-  try {
-    if (browser && activePages === 0) {
-      logger.debug('Performing periodic browser cleanup');
-      await closeBrowserWithTimeout(browser, 'Puppeteer periodic browser close');
+    await acquireBrowserCreationLock();
+    try {
+      if (browser && activePages === 0) {
+        logger.debug('Performing periodic browser cleanup');
+        await closeBrowserWithTimeout(browser, 'Puppeteer periodic browser close');
+      }
+    } finally {
+      releaseBrowserCreationLock();
+      periodicBrowserCleanupRunning = false;
     }
-  } finally {
-    releaseBrowserCreationLock();
-    periodicBrowserCleanupRunning = false;
-  }
-}, 5 * 60 * 1000); // Every 5 minutes
+  }, 5 * 60 * 1000); // Every 5 minutes
+}
 
 const router: Router = express.Router();
 
@@ -1320,7 +1335,9 @@ router.get(
     params: { seed: { description: 'Numeric seed for wheel order', schema: { type: 'integer' } } },
     responses: {
       200: { description: 'PNG image' },
+      204: { description: 'Image is still processing' },
       400: { description: 'Invalid seed' },
+      503: { description: 'Renderer unavailable' },
       500: { description: 'Error generating image', schema: errorResponseSchema },
     },
   }),
@@ -1329,6 +1346,20 @@ router.get(
     const seed = parseInt(req.params.seed);
     if (isNaN(seed)) {
       return res.status(400).send('Invalid seed');
+    }
+
+    const wheelOutputFileName = `wheel_${seed}.png`;
+    await ensureThumbnailWorkerDirectories();
+    const wheelCachePath = thumbnailOutputPath(wheelOutputFileName);
+    try {
+      const stat = await fs.promises.stat(wheelCachePath);
+      if (stat.isFile() && Date.now() - stat.mtimeMs < WHEEL_CACHE_TTL_MS) {
+        res.set('Content-Type', 'image/png');
+        return res.send(await fs.promises.readFile(wheelCachePath));
+      }
+      await fs.promises.rm(wheelCachePath, {force: true});
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
 
     // Get levels with the same seed logic
@@ -1417,11 +1448,22 @@ router.get(
       </html>
     `;
 
-    const buffer = await htmlToPng(html, width, height);
+    const buffer = await renderHtmlToPng({
+      entityType: 'wheel',
+      entityId: seed,
+      html,
+      outputFileName: wheelOutputFileName,
+      width,
+      height,
+      waitMs: thumbnailWaitMs(req),
+      localRender: () => htmlToPng(html, width, height),
+    });
+    await writePngOutputAtomically(wheelOutputFileName, buffer);
 
     res.set('Content-Type', 'image/png');
     return res.send(buffer);
   } catch (error) {
+    if (sendThumbnailRenderError(res, error)) return;
     logger.error('Error generating wheel image:', error);
     return res.status(500).send('Error generating wheel image');
   }
