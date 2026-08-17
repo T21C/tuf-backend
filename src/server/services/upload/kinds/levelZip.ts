@@ -5,6 +5,7 @@ import { checkLevelOwnership } from '@/server/domain/levels/levelOwnership.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
+import { isPermissionBanActive } from '@/server/services/accounts/playerBanUtils.js';
 import {
   LEVEL_ZIP_MAX_FILE_SIZE_BYTES,
 } from '@/server/services/upload/kinds/levelZipLimits.js';
@@ -55,7 +56,9 @@ export const LevelZipUploadKind: UploadKind<LevelZipMeta, LevelZipResult> = {
       if (!forSubmission) {
         throw new UploadError(400, 'Missing levelId (or set meta.forSubmission to true for new submissions)');
       }
-      if (hasFlag(user, permissionFlags.BANNED)) throw new UploadError(403, 'You are banned');
+      if (isPermissionBanActive(user, user.player?.bannedUntil)) {
+        throw new UploadError(403, 'You are banned');
+      }
       if (hasFlag(user, permissionFlags.SUBMISSIONS_PAUSED)) throw new UploadError(403, 'Your submissions are paused');
       if (!hasFlag(user, permissionFlags.EMAIL_VERIFIED)) throw new UploadError(403, 'Your email is not verified');
       return { meta: { levelId: null, forSubmission: true } };

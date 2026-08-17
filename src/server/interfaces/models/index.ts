@@ -155,6 +155,8 @@ export interface IPlayer extends IBaseModel {
   name: string;
   country: string;
   isBanned: boolean;
+  /** Temporary ban expiry. Null with isBanned means permanent / not timed. */
+  bannedUntil?: Date | null;
   isSubmissionsPaused: boolean;
   pfp?: string | null;
   bio?: string | null;

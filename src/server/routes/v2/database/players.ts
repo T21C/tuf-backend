@@ -5,7 +5,6 @@ import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/index.js';
 import sequelize from '@/config/db.js';
-import {updateWorldsFirstFlags} from './passes/index.js';
 import User from '@/models/auth/User.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
@@ -35,6 +34,12 @@ import { hasFlag, setUserPermissionAndSave } from '@/misc/utils/auth/permissionU
 import { serializePlayer } from '@/misc/utils/server/jsonHelpers.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
+import {
+  computeBannedUntil,
+  parseBanDuration,
+  PlayerBanError,
+  setPlayerBanStatus,
+} from '@/server/services/accounts/PlayerBanService.js';
 import {appendPlayerAliasFromRename, migratePlayerAliasesOnMerge} from '@/server/services/aliases/nameChangeAliases.js';
 import PlayerAlias from '@/models/players/PlayerAlias.js';
 import {
@@ -870,126 +875,63 @@ router.put(
   }
 );
 
-// Add helper function to update all affected levels
-async function updateAffectedLevelsWorldsFirst(
-  playerId: number,
-  transaction?: any,
-) {
-  const affectedLevels = await Pass.findAll({
-    where: {
-      playerId,
-      isDeleted: false,
-    },
-    attributes: ['levelId'],
-    group: ['levelId'],
-    transaction,
-  });
-
-  const levelIds = new Set<number>();
-  const wfLevels = await Pass.findAll({
-    where: {playerId, isWorldsFirst: true},
-    attributes: ['levelId'],
-    group: ['levelId'],
-    transaction,
-  });
-  const wfppLevels = await Pass.findAll({
-    where: {playerId, isWorldsFirstPP: true},
-    attributes: ['levelId'],
-    group: ['levelId'],
-    transaction,
-  });
-  for (const row of [...affectedLevels, ...wfLevels, ...wfppLevels]) {
-    levelIds.add(row.levelId);
-  }
-
-  for (const levelId of levelIds) {
-    await updateWorldsFirstFlags(levelId, transaction);
-  }
-}
-
-// Update the ban/unban endpoint
 router.patch(
   '/:id([0-9]{1,20})/ban',
   Auth.superAdmin(),
   ApiDoc({
     operationId: 'patchPlayerBan',
     summary: 'Ban/unban player',
-    description: 'Set player ban status. Body: isBanned. Super admin.',
+    description:
+      'Set player ban status. Ban requires duration (1-999) and unit (hours|days|weeks|months). Unban only needs isBanned: false. Super admin.',
     tags: ['Database', 'Players'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
-    requestBody: { description: 'isBanned', schema: { type: 'object', properties: { isBanned: { type: 'boolean' } }, required: ['isBanned'] }, required: true },
-    responses: { 200: { description: 'Ban updated' }, ...standardErrorResponses404500 },
+    requestBody: {
+      description: 'isBanned; duration and unit required when banning',
+      schema: {
+        type: 'object',
+        properties: {
+          isBanned: { type: 'boolean' },
+          duration: { type: 'integer', minimum: 1, maximum: 999 },
+          unit: { type: 'string', enum: ['hours', 'days', 'weeks', 'months'] },
+        },
+        required: ['isBanned'],
+      },
+      required: true,
+    },
+    responses: { 200: { description: 'Ban updated' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-    let transaction: any;
     try {
-      transaction = await sequelize.transaction();
       const {id} = req.params;
       const {isBanned} = req.body;
-
-      const player = await Player.findByPk(id, {transaction,
-        include: [
-          {
-            model: User,
-            as: 'user',
-            attributes: ['id', 'playerId', 'nickname', 'avatarUrl', 'username', 'permissionFlags'],
-          }
-        ]
-      });
-      if (!player) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({error: 'Player not found'});
+      if (typeof isBanned !== 'boolean') {
+        return res.status(400).json({error: 'isBanned must be a boolean'});
       }
 
-      await player.update({isBanned}, {transaction});
-      if (player.user) {
-        await setUserPermissionAndSave(player.user, permissionFlags.BANNED, isBanned, transaction);
-      }
-      // Update world's first status for all affected levels
-      await updateAffectedLevelsWorldsFirst(player.id, transaction);
-
-      await transaction.commit();
-
-      // Invalidate user-specific cache if player has a user
-      if (player.user) {
-        await CacheInvalidation.invalidateUser(player.user.id);
-      }
-
-      // Reindex the banned/unbanned player; also reindex players affected by worlds-first shifts on their levels
-      await elasticsearchService.reindexPlayers([player.id]);
-      try {
-        const affectedPlayerIds = await Pass.findAll({
-          attributes: ['playerId'],
-          where: {
-            levelId: {
-              [Op.in]: (await Pass.findAll({
-                attributes: ['levelId'],
-                where: {playerId: player.id},
-                raw: true,
-              })).map(p => p.levelId).filter(Boolean),
-            },
-            playerId: {[Op.ne]: player.id},
-          },
-          raw: true,
+      const playerId = Number(id);
+      let player;
+      if (isBanned) {
+        const parsed = parseBanDuration({duration: req.body.duration, unit: req.body.unit});
+        player = await setPlayerBanStatus(playerId, {
+          isBanned: true,
+          bannedUntil: computeBannedUntil(parsed.duration, parsed.unit),
         });
-        const otherIds = Array.from(new Set(affectedPlayerIds.map(p => p.playerId).filter((x): x is number => !!x)));
-        if (otherIds.length > 0) {
-          await elasticsearchService.reindexPlayers(otherIds);
-        }
-      } catch (err) {
-        logger.warn('Failed to reindex players affected by ban worlds-first shift', err);
+      } else {
+        player = await setPlayerBanStatus(playerId, {isBanned: false});
       }
 
       return res.json({
         message: `Player ${isBanned ? 'banned' : 'unbanned'} successfully`,
         player: {
           ...serializePlayer(player),
-          isBanned: hasFlag(player.user, permissionFlags.BANNED) || player.isBanned
+          isBanned: hasFlag(player.user, permissionFlags.BANNED) || player.isBanned,
         },
       });
     } catch (error) {
-      await safeTransactionRollback(transaction);
+      if (error instanceof PlayerBanError) {
+        return res.status(error.status).json({error: error.message});
+      }
       logger.error('Error updating player ban status:', error);
       return res
         .status(500)
