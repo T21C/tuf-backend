@@ -42,6 +42,62 @@ function mysqlCliHost(): string {
   return host === 'localhost' ? '127.0.0.1' : host;
 }
 
+function mysqlCliPort(): string {
+  return (process.env.DB_PORT || '3306').trim() || '3306';
+}
+
+function escapeMysqlOptionFileValue(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function backupMysqlIdentity(): {user: string; password: string} {
+  const backupUser = process.env.BACKUP_DB_USER?.trim();
+  const backupPassword = process.env.BACKUP_DB_PASSWORD;
+  const production = process.env.NODE_ENV === 'production';
+
+  if (production) {
+    if (!backupUser || backupPassword === undefined || backupPassword === '') {
+      throw new Error(
+        'BACKUP_DB_USER and BACKUP_DB_PASSWORD must be set in production',
+      );
+    }
+    const appUser = process.env.DB_USER?.trim();
+    if (backupUser === appUser) {
+      throw new Error('BACKUP_DB_USER must differ from DB_USER');
+    }
+    return {user: backupUser, password: backupPassword};
+  }
+
+  return {
+    user: backupUser || process.env.DB_USER || '',
+    password: backupPassword ?? process.env.DB_PASSWORD ?? '',
+  };
+}
+
+async function withMysqlDefaultsFile<T>(
+  fn: (defaultsFile: string) => Promise<T>,
+): Promise<T> {
+  const identity = backupMysqlIdentity();
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tuf-mysql-cnf-'));
+  const cnfPath = path.join(dir, 'client.cnf');
+  const lines = [
+    '[client]',
+    `host=${escapeMysqlOptionFileValue(mysqlCliHost())}`,
+    `port=${mysqlCliPort()}`,
+    `user=${escapeMysqlOptionFileValue(identity.user)}`,
+    'protocol=TCP',
+  ];
+  if (identity.password !== '') {
+    lines.push(`password=${escapeMysqlOptionFileValue(identity.password)}`);
+  }
+  await fs.writeFile(cnfPath, `${lines.join('\n')}\n`, {mode: 0o600});
+  try {
+    return await fn(cnfPath);
+  } finally {
+    await fs.rm(dir, {recursive: true, force: true});
+  }
+}
+
 type BackupType = 'mysql';
 
 interface BackupStorageEntry {
@@ -264,53 +320,33 @@ export class BackupService {
 
     await fs.mkdir(path.dirname(filePath), {recursive: true});
 
-    let cmd: string;
-    const dumpFlags = '--single-transaction --quick';// --ignore-table=tuf_website.player_leaderboard_rank_events';
-    const dbHost = mysqlCliHost();
-    if (this.isWindows) {
-      const mysqlDumpPath = path.join(
-        process.env.MYSQL_PATH || '',
-        'mysqldump.exe',
+    const dumpFlags = '--single-transaction --quick';
+    const dumpBin = this.isWindows
+      ? `"${path.join(process.env.MYSQL_PATH || '', 'mysqldump.exe')}"`
+      : 'mysqldump';
+    const outputPath = this.isWindows ? filePath.replace(/\\/g, '/') : filePath;
+
+    await withMysqlDefaultsFile(async defaultsFile => {
+      const quotedCnf = this.isWindows
+        ? `"${defaultsFile.replace(/\\/g, '/')}"`
+        : `"${defaultsFile}"`;
+      await execAsync(
+        `${dumpBin} --defaults-extra-file=${quotedCnf} ${dumpFlags} ${DATABASE_NAME} > "${outputPath}"`,
+        {shell: this.isWindows ? 'cmd.exe' : '/bin/bash'},
       );
-      const outputPath = filePath.replace(/\\/g, '/');
-      cmd = `"${mysqlDumpPath}" ${dumpFlags} -h ${dbHost} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${outputPath}"`;
-    } else {
-      // --protocol=TCP: never fall back to a missing container socket path
-      cmd = `mysqldump ${dumpFlags} --protocol=TCP -h ${dbHost} -P ${process.env.DB_PORT || '3306'} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${filePath}"`;
-    }
-
-    return new Promise((resolve, reject) => {
-      exec(cmd, {shell: this.isWindows ? 'cmd.exe' : '/bin/bash'}, async error => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        try {
-          const savedPath = await this.storeBackupFromLocalPath(
-            filePath,
-            fileName,
-          );
-          resolve(savedPath);
-        } catch (storeError) {
-          reject(storeError);
-        }
-      });
     });
+
+    return this.storeBackupFromLocalPath(filePath, fileName);
   }
 
   async restoreMySQLBackup(backupPath: string) {
     const resolvedBackup = await this.resolveBackupPathForRestore(backupPath);
-    const dbHost = mysqlCliHost();
-    let cmd: string;
-    if (this.isWindows) {
-      const mysqlPath = path.join(process.env.MYSQL_PATH || '', 'mysql.exe');
-      const inputPath = resolvedBackup.path.replace(/\\/g, '/');
-      cmd = `"${mysqlPath}" -h ${dbHost} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} < "${inputPath}"`;
-    } else {
-      cmd = `mysql --protocol=TCP -h ${dbHost} -P ${process.env.DB_PORT || '3306'} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} < "${resolvedBackup.path}"`;
-    }
-
+    const mysqlBin = this.isWindows
+      ? `"${path.join(process.env.MYSQL_PATH || '', 'mysql.exe')}"`
+      : 'mysql';
+    const inputPath = this.isWindows
+      ? resolvedBackup.path.replace(/\\/g, '/')
+      : resolvedBackup.path;
     const shell = this.isWindows ? 'cmd.exe' : '/bin/bash';
 
     let stoppedCdcReaders = false;
@@ -333,7 +369,15 @@ export class BackupService {
       await resetCdcStreams(redisClient);
 
       logger.info(`Restoring MySQL backup from: ${resolvedBackup.path}`);
-      await execAsync(cmd, { shell });
+      await withMysqlDefaultsFile(async defaultsFile => {
+        const quotedCnf = this.isWindows
+          ? `"${defaultsFile.replace(/\\/g, '/')}"`
+          : `"${defaultsFile}"`;
+        await execAsync(
+          `${mysqlBin} --defaults-extra-file=${quotedCnf} ${DATABASE_NAME} < "${inputPath}"`,
+          {shell},
+        );
+      });
 
       logger.info(
         `MySQL backup restored successfully from: ${path.basename(backupPath)}`,
