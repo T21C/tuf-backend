@@ -1,5 +1,7 @@
 export const MAX_BATCH_SIZE = 4000;
 export const BATCH_SIZE = 500;
+/** Full-table ES rebuilds: keep one page of Sequelize graphs under the API heap cap. */
+export const FULL_REINDEX_PAGE_SIZE = 500;
 
 /** Debounce window for batched artist-related level reindexes (ms). */
 export const ARTIST_REINDEX_DEBOUNCE_MS = 30000;

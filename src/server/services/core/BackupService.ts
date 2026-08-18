@@ -384,12 +384,10 @@ export class BackupService {
       );
 
       const es = ElasticsearchService.getInstance();
-      await Promise.all([
-        es.reindexLevels(),
-        es.reindexPasses(),
-        es.reindexAllPlayers(),
-        es.reindexAllCreators(),
-      ]);
+      await es.reindexLevels();
+      await es.reindexPasses();
+      await es.reindexAllPlayers();
+      await es.reindexAllCreators();
       logger.info('Elasticsearch reindexed (levels, passes, players, creators)');
 
       await updateMappingHash({

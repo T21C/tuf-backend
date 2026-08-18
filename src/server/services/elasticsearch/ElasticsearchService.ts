@@ -18,7 +18,7 @@ import { searchLevels as runLevelSearch, searchLevelIds as runSearchLevelIds } f
 import { searchPasses as runPassSearch } from './search/passes/passSearch.js';
 import { searchPlayers as runPlayerSearch, PlayerSearchOptions, PlayerSearchResult } from './search/players/playerSearch.js';
 import { searchCreators as runCreatorSearch, hydrateCreatorUsers, CreatorSearchOptions, CreatorSearchResult } from './search/creators/creatorSearch.js';
-import { ARTIST_REINDEX_DEBOUNCE_MS, BATCH_SIZE, MAX_BATCH_SIZE } from './misc/constants.js';
+import { ARTIST_REINDEX_DEBOUNCE_MS, BATCH_SIZE, FULL_REINDEX_PAGE_SIZE, MAX_BATCH_SIZE } from './misc/constants.js';
 import { fetchLevelWithRelations, fetchLevelsForBulkIndex, clearEsIndexRelationCaches } from './fetching/levelFetch.js';
 import { fetchPassWithRelations, fetchPassesForBulkIndex, clearEsPassIndexRelationCaches, invalidateEsLevelCacheForLevelIds } from './fetching/passFetch.js';
 import { fetchPlayersForBulkIndex } from './fetching/playerFetch.js';
@@ -64,32 +64,18 @@ class ElasticsearchService {
         if (reindexedPlayers) logger.info('Reindexing players...');
         if (reindexedCreators) logger.info('Reindexing creators...');
         const start = Date.now();
-        await Promise.all([
-          reindexedLevels
-            ? this.reindexLevels().catch(error => {
-                logger.error('Failed to reindex levels:', error);
-                throw error;
-              })
-            : Promise.resolve(),
-          reindexedPasses
-            ? this.reindexPasses().catch(error => {
-                logger.error('Failed to reindex passes:', error);
-                throw error;
-              })
-            : Promise.resolve(),
-          reindexedPlayers
-            ? this.reindexAllPlayers().catch(error => {
-                logger.error('Failed to reindex players:', error);
-                throw error;
-              })
-            : Promise.resolve(),
-          reindexedCreators
-            ? this.reindexAllCreators().catch(error => {
-                logger.error('Failed to reindex creators:', error);
-                throw error;
-              })
-            : Promise.resolve(),
-        ]);
+        if (reindexedLevels) {
+          await this.reindexLevels();
+        }
+        if (reindexedPasses) {
+          await this.reindexPasses();
+        }
+        if (reindexedPlayers) {
+          await this.reindexAllPlayers();
+        }
+        if (reindexedCreators) {
+          await this.reindexAllCreators();
+        }
         const end = Date.now();
         logger.info(`Data reindexing completed successfully in ${Math.round((end - start)/100)/10}s`);
         await updateMappingHash({ reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators });
@@ -397,7 +383,7 @@ class ElasticsearchService {
             where: { id: { [Op.gt]: afterId } },
             attributes: ['id'],
             order: [['id', 'ASC']],
-            limit: MAX_BATCH_SIZE,
+            limit: FULL_REINDEX_PAGE_SIZE,
             raw: true,
           });
           const idList = idRows.map((r: { id: number }) => r.id);
@@ -409,7 +395,7 @@ class ElasticsearchService {
           logger.debug(`Reindexed ${processedCount} levels...`);
 
           afterId = idList[idList.length - 1];
-          if (idList.length < MAX_BATCH_SIZE) break;
+          if (idList.length < FULL_REINDEX_PAGE_SIZE) break;
         }
       }
 
@@ -452,7 +438,7 @@ class ElasticsearchService {
             where: { id: { [Op.gt]: afterId } },
             attributes: ['id'],
             order: [['id', 'ASC']],
-            limit: MAX_BATCH_SIZE,
+            limit: FULL_REINDEX_PAGE_SIZE,
             raw: true,
           });
           const idList = idRows.map((r: { id: number }) => r.id);
@@ -464,7 +450,7 @@ class ElasticsearchService {
           logger.debug(`Reindexed ${processedCount} passes...`);
 
           afterId = idList[idList.length - 1];
-          if (idList.length < MAX_BATCH_SIZE) break;
+          if (idList.length < FULL_REINDEX_PAGE_SIZE) break;
         }
       }
 
@@ -581,7 +567,7 @@ class ElasticsearchService {
           where: { id: { [Op.gt]: afterId } },
           attributes: ['id'],
           order: [['id', 'ASC']],
-          limit: MAX_BATCH_SIZE,
+          limit: FULL_REINDEX_PAGE_SIZE,
           raw: true,
         });
         const idList = idRows.map((r: { id: number }) => r.id);
@@ -602,7 +588,7 @@ class ElasticsearchService {
         logger.debug(`Reindexed ${processedCount} players...`);
 
         afterId = idList[idList.length - 1];
-        if (idList.length < MAX_BATCH_SIZE) break;
+        if (idList.length < FULL_REINDEX_PAGE_SIZE) break;
       }
       logger.info(`Player reindexing complete. Total indexed: ${processedCount}`);
     } catch (error) {
@@ -750,7 +736,7 @@ class ElasticsearchService {
           where: { id: { [Op.gt]: afterId } },
           attributes: ['id'],
           order: [['id', 'ASC']],
-          limit: MAX_BATCH_SIZE,
+          limit: FULL_REINDEX_PAGE_SIZE,
           raw: true,
         });
         const idList = idRows.map((r: { id: number }) => r.id);
@@ -771,7 +757,7 @@ class ElasticsearchService {
         logger.debug(`Reindexed ${processedCount} creators...`);
 
         afterId = idList[idList.length - 1];
-        if (idList.length < MAX_BATCH_SIZE) break;
+        if (idList.length < FULL_REINDEX_PAGE_SIZE) break;
       }
       logger.info(`Creator reindexing complete. Total indexed: ${processedCount}`);
     } catch (error) {

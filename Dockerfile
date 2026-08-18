@@ -3,14 +3,13 @@
 # Expects a prebuilt `dist/` in the build context (CI: npm run build, then
 # getsentry/action-release injects debug IDs before this image build).
 # Local: run `npm run build` first, then `docker build`.
+#
+# Do not declare GIT_SHA until after apt/npm layers. An ENV that includes
+# the commit SHA would bust Chromium and `npm ci` on every build.
 
 FROM node:22-bookworm-slim AS build
 
-ARG GIT_SHA=
-
-ENV PUPPETEER_SKIP_DOWNLOAD=true \
-    GIT_SHA=${GIT_SHA} \
-    SENTRY_RELEASE=${GIT_SHA}
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 WORKDIR /app
 
@@ -26,20 +25,15 @@ RUN apt-get update \
 COPY package.json package-lock.json ./
 COPY eslint-plugin-tuf ./eslint-plugin-tuf
 RUN --mount=type=cache,target=/root/.npm npm ci
+RUN npm prune --omit=dev
 
 COPY dist ./dist
 
-RUN npm prune --omit=dev
-
 FROM node:22-bookworm-slim AS runtime
-
-ARG GIT_SHA=
 
 ENV NODE_ENV=production \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
-    PUPPETEER_SKIP_DOWNLOAD=true \
-    GIT_SHA=${GIT_SHA} \
-    SENTRY_RELEASE=${GIT_SHA}
+    PUPPETEER_SKIP_DOWNLOAD=true
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -65,6 +59,10 @@ COPY --from=build --chown=tuf:tuf /app/dist ./dist
 COPY --chown=tuf:tuf .sequelizerc ./
 COPY --chown=tuf:tuf src/config/config.cjs ./src/config/config.cjs
 COPY --chown=tuf:tuf src/database/migrations ./src/database/migrations
+
+ARG GIT_SHA=
+ENV GIT_SHA=${GIT_SHA} \
+    SENTRY_RELEASE=${GIT_SHA}
 
 USER 10001:10001
 CMD ["node", "dist/app.js"]
