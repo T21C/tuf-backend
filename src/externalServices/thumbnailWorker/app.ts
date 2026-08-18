@@ -35,6 +35,9 @@ const worker = new Worker<ThumbnailRenderJobData, ThumbnailRenderJobResult>(
     connection: createBullMqConnection(),
     prefix: THUMBNAIL_WORKER_CONFIG.queuePrefix,
     concurrency: THUMBNAIL_WORKER_CONFIG.concurrency,
+    lockDuration: THUMBNAIL_WORKER_CONFIG.jobLockMs,
+    stalledInterval: Math.max(5_000, Math.floor(THUMBNAIL_WORKER_CONFIG.jobLockMs / 4)),
+    maxStalledCount: 1,
     autorun: false,
   },
 );

@@ -3,15 +3,14 @@ import path from 'node:path';
 import type {Request, Response} from 'express';
 import type {ThumbnailEntityType} from './contracts.js';
 import {THUMBNAIL_WORKER_CONFIG} from './config.js';
-import {enqueueThumbnailRender, ThumbnailQueueUnavailableError} from './producer.js';
+import {ThumbnailQueueUnavailableError} from './producerHelpers.js';
 import {outputPath} from './fileStore.js';
+import {
+  ThumbnailRenderPendingError,
+} from './generationCoalesce.js';
 
-export class ThumbnailRenderPendingError extends Error {
-  constructor(readonly waitMs: number) {
-    super(`Thumbnail render is still processing after ${waitMs}ms`);
-    this.name = 'ThumbnailRenderPendingError';
-  }
-}
+export {ThumbnailRenderPendingError, awaitThumbnailGeneration} from './generationCoalesce.js';
+export {ThumbnailQueueUnavailableError} from './producerHelpers.js';
 
 interface RenderHtmlOptions {
   entityType: ThumbnailEntityType;
@@ -58,9 +57,12 @@ export function thumbnailWaitMs(req: Request): number {
   return resolveThumbnailWaitMs(req.query.wait);
 }
 
-export function thumbnailGenerationKey(base: string, req: Request): string {
-  if (THUMBNAIL_WORKER_CONFIG.renderMode === 'local') return base;
-  return `${base}-queue-${thumbnailWaitMs(req)}`;
+export function thumbnailGenerationWaitMs(): number {
+  return THUMBNAIL_WORKER_CONFIG.generationWaitMs;
+}
+
+export function thumbnailGenerationKey(base: string): string {
+  return base;
 }
 
 export async function renderHtmlToPng(options: RenderHtmlOptions): Promise<Buffer> {
@@ -71,6 +73,7 @@ export async function renderHtmlToPng(options: RenderHtmlOptions): Promise<Buffe
   const existing = await readOutputIfPresent(options.outputFileName);
   if (existing) return existing;
 
+  const {enqueueThumbnailRender} = await import('./producer.js');
   await enqueueThumbnailRender({
     entityType: options.entityType,
     entityId: options.entityId,

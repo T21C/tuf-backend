@@ -2,13 +2,17 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import imageFactory, { ImageProcessingError } from '@/externalServices/cdnService/services/imageFactory.js';
 import { CDN_CONFIG, IMAGE_TYPES, ImageType, ImageSize, MIME_TYPES } from '@/externalServices/cdnService/config.js';
 import { Request, Response, Router } from 'express';
+import { pipeline } from 'node:stream/promises';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import fs from 'fs';
 import path from 'path';
 import { cdnLocalTemp } from '@/externalServices/cdnService/infra/workspaces/cdnLocalTempManager.js';
 import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
 import { mimeTypeForImageExtension } from '@/externalServices/cdnService/services/imageProcessor.js';
-import { streamStorageObjectResponse } from '@/externalServices/cdnService/http/responses/streamStorageObjectResponse.js';
+import {
+    isClientAbortError,
+    streamStorageObjectResponse,
+} from '@/externalServices/cdnService/http/responses/streamStorageObjectResponse.js';
 
 /**
  * Image routes: sync processing today. If you add async / 202 + `X-Upload-Id` (or another job id),
@@ -79,22 +83,20 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Image file not found' });
         }
 
-        // Log access
-        /* 500 mb is not fun data to manage
-        await FileAccessLog.create({
-            fileId: file.id,
-            ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
-            userAgent: req.get('user-agent') || null
-        });
-        */
-
-        // also useless
-        //await file.increment('accessCount');
-
         res.setHeader('Content-Type', MIME_TYPES[file.type as ImageType]);
         res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
-        fs.createReadStream(fsPath).pipe(res);
+        try {
+            await pipeline(fs.createReadStream(fsPath), res);
+        } catch (error) {
+            if (isClientAbortError(error)) {
+                return;
+            }
+            throw error;
+        }
     } catch (error) {
+        if (isClientAbortError(error)) {
+            return;
+        }
         logger.error('Image delivery error:', error);
         if (!res.headersSent) {
             res.status(500).json({ error: 'Image delivery failed' });

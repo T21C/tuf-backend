@@ -3,7 +3,7 @@ import { Readable, Writable } from 'node:stream';
 import test from 'node:test';
 import type { Response } from 'express';
 
-import { streamStorageObjectResponse } from './streamStorageObjectResponse.js';
+import { isClientAbortError, streamStorageObjectResponse } from './streamStorageObjectResponse.js';
 
 class ResponseSink extends Writable {
     readonly chunks: Buffer[] = [];
@@ -43,4 +43,27 @@ void test('storage image response streams bytes without redirecting to the publi
     assert.equal(response.headers.get('content-type'), 'image/png');
     assert.equal(response.headers.get('cache-control'), 'public, max-age=31536000, immutable');
     assert.equal(response.headers.has('location'), false);
+});
+
+void test('client abort during stream is ignored', async () => {
+    const response = new ResponseSink();
+    response.destroy();
+
+    await streamStorageObjectResponse(response as unknown as Response, {
+        storagePath: 'images/difficulty_icon/file-id/original.png',
+        contentType: 'image/png',
+        cacheControl: 'public, max-age=31536000, immutable',
+        openStream: async () => Readable.from([Buffer.from('image-bytes')]),
+    });
+});
+
+void test('isClientAbortError matches stream close codes', () => {
+    assert.equal(isClientAbortError(Object.assign(new Error('Premature close'), {
+        code: 'ERR_STREAM_PREMATURE_CLOSE',
+    })), true);
+    assert.equal(isClientAbortError(Object.assign(new Error('Cannot pipe'), {
+        code: 'ERR_STREAM_UNABLE_TO_PIPE',
+    })), true);
+    assert.equal(isClientAbortError(Object.assign(new Error('aborted'), { name: 'AbortError' })), true);
+    assert.equal(isClientAbortError(new Error('R2 timeout')), false);
 });

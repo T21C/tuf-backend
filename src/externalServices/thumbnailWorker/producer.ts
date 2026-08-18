@@ -3,7 +3,6 @@ import {type JobsOptions} from 'bullmq';
 import {
   addThumbnailRenderJob,
   getThumbnailRenderQueue,
-  thumbnailRenderJobId,
 } from './queue.js';
 import {
   assertSafeFileName,
@@ -12,13 +11,17 @@ import {
 } from './fileStore.js';
 import type {ThumbnailEntityType} from './contracts.js';
 import {THUMBNAIL_WORKER_CONFIG} from './config.js';
+import {
+  isDuplicateJobIdError,
+  shouldReuseExistingThumbnailJob,
+  thumbnailRenderJobId,
+  ThumbnailQueueUnavailableError,
+} from './producerHelpers.js';
 
-export class ThumbnailQueueUnavailableError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = 'ThumbnailQueueUnavailableError';
-  }
-}
+export {
+  shouldReuseExistingThumbnailJob,
+  ThumbnailQueueUnavailableError,
+} from './producerHelpers.js';
 
 export interface EnqueueThumbnailRenderInput {
   entityType: ThumbnailEntityType;
@@ -39,7 +42,11 @@ export async function enqueueThumbnailRender(
     const queue = getThumbnailRenderQueue();
     const jobId = thumbnailRenderJobId(input.outputFileName);
     const existingJob = await queue.getJob(jobId);
-    if (existingJob) return existingJob;
+    if (existingJob) {
+      const state = await existingJob.getState();
+      if (shouldReuseExistingThumbnailJob(state)) return existingJob;
+      await existingJob.remove().catch(() => undefined);
+    }
 
     const [waiting, delayed] = await Promise.all([
       queue.getWaitingCount(),
@@ -54,20 +61,28 @@ export async function enqueueThumbnailRender(
     const inputFileName = `${input.outputFileName.slice(0, -4)}.html`;
     await writeHtmlInputAtomically(inputFileName, input.html);
 
-    return await addThumbnailRenderJob(
-      {
-        version: 1,
-        requestId: input.requestId || randomUUID(),
-        entityType: input.entityType,
-        entityId: String(input.entityId),
-        inputFileName,
-        outputFileName: input.outputFileName,
-        width: input.width,
-        height: input.height,
-        enqueuedAt: new Date().toISOString(),
-      },
-      jobOptions,
-    );
+    try {
+      return await addThumbnailRenderJob(
+        {
+          version: 1,
+          requestId: input.requestId || randomUUID(),
+          entityType: input.entityType,
+          entityId: String(input.entityId),
+          inputFileName,
+          outputFileName: input.outputFileName,
+          width: input.width,
+          height: input.height,
+          enqueuedAt: new Date().toISOString(),
+        },
+        jobOptions,
+      );
+    } catch (error) {
+      if (isDuplicateJobIdError(error)) {
+        const raced = await queue.getJob(jobId);
+        if (raced) return raced;
+      }
+      throw error;
+    }
   } catch (error) {
     if (error instanceof ThumbnailQueueUnavailableError) throw error;
     throw new ThumbnailQueueUnavailableError('Thumbnail render queue is unavailable', {

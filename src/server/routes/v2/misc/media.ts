@@ -28,8 +28,10 @@ import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import thumbnailsRouter from './thumbnails.js';
 import {
+  awaitThumbnailGeneration,
   renderHtmlToPng,
   sendThumbnailRenderError,
+  thumbnailGenerationWaitMs,
   thumbnailWaitMs,
 } from '@/externalServices/thumbnailWorker/renderClient.js';
 import {THUMBNAIL_WORKER_CONFIG} from '@/externalServices/thumbnailWorker/config.js';
@@ -1362,6 +1364,10 @@ router.get(
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
 
+    const buffer = await awaitThumbnailGeneration({
+      key: `wheel-${seed}`,
+      waitMs: thumbnailWaitMs(req),
+      produce: async () => {
     // Get levels with the same seed logic
     const levels = await Level.findAll({
       where: {
@@ -1448,17 +1454,20 @@ router.get(
       </html>
     `;
 
-    const buffer = await renderHtmlToPng({
+    const png = await renderHtmlToPng({
       entityType: 'wheel',
       entityId: seed,
       html,
       outputFileName: wheelOutputFileName,
       width,
       height,
-      waitMs: thumbnailWaitMs(req),
+      waitMs: thumbnailGenerationWaitMs(),
       localRender: () => htmlToPng(html, width, height),
     });
-    await writePngOutputAtomically(wheelOutputFileName, buffer);
+    await writePngOutputAtomically(wheelOutputFileName, png);
+    return png;
+      },
+    });
 
     res.set('Content-Type', 'image/png');
     return res.send(buffer);

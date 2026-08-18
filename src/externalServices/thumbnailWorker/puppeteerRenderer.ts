@@ -16,16 +16,29 @@ class PuppeteerTimeoutError extends Error {
   }
 }
 
-async function withTimeout<T>(operation: string, timeoutMs: number, promise: Promise<T>): Promise<T> {
+async function withTimeout<T>(
+  operation: string,
+  timeoutMs: number,
+  promise: Promise<T>,
+  onTimeout?: () => void,
+): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new PuppeteerTimeoutError(operation, timeoutMs)), timeoutMs);
+    timer = setTimeout(() => {
+      try {
+        onTimeout?.();
+      } catch {
+        // Best-effort abort; the timeout error is the one callers handle.
+      }
+      reject(new PuppeteerTimeoutError(operation, timeoutMs));
+    }, timeoutMs);
   });
 
   try {
     return await Promise.race([promise, timeout]);
   } finally {
     if (timer) clearTimeout(timer);
+    void promise.catch(() => undefined);
   }
 }
 
@@ -123,11 +136,15 @@ export class PuppeteerRenderer {
         let page: Page | null = null;
 
         try {
-          page = await withTimeout(
+          const openedPage = await withTimeout(
             'Puppeteer page creation',
             PAGE_CREATE_TIMEOUT_MS,
             browser.newPage(),
           );
+          page = openedPage;
+          const abortPage = () => {
+            void openedPage.close().catch(() => undefined);
+          };
           page.on('error', error => logger.warn('[thumbnail-worker] page error', error));
           page.on('console', message => logger.debug('[thumbnail-worker] page console', message.text()));
 
@@ -135,21 +152,25 @@ export class PuppeteerRenderer {
             'Puppeteer JavaScript setup',
             PAGE_SETUP_TIMEOUT_MS,
             page.setJavaScriptEnabled(false),
+            abortPage,
           );
           await withTimeout(
             'Puppeteer viewport setup',
             PAGE_SETUP_TIMEOUT_MS,
             page.setViewport({width, height}),
+            abortPage,
           );
           await withTimeout(
             'Puppeteer HTML rendering',
             PAGE_CONTENT_TIMEOUT_MS,
             page.setContent(html, {timeout: PAGE_CONTENT_TIMEOUT_MS, waitUntil: 'load'}),
+            abortPage,
           );
           const screenshot = await withTimeout(
             'Puppeteer screenshot',
             SCREENSHOT_TIMEOUT_MS,
             page.screenshot({type: 'png', omitBackground: true}),
+            abortPage,
           );
           return Buffer.from(screenshot);
         } catch (error) {
