@@ -8,7 +8,10 @@ import { Transaction } from 'sequelize';
 import axios from 'axios';
 import path from 'path';
 import { mimeTypeForImageExtension } from '@/externalServices/cdnService/services/imageProcessor.js';
-import { streamStorageObjectResponse } from '@/externalServices/cdnService/http/responses/streamStorageObjectResponse.js';
+import {
+    isClientAbortError,
+    streamStorageObjectResponse,
+} from '@/externalServices/cdnService/http/responses/streamStorageObjectResponse.js';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -222,6 +225,9 @@ router.get('/:fileId', async (req: Request, res: Response) => {
 
         await file.increment('accessCount');
     } catch (error) {
+        if (isClientAbortError(error)) {
+            return;
+        }
         logger.error('File delivery error:', {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined

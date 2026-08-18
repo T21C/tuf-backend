@@ -34,19 +34,18 @@ import { getSongDisplayName, getArtistDisplayName, formatDuration } from '@/misc
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import {
+  awaitThumbnailGeneration,
   outputFileNameFromPath,
   renderHtmlToPng,
   sendThumbnailRenderError,
   thumbnailGenerationKey,
+  thumbnailGenerationWaitMs,
   thumbnailWaitMs,
 } from '@/externalServices/thumbnailWorker/renderClient.js';
 
 dotenv.config();
 
 const CACHE_PATH = process.env.CACHE_PATH || path.join(process.cwd(), 'cache');
-
-// Promise map for tracking ongoing thumbnail generation
-const thumbnailGenerationPromises = new Map<string, Promise<Buffer>>();
 
 // Define size presets
 const THUMBNAIL_SIZES = {
@@ -119,24 +118,8 @@ function cleanExpiredCacheDirectory(directory: string): void {
   }
 }
 
-// Function to clean all expired cache files
 function cleanAllExpiredCache(): void {
   cleanExpiredCacheDirectory(THUMBNAILS_CACHE_DIR);
-
-  // Also clean up any stale promises that might be hanging around
-  const now = Date.now();
-  const MAX_PROMISE_AGE = 5 * 60 * 1000; // 5 minutes
-
-  // Add timestamp to promises if not present
-  for (const [key, promise] of thumbnailGenerationPromises.entries()) {
-    if (!(promise as any).__timestamp) {
-      (promise as any).__timestamp = now;
-    } else if (now - (promise as any).__timestamp > MAX_PROMISE_AGE) {
-      // Clean up promises older than MAX_PROMISE_AGE
-      logger.debug(`Removing stale thumbnail generation promise for ${key}`);
-      thumbnailGenerationPromises.delete(key);
-    }
-  }
 }
 
 // Start periodic cleanup
@@ -176,8 +159,8 @@ async function resolvePackId(param: string): Promise<number | null> {
   return null;
 }
 
-// Set EXPORT_THUMBNAIL_HTML=false to disable. Default: on (local review of generated cards).
-const EXPORT_THUMBNAIL_HTML = process.env.EXPORT_THUMBNAIL_HTML !== 'false';
+// Set EXPORT_THUMBNAIL_HTML=true to dump generated cards for local review.
+const EXPORT_THUMBNAIL_HTML = process.env.EXPORT_THUMBNAIL_HTML === 'true';
 
 // Function to export HTML to file for review
 async function exportHtmlToFile(html: string, entityType: 'level' | 'player' | 'pass' | 'pack' | 'rating', entityId: number | string): Promise<void> {
@@ -296,7 +279,6 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
       : getThumbnailPath(levelId, 'LARGE');
     const promiseKey = thumbnailGenerationKey(
       `${isRatingEmbed ? 'rating' : 'level'}-${levelId}`,
-      req,
     );
 
     // Clean expired cache file
@@ -308,32 +290,10 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
       logWithCondition(`Using cached LARGE thumbnail for level ${levelId}`, 'thumbnail');
       largeBuffer = await fs.promises.readFile(largeCachePath);
     } else {
-      // Check if generation is already in progress
-      if (thumbnailGenerationPromises.has(promiseKey)) {
-        logWithCondition(`Thumbnail generation for level ${levelId} already in progress, waiting...`, 'thumbnail');
-        try {
-          largeBuffer = await thumbnailGenerationPromises.get(promiseKey)!;
-
-          // Verify the file was actually saved
-          if (!fs.existsSync(largeCachePath)) {
-            logger.warn(`Promise resolved but thumbnail file not found for level ${levelId}, regenerating...`);
-            // Remove the promise and continue to regeneration
-            thumbnailGenerationPromises.delete(promiseKey);
-          } else {
-            logWithCondition(`Successfully obtained thumbnail from concurrent generation for level ${levelId}`, 'thumbnail');
-          }
-        } catch (error) {
-          if (error instanceof Error && !error.message.includes('Video details not found')) {
-            logger.warn(`Error while waiting for concurrent thumbnail generation for level ${levelId}:`, error);
-          }
-          thumbnailGenerationPromises.delete(promiseKey);
-        }
-      }
-
-      // If we don't have the buffer yet (no concurrent generation or it failed)
-      if (!largeBuffer) {
-        // Create a new generation promise
-        const generationPromise = (async () => {
+      largeBuffer = await awaitThumbnailGeneration({
+        key: promiseKey,
+        waitMs: thumbnailWaitMs(req),
+        produce: async () => {
           logWithCondition(`Generating new thumbnail for level ${levelId}`, 'thumbnail');
 
           const level = await Level.findOne({
@@ -826,7 +786,7 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
             outputFileName: outputFileNameFromPath(largeCachePath),
             width,
             height,
-            waitMs: thumbnailWaitMs(req),
+            waitMs: thumbnailGenerationWaitMs(),
             localRender: () => htmlToPng(html, width, height),
           });
 
@@ -835,23 +795,8 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
           logWithCondition(`Saved LARGE thumbnail for level ${levelId} to cache`, 'thumbnail');
 
           return buffer;
-        })();
-
-        // Store the promise in the map
-        thumbnailGenerationPromises.set(promiseKey, generationPromise);
-
-        try {
-          // Wait for the generation to complete
-          largeBuffer = await generationPromise;
-        } catch (error) {
-          // If any error occurs, clean up the promise and rethrow
-          thumbnailGenerationPromises.delete(promiseKey);
-          throw error;
-        }
-
-        // Clean up the promise after successful completion
-        thumbnailGenerationPromises.delete(promiseKey);
-      }
+        },
+      });
     }
 
     // Validate buffer exists and is valid
@@ -984,7 +929,7 @@ router.get(
     logWithCondition(`Thumbnail requested for player ${playerId} with size ${size}`, 'thumbnail');
 
     const largeCachePath = getThumbnailPathForEntity(playerId, 'player', 'LARGE');
-    const promiseKey = thumbnailGenerationKey(`player-${playerId}`, req);
+    const promiseKey = thumbnailGenerationKey(`player-${playerId}`);
 
     cleanExpiredCache(largeCachePath);
 
@@ -993,24 +938,10 @@ router.get(
       logWithCondition(`Using cached LARGE thumbnail for player ${playerId}`, 'thumbnail');
       largeBuffer = await fs.promises.readFile(largeCachePath);
     } else {
-      if (thumbnailGenerationPromises.has(promiseKey)) {
-        logWithCondition(`Thumbnail generation for player ${playerId} already in progress, waiting...`, 'thumbnail');
-        try {
-          largeBuffer = await thumbnailGenerationPromises.get(promiseKey)!;
-          if (!fs.existsSync(largeCachePath)) {
-            logger.warn(`Promise resolved but thumbnail file not found for player ${playerId}, regenerating...`);
-            thumbnailGenerationPromises.delete(promiseKey);
-          } else {
-            logWithCondition(`Successfully obtained thumbnail from concurrent generation for player ${playerId}`, 'thumbnail');
-          }
-        } catch (error) {
-          logger.warn(`Error while waiting for concurrent thumbnail generation for player ${playerId}:`, error);
-          thumbnailGenerationPromises.delete(promiseKey);
-        }
-      }
-
-      if (!largeBuffer) {
-        const generationPromise = (async () => {
+      largeBuffer = await awaitThumbnailGeneration({
+        key: promiseKey,
+        waitMs: thumbnailWaitMs(req),
+        produce: async () => {
           logWithCondition(`Generating new thumbnail for player ${playerId}`, 'thumbnail');
 
           const {width, height, multiplier} = THUMBNAIL_SIZES.LARGE;
@@ -1142,26 +1073,15 @@ router.get(
             outputFileName: outputFileNameFromPath(largeCachePath),
             width,
             height,
-            waitMs: thumbnailWaitMs(req),
+            waitMs: thumbnailGenerationWaitMs(),
             localRender: () => htmlToPng(html, width, height),
           });
           await fs.promises.writeFile(largeCachePath, buffer);
           logWithCondition(`Saved LARGE thumbnail for player ${playerId} to cache`, 'thumbnail');
 
           return buffer;
-        })();
-
-        thumbnailGenerationPromises.set(promiseKey, generationPromise);
-
-        try {
-          largeBuffer = await generationPromise;
-        } catch (error) {
-          thumbnailGenerationPromises.delete(promiseKey);
-          throw error;
-        }
-
-        thumbnailGenerationPromises.delete(promiseKey);
-      }
+        },
+      });
     }
 
     // Validate buffer exists and is valid
@@ -1258,7 +1178,7 @@ router.get(
     logWithCondition(`Thumbnail requested for pass ${passId} with size ${size}`, 'thumbnail');
 
     const largeCachePath = getThumbnailPathForEntity(passId, 'pass', 'LARGE');
-    const promiseKey = thumbnailGenerationKey(`pass-${passId}`, req);
+    const promiseKey = thumbnailGenerationKey(`pass-${passId}`);
 
     cleanExpiredCache(largeCachePath);
 
@@ -1267,24 +1187,10 @@ router.get(
       logWithCondition(`Using cached LARGE thumbnail for pass ${passId}`, 'thumbnail');
       largeBuffer = await fs.promises.readFile(largeCachePath);
     } else {
-      if (thumbnailGenerationPromises.has(promiseKey)) {
-        logWithCondition(`Thumbnail generation for pass ${passId} already in progress, waiting...`, 'thumbnail');
-        try {
-          largeBuffer = await thumbnailGenerationPromises.get(promiseKey)!;
-          if (!fs.existsSync(largeCachePath)) {
-            logger.warn(`Promise resolved but thumbnail file not found for pass ${passId}, regenerating...`);
-            thumbnailGenerationPromises.delete(promiseKey);
-          } else {
-            logWithCondition(`Successfully obtained thumbnail from concurrent generation for pass ${passId}`, 'thumbnail');
-          }
-        } catch (error) {
-          logger.warn(`Error while waiting for concurrent thumbnail generation for pass ${passId}:`, error);
-          thumbnailGenerationPromises.delete(promiseKey);
-        }
-      }
-
-      if (!largeBuffer) {
-        const generationPromise = (async () => {
+      largeBuffer = await awaitThumbnailGeneration({
+        key: promiseKey,
+        waitMs: thumbnailWaitMs(req),
+        produce: async () => {
           logWithCondition(`Generating new thumbnail for pass ${passId}`, 'thumbnail');
 
           const {width, height, multiplier} = THUMBNAIL_SIZES.LARGE;
@@ -1429,26 +1335,15 @@ router.get(
             outputFileName: outputFileNameFromPath(largeCachePath),
             width,
             height,
-            waitMs: thumbnailWaitMs(req),
+            waitMs: thumbnailGenerationWaitMs(),
             localRender: () => htmlToPng(html, width, height),
           });
           await fs.promises.writeFile(largeCachePath, buffer);
           logWithCondition(`Saved LARGE thumbnail for pass ${passId} to cache`, 'thumbnail');
 
           return buffer;
-        })();
-
-        thumbnailGenerationPromises.set(promiseKey, generationPromise);
-
-        try {
-          largeBuffer = await generationPromise;
-        } catch (error) {
-          thumbnailGenerationPromises.delete(promiseKey);
-          throw error;
-        }
-
-        thumbnailGenerationPromises.delete(promiseKey);
-      }
+        },
+      });
     }
 
     // Validate buffer exists and is valid
@@ -1577,7 +1472,7 @@ router.get(
     logWithCondition(`Thumbnail requested for pack ${resolvedPackId} with size ${size}`, 'thumbnail');
 
     const largeCachePath = getThumbnailPathForEntity(resolvedPackId, 'pack', 'LARGE');
-    const promiseKey = thumbnailGenerationKey(`pack-${resolvedPackId}`, req);
+    const promiseKey = thumbnailGenerationKey(`pack-${resolvedPackId}`);
 
     cleanExpiredCache(largeCachePath);
 
@@ -1586,24 +1481,10 @@ router.get(
       logWithCondition(`Using cached LARGE thumbnail for pack ${resolvedPackId}`, 'thumbnail');
       largeBuffer = await fs.promises.readFile(largeCachePath);
     } else {
-      if (thumbnailGenerationPromises.has(promiseKey)) {
-        logWithCondition(`Thumbnail generation for pack ${resolvedPackId} already in progress, waiting...`, 'thumbnail');
-        try {
-          largeBuffer = await thumbnailGenerationPromises.get(promiseKey)!;
-          if (!fs.existsSync(largeCachePath)) {
-            logger.warn(`Promise resolved but thumbnail file not found for pack ${resolvedPackId}, regenerating...`);
-            thumbnailGenerationPromises.delete(promiseKey);
-          } else {
-            logWithCondition(`Successfully obtained thumbnail from concurrent generation for pack ${resolvedPackId}`, 'thumbnail');
-          }
-        } catch (error) {
-          logger.warn(`Error while waiting for concurrent thumbnail generation for pack ${resolvedPackId}:`, error);
-          thumbnailGenerationPromises.delete(promiseKey);
-        }
-      }
-
-      if (!largeBuffer) {
-        const generationPromise = (async () => {
+      largeBuffer = await awaitThumbnailGeneration({
+        key: promiseKey,
+        waitMs: thumbnailWaitMs(req),
+        produce: async () => {
           logWithCondition(`Generating new thumbnail for pack ${resolvedPackId}`, 'thumbnail');
 
           const {width, height, multiplier} = THUMBNAIL_SIZES.LARGE;
@@ -1923,26 +1804,15 @@ router.get(
             outputFileName: outputFileNameFromPath(largeCachePath),
             width,
             height,
-            waitMs: thumbnailWaitMs(req),
+            waitMs: thumbnailGenerationWaitMs(),
             localRender: () => htmlToPng(html, width, height),
           });
           await fs.promises.writeFile(largeCachePath, buffer);
           logWithCondition(`Saved LARGE thumbnail for pack ${resolvedPackId} to cache`, 'thumbnail');
 
           return buffer;
-        })();
-
-        thumbnailGenerationPromises.set(promiseKey, generationPromise);
-
-        try {
-          largeBuffer = await generationPromise;
-        } catch (error) {
-          thumbnailGenerationPromises.delete(promiseKey);
-          throw error;
-        }
-
-        thumbnailGenerationPromises.delete(promiseKey);
-      }
+        },
+      });
     }
 
     // Validate buffer exists and is valid

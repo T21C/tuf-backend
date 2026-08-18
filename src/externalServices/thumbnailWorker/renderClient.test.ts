@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {Response} from 'express';
 import {
+  awaitThumbnailGeneration,
   resolveThumbnailWaitMs,
   sendThumbnailRenderError,
+  thumbnailGenerationWaitMs,
   ThumbnailRenderPendingError,
 } from './renderClient.js';
-import {ThumbnailQueueUnavailableError} from './producer.js';
-import {thumbnailRenderJobId} from './queue.js';
+import {ThumbnailQueueUnavailableError, thumbnailRenderJobId} from './producerHelpers.js';
 
 function responseRecorder() {
   const recorded = {
@@ -41,6 +42,7 @@ test('normal and OpenGraph requests use bounded wait contracts', () => {
   assert.equal(resolveThumbnailWaitMs(undefined), 5000);
   assert.equal(resolveThumbnailWaitMs('anything-else'), 5000);
   assert.equal(resolveThumbnailWaitMs('og'), 15000);
+  assert.equal(thumbnailGenerationWaitMs(), 600_000);
 });
 
 test('pending render maps to retryable 204 without cancelling the job', () => {
@@ -72,4 +74,48 @@ test('render job IDs deduplicate matching output without colliding entity types'
     thumbnailRenderJobId('level_69_LARGE.png'),
     thumbnailRenderJobId('rating_69_LARGE.png'),
   );
+});
+
+test('HTTP timeout does not restart in-flight thumbnail generation', async () => {
+  const key = `in-flight-${Date.now()}-${Math.random()}`;
+  let produceCount = 0;
+  const produce = async () => {
+    produceCount += 1;
+    await new Promise(resolve => setTimeout(resolve, 120));
+    return Buffer.from('png');
+  };
+
+  await assert.rejects(
+    () => awaitThumbnailGeneration({key, waitMs: 20, produce}),
+    (error: unknown) => error instanceof ThumbnailRenderPendingError,
+  );
+  await assert.rejects(
+    () => awaitThumbnailGeneration({key, waitMs: 20, produce}),
+    (error: unknown) => error instanceof ThumbnailRenderPendingError,
+  );
+
+  const result = await awaitThumbnailGeneration({key, waitMs: 250, produce});
+  assert.equal(produceCount, 1);
+  assert.equal(result.toString(), 'png');
+});
+
+test('concurrent callers share a single thumbnail produce()', async () => {
+  const key = `shared-${Date.now()}-${Math.random()}`;
+  let produceCount = 0;
+  const produce = async () => {
+    produceCount += 1;
+    await new Promise(resolve => setTimeout(resolve, 40));
+    return Buffer.from('shared');
+  };
+
+  const [first, second, third] = await Promise.all([
+    awaitThumbnailGeneration({key, waitMs: 200, produce}),
+    awaitThumbnailGeneration({key, waitMs: 200, produce}),
+    awaitThumbnailGeneration({key, waitMs: 200, produce}),
+  ]);
+
+  assert.equal(produceCount, 1);
+  assert.equal(first.toString(), 'shared');
+  assert.equal(second.toString(), 'shared');
+  assert.equal(third.toString(), 'shared');
 });

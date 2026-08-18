@@ -47,6 +47,10 @@ export const THUMBNAIL_WORKER_CONFIG = Object.freeze({
   maxWaitingJobs: positiveInteger('THUMBNAIL_QUEUE_MAX_WAITING', 20),
   requestWaitMs: positiveInteger('THUMBNAIL_REQUEST_WAIT_MS', 5000),
   ogRequestWaitMs: positiveInteger('THUMBNAIL_OG_REQUEST_WAIT_MS', 15000),
+  // How long the in-flight API task waits for this entity's PNG after enqueue.
+  // HTTP requests still return 204 after requestWaitMs / ogRequestWaitMs.
+  generationWaitMs: positiveInteger('THUMBNAIL_GENERATION_WAIT_MS', 600_000),
+  jobLockMs: positiveInteger('THUMBNAIL_JOB_LOCK_MS', 180_000),
   outputPollMs: positiveInteger('THUMBNAIL_OUTPUT_POLL_MS', 100),
   inputDirectory:
     process.env.THUMBNAIL_JOB_INPUT_PATH || path.join(cachePath, 'thumbnail-render-inputs'),

@@ -8,6 +8,24 @@ export interface StorageObjectStreamResponseOptions {
     openStream: (storagePath: string) => Promise<NodeJS.ReadableStream>;
 }
 
+export function isClientAbortError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false;
+    }
+
+    const err = error as { code?: string; name?: string; message?: string };
+    if (err.name === 'AbortError') {
+        return true;
+    }
+
+    return err.code === 'ERR_STREAM_PREMATURE_CLOSE'
+        || err.code === 'ERR_STREAM_DESTROYED'
+        || err.code === 'ERR_STREAM_UNABLE_TO_PIPE'
+        || err.code === 'ECONNRESET'
+        || err.code === 'EPIPE'
+        || err.code === 'ECANCELED';
+}
+
 /**
  * Proxy a small public storage object through the CDN service.
  *
@@ -23,5 +41,13 @@ export async function streamStorageObjectResponse(
 
     res.setHeader('Content-Type', options.contentType);
     res.setHeader('Cache-Control', options.cacheControl);
-    await pipeline(stream, res);
+
+    try {
+        await pipeline(stream, res);
+    } catch (error) {
+        if (isClientAbortError(error)) {
+            return;
+        }
+        throw error;
+    }
 }

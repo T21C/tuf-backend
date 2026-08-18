@@ -8,6 +8,7 @@ import {
   type ThumbnailRenderJobResult,
 } from './contracts.js';
 import {registerShutdownStep} from '@/server/bootstrap/shutdownCoordinator.js';
+import {thumbnailRenderJobId} from './producerHelpers.js';
 
 let queue: Queue<ThumbnailRenderJobData, ThumbnailRenderJobResult> | null = null;
 let queueEvents: QueueEvents | null = null;
@@ -50,9 +51,7 @@ export async function addThumbnailRenderJob(
   });
 }
 
-export function thumbnailRenderJobId(outputFileName: string): string {
-  return `render_${outputFileName.replace(/[^A-Za-z0-9_-]/g, '_')}`;
-}
+export {thumbnailRenderJobId} from './producerHelpers.js';
 
 export async function closeThumbnailQueueClients(): Promise<void> {
   const clients = [queueEvents?.close(), queue?.close()].filter(Boolean) as Promise<void>[];
