@@ -34,11 +34,15 @@ export async function initializeRuntimeServices(): Promise<void> {
     );
     const { OutboxRetentionService } = await import('@/server/services/outbox/OutboxRetentionService.js');
     const { sseManager } = await import('@/misc/utils/server/sse.js');
+    const { startSubmissionQueueWorker } = await import(
+      '@/server/services/submissions/submissionQueueWorker.js'
+    );
     startOutboxRelay();
     startDiscordOutboxDispatcher();
     startNotificationOutboxDispatcher();
     await sseManager.startRedisFanout();
     OutboxRetentionService.startScheduledRetention();
+    startSubmissionQueueWorker();
     registerShutdownStep({
       name: 'outbox-relay',
       priority: 44,
