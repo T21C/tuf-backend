@@ -8,6 +8,7 @@ export const SSE_SOURCES = {
   rating: 'rating',
   admin: 'admin',
   announcement: 'announcement',
+  submission: 'submission',
   inbox: 'inbox',
 } as const;
 
