@@ -53,6 +53,7 @@ const router: Router = Router();
 enum CreditRole {
   CHARTER = 'charter',
   VFXER = 'vfxer',
+  SPECIAL_THANKS = 'specialThanks',
   TEAM = 'team'
 }
 
@@ -1666,7 +1667,17 @@ router.post(
     }
 
     // Create a new creator request with a placeholder name
-    const placeholderName = `New ${role.charAt(0).toUpperCase() + role.slice(1)}`;
+    const roleKey = typeof role === 'string' ? role : '';
+    const rolePlaceholderLabels: Record<string, string> = {
+      charter: 'Charter',
+      vfxer: 'Vfxer',
+      specialThanks: 'Special Thanks',
+      team: 'Team',
+    };
+    const placeholderLabel =
+      rolePlaceholderLabels[roleKey] ||
+      (roleKey ? roleKey.charAt(0).toUpperCase() + roleKey.slice(1) : 'Creator');
+    const placeholderName = `New ${placeholderLabel}`;
 
     if (role === 'team') {
       await LevelSubmissionTeamRequest.create({

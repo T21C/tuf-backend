@@ -10,7 +10,7 @@ class LevelSubmissionCreatorRequest extends BaseModel {
   declare submissionId: number;
   declare creatorName: string;
   declare creatorId: number | null;
-  declare role: 'charter' | 'vfxer';
+  declare role: 'charter' | 'vfxer' | 'specialThanks';
   declare isNewRequest: boolean;
 
   // Virtual fields from associations
@@ -56,7 +56,7 @@ LevelSubmissionCreatorRequest.init({
     }
   },
   role: {
-    type: DataTypes.ENUM('charter', 'vfxer'),
+    type: DataTypes.ENUM('charter', 'vfxer', 'specialThanks'),
     allowNull: false
   },
   isNewRequest: {
