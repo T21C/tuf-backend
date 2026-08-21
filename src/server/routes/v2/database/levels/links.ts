@@ -1,4 +1,5 @@
 import {Router, Request, Response} from 'express';
+import {Op} from 'sequelize';
 import Level from '@/models/levels/Level.js';
 import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
@@ -17,7 +18,11 @@ import {
   getLinkedLevels,
   LevelLinkError,
   removeMember,
+  updateLinkShare,
 } from '@/server/services/levels/levelLinkService.js';
+import LevelCredit from '@/models/levels/LevelCredit.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import {roleSyncService} from '@/server/services/accounts/RoleSyncService.js';
 
 const router = Router();
 
@@ -25,6 +30,8 @@ const linkedLevelsResponseSchema = {
   type: 'object',
   properties: {
     groupId: {type: 'integer'},
+    shareChart: {type: 'boolean'},
+    shareVfx: {type: 'boolean'},
     levels: {
       type: 'array',
       items: {
@@ -59,6 +66,35 @@ async function invalidateLinkedLevelCaches(levelIds: number[]): Promise<void> {
   const tags = [...new Set(levelIds)].map((id) => `level:${id}`);
   tags.push('levels:all');
   await CacheInvalidation.invalidateTags(tags);
+}
+
+async function syncCreatorsForLinkedLevels(levelIds: number[]): Promise<void> {
+  const ids = [...new Set(levelIds)].filter((id) => Number.isFinite(id) && id > 0);
+  if (ids.length === 0) return;
+
+  const credits = await LevelCredit.findAll({
+    where: {levelId: ids, role: {[Op.in]: ['charter', 'vfxer']}},
+    attributes: ['creatorId'],
+  });
+  const creatorIds = [
+    ...new Set(
+      credits
+        .map((row) => row.creatorId)
+        .filter((id): id is number => typeof id === 'number' && id > 0),
+    ),
+  ];
+  if (creatorIds.length === 0) return;
+
+  try {
+    await roleSyncService.notifyBotOfRoleSyncByCreatorIds(creatorIds);
+  } catch (error) {
+    logger.error('Failed to notify RoleSync after level link change:', error);
+  }
+  try {
+    await ElasticsearchService.getInstance().reindexCreators(creatorIds);
+  } catch (error) {
+    logger.error('Failed to reindex creators after level link change:', error);
+  }
 }
 
 function sendLinkError(res: Response, error: unknown): Response | void {
@@ -148,6 +184,7 @@ router.post(
 
       const {affectedLevelIds} = await addLink(levelId, otherLevelId);
       await invalidateLinkedLevelCaches(affectedLevelIds);
+      await syncCreatorsForLinkedLevels(affectedLevelIds);
       const result = await getLinkedLevels(levelId, {includeHidden: true});
       return res.json(result);
     } catch (error) {
@@ -186,6 +223,66 @@ router.delete(
 
       const {affectedLevelIds} = await removeMember(levelId, memberLevelId);
       await invalidateLinkedLevelCaches(affectedLevelIds);
+      await syncCreatorsForLinkedLevels(affectedLevelIds);
+      const result = await getLinkedLevels(levelId, {includeHidden: true});
+      return res.json(result);
+    } catch (error) {
+      return sendLinkError(res, error);
+    }
+  },
+);
+
+router.patch(
+  '/:id([0-9]{1,20})/links',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'patchLevelLinks',
+    summary: 'Update linked-group curation sharing',
+    description:
+      'Set shareChart and/or shareVfx on the current level\'s link group. Super admin only.',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: {id: idParamSpec},
+    requestBody: {
+      description: 'shareChart and/or shareVfx booleans',
+      schema: {
+        type: 'object',
+        properties: {
+          shareChart: {type: 'boolean'},
+          shareVfx: {type: 'boolean'},
+        },
+      },
+    },
+    responses: {
+      200: {description: 'Updated link group', schema: linkedLevelsResponseSchema},
+      ...standardErrorResponses,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const levelId = parsePositiveInt(req.params.id);
+      if (levelId == null) {
+        return res.status(400).json({error: 'Invalid level ID'});
+      }
+
+      const body = req.body ?? {};
+      const flags: {shareChart?: boolean; shareVfx?: boolean} = {};
+      if (Object.prototype.hasOwnProperty.call(body, 'shareChart')) {
+        if (typeof body.shareChart !== 'boolean') {
+          return res.status(400).json({error: 'shareChart must be a boolean'});
+        }
+        flags.shareChart = body.shareChart;
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'shareVfx')) {
+        if (typeof body.shareVfx !== 'boolean') {
+          return res.status(400).json({error: 'shareVfx must be a boolean'});
+        }
+        flags.shareVfx = body.shareVfx;
+      }
+
+      const {affectedLevelIds} = await updateLinkShare(levelId, flags);
+      await invalidateLinkedLevelCaches(affectedLevelIds);
+      await syncCreatorsForLinkedLevels(affectedLevelIds);
       const result = await getLinkedLevels(levelId, {includeHidden: true});
       return res.json(result);
     } catch (error) {

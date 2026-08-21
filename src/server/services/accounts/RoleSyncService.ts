@@ -14,6 +14,10 @@ import CurationType from '@/models/curations/CurationType.js';
 import { logger } from '../core/LoggerService.js';
 import { PlayerStatsService } from '../core/PlayerStatsService.js';
 import axios from 'axios';
+import {
+  fetchLinkedShareContext,
+  shouldKeepLinkedShareType,
+} from '@/server/services/levels/levelLinkCurationShare.js';
 
 const ENABLED = process.env.NODE_ENV === 'production';
 
@@ -373,12 +377,16 @@ class RoleSyncService {
         }],
       });
 
-      // Extract unique curation types
+      // Extract unique curation types, skipping losing C/V family types in share groups
+      const shareCtx = await fetchLinkedShareContext([creatorId]);
       const curationTypeMap = new Map<number, CurationType>();
       for (const credit of credits) {
         const curations = (credit.level as { curations?: Curation[] })?.curations || [];
         for (const curation of curations) {
           for (const t of curation?.types || []) {
+            if (!shouldKeepLinkedShareType(shareCtx, creatorId, credit.levelId, t.name)) {
+              continue;
+            }
             curationTypeMap.set(t.id, t);
           }
         }
@@ -443,11 +451,15 @@ class RoleSyncService {
       });
 
       // Build sets of curation type IDs for each creator
+      const shareCtx = await fetchLinkedShareContext(creatorIds);
       for (const credit of credits) {
         const creatorId = credit.creatorId;
         const curations = (credit.level as { curations?: Curation[] }).curations || [];
         for (const curation of curations) {
           for (const t of curation?.types || []) {
+            if (!shouldKeepLinkedShareType(shareCtx, creatorId, credit.levelId, t.name)) {
+              continue;
+            }
             const typeSet = result.get(creatorId);
             if (typeSet) {
               typeSet.add(t.id);

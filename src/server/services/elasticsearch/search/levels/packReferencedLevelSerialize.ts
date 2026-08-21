@@ -112,6 +112,7 @@ export function pruneMysqlReferencedLevelForPack(
     ws: level.ws,
     clears: level.clears,
     uniqueClears: level.uniqueClears,
+    likes: level.likes,
     isDeleted: level.isDeleted,
     isHidden: level.isHidden,
   };
