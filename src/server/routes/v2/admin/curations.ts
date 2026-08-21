@@ -20,6 +20,10 @@ import sequelize from '@/config/db.js';
 import { hasAnyFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags, curationTypeAbilities } from '@/config/constants.js';
 import { canAssignCurationType, hasAbility } from '@/misc/utils/data/curationTypeUtils.js';
+import {
+  curationTypeIdSetsEqual,
+  mergeCurationTypesByFamilyTier,
+} from '@/misc/utils/data/curationTypeFamilies.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
 import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
@@ -1198,7 +1202,7 @@ async function resolveBulkCurationCandidates(
   return { validLevelIds, invalid };
 }
 
-// Create curation (single) or bulk-create/union types (levelIds + typeIds)
+// Create curation (single) or bulk-create/merge types (levelIds + typeIds)
 router.post(
   '/',
   requireCuratorOrRater,
@@ -1206,7 +1210,7 @@ router.post(
     operationId: 'postAdminCuration',
     summary: 'Create curation',
     description:
-      'Single: body { levelId }. Bulk: body { levelIds, typeIds, validateOnly? } — create or union types onto existing curations (skips FORCE_DESCRIPTION). Curator or rater.',
+      'Single: body { levelId }. Bulk: body { levelIds, typeIds, validateOnly? } — create or merge types onto existing curations with family-tier step-up (C/V/O/H; skips FORCE_DESCRIPTION). Curator or rater.',
     tags: ['Admin', 'Curations'],
     security: ['bearerAuth'],
     requestBody: {
@@ -1264,6 +1268,12 @@ router.post(
           return res.status(403).json({ error: 'You cannot assign one or more curation types' });
         }
       }
+      const typeById = new Map(typeRows.map((t) => [t.id, t]));
+      const incomingTypes = typeIds.map((id) => {
+        const t = typeById.get(id)!;
+        return { id: t.id, name: t.name };
+      });
+      const collapsedIncomingIds = mergeCurationTypesByFamilyTier([], incomingTypes);
 
       const { validLevelIds, invalid } = await resolveBulkCurationCandidates(req, levelIds);
 
@@ -1291,6 +1301,20 @@ router.post(
         const curationByLevelId = new Map(existingCurations.map((c) => [c.levelId, c]));
 
         for (const levelId of validLevelIds) {
+          const existing = curationByLevelId.get(levelId);
+          let mergedTypeIds: number[] | null = null;
+          if (existing) {
+            if (!userCanManageExistingCurationTypes(req, existing.types || [])) {
+              invalid.push({ levelId, reason: 'cannot_manage' });
+              continue;
+            }
+            const existingTypes = (existing.types || []).map((t) => ({ id: t.id, name: t.name }));
+            mergedTypeIds = mergeCurationTypesByFamilyTier(existingTypes, incomingTypes);
+            if (curationTypeIdSetsEqual(mergedTypeIds, existingTypes.map((t) => t.id))) {
+              continue;
+            }
+          }
+
           const levelWithCreators = await Level.findByPk(levelId, {
             transaction,
             include: [
@@ -1311,10 +1335,12 @@ router.post(
               : undefined;
           oldTypeSetsByLevel.set(levelId, oldCurationTypeSets);
 
-          const existing = curationByLevelId.get(levelId);
-          if (!existing) {
+          if (existing && mergedTypeIds) {
+            await existing.setTypes(mergedTypeIds, { transaction });
+            updated += 1;
+          } else {
             const curation = await Curation.create({ levelId, assignedBy }, { transaction });
-            await curation.setTypes(typeIds, { transaction });
+            await curation.setTypes(collapsedIncomingIds, { transaction });
             created += 1;
             await notifyChartOwners({
               type: NOTIFICATION_TYPES.ChartCurated,
@@ -1327,15 +1353,6 @@ router.post(
               dedupKey: `chart-curated:${levelId}:${curation.id}`,
               transaction,
             });
-          } else {
-            if (!userCanManageExistingCurationTypes(req, existing.types || [])) {
-              invalid.push({ levelId, reason: 'cannot_manage' });
-              continue;
-            }
-            const existingTypeIds = (existing.types || []).map((t) => t.id);
-            const unionTypeIds = [...new Set([...existingTypeIds, ...typeIds])];
-            await existing.setTypes(unionTypeIds, { transaction });
-            updated += 1;
           }
           affectedLevelIds.push(levelId);
         }

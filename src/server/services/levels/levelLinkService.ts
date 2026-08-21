@@ -36,8 +36,17 @@ export type LinkedLevelDto = {
 
 export type LinkedLevelsResult = {
   groupId: number | null;
+  shareChart: boolean;
+  shareVfx: boolean;
   levels: LinkedLevelDto[];
 };
+
+const emptyLinkedLevelsResult = (): LinkedLevelsResult => ({
+  groupId: null,
+  shareChart: false,
+  shareVfx: false,
+  levels: [],
+});
 
 function serializeLinkedLevel(level: Level): LinkedLevelDto {
   const diff = level.difficulty;
@@ -110,23 +119,33 @@ export async function getLinkedLevels(
 ): Promise<LinkedLevelsResult> {
   const member = await LevelLinkMember.findOne({where: {levelId}});
   if (!member) {
-    return {groupId: null, levels: []};
+    return emptyLinkedLevelsResult();
   }
 
-  const members = await LevelLinkMember.findAll({
-    where: {groupId: member.groupId},
-    attributes: ['levelId'],
-  });
+  const [group, members] = await Promise.all([
+    LevelLinkGroup.findByPk(member.groupId, {
+      attributes: ['id', 'shareChart', 'shareVfx'],
+    }),
+    LevelLinkMember.findAll({
+      where: {groupId: member.groupId},
+      attributes: ['levelId'],
+    }),
+  ]);
   const levelIds = members.map((row) => row.levelId);
   const levels = await loadLinkedLevelDtos(levelIds, {
     includeHidden: options.includeHidden,
   });
 
   if (levels.length < 2) {
-    return {groupId: null, levels: []};
+    return emptyLinkedLevelsResult();
   }
 
-  return {groupId: member.groupId, levels};
+  return {
+    groupId: member.groupId,
+    shareChart: Boolean(group?.shareChart),
+    shareVfx: Boolean(group?.shareVfx),
+    levels,
+  };
 }
 
 export async function addLink(
@@ -268,4 +287,36 @@ export async function unlinkLevelForDelete(
     return {affectedLevelIds: []};
   }
   return removeMember(levelId, levelId, transaction);
+}
+
+export async function updateLinkShare(
+  levelId: number,
+  flags: {shareChart?: boolean; shareVfx?: boolean},
+): Promise<{affectedLevelIds: number[]}> {
+  const wantsChart = typeof flags.shareChart === 'boolean';
+  const wantsVfx = typeof flags.shareVfx === 'boolean';
+  if (!wantsChart && !wantsVfx) {
+    throw new LevelLinkError('Request must include shareChart and/or shareVfx', 400);
+  }
+
+  const member = await LevelLinkMember.findOne({where: {levelId}});
+  if (!member) {
+    throw new LevelLinkError('Level is not in a link group', 404);
+  }
+
+  const group = await LevelLinkGroup.findByPk(member.groupId);
+  if (!group) {
+    throw new LevelLinkError('Level is not in a link group', 404);
+  }
+
+  const members = await LevelLinkMember.findAll({
+    where: {groupId: group.id},
+    attributes: ['levelId'],
+  });
+  await group.update({
+    ...(wantsChart ? {shareChart: flags.shareChart} : {}),
+    ...(wantsVfx ? {shareVfx: flags.shareVfx} : {}),
+  });
+
+  return {affectedLevelIds: members.map((row) => row.levelId)};
 }

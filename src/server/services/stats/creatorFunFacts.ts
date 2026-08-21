@@ -6,6 +6,7 @@ import {
   emptyClearsByDifficultyType,
   mergeDifficultyTypeCounts,
 } from '@/server/services/stats/funFactsShape.js';
+import {sqlLinkedShareKeepsTypeRow} from '@/server/services/levels/levelLinkCurationShare.js';
 
 const levelsSequelize = getSequelizeForModelGroup('levels');
 const passesSequelize = getSequelizeForModelGroup('passes');
@@ -58,6 +59,7 @@ const sqlCreatorCurationTypedLevelsFrom = `
   WHERE IFNULL(c.isDuplicate, 0) = 0
   AND ${sqlCreatorCreditedLevelFilter}
   AND ${sqlCurationTypeRowEligibleForCreator}
+  AND ${sqlLinkedShareKeepsTypeRow(':creatorId')}
 `;
 
 function toIso(d: unknown): string | null {
@@ -375,6 +377,7 @@ AND (
     AND TRIM(ct.name) NOT REGEXP '^[Hh][0-9]*$'
   )
 )
+AND ${sqlLinkedShareKeepsTypeRow('lc_outer.creatorId')}
 GROUP BY lc_outer.creatorId, cct.typeId
 `;
 
