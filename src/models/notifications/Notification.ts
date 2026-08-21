@@ -16,6 +16,7 @@ export interface NotificationAttributes {
   dedupKey: string | null;
   readAt: Date | null;
   seenAt: Date | null;
+  hiddenAt: Date | null;
   createdAt: Date;
 }
 
@@ -29,6 +30,7 @@ type NotificationCreationAttributes = Optional<
   | 'dedupKey'
   | 'readAt'
   | 'seenAt'
+  | 'hiddenAt'
   | 'createdAt'
 >;
 
@@ -47,6 +49,7 @@ class Notification
   declare dedupKey: string | null;
   declare readAt: Date | null;
   declare seenAt: Date | null;
+  declare hiddenAt: Date | null;
   declare createdAt: Date;
 
   declare user?: User;
@@ -106,6 +109,10 @@ Notification.init(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    hiddenAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -119,6 +126,7 @@ Notification.init(
     indexes: [
       {name: 'notifications_user_id_created_at', fields: ['userId', 'createdAt']},
       {name: 'notifications_user_id_read_at', fields: ['userId', 'readAt']},
+      {name: 'notifications_user_id_hidden_at_id', fields: ['userId', 'hiddenAt', 'id']},
       {
         name: 'notifications_user_id_type_dedup_key',
         fields: ['userId', 'type', 'dedupKey'],

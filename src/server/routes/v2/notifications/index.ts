@@ -280,4 +280,56 @@ router.post(
   },
 );
 
+router.post(
+  '/:id/hide',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postNotificationHide',
+    summary: 'Hide one notification',
+    description:
+      'Soft-hides an inbox row owned by the current user. Optional disableType turns off that notification type for future in-app rows.',
+    tags: ['Notifications'],
+    security: ['bearerAuth'],
+    params: {id: {schema: {type: 'string', pattern: '^[0-9]{1,20}$'}}},
+    requestBody: {
+      description: 'Optional disableType to mute this notification type going forward',
+      schema: {
+        type: 'object',
+        properties: {
+          disableType: {type: 'boolean'},
+        },
+      },
+    },
+    responses: {
+      200: {
+        description: 'Hidden',
+        schema: {
+          type: 'object',
+          properties: {
+            hidden: {type: 'boolean'},
+            unreadDelta: {type: 'integer'},
+            type: {type: 'string'},
+          },
+        },
+      },
+      ...standardErrorResponses401404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({error: 'User not authenticated'});
+      const id = parsePositiveInt(req.params.id);
+      if (!id) return res.status(400).json({error: 'Invalid notification id'});
+      const disableType = req.body?.disableType === true;
+      const result = await notificationService.hide(userId, id, {disableType});
+      if (!result) return res.status(404).json({error: 'Notification not found'});
+      return res.json(result);
+    } catch (error) {
+      logger.error('Error hiding notification:', error);
+      return res.status(500).json({error: 'Failed to hide notification'});
+    }
+  },
+);
+
 export default router;

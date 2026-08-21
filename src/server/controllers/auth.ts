@@ -112,7 +112,9 @@ function mayRotateRefreshOnGet(req: Request): boolean {
   const origin = req.get('origin');
   if (origin) return isAllowedCorsOrigin(origin);
   const site = req.get('sec-fetch-site');
-  if (!site) return true;
+  // `none` is address-bar / bookmark / non-web navigations — not a foreign page.
+  // Cross-site attacker fetches are `cross-site` and stay blocked.
+  if (!site || site === 'none') return true;
   return site === 'same-origin' || site === 'same-site';
 }
 
@@ -719,35 +721,33 @@ class AuthController {
   public async getSession(req: Request, res: Response): Promise<Response> {
     // Carries the profile and rotates cookies — must never sit in a shared cache.
     res.setHeader('Cache-Control', 'no-store');
-    try {
-      let userId: string | null = null;
-      let rotatedCsrf: string | null = null;
+    let userId: string | null = null;
+    let rotatedCsrf: string | null = null;
 
-      const accessToken =
-        (typeof req.cookies?.accessToken === 'string' && req.cookies.accessToken) ||
-        (req.headers.authorization?.startsWith('Bearer ')
-          ? req.headers.authorization.slice(7)
-          : null);
+    const accessToken =
+      (typeof req.cookies?.accessToken === 'string' && req.cookies.accessToken) ||
+      (req.headers.authorization?.startsWith('Bearer ')
+        ? req.headers.authorization.slice(7)
+        : null);
 
-      if (accessToken) {
+    if (accessToken) {
+      const decoded = tokenUtils.verifyAccessToken(accessToken);
+      const sessionId = typeof decoded?.sid === 'string' ? decoded.sid : null;
+      if (decoded?.id && sessionId) {
         try {
-          const decoded = tokenUtils.verifyAccessToken(accessToken);
-          const sessionId = typeof decoded?.sid === 'string' ? decoded.sid : null;
-          if (
-            decoded?.id &&
-            sessionId &&
-            (await refreshTokenService.isSessionActive(sessionId, decoded.id))
-          ) {
+          if (await refreshTokenService.isSessionActive(sessionId, decoded.id)) {
             userId = decoded.id;
           }
-        } catch {
-          // Expired/invalid access — try refresh below.
+        } catch (error) {
+          logger.error('Session active check error:', error);
         }
       }
+    }
 
-      if (!userId && mayRotateRefreshOnGet(req)) {
-        const refreshTokenValue = req.cookies?.refreshToken;
-        if (refreshTokenValue) {
+    if (!userId && mayRotateRefreshOnGet(req)) {
+      const refreshTokenValue = req.cookies?.refreshToken;
+      if (typeof refreshTokenValue === 'string' && refreshTokenValue) {
+        try {
           const reqIp = parseClientIp(req);
           const rotated = await refreshTokenService.rotateRefreshToken(refreshTokenValue, {
             userAgent: req.get('user-agent'),
@@ -766,16 +766,22 @@ class AuthController {
             const header = res.getHeader('X-CSRF-Token');
             rotatedCsrf = typeof header === 'string' ? header : null;
           }
+        } catch (error) {
+          logger.error('Session silent refresh error:', error);
         }
       }
+    }
 
-      const csrfToken = rotatedCsrf ?? cookieUtils.ensureCsrfToken(req, res);
-      const user = userId ? await buildAuthProfileUser(userId) : null;
+    const csrfToken = rotatedCsrf ?? cookieUtils.ensureCsrfToken(req, res);
+    if (!userId) {
+      return res.json({ user: null, csrfToken });
+    }
+    try {
+      const user = await buildAuthProfileUser(userId);
       return res.json({ user, csrfToken });
     } catch (error) {
       logger.error('Session bootstrap error:', error);
-      const csrfToken = cookieUtils.ensureCsrfToken(req, res);
-      return res.status(200).json({ user: null, csrfToken });
+      return res.status(500).json({ error: 'Failed to load session', csrfToken });
     }
   }
 

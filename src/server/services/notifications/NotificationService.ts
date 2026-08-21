@@ -169,7 +169,7 @@ class NotificationService {
     userId: string,
     args: {cursor?: number | null; limit: number},
   ): Promise<{notifications: SerializedNotification[]; nextCursor: number | null}> {
-    const where: Record<string, unknown> = {userId};
+    const where: Record<string, unknown> = {userId, hiddenAt: null};
     if (args.cursor) {
       where.id = {[Op.lt]: args.cursor};
     }
@@ -191,7 +191,7 @@ class NotificationService {
 
   async unreadCount(userId: string): Promise<number> {
     return Notification.count({
-      where: {userId, readAt: null},
+      where: {userId, readAt: null, hiddenAt: null},
     });
   }
 
@@ -210,7 +210,7 @@ class NotificationService {
     const now = new Date();
     const [count] = await Notification.update(
       {readAt: now, seenAt: now},
-      {where: {userId, readAt: null}},
+      {where: {userId, readAt: null, hiddenAt: null}},
     );
     return count;
   }
@@ -219,9 +219,40 @@ class NotificationService {
     const now = new Date();
     const [count] = await Notification.update(
       {seenAt: now},
-      {where: {userId, seenAt: null}},
+      {where: {userId, seenAt: null, hiddenAt: null}},
     );
     return count;
+  }
+
+  async hide(
+    userId: string,
+    notificationId: number,
+    args: {disableType?: boolean} = {},
+  ): Promise<{hidden: true; unreadDelta: number; type: string} | null> {
+    const row = await Notification.findOne({
+      where: {id: notificationId, userId},
+    });
+    if (!row) return null;
+
+    const wasVisibleUnread = !row.hiddenAt && !row.readAt;
+    const now = new Date();
+    if (!row.hiddenAt) {
+      await row.update({
+        hiddenAt: now,
+        readAt: row.readAt ?? now,
+        seenAt: row.seenAt ?? now,
+      });
+    }
+
+    if (args.disableType) {
+      await this.upsertInAppPreference(userId, row.type, false);
+    }
+
+    return {
+      hidden: true,
+      unreadDelta: wasVisibleUnread ? 1 : 0,
+      type: row.type,
+    };
   }
 
   async getPreferenceState(userId: string): Promise<PreferenceState> {
