@@ -1023,9 +1023,19 @@ router.post(
   async (req: Request, res: Response) => {
     let transaction: any;
     try {
-      transaction = await sequelize.transaction();
       const {id} = req.params;
       const {targetPlayerId} = req.body;
+      const sourceId = parseInt(String(id), 10);
+      const parsedTargetId = Number(targetPlayerId);
+
+      if (!Number.isInteger(parsedTargetId) || parsedTargetId <= 0) {
+        return res.status(400).json({error: 'Invalid targetPlayerId'});
+      }
+      if (sourceId === parsedTargetId) {
+        return res.status(400).json({error: 'Cannot merge a player into itself'});
+      }
+
+      transaction = await sequelize.transaction();
 
       // Find both players with their associated users and OAuth providers
       const sourcePlayer = await Player.findByPk(id, {
@@ -1046,7 +1056,7 @@ router.post(
         transaction,
       });
 
-      const targetPlayer = await Player.findByPk(targetPlayerId, {
+      const targetPlayer = await Player.findByPk(parsedTargetId, {
         include: [
           {
             model: User,

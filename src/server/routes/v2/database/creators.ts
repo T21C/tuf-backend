@@ -213,6 +213,16 @@ router.get(
     const creator = await Creator.findByPk(creatorId, {
       include: [
         {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'username', 'avatarUrl'],
+        },
+        {
+          model: User,
+          as: 'linkedUser',
+          attributes: ['id', 'username', 'avatarUrl'],
+        },
+        {
           model: LevelCredit,
           as: 'credits',
           attributes: ['id', 'role', 'levelId'],
@@ -229,7 +239,10 @@ router.get(
       return res.status(404).json({ error: 'Creator not found' });
     }
 
-    return res.json(creator);
+    const plain = creator.get({ plain: true });
+    plain.user = plain.linkedUser || plain.user || null;
+    delete plain.linkedUser;
+    return res.json(plain);
   } catch (error) {
     logger.error('Error fetching creator:', error);
     return res.status(500).json({ error: 'Failed to fetch creator details' });
@@ -498,14 +511,23 @@ router.post(
   async (req: Request, res: Response) => {
     let transaction: any;
     try {
-      transaction = await sequelize.transaction();
       const {sourceId, targetId} = req.body;
-      if (!sourceId || !targetId) {
-        await safeTransactionRollback(transaction);
-        return res
-          .status(400)
-          .json({error: 'Source and target IDs are required'});
+      const parsedSourceId = Number(sourceId);
+      const parsedTargetId = Number(targetId);
+
+      if (
+        !Number.isInteger(parsedSourceId) ||
+        parsedSourceId <= 0 ||
+        !Number.isInteger(parsedTargetId) ||
+        parsedTargetId <= 0
+      ) {
+        return res.status(400).json({error: 'Invalid source or target ID'});
       }
+      if (parsedSourceId === parsedTargetId) {
+        return res.status(400).json({error: 'Cannot merge a creator into itself'});
+      }
+
+      transaction = await sequelize.transaction();
 
       // Get source and target creators
       const sourceCreator = await Creator.findByPk(sourceId, {

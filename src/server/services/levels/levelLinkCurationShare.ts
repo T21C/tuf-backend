@@ -1,12 +1,16 @@
 import {QueryTypes} from 'sequelize';
 import sequelize from '@/config/db.js';
 
-/** C-family names: `C` or `C` + digits (not O). */
+/** C-family names: `C` or `C` + digits. */
 export const SQL_C_FAMILY_NAME = `TRIM(ct.name) REGEXP '^[Cc][0-9]*$'`;
+/** O-family names: `O` or `O` + digits. Grouped by shareChart (same toggle as C). */
+export const SQL_O_FAMILY_NAME = `TRIM(ct.name) REGEXP '^[Oo][0-9]*$'`;
 /** V-family names: `V` or `V` + digits. */
 export const SQL_V_FAMILY_NAME = `TRIM(ct.name) REGEXP '^[Vv][0-9]*$'`;
 
-export function sqlCurationFamilyTier(nameExpr: string, letter: 'C' | 'V'): string {
+type ShareFamily = 'C' | 'O' | 'V';
+
+export function sqlCurationFamilyTier(nameExpr: string, letter: ShareFamily): string {
   const lower = letter.toLowerCase();
   return `CAST(CASE
     WHEN TRIM(${nameExpr}) REGEXP '^[${letter}${lower}][0-9]+$' THEN SUBSTRING(TRIM(${nameExpr}), 2)
@@ -17,12 +21,14 @@ export function sqlCurationFamilyTier(nameExpr: string, letter: 'C' | 'V'): stri
 
 function sqlShareFamilyKeepsRow(
   creatorIdSql: string,
-  family: 'C' | 'V',
+  family: ShareFamily,
 ): string {
-  const shareCol = family === 'C' ? 'shareChart' : 'shareVfx';
-  const role = family === 'C' ? 'charter' : 'vfxer';
-  const familyRe = family === 'C' ? `'^[Cc][0-9]*$'` : `'^[Vv][0-9]*$'`;
-  const familyPred = family === 'C' ? SQL_C_FAMILY_NAME : SQL_V_FAMILY_NAME;
+  const shareCol = family === 'V' ? 'shareVfx' : 'shareChart';
+  const role = family === 'V' ? 'vfxer' : 'charter';
+  const familyRe =
+    family === 'C' ? `'^[Cc][0-9]*$'` : family === 'O' ? `'^[Oo][0-9]*$'` : `'^[Vv][0-9]*$'`;
+  const familyPred =
+    family === 'C' ? SQL_C_FAMILY_NAME : family === 'O' ? SQL_O_FAMILY_NAME : SQL_V_FAMILY_NAME;
   const otherTier = sqlCurationFamilyTier('cto.name', family);
   const selfTier = sqlCurationFamilyTier('cts.name', family);
 
@@ -80,13 +86,14 @@ function sqlShareFamilyKeepsRow(
 }
 
 /**
- * Keep a curation-type row unless it is a C/V family type on a losing member
- * of a shareChart / shareVfx link group for this creator.
+ * Keep a curation-type row unless it is a C/O/V family type on a losing member
+ * of a shareChart (C and O) / shareVfx (V) link group for this creator.
  * Outer query must alias curations as `c` and curation_types as `ct`.
  */
 export function sqlLinkedShareKeepsTypeRow(creatorIdSql: string): string {
   return `(
     ${sqlShareFamilyKeepsRow(creatorIdSql, 'C')}
+    AND ${sqlShareFamilyKeepsRow(creatorIdSql, 'O')}
     AND ${sqlShareFamilyKeepsRow(creatorIdSql, 'V')}
   )`;
 }
@@ -95,6 +102,7 @@ export type LinkedShareContext = {
   shareChartLevelIds: Set<number>;
   shareVfxLevelIds: Set<number>;
   chartWinners: Map<number, Set<number>>;
+  oWinners: Map<number, Set<number>>;
   vfxWinners: Map<number, Set<number>>;
 };
 
@@ -102,12 +110,18 @@ const emptyShareContext = (): LinkedShareContext => ({
   shareChartLevelIds: new Set(),
   shareVfxLevelIds: new Set(),
   chartWinners: new Map(),
+  oWinners: new Map(),
   vfxWinners: new Map(),
 });
 
-export function isCurationFamilyName(name: string | null | undefined, family: 'C' | 'V'): boolean {
+export function isCurationFamilyName(
+  name: string | null | undefined,
+  family: ShareFamily,
+): boolean {
   const s = String(name ?? '').trim();
-  return family === 'C' ? /^[Cc][0-9]*$/.test(s) : /^[Vv][0-9]*$/.test(s);
+  if (family === 'C') return /^[Cc][0-9]*$/.test(s);
+  if (family === 'O') return /^[Oo][0-9]*$/.test(s);
+  return /^[Vv][0-9]*$/.test(s);
 }
 
 export function shouldKeepLinkedShareType(
@@ -118,6 +132,9 @@ export function shouldKeepLinkedShareType(
 ): boolean {
   if (isCurationFamilyName(typeName, 'C') && ctx.shareChartLevelIds.has(levelId)) {
     return ctx.chartWinners.get(creatorId)?.has(levelId) === true;
+  }
+  if (isCurationFamilyName(typeName, 'O') && ctx.shareChartLevelIds.has(levelId)) {
+    return ctx.oWinners.get(creatorId)?.has(levelId) === true;
   }
   if (isCurationFamilyName(typeName, 'V') && ctx.shareVfxLevelIds.has(levelId)) {
     return ctx.vfxWinners.get(creatorId)?.has(levelId) === true;
@@ -132,6 +149,7 @@ type ShareTierRow = {
   shareChart: number | boolean;
   shareVfx: number | boolean;
   chartTier: number | null;
+  oTier: number | null;
   vfxTier: number | null;
 };
 
@@ -143,12 +161,13 @@ function addWinner(map: Map<number, Set<number>>, creatorId: number, levelId: nu
 
 function pickWinners(
   rows: ShareTierRow[],
-  family: 'chart' | 'vfx',
+  family: 'chart' | 'o' | 'vfx',
 ): Map<number, Set<number>> {
   const best = new Map<string, {tier: number; levelId: number; creatorId: number}>();
   for (const row of rows) {
-    const enabled = family === 'chart' ? row.shareChart : row.shareVfx;
-    const tier = family === 'chart' ? row.chartTier : row.vfxTier;
+    const enabled = family === 'vfx' ? row.shareVfx : row.shareChart;
+    const tier =
+      family === 'chart' ? row.chartTier : family === 'o' ? row.oTier : row.vfxTier;
     if (!enabled || tier == null || !Number.isFinite(Number(tier))) continue;
     const key = `${row.creatorId}:${row.groupId}`;
     const numericTier = Number(tier);
@@ -176,6 +195,7 @@ export async function fetchLinkedShareContext(
   if (ids.length === 0) return ctx;
 
   const cTier = sqlCurationFamilyTier('ct.name', 'C');
+  const oTier = sqlCurationFamilyTier('ct.name', 'O');
   const vTier = sqlCurationFamilyTier('ct.name', 'V');
   const rows = (await sequelize.query(
     `
@@ -187,6 +207,8 @@ export async function fetchLinkedShareContext(
       llg.shareVfx AS shareVfx,
       MAX(CASE WHEN TRIM(ct.name) REGEXP '^[Cc][0-9]*$' AND lc.role = 'charter'
         THEN ${cTier} END) AS chartTier,
+      MAX(CASE WHEN TRIM(ct.name) REGEXP '^[Oo][0-9]*$' AND lc.role = 'charter'
+        THEN ${oTier} END) AS oTier,
       MAX(CASE WHEN TRIM(ct.name) REGEXP '^[Vv][0-9]*$' AND lc.role = 'vfxer'
         THEN ${vTier} END) AS vfxTier
     FROM level_link_members llm
@@ -213,6 +235,7 @@ export async function fetchLinkedShareContext(
     if (row.shareVfx) ctx.shareVfxLevelIds.add(row.levelId);
   }
   ctx.chartWinners = pickWinners(rows, 'chart');
+  ctx.oWinners = pickWinners(rows, 'o');
   ctx.vfxWinners = pickWinners(rows, 'vfx');
   return ctx;
 }
