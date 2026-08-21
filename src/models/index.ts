@@ -22,6 +22,8 @@ import PasskeyCredential from './auth/PasskeyCredential.js';
 import WebAuthnChallenge from './auth/WebAuthnChallenge.js';
 import Creator from './credits/Creator.js';
 import LevelCredit from './levels/LevelCredit.js';
+import LevelLinkGroup from './levels/LevelLinkGroup.js';
+import LevelLinkMember from './levels/LevelLinkMember.js';
 import Team from './credits/Team.js';
 import TeamMember from './credits/TeamMember.js';
 import PlayerStats from './players/PlayerStats.js';
@@ -95,6 +97,8 @@ export const db = {
     WebAuthnChallenge,
     Creator,
     LevelCredit,
+    LevelLinkGroup,
+    LevelLinkMember,
     Team,
     TeamMember,
     PlayerStats,

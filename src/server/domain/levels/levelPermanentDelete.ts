@@ -8,6 +8,7 @@ import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {getFileIdFromCdnUrl, isCdnUrl, safeTransactionRollback} from '@/misc/utils/Utility.js';
 import cdnService from '@/server/services/core/CdnService.js';
+import {unlinkLevelForDelete} from '@/server/services/levels/levelLinkService.js';
 
 export type PermanentLevelDeleteOptions = {
   /** When true (default), only soft-deleted levels may be removed. */
@@ -25,7 +26,7 @@ export async function permanentDeleteLevelInTransaction(
   levelId: number,
   transaction: Transaction,
   options: PermanentLevelDeleteOptions = {},
-): Promise<void> {
+): Promise<{siblingLinkLevelIds: number[]}> {
   const requireSoftDeleted = options.requireSoftDeleted !== false;
 
   const level = await Level.findOne({
@@ -85,6 +86,9 @@ export async function permanentDeleteLevelInTransaction(
     transaction,
   });
 
+  const {affectedLevelIds} = await unlinkLevelForDelete(levelId, transaction);
+  const siblingLinkLevelIds = affectedLevelIds.filter((id) => id !== levelId);
+
   const deletedCount = await Level.destroy({
     where: {id: levelId},
     transaction,
@@ -93,6 +97,8 @@ export async function permanentDeleteLevelInTransaction(
   if (deletedCount === 0) {
     throw new Error('LEVEL_NOT_FOUND');
   }
+
+  return {siblingLinkLevelIds};
 }
 
 /**
@@ -104,7 +110,11 @@ export async function executePermanentLevelDeleteWithSideEffects(
   options: PermanentLevelDeleteOptions,
   sideEffects: {
     elasticsearchDeleteLevel: (id: number) => Promise<void>;
-    broadcastAndInvalidate: (input: {levelId: number; affectedPlayerIds: number[]}) => Promise<void>;
+    broadcastAndInvalidate: (input: {
+      levelId: number;
+      affectedPlayerIds: number[];
+      siblingLinkLevelIds: number[];
+    }) => Promise<void>;
   },
 ): Promise<{affectedPlayerIds: number[]}> {
   const passRows = await Pass.findAll({
@@ -118,7 +128,11 @@ export async function executePermanentLevelDeleteWithSideEffects(
   let transaction: Transaction | undefined;
   try {
     transaction = await sequelize.transaction();
-    await permanentDeleteLevelInTransaction(levelId, transaction, options);
+    const {siblingLinkLevelIds} = await permanentDeleteLevelInTransaction(
+      levelId,
+      transaction,
+      options,
+    );
     await transaction.commit();
     transaction = undefined;
 
@@ -128,7 +142,7 @@ export async function executePermanentLevelDeleteWithSideEffects(
       logger.error(`Permanent delete: Elasticsearch level doc delete failed for ${levelId}:`, esErr);
     }
 
-    await sideEffects.broadcastAndInvalidate({levelId, affectedPlayerIds});
+    await sideEffects.broadcastAndInvalidate({levelId, affectedPlayerIds, siblingLinkLevelIds});
 
     return {affectedPlayerIds};
   } catch (error) {

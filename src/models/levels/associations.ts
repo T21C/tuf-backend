@@ -13,6 +13,8 @@ import LevelPack from '@/models/packs/LevelPack.js';
 import LevelTag from './LevelTag.js';
 import LevelTagAssignment from './LevelTagAssignment.js';
 import LevelAnnouncementQueue from './LevelAnnouncementQueue.js';
+import LevelLinkGroup from './LevelLinkGroup.js';
+import LevelLinkMember from './LevelLinkMember.js';
 
 export function initializeLevelsAssociations() {
   // Level <-> Difficulty associations
@@ -271,6 +273,34 @@ export function initializeLevelsAssociations() {
   LevelAnnouncementQueue.belongsTo(Level, {
     foreignKey: 'levelId',
     as: 'level',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  Level.hasOne(LevelLinkMember, {
+    foreignKey: 'levelId',
+    as: 'linkMembership',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelLinkMember.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelLinkGroup.hasMany(LevelLinkMember, {
+    foreignKey: 'groupId',
+    as: 'members',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelLinkMember.belongsTo(LevelLinkGroup, {
+    foreignKey: 'groupId',
+    as: 'group',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   });

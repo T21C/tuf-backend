@@ -1131,13 +1131,14 @@ router.delete(
           elasticsearchDeleteLevel: async (id) => {
             await elasticsearchService.deleteLevel({ id } as Level);
           },
-          broadcastAndInvalidate: async ({ levelId: lid, affectedPlayerIds }) => {
+          broadcastAndInvalidate: async ({ levelId: lid, affectedPlayerIds, siblingLinkLevelIds }) => {
             sseManager.broadcastToSources([SSE_SOURCES.rating], {
               type: 'levelUpdate',
               data: { levelId: lid, level: null },
             });
             await CacheInvalidation.invalidateTags([
               `level:${lid}`,
+              ...siblingLinkLevelIds.map((id) => `level:${id}`),
               'levels:all',
               'Passes',
               'admin:ratings',
