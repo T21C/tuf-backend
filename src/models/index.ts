@@ -22,6 +22,8 @@ import PasskeyCredential from './auth/PasskeyCredential.js';
 import WebAuthnChallenge from './auth/WebAuthnChallenge.js';
 import Creator from './credits/Creator.js';
 import LevelCredit from './levels/LevelCredit.js';
+import LevelLinkGroup from './levels/LevelLinkGroup.js';
+import LevelLinkMember from './levels/LevelLinkMember.js';
 import Team from './credits/Team.js';
 import TeamMember from './credits/TeamMember.js';
 import PlayerStats from './players/PlayerStats.js';
@@ -71,6 +73,7 @@ import OAuthRefreshToken from './oauth/OAuthRefreshToken.js';
 import Notification from './notifications/Notification.js';
 import NotificationPreference from './notifications/NotificationPreference.js';
 import NotificationCategoryPreference from './notifications/NotificationCategoryPreference.js';
+import UserFollow from './notifications/UserFollow.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -95,6 +98,8 @@ export const db = {
     WebAuthnChallenge,
     Creator,
     LevelCredit,
+    LevelLinkGroup,
+    LevelLinkMember,
     Team,
     TeamMember,
     PlayerStats,
@@ -148,6 +153,7 @@ export const db = {
     Notification,
     NotificationPreference,
     NotificationCategoryPreference,
+    UserFollow,
   },
 };
 
@@ -181,6 +187,7 @@ export {
   Notification,
   NotificationPreference,
   NotificationCategoryPreference,
+  UserFollow,
 };
 
 // Export Discord models

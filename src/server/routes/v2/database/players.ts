@@ -30,6 +30,7 @@ import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { permissionFlags } from '@/config/constants.js';
+import { remapFollowTargets } from '@/server/services/notifications/FollowService.js';
 import { hasFlag, setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
 import { serializePlayer } from '@/misc/utils/server/jsonHelpers.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
@@ -1212,6 +1213,13 @@ router.post(
         sourcePlayer.name,
         transaction,
       );
+
+      await remapFollowTargets({
+        targetType: 'player',
+        sourceId: sourcePlayer.id,
+        targetId: targetPlayer.id,
+        transaction,
+      });
 
       // Delete player stats first to avoid constraint issues
       await PlayerStats.destroy({

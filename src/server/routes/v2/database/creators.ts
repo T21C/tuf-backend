@@ -17,6 +17,7 @@ import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import { remapFollowTargets } from '@/server/services/notifications/FollowService.js';
 import { mapMysqlClientError } from '@/misc/utils/db/mysqlClientError.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import { validCreatorVerificationStatuses, type CreatorVerificationStatus } from '@/config/constants.js';
@@ -663,6 +664,13 @@ router.post(
           await credit.update({creatorId: targetId}, {transaction});
         }
       }
+
+      await remapFollowTargets({
+        targetType: 'creator',
+        sourceId: Number(sourceId),
+        targetId: Number(targetId),
+        transaction,
+      });
 
       // Delete the source creator
       await sourceCreator.destroy({transaction});

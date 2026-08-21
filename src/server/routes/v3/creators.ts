@@ -5,6 +5,7 @@ import {
   errorResponseSchema,
   standardErrorResponses404500,
   standardErrorResponses500,
+  standardErrorResponses401404500,
 } from '@/server/schemas/common.js';
 import {
   validCreatorSortOptions,
@@ -49,6 +50,11 @@ import {
   assemblePresentationForCreator,
   getPresentationSyncForUser,
 } from '@/server/services/profileCustomization/ProfileCustomizationService.js';
+import {
+  followFieldsForProfile,
+  handleFollowPut,
+  profileFollowLimiter,
+} from '@/server/services/notifications/followHttp.js';
 import {
   clearBannerPresetForEntity,
   clearCustomBannerForEntity,
@@ -867,7 +873,7 @@ router.get(
 
       const isOwnProfile = Boolean(req.user?.creatorId && req.user.creatorId === id);
 
-      const [doc, enriched, funFacts, curationTypeCounts, creatorRow, presentation] = await Promise.all([
+      const [doc, enriched, funFacts, curationTypeCounts, creatorRow, presentation, follow] = await Promise.all([
         elasticsearchService.getCreatorDocumentById(id),
         creatorStatsService.getEnrichedCreator(id),
         computeCreatorFunFacts(id),
@@ -884,6 +890,7 @@ router.get(
           ],
         }),
         assemblePresentationForCreator(id),
+        followFieldsForProfile('creator', id, req.user?.id),
       ]);
 
       const placementService = PlacementUtilizationService.getInstance();
@@ -1051,6 +1058,8 @@ router.get(
         displayCurationTypeIds,
         tournamentPlacements,
         equippedAvatarFrame,
+        isFollowing: follow.isFollowing,
+        followerCount: follow.followerCount,
         ...(isOwnProfile ? {placementEntitlements, placementDisplayNodes} : {}),
       });
 
@@ -1062,6 +1071,44 @@ router.get(
       });
     }
   },
+);
+
+router.put(
+  '/:id([0-9]{1,20})/follow',
+  Auth.user(),
+  profileFollowLimiter.middleware,
+  ApiDoc({
+    operationId: 'v3PutCreatorFollow',
+    summary: 'Follow or unfollow a creator',
+    description: 'Set follow state for the authenticated user. Body: following (boolean). Cannot follow your own creator profile.',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    params: {id: idParamSpec},
+    requestBody: {
+      description: 'following: boolean',
+      schema: {
+        type: 'object',
+        properties: {following: {type: 'boolean'}},
+        required: ['following'],
+      },
+      required: true,
+    },
+    responses: {
+      200: {
+        description: 'Follow state',
+        schema: {
+          type: 'object',
+          properties: {
+            following: {type: 'boolean'},
+            followerCount: {type: 'integer'},
+          },
+        },
+      },
+      400: {schema: errorResponseSchema},
+      ...standardErrorResponses401404500,
+    },
+  }),
+  async (req: Request, res: Response) => handleFollowPut(req, res, 'creator'),
 );
 
 router.patch(

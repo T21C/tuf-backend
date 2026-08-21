@@ -2,6 +2,7 @@ import {Router, Request, Response} from 'express';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import aliases from './aliases.js';
+import links from './links.js';
 import modification from './modification.js';
 import aprilFools from './aprilFools.js';
 import announcements from './announcements.js';
@@ -55,6 +56,7 @@ router.head(
 
 
 router.use('/', aliases);
+router.use('/', links);
 router.use('/', modification);
 router.use('/', aprilFools);
 router.use('/', announcements);

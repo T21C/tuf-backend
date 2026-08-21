@@ -5,6 +5,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import Pass from '@/models/passes/Pass.js';
 import Level from '@/models/levels/Level.js';
 import { markQueueRowsAnnounced } from '@/server/services/announcements/levelAnnouncementQueue.js';
+import { emitFollowFanout } from '@/server/services/notifications/followFanout.js';
 
 export type AnnouncementDeliveryKind = 'pass' | 'level' | 'rerate';
 
@@ -121,6 +122,15 @@ export const AnnouncementDeliveryTracker = {
         kind,
         itemIds: newlyCompleted,
       });
+
+      if (kind === 'pass') {
+        await emitFollowFanout('pass', newlyCompleted);
+      } else if (kind === 'level') {
+        const levelIds = newlyCompleted
+          .map(id => levelIdByItemId?.get(id))
+          .filter((id): id is number => typeof id === 'number');
+        await emitFollowFanout('level', levelIds);
+      }
     } catch (err) {
       logger.error('[AnnouncementDeliveryTracker] failed to mark announced', err);
       throw err;
