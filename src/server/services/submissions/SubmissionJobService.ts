@@ -180,6 +180,7 @@ export const SubmissionJobService = {
     labelsByItemId?: Map<number, string>;
     levelIdsByItemId?: Map<number, number>;
     origin?: SubmissionRequestOrigin;
+    reason?: string | null;
     user: { id: string; username?: string | null; nickname?: string | null };
   }): Promise<{
     requestId: string;
@@ -252,6 +253,9 @@ export const SubmissionJobService = {
         itemId,
         requestId,
         actorId: user.id,
+        ...(action === 'decline' && options.reason
+          ? { reason: options.reason }
+          : {}),
       });
     }
 

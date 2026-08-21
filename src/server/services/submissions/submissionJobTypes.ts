@@ -61,6 +61,7 @@ export type SubmissionQueuePayload = {
   itemId: number;
   requestId: string;
   actorId: string | null;
+  reason?: string | null;
 };
 
 export const LEVEL_APPROVE_STEPS = [
@@ -121,12 +122,18 @@ export function parseQueuePayload(raw: string): SubmissionQueuePayload | null {
     ) {
       return null;
     }
+    const reason = typeof parsed.reason === 'string'
+      ? parsed.reason.slice(0, 4000)
+      : parsed.reason === null
+        ? null
+        : undefined;
     return {
       kind: parsed.kind,
       action: parsed.action,
       itemId: Number(parsed.itemId),
       requestId: parsed.requestId,
       actorId: typeof parsed.actorId === 'string' ? parsed.actorId : null,
+      ...(reason !== undefined ? { reason } : {}),
     };
   } catch {
     return null;

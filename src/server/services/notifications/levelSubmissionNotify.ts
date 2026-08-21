@@ -8,6 +8,7 @@ export async function notifyChartSubmission(args: {
   userId?: string | null;
   level: {id?: number | null; song?: string | null; artist?: string | null};
   actorId?: string | null;
+  reason?: string | null;
   transaction: Transaction;
 }): Promise<void> {
   if (!args.userId) return;
@@ -28,6 +29,7 @@ export async function notifyChartSubmission(args: {
       levelId,
       song: args.level.song ?? null,
       artist: args.level.artist ?? null,
+      reason: args.reason ?? null,
     },
     recipients: {userIds: [args.userId]},
     actorId: args.actorId ?? null,
