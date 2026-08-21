@@ -6,6 +6,7 @@ import {
   errorResponseSchema,
   standardErrorResponses404500,
   standardErrorResponses500,
+  standardErrorResponses401404500,
 } from '@/server/schemas/common.js';
 import { validSortOptions } from '@/config/constants.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
@@ -51,6 +52,11 @@ import {
   assemblePresentationForPlayer,
   getPresentationSyncForUser,
 } from '@/server/services/profileCustomization/ProfileCustomizationService.js';
+import {
+  followFieldsForProfile,
+  handleFollowPut,
+  profileFollowLimiter,
+} from '@/server/services/notifications/followHttp.js';
 
 /**
  * v3 players routes — Elasticsearch-backed.
@@ -572,7 +578,7 @@ router.get(
       const doc = await elasticsearchService.getPlayerDocumentById(id);
       if (!doc) return res.status(404).json({ error: 'Player not found' });
 
-      const [ranks, enriched, funFacts, playerRow, presentation] = await Promise.all([
+      const [ranks, enriched, funFacts, playerRow, presentation, follow] = await Promise.all([
         getPlayerRanks(doc),
         playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
         computePlayerFunFacts(id, {
@@ -588,6 +594,7 @@ router.get(
           ],
         }),
         assemblePresentationForPlayer(id),
+        followFieldsForProfile('player', id, user?.id),
       ]);
 
       const placementService = PlacementUtilizationService.getInstance();
@@ -677,6 +684,8 @@ router.get(
         aliases,
         tournamentPlacements,
         equippedAvatarFrame,
+        isFollowing: follow.isFollowing,
+        followerCount: follow.followerCount,
         ...(isOwnProfile ? {placementEntitlements, placementDisplayNodes} : {}),
       });
 
@@ -688,6 +697,44 @@ router.get(
       });
     }
   },
+);
+
+router.put(
+  '/:id([0-9]{1,20})/follow',
+  Auth.user(),
+  profileFollowLimiter.middleware,
+  ApiDoc({
+    operationId: 'v3PutPlayerFollow',
+    summary: 'Follow or unfollow a player',
+    description: 'Set follow state for the authenticated user. Body: following (boolean). Cannot follow your own player profile.',
+    tags: ['Database', 'Players', 'v3'],
+    security: ['bearerAuth'],
+    params: {id: idParamSpec},
+    requestBody: {
+      description: 'following: boolean',
+      schema: {
+        type: 'object',
+        properties: {following: {type: 'boolean'}},
+        required: ['following'],
+      },
+      required: true,
+    },
+    responses: {
+      200: {
+        description: 'Follow state',
+        schema: {
+          type: 'object',
+          properties: {
+            following: {type: 'boolean'},
+            followerCount: {type: 'integer'},
+          },
+        },
+      },
+      400: {schema: errorResponseSchema},
+      ...standardErrorResponses401404500,
+    },
+  }),
+  async (req: Request, res: Response) => handleFollowPut(req, res, 'player'),
 );
 
 router.patch(

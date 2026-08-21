@@ -17,11 +17,13 @@ export const NOTIFICATION_TYPES = {
   ChartCurated: 'chart.curated',
   ChartCurationRemoved: 'chart.curation.removed',
   ChartWeeklySelected: 'chart.weekly.selected',
+  FollowingPlayerPass: 'following.player.pass',
+  FollowingCreatorLevel: 'following.creator.level',
 } as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];
 
-export const NOTIFICATION_CATEGORIES = ['submissions', 'chart', 'clears'] as const;
+export const NOTIFICATION_CATEGORIES = ['submissions', 'chart', 'clears', 'following'] as const;
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
@@ -71,6 +73,27 @@ export const chartWeeklyPayloadSchema = chartSnapshotPayloadSchema.extend({
 
 export type ChartWeeklyPayload = z.infer<typeof chartWeeklyPayloadSchema>;
 
+export const followingPlayerPassPayloadSchema = z.object({
+  passId: z.number().int().positive(),
+  levelId: z.number().int().positive(),
+  song: z.string().nullable(),
+  artist: z.string().nullable(),
+  playerId: z.number().int().positive(),
+  playerName: z.string().nullable(),
+});
+
+export type FollowingPlayerPassPayload = z.infer<typeof followingPlayerPassPayloadSchema>;
+
+export const followingCreatorLevelPayloadSchema = z.object({
+  levelId: z.number().int().positive(),
+  song: z.string().nullable(),
+  artist: z.string().nullable(),
+  creatorId: z.number().int().positive(),
+  creatorName: z.string().nullable(),
+});
+
+export type FollowingCreatorLevelPayload = z.infer<typeof followingCreatorLevelPayloadSchema>;
+
 export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.PassSubmissionSubmitted]: PassSubmissionPayload;
   [NOTIFICATION_TYPES.PassSubmissionApproved]: PassSubmissionPayload;
@@ -88,6 +111,8 @@ export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.ChartCurated]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartCurationRemoved]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartWeeklySelected]: ChartWeeklyPayload;
+  [NOTIFICATION_TYPES.FollowingPlayerPass]: FollowingPlayerPassPayload;
+  [NOTIFICATION_TYPES.FollowingCreatorLevel]: FollowingCreatorLevelPayload;
 };
 
 export type NotificationChannelDefaults = Record<NotificationChannel, boolean>;
@@ -238,6 +263,18 @@ const notificationTypeRegistry: {
     NOTIFICATION_TYPES.ChartWeeklySelected,
     'chart',
     chartWeeklyPayloadSchema,
+    levelHref,
+  ),
+  [NOTIFICATION_TYPES.FollowingPlayerPass]: def(
+    NOTIFICATION_TYPES.FollowingPlayerPass,
+    'following',
+    followingPlayerPassPayloadSchema,
+    (payload) => `/passes/${payload.passId}`,
+  ),
+  [NOTIFICATION_TYPES.FollowingCreatorLevel]: def(
+    NOTIFICATION_TYPES.FollowingCreatorLevel,
+    'following',
+    followingCreatorLevelPayloadSchema,
     levelHref,
   ),
 };

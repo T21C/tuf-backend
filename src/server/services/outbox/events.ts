@@ -63,6 +63,11 @@ export type NotificationCreatedPayload = {
   type: string;
 };
 
+export type FollowFanoutPayload = {
+  kind: 'pass' | 'level';
+  ids: number[];
+};
+
 export const OUTBOX_EVENT_TYPES = {
   DiscordLevelFileUpdated: 'DiscordLevelFileUpdated',
   DiscordLevelFileDeleted: 'DiscordLevelFileDeleted',
@@ -73,6 +78,7 @@ export const OUTBOX_EVENT_TYPES = {
   DiscordLevelBatchAnnouncement: 'DiscordLevelBatchAnnouncement',
   DiscordRerateBatchAnnouncement: 'DiscordRerateBatchAnnouncement',
   NotificationCreated: 'NotificationCreated',
+  FollowFanout: 'FollowFanout',
 } as const;
 
 export type OutboxEventType = (typeof OUTBOX_EVENT_TYPES)[keyof typeof OUTBOX_EVENT_TYPES];
@@ -87,4 +93,5 @@ export type OutboxPayloadByType = {
   [OUTBOX_EVENT_TYPES.DiscordLevelBatchAnnouncement]: DiscordLevelBatchAnnouncementPayload;
   [OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement]: DiscordRerateBatchAnnouncementPayload;
   [OUTBOX_EVENT_TYPES.NotificationCreated]: NotificationCreatedPayload;
+  [OUTBOX_EVENT_TYPES.FollowFanout]: FollowFanoutPayload;
 };
