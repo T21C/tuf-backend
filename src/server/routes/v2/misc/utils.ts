@@ -28,17 +28,24 @@ const upload = multer({
 
 const router: Router = express.Router();
 
-const languageConfigs = {
-  en: {display: 'English', countryCode: 'us', folder: 'en'},
-  pl: {display: 'Polish', countryCode: 'pl', folder: 'pl'},
-  kr: {display: '한국어', countryCode: 'kr', folder: 'kr'},
-  cn: {display: '中文', countryCode: 'cn', folder: 'cn'},
-  id: {display: 'Bahasa Indonesia', countryCode: 'id', folder: 'id'},
-  jp: {display: '日本語', countryCode: 'jp', folder: 'jp'},
-  ru: {display: 'Русский', countryCode: 'ru', folder: 'ru'},
-  de: {display: 'Deutsch', countryCode: 'de', folder: 'de'},
-  fr: {display: 'Français', countryCode: 'fr', folder: 'fr'},
-  es: {display: 'Español', countryCode: 'es', folder: 'es'},
+type LanguageConfig = {
+  display: string;
+  countryCode: string;
+  folder: string;
+  contributors: string[];
+};
+
+const languageConfigs: Record<string, LanguageConfig> = {
+  en: {display: 'English', countryCode: 'us', folder: 'en', contributors: []},
+  pl: {display: 'Polish', countryCode: 'pl', folder: 'pl', contributors: ["Matsum"]},
+  kr: {display: '한국어', countryCode: 'kr', folder: 'kr', contributors: ["부담토끼", "van-ci", "HaeengIn", "동찬토끼"]},
+  cn: {display: '中文', countryCode: 'cn', folder: 'cn', contributors: ["-Desktop0114514", "Alex1044", "Ariaelle"]},
+  id: {display: 'Bahasa Indonesia', countryCode: 'id', folder: 'id', contributors: []},
+  jp: {display: '日本語', countryCode: 'jp', folder: 'jp', contributors: []},
+  ru: {display: 'Русский', countryCode: 'ru', folder: 'ru', contributors: []},
+  de: {display: 'Deutsch', countryCode: 'de', folder: 'de', contributors: []},
+  fr: {display: 'Français', countryCode: 'fr', folder: 'fr', contributors: ["Folcrome", "Dexical"]},
+  es: {display: 'Español', countryCode: 'es', folder: 'es', contributors: []},
 };
 
 interface MulterRequest extends Request {
@@ -269,7 +276,7 @@ router.get(
 );
 
 // Language configuration - now dynamic based on directory check
-const languages: {[key: string]: {display: string; countryCode: string; folder: string; status: number}} = {};
+const languages: {[key: string]: {display: string; countryCode: string; folder: string; status: number; contributors: string[]}} = {};
 
 // Function to check if a language is implemented
 async function checkLanguageImplementation(langCode: string): Promise<number> {
@@ -346,7 +353,7 @@ router.get(
     summary: 'List languages (raw)',
     description: 'Returns available translation languages with completion status (raw object).',
     tags: ['Utils'],
-    responses: { 200: { description: 'Languages map (code -> display, countryCode, folder, status)' }, ...standardErrorResponses500 },
+    responses: { 200: { description: 'Languages map (code -> display, countryCode, folder, status, contributors)' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
   try {
@@ -383,7 +390,7 @@ router.get(
     const {lang} = req.params;
 
     try {
-      if (!languageConfigs[lang as keyof typeof languageConfigs]) {
+      if (!languageConfigs[lang]) {
         return res.status(404).json({error: 'Language not found'});
       }
 
@@ -425,7 +432,7 @@ router.get(
   ApiDoc({
     operationId: 'getUtilsLanguagesInfo',
     summary: 'List languages (array)',
-    description: 'Returns available translation languages as an array of { code, display, countryCode, folder, status }.',
+    description: 'Returns available translation languages as an array of { code, display, countryCode, folder, status, contributors }.',
     tags: ['Utils'],
     responses: { 200: { description: 'Array of language info' }, ...standardErrorResponses500 },
   }),
@@ -437,6 +444,7 @@ router.get(
       countryCode: info.countryCode,
       folder: info.folder,
       status: info.status,
+      contributors: info.contributors,
     }));
 
     res.json(languagesInfo);
