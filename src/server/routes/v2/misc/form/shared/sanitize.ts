@@ -16,6 +16,12 @@ export function sanitizeNotes(input: unknown): string | null {
   return cleaned.length > 0 ? cleaned : null;
 }
 
+/** Optional admin reason from a JSON body `{ reason?: string }`. */
+export function optionalReasonFromBody(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  return sanitizeNotes((body as { reason?: unknown }).reason);
+}
+
 /**
  * Accepts a loose date-like value and returns a Date inside the [2020-01-01, now+1d]
  * window, or null if the input is not parseable / out of range.

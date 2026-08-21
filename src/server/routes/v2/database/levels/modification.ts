@@ -32,7 +32,7 @@ import {
   safeTransactionRollback,
   sanitizeTextInput,
 } from '@/misc/utils/Utility.js';
-import { sanitizeNotes } from '@/server/routes/v2/misc/form/shared/sanitize.js';
+import { optionalReasonFromBody, sanitizeNotes } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
 import LevelTag from '@/models/levels/LevelTag.js';
@@ -983,10 +983,17 @@ router.delete(
   ApiDoc({
     operationId: 'deleteLevel',
     summary: 'Soft delete level',
-    description: 'Soft delete a level (super admin).',
+    description: 'Soft delete a level (super admin). Optional body: { reason } included in the owner notification.',
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
+    requestBody: {
+      description: 'Optional reason shown to chart owners.',
+      schema: {
+        type: 'object',
+        properties: { reason: { type: 'string', maxLength: 4000 } },
+      },
+    },
     responses: { 200: { description: 'Level soft deleted' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
@@ -1033,6 +1040,7 @@ router.delete(
           artist: level.artist,
         },
         actorId: req.user?.id ?? null,
+        reason: optionalReasonFromBody(req.body),
         dedupKey: `chart-deleted:${levelId}`,
         transaction,
       });
@@ -1288,10 +1296,17 @@ router.patch(
   ApiDoc({
     operationId: 'patchLevelToggleHidden',
     summary: 'Toggle level hidden',
-    description: 'Toggle hidden status (creator or super admin).',
+    description: 'Toggle hidden status (creator or super admin). Optional body: { reason } included when hiding.',
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
+    requestBody: {
+      description: 'Optional reason shown to chart owners when hiding.',
+      schema: {
+        type: 'object',
+        properties: { reason: { type: 'string', maxLength: 4000 } },
+      },
+    },
     responses: { 200: { description: 'Hidden toggled' }, ...standardErrorResponses403404500 },
   }),
   async (req: Request, res: Response) => {
@@ -1326,8 +1341,9 @@ router.patch(
       }
 
       // Toggle the hidden status
+      const nextHidden = !level.isHidden;
       await Level.update(
-        {isHidden: !level.isHidden},
+        {isHidden: nextHidden},
         {
           where: {id: levelId},
           transaction,
@@ -1340,8 +1356,9 @@ router.patch(
           song: level.song,
           artist: level.artist,
         },
-        isHidden: !level.isHidden,
+        isHidden: nextHidden,
         actorId: req.user?.id ?? null,
+        reason: nextHidden ? optionalReasonFromBody(req.body) : null,
         transaction,
       });
 
@@ -1362,7 +1379,7 @@ router.patch(
       return res.json({
         level: {
           id: level.id,
-          isHidden: !level.isHidden,
+          isHidden: nextHidden,
         },
       });
     } catch (error) {

@@ -43,6 +43,7 @@ export async function notifyPassSubmissionOutcome(args: {
   outcome: 'approved' | 'declined';
   passId: number | null;
   actorId?: string | null;
+  reason?: string | null;
   transaction: Transaction;
 }): Promise<void> {
   const {submission, outcome, passId, transaction} = args;
@@ -58,6 +59,7 @@ export async function notifyPassSubmissionOutcome(args: {
       passId,
       levelId: submission.levelId,
       ...passSongArtist(submission.level),
+      reason: args.reason ?? null,
     },
     recipients: {
       userIds: submission.userId ? [submission.userId] : [],
@@ -84,6 +86,7 @@ export async function notifyPassLifecycle(args: {
     level?: {song?: string | null; artist?: string | null} | null;
   };
   actorId?: string | null;
+  reason?: string | null;
   transaction: Transaction;
 }): Promise<void> {
   const passId = Number(args.pass.id);
@@ -96,6 +99,7 @@ export async function notifyPassLifecycle(args: {
       passId,
       levelId,
       ...passSongArtist(args.pass.level),
+      reason: args.reason ?? null,
     },
     recipients: {
       playerIds: args.pass.playerId ? [args.pass.playerId] : [],

@@ -39,6 +39,22 @@ test('queue payloads round-trip and reject malformed entries', () => {
     requestId: 'req-1',
     actorId: 'user-1',
   });
+  const withReason = encodeQueuePayload({
+    kind: 'level',
+    action: 'decline',
+    itemId: 9,
+    requestId: 'req-1',
+    actorId: 'user-1',
+    reason: 'duplicate chart',
+  });
+  assert.deepEqual(parseQueuePayload(withReason), {
+    kind: 'level',
+    action: 'decline',
+    itemId: 9,
+    requestId: 'req-1',
+    actorId: 'user-1',
+    reason: 'duplicate chart',
+  });
   assert.equal(parseQueuePayload('not-json'), null);
   assert.equal(parseQueuePayload(JSON.stringify({ kind: 'level' })), null);
 });

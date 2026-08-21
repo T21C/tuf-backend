@@ -31,6 +31,7 @@ export const chartSnapshotPayloadSchema = z.object({
   levelId: z.number().int().positive(),
   song: z.string().nullable(),
   artist: z.string().nullable(),
+  reason: z.string().max(4000).nullable().optional(),
 });
 
 export type ChartSnapshotPayload = z.infer<typeof chartSnapshotPayloadSchema>;
@@ -53,6 +54,7 @@ export const chartSubmissionPayloadSchema = z.object({
   levelId: z.number().int().positive().nullable(),
   song: z.string().nullable(),
   artist: z.string().nullable(),
+  reason: z.string().max(4000).nullable().optional(),
 });
 
 export type ChartSubmissionPayload = z.infer<typeof chartSubmissionPayloadSchema>;

@@ -7,6 +7,7 @@ const sequelize = getSequelizeForModelGroup('levels');
 export enum CreditRole {
   CHARTER = 'charter',
   VFXER = 'vfxer',
+  SPECIAL_THANKS = 'specialThanks',
 }
 
 class LevelCredit extends Model {

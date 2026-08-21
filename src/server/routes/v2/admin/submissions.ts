@@ -47,12 +47,14 @@ import submissionSongArtistRoutes from './submissions-song-artist.js';
 import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { SubmissionJobService } from '@/server/services/submissions/SubmissionJobService.js';
 import type { SubmissionAction, SubmissionKind } from '@/server/services/submissions/submissionJobTypes.js';
+import { optionalReasonFromBody } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 
 const router: Router = Router();
 
 enum CreditRole {
   CHARTER = 'charter',
   VFXER = 'vfxer',
+  SPECIAL_THANKS = 'specialThanks',
   TEAM = 'team'
 }
 
@@ -89,6 +91,7 @@ async function enqueueSubmissionItems(
     origin?: 'manual' | 'auto';
     labelsByItemId: Map<number, string>;
     levelIdsByItemId?: Map<number, number>;
+    reason?: string | null;
   },
 ): Promise<Response> {
   try {
@@ -99,6 +102,7 @@ async function enqueueSubmissionItems(
       labelsByItemId: options.labelsByItemId,
       levelIdsByItemId: options.levelIdsByItemId,
       origin: options.origin,
+      reason: options.reason,
       user: submissionQueueActor(req),
     });
     const alreadyInFlight = result.alreadyInFlightIds.length > 0;
@@ -635,10 +639,17 @@ router.put(
   ApiDoc({
     operationId: 'putAdminLevelSubmissionDecline',
     summary: 'Decline level submission',
-    description: 'Enqueue pending level submission decline. Super admin.',
+    description: 'Enqueue pending level submission decline. Super admin. Optional body: { reason } included in the submitter notification.',
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
+    requestBody: {
+      description: 'Optional reason shown to the submitter.',
+      schema: {
+        type: 'object',
+        properties: { reason: { type: 'string', maxLength: 4000 } },
+      },
+    },
     responses: { 202: { description: 'Queued' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
@@ -654,6 +665,7 @@ router.put(
       action: 'decline',
       itemIds: [id],
       labelsByItemId: new Map([[id, levelSubmissionLabel(submission)]]),
+      reason: optionalReasonFromBody(req.body),
     });
   },
 );
@@ -696,10 +708,17 @@ router.put(
   ApiDoc({
     operationId: 'putAdminPassSubmissionDecline',
     summary: 'Decline pass submission',
-    description: 'Enqueue pending pass submission decline. Super admin.',
+    description: 'Enqueue pending pass submission decline. Super admin. Optional body: { reason } included in the submitter notification.',
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
+    requestBody: {
+      description: 'Optional reason shown to the submitter.',
+      schema: {
+        type: 'object',
+        properties: { reason: { type: 'string', maxLength: 4000 } },
+      },
+    },
     responses: { 202: { description: 'Queued' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
@@ -718,6 +737,7 @@ router.put(
       levelIdsByItemId: submission.levelId
         ? new Map([[id, submission.levelId]])
         : undefined,
+      reason: optionalReasonFromBody(req.body),
     });
   },
 );
@@ -1666,7 +1686,17 @@ router.post(
     }
 
     // Create a new creator request with a placeholder name
-    const placeholderName = `New ${role.charAt(0).toUpperCase() + role.slice(1)}`;
+    const roleKey = typeof role === 'string' ? role : '';
+    const rolePlaceholderLabels: Record<string, string> = {
+      charter: 'Charter',
+      vfxer: 'Vfxer',
+      specialThanks: 'Special Thanks',
+      team: 'Team',
+    };
+    const placeholderLabel =
+      rolePlaceholderLabels[roleKey] ||
+      (roleKey ? roleKey.charAt(0).toUpperCase() + roleKey.slice(1) : 'Creator');
+    const placeholderName = `New ${placeholderLabel}`;
 
     if (role === 'team') {
       await LevelSubmissionTeamRequest.create({

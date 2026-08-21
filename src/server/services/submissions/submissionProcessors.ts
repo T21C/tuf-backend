@@ -470,6 +470,7 @@ async function processLevelDecline(
   submissionId: number,
   actorId: string | null,
   onStep: OnStep,
+  reason: string | null = null,
 ): Promise<void> {
   await onStep('validate');
   let transaction: Transaction | undefined;
@@ -508,6 +509,7 @@ async function processLevelDecline(
       userId: submission.userId,
       level: { song: submission.song, artist: submission.artist },
       actorId,
+      reason,
       transaction,
     });
 
@@ -759,6 +761,7 @@ async function processPassDecline(
   submissionId: number,
   actorId: string | null,
   onStep: OnStep,
+  reason: string | null = null,
 ): Promise<{ levelId?: number | null; passId?: number | null }> {
   await onStep('validate');
   let transaction: Transaction | undefined;
@@ -779,6 +782,7 @@ async function processPassDecline(
       outcome: 'declined',
       passId: null,
       actorId,
+      reason,
       transaction,
     });
     await transaction.commit();
@@ -797,11 +801,11 @@ export async function processQueuedSubmission(
     return processLevelApprove(payload.itemId, payload.actorId, onStep);
   }
   if (payload.kind === 'level' && payload.action === 'decline') {
-    await processLevelDecline(payload.itemId, payload.actorId, onStep);
+    await processLevelDecline(payload.itemId, payload.actorId, onStep, payload.reason ?? null);
     return {};
   }
   if (payload.kind === 'pass' && payload.action === 'approve') {
     return processPassApprove(payload.itemId, payload.actorId, onStep);
   }
-  return processPassDecline(payload.itemId, payload.actorId, onStep);
+  return processPassDecline(payload.itemId, payload.actorId, onStep, payload.reason ?? null);
 }

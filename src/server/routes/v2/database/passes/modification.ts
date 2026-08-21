@@ -11,6 +11,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import sequelize from '@/config/db.js';
 import { updateWorldsFirstFlags, updateWorldsFirstPPStatus } from './index.js';
 import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
+import { optionalReasonFromBody } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 import { IJudgements } from '@/misc/utils/pass/CalcAcc.js';
 import {
   computePassScoreV2,
@@ -399,10 +400,17 @@ router.delete(
   ApiDoc({
     operationId: 'deletePass',
     summary: 'Soft-delete pass',
-    description: 'Soft-delete a pass by ID (super admin). Sets isDeleted = true; world\'s first and player stats are updated.',
+    description: 'Soft-delete a pass by ID (super admin). Sets isDeleted = true; world\'s first and player stats are updated. Optional body: { reason } included in the player notification.',
     tags: ['Passes'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
+    requestBody: {
+      description: 'Optional reason shown to the pass owner.',
+      schema: {
+        type: 'object',
+        properties: { reason: { type: 'string', maxLength: 4000 } },
+      },
+    },
     responses: { 200: { description: 'Deleted pass and message' }, 404: { description: 'Pass not found' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
@@ -510,6 +518,7 @@ router.delete(
             level: pass.level,
           },
           actorId: req.user?.id ?? null,
+          reason: optionalReasonFromBody(req.body),
           transaction,
         });
 

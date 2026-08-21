@@ -23,6 +23,7 @@ export async function notifyChartOwners(args: {
     | typeof NOTIFICATION_TYPES.ChartCurationRemoved;
   level: {id: number; song?: string | null; artist?: string | null};
   actorId?: string | null;
+  reason?: string | null;
   dedupKey: string;
   transaction?: Transaction;
 }): Promise<void> {
@@ -31,7 +32,7 @@ export async function notifyChartOwners(args: {
 
   await notificationService.notify({
     type: args.type,
-    payload: snapshot,
+    payload: {...snapshot, reason: args.reason ?? null},
     recipients: {levelId: snapshot.levelId},
     actorId: args.actorId ?? null,
     dedupKey: args.dedupKey,
@@ -44,6 +45,7 @@ export async function notifyChartVisibilityChanged(args: {
   level: {id: number; song?: string | null; artist?: string | null};
   isHidden: boolean;
   actorId?: string | null;
+  reason?: string | null;
   transaction: Transaction;
 }): Promise<void> {
   const snapshot = chartSnapshot(args.level);
@@ -51,7 +53,7 @@ export async function notifyChartVisibilityChanged(args: {
 
   await notificationService.notify({
     type: NOTIFICATION_TYPES.ChartVisibilityChanged,
-    payload: {...snapshot, isHidden: args.isHidden},
+    payload: {...snapshot, isHidden: args.isHidden, reason: args.reason ?? null},
     recipients: {levelId: snapshot.levelId},
     actorId: args.actorId ?? null,
     dedupKey: `chart-visibility:${snapshot.levelId}:${args.isHidden ? 'hidden' : 'public'}`,
