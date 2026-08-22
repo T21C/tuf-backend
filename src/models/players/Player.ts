@@ -37,6 +37,8 @@ class Player
   declare placementOrderIds: number[] | null;
   declare placementCardLayout: string;
   declare placementDisplayMode: 'defaultHierarchy' | 'customLayers';
+  /** When false, the public profile header hides followerCount. */
+  declare showFollowerCount: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -109,6 +111,11 @@ Player.init(
       type: DataTypes.ENUM('defaultHierarchy', 'customLayers'),
       allowNull: false,
       defaultValue: 'defaultHierarchy',
+    },
+    showFollowerCount: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
     },
     createdAt: {
       type: DataTypes.DATE,

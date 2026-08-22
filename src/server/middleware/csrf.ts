@@ -26,6 +26,8 @@ function isCsrfExemptPath(req: Request): boolean {
  * in production, so any such request is cross-site forgeable and must prove CSRF.
  * The refresh cookie counts too — /auth/refresh and /auth/logout act on it alone.
  * The mfaPending cookie counts for the same reason — /auth/mfa/* act on it alone.
+ * oauthPending is excluded: the callback authenticates with code+state, and folding
+ * it in would CSRF-gate anonymous OAuth POSTs before the SPA has a CSRF token.
  */
 function usedCookieAuth(req: Request): boolean {
   return Boolean(

@@ -32,6 +32,15 @@ export const MFA_PENDING_TTL_SEC = 10 * 60;
 /** Login MFA pending cookie name (shared with CSRF middleware — the /mfa endpoints authenticate with this cookie alone). */
 export const MFA_PENDING_COOKIE = 'mfaPending';
 
+/** Inbound OAuth pending cookie / JWT lifetime in seconds (10 min). */
+export const OAUTH_PENDING_TTL_SEC = 10 * 60;
+
+/**
+ * Inbound OAuth pending cookie name. Intentionally NOT listed in CSRF `usedCookieAuth`:
+ * the callback authenticates with code+state, not this cookie alone.
+ */
+export const OAUTH_PENDING_COOKIE = 'oauthPending';
+
 /** Trusted-device cookie / row lifetime in days. */
 export const TRUSTED_DEVICE_TTL_DAYS = 30;
 

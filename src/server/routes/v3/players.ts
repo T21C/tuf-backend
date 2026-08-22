@@ -53,6 +53,7 @@ import {
   getPresentationSyncForUser,
 } from '@/server/services/profileCustomization/ProfileCustomizationService.js';
 import {
+  coerceShowFollowerCount,
   followFieldsForProfile,
   handleFollowPut,
   profileFollowLimiter,
@@ -591,6 +592,7 @@ router.get(
             'placementDisplayMode',
             'hiddenPlacementIds',
             'placementOrderIds',
+            'showFollowerCount',
           ],
         }),
         assemblePresentationForPlayer(id),
@@ -686,6 +688,7 @@ router.get(
         equippedAvatarFrame,
         isFollowing: follow.isFollowing,
         followerCount: follow.followerCount,
+        showFollowerCount: coerceShowFollowerCount(playerRow?.showFollowerCount),
         ...(isOwnProfile ? {placementEntitlements, placementDisplayNodes} : {}),
       });
 
@@ -797,6 +800,69 @@ router.patch(
       logger.error('[v3 PATCH /players/me/bio] failure', error);
       return res.status(500).json({
         error: 'Failed to update player bio',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.patch(
+  '/me/show-follower-count',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'v3PatchPlayerMeShowFollowerCount',
+    summary: 'Toggle public follower count on my player profile',
+    description:
+      'Requires an authenticated user with `playerId` set. Body: `{ showFollowerCount: boolean }`. On by default.',
+    tags: ['Database', 'Players', 'v3'],
+    security: ['bearerAuth'],
+    requestBody: {
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {showFollowerCount: {type: 'boolean'}},
+        required: ['showFollowerCount'],
+      },
+    },
+    responses: {
+      200: {
+        description: 'Updated display flag',
+        schema: {
+          type: 'object',
+          properties: {showFollowerCount: {type: 'boolean'}},
+        },
+      },
+      400: {schema: errorResponseSchema},
+      ...standardErrorResponses401404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({error: 'Unauthorized'});
+      if (!user.playerId) {
+        return res.status(400).json({error: 'No player profile linked to this account'});
+      }
+
+      const body = req.body as {showFollowerCount?: unknown};
+      if (typeof body.showFollowerCount !== 'boolean') {
+        return res.status(400).json({error: 'showFollowerCount must be a boolean'});
+      }
+
+      const player = await Player.findByPk(user.playerId, {attributes: ['id', 'showFollowerCount']});
+      if (!player) {
+        return res.status(404).json({error: 'Player not found'});
+      }
+
+      player.showFollowerCount = body.showFollowerCount;
+      await player.save();
+
+      await CacheInvalidation.invalidateUser(user.id);
+      return res.json({showFollowerCount: coerceShowFollowerCount(player.showFollowerCount)});
+    } catch (error) {
+      logger.error('[v3 PATCH /players/me/show-follower-count] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update follower count display',
         details: error instanceof Error ? error.message : String(error),
       });
     }

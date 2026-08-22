@@ -62,3 +62,8 @@ export async function followFieldsForProfile(
   const state = await getFollowState(targetType, targetId, viewerUserId ?? null);
   return {isFollowing: state.following, followerCount: state.followerCount};
 }
+
+/** MySQL BOOLEAN may come back as 0/1. Missing values default to shown. */
+export function coerceShowFollowerCount(value: unknown): boolean {
+  return value !== false && value !== 0;
+}

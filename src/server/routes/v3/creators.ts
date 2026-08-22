@@ -51,6 +51,7 @@ import {
   getPresentationSyncForUser,
 } from '@/server/services/profileCustomization/ProfileCustomizationService.js';
 import {
+  coerceShowFollowerCount,
   followFieldsForProfile,
   handleFollowPut,
   profileFollowLimiter,
@@ -532,6 +533,71 @@ router.patch(
 );
 
 router.patch(
+  '/me/show-follower-count',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorMeShowFollowerCount',
+    summary: 'Toggle public follower count on my creator profile',
+    description:
+      'Requires an authenticated user with `creatorId` set. Body: `{ showFollowerCount: boolean }`. On by default.',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    requestBody: {
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {showFollowerCount: {type: 'boolean'}},
+        required: ['showFollowerCount'],
+      },
+    },
+    responses: {
+      200: {
+        description: 'Updated display flag',
+        schema: {
+          type: 'object',
+          properties: {showFollowerCount: {type: 'boolean'}},
+        },
+      },
+      400: {schema: errorResponseSchema},
+      ...standardErrorResponses401404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({error: 'Unauthorized'});
+
+      const id = Number(user.creatorId);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({error: 'No creator profile linked to this account'});
+      }
+
+      const body = req.body as {showFollowerCount?: unknown};
+      if (typeof body.showFollowerCount !== 'boolean') {
+        return res.status(400).json({error: 'showFollowerCount must be a boolean'});
+      }
+
+      const creator = await Creator.findByPk(id, {attributes: ['id', 'showFollowerCount']});
+      if (!creator) {
+        return res.status(404).json({error: 'Creator not found'});
+      }
+
+      creator.showFollowerCount = body.showFollowerCount;
+      await creator.save();
+
+      await invalidateLinkedUserForCreator(id);
+      return res.json({showFollowerCount: coerceShowFollowerCount(creator.showFollowerCount)});
+    } catch (error) {
+      logger.error('[v3 PATCH /creators/me/show-follower-count] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update follower count display',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.patch(
   '/me/bio-canvas',
   Auth.tufStellarUser(),
   ApiDoc({
@@ -887,6 +953,7 @@ router.get(
             'placementDisplayMode',
             'hiddenPlacementIds',
             'placementOrderIds',
+            'showFollowerCount',
           ],
         }),
         assemblePresentationForCreator(id),
@@ -1060,6 +1127,7 @@ router.get(
         equippedAvatarFrame,
         isFollowing: follow.isFollowing,
         followerCount: follow.followerCount,
+        showFollowerCount: coerceShowFollowerCount(creatorRow?.showFollowerCount),
         ...(isOwnProfile ? {placementEntitlements, placementDisplayNodes} : {}),
       });
 
