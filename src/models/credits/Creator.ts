@@ -26,6 +26,8 @@ class Creator extends Model implements ICreator {
   declare placementOrderIds: number[] | null;
   declare placementCardLayout: string;
   declare placementDisplayMode: 'defaultHierarchy' | 'customLayers';
+  /** When false, the public profile header hides followerCount. */
+  declare showFollowerCount: boolean;
 
   declare user: User;
   declare credits?: LevelCredit[];
@@ -99,6 +101,11 @@ Creator.init(
       type: DataTypes.ENUM('defaultHierarchy', 'customLayers'),
       allowNull: false,
       defaultValue: 'defaultHierarchy',
+    },
+    showFollowerCount: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
     },
   },
   {

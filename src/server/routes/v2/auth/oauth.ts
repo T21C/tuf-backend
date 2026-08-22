@@ -8,16 +8,16 @@ import { stepUpGrantService } from '@/server/services/auth/StepUpGrantService.js
 const router: Router = Router();
 
 router.post(
-  '/callback/:provider',
+  '/callback',
   // Optional auth: login works without cookies; linking/reauth need req.user when present
   Auth.tryUser(),
   ApiDoc({
     operationId: 'postOAuthCallback',
     summary: 'OAuth callback',
-    description: 'Handles OAuth provider callback (login, linking, or reauth).',
+    description:
+      'Completes OAuth login, linking, or reauth. Mode and provider come from the oauthPending cookie, not the URL.',
     tags: ['Auth'],
-    params: { provider: { description: 'OAuth provider name', schema: { type: 'string' } } },
-    responses: { 200: { description: 'Success' }, 302: { description: 'Redirect' }, 400: { schema: errorResponseSchema }, 500: { schema: errorResponseSchema } },
+    responses: { 200: { description: 'Success' }, 400: { schema: errorResponseSchema }, 401: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, 500: { schema: errorResponseSchema } },
   }),
   OAuthController.handleCallback,
 );
@@ -52,21 +52,6 @@ router.get('/reauth/:provider', Auth.user(), ApiDoc({
   params: { provider: { schema: { type: 'string' } } },
   responses: { 200: { description: 'Auth URL' }, 401: { schema: errorResponseSchema } },
 }), OAuthController.initiateReauth);
-
-router.post(
-  '/link/:provider',
-  Auth.user(),
-  ApiDoc({
-    operationId: 'postOAuthLink',
-    summary: 'Link OAuth provider',
-    description: 'Complete linking after provider callback',
-    tags: ['Auth'],
-    security: ['bearerAuth'],
-    params: { provider: { schema: { type: 'string' } } },
-    responses: { 200: { schema: successMessageSchema }, 401: { schema: errorResponseSchema }, 500: { schema: errorResponseSchema } },
-  }),
-  OAuthController.linkProvider
-);
 
 router.post(
   '/unlink/:provider',

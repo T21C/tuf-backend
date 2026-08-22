@@ -1,14 +1,8 @@
 import {Request, Response} from 'express';
 import OAuthService from '@/server/services/accounts/OAuthService.js';
 import {OAuthProvider} from '@/models/index.js';
-import axios from 'axios';
-import {
-  type RESTPostOAuth2AccessTokenResult,
-  type RESTGetAPIUserResult,
-} from 'discord-api-types/v10';
-import dotenv from 'dotenv';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { clientUrlEnv, ownUrl, isTufStellarFeatureEnabled } from '@/config/app.config.js';
+import { ownUrl, isTufStellarFeatureEnabled } from '@/config/app.config.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
@@ -26,7 +20,13 @@ import { hasPasswordCredential } from '@/server/services/auth/passwordCredential
 import { parseClientIp } from '@/misc/utils/auth/rateLimitSubjects.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 import { securityNotificationService } from '@/server/services/accounts/SecurityNotificationService.js';
-
+import { oauthPendingService } from '@/server/services/auth/OAuthPendingService.js';
+import { getOAuthProviderAdapter } from '@/server/services/accounts/oauthProviders/registry.js';
+import { oauthCallbackRedirectUri } from '@/server/services/accounts/oauthProviders/redirectUri.js';
+import {
+  isOAuthEmailRequiredError,
+  type OAuthMode,
+} from '@/server/services/accounts/oauthProviders/types.js';
 
 interface ProfileResponse {
   user: {
@@ -48,249 +48,227 @@ interface ProfileResponse {
   }[];
 }
 
-dotenv.config();
-
 function parseStepUpScopeParam(raw: unknown): StepUpScope {
-  if (raw == null || raw === '') return 'email-change';
+  if (raw === null || raw === undefined || raw === '') return 'email-change';
   if (isStepUpScope(raw)) return raw;
   return 'email-change';
 }
 
-function buildDiscordRedirectUri(mode: 'login' | 'linking' | 'reauth'): string {
-  if (mode === 'linking') return clientUrlEnv + '/callback?linking=true';
-  if (mode === 'reauth') return clientUrlEnv + '/callback?reauth=true';
-  return clientUrlEnv + '/callback';
-}
+async function initiateOAuth(
+  req: Request,
+  res: Response,
+  mode: OAuthMode,
+): Promise<Response> {
+  const adapter = getOAuthProviderAdapter(req.params.provider);
+  if (!adapter) {
+    return res.status(400).json({error: 'Unsupported provider'});
+  }
 
-// Helper function to handle Discord OAuth token exchange
-async function handleDiscordOAuth(
-  code: string,
-  mode: 'login' | 'linking' | 'reauth',
-): Promise<{
-  tokens: RESTPostOAuth2AccessTokenResult;
-  profile: RESTGetAPIUserResult;
-} | null> {
+  if (mode !== 'login' && !req.user) {
+    return res.status(401).json({message: 'Authentication required'});
+  }
+
+  const scope = mode === 'reauth' ? parseStepUpScopeParam(req.query.scope) : undefined;
+
   try {
-    const tokenResponse = await axios.post(
-      'https://discord.com/api/oauth2/token',
-      new URLSearchParams({
-        client_id: process.env.DISCORD_CLIENT_ID!,
-        client_secret: process.env.DISCORD_CLIENT_SECRET!,
-        code: code.toString(),
-        grant_type: 'authorization_code',
-        redirect_uri: buildDiscordRedirectUri(mode),
-      }),
-      {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      },
-    );
-
-    const tokens: RESTPostOAuth2AccessTokenResult = tokenResponse.data;
-    const userResponse = await axios.get('https://discord.com/api/users/@me', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    const nonce = oauthPendingService.issue(res, {
+      provider: adapter.id,
+      mode,
+      userId: mode === 'login' ? undefined : req.user!.id,
+      scope,
     });
-
-    return {
-      tokens,
-      profile: userResponse.data,
-    };
-  } catch {
-    return null;
+    const url = adapter.buildAuthorizeUrl({
+      redirectUri: oauthCallbackRedirectUri(),
+      state: nonce,
+      mode,
+    });
+    if (mode === 'reauth') {
+      return res.json({url, scope});
+    }
+    return res.json({url});
+  } catch (error) {
+    logger.error(`[OAuth] Failed to initiate ${mode} for ${adapter.id}:`, error);
+    return res.status(500).json({error: 'OAuth provider is not configured'});
   }
 }
 
 export const OAuthController = {
-  /**
-   * Initiate OAuth login process
-   */
   async initiateLogin(req: Request, res: Response) {
-    const {provider} = req.params;
-
-    if (provider === 'discord') {
-      if (!process.env.DISCORD_CLIENT_ID) {
-        logger.error('DISCORD_CLIENT_ID is not set');
-        return res.status(500).json({error: 'Discord client ID is not configured'});
-      }
-
-      const scopes = ['identify', 'email'];
-      const redirectUri = buildDiscordRedirectUri('login');
-
-      const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${
-        process.env.DISCORD_CLIENT_ID
-      }&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scopes.join('%20')}`;
-
-      return res.json({url: authUrl});
-    }
-
-    return res.status(400).json({error: 'Unsupported provider'});
+    return initiateOAuth(req, res, 'login');
   },
 
-  /**
-   * Initiate OAuth linking process
-   */
   async initiateLink(req: Request, res: Response) {
-    const {provider} = req.params;
-
-    if (provider === 'discord') {
-      const scopes = ['identify', 'email'];
-      const redirectUri = buildDiscordRedirectUri('linking');
-      const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${
-        process.env.DISCORD_CLIENT_ID
-      }&redirect_uri=${encodeURIComponent(
-        redirectUri,
-      )}&response_type=code&scope=${scopes.join('%20')}`;
-      return res.json({url: authUrl});
-    }
-
-    return res.status(400).json({error: 'Unsupported provider'});
+    return initiateOAuth(req, res, 'linking');
   },
 
   /**
    * Initiate OAuth reauth for step-up (OAuth-only accounts).
    * Optional query `scope` selects the step-up grant scope (default email-change).
-   * Scope is echoed to the client and passed back on the API callback (not in the Discord redirect_uri).
    */
   async initiateReauth(req: Request, res: Response) {
-    const { provider } = req.params;
-    const scope = parseStepUpScopeParam(req.query.scope);
-    if (provider === 'discord') {
-      const scopes = ['identify', 'email'];
-      const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${
-        process.env.DISCORD_CLIENT_ID
-      }&redirect_uri=${encodeURIComponent(
-        buildDiscordRedirectUri('reauth'),
-      )}&response_type=code&scope=${scopes.join('%20')}`;
-      return res.json({ url: authUrl, scope });
-    }
-    return res.status(400).json({ error: 'Unsupported provider' });
+    return initiateOAuth(req, res, 'reauth');
   },
 
-  /**
-   * Handle OAuth callback
-   */
   async handleCallback(req: Request, res: Response) {
+    const pending = oauthPendingService.read(req);
+    oauthPendingService.clear(res);
+    const mode = pending?.mode;
+
     try {
-      //const {provider} = req.params;
-      const {code} = req.body;
-      const isLinking = req.query.linking === 'true';
-      const isReauth = req.query.reauth === 'true';
-      const stepUpScope = parseStepUpScopeParam(req.query.scope);
+      const {code, state} = req.body ?? {};
+
+      if (!pending) {
+        return res.status(400).json({
+          message: 'OAuth session expired or missing',
+          code: 'OAUTH_PENDING_MISSING',
+        });
+      }
+
+      if (!oauthPendingService.matchesState(pending, state)) {
+        return res.status(400).json({
+          message: 'Invalid OAuth state',
+          code: 'OAUTH_STATE_MISMATCH',
+          mode,
+        });
+      }
 
       if (!code) {
         return res
           .status(400)
-          .json({message: 'Authorization code is required'});
+          .json({message: 'Authorization code is required', mode});
       }
 
-      const tokens = await handleDiscordOAuth(
-        code.toString(),
-        isLinking ? 'linking' : isReauth ? 'reauth' : 'login',
-      );
-      //logger.error("Discord OAuth tokens", tokens)
-      if (!tokens) {
+      if (pending.mode === 'linking' || pending.mode === 'reauth') {
+        if (!req.user) {
+          return res.status(401).json({
+            message: 'Authentication required for this OAuth flow',
+            mode,
+          });
+        }
+        if (!pending.sub || pending.sub !== req.user.id) {
+          return res.status(403).json({
+            message: 'OAuth session does not match this account',
+            code: 'OAUTH_PENDING_USER_MISMATCH',
+            mode,
+          });
+        }
+      }
+
+      const adapter = getOAuthProviderAdapter(pending.provider);
+      if (!adapter) {
+        return res.status(400).json({error: 'Unsupported provider', mode});
+      }
+
+      let profile;
+      try {
+        profile = await adapter.exchangeCode({
+          code: code.toString(),
+          redirectUri: oauthCallbackRedirectUri(),
+        });
+      } catch (error) {
+        if (isOAuthEmailRequiredError(error)) {
+          return res.status(400).json({
+            message: error.message,
+            code: error.code,
+            mode,
+          });
+        }
+        throw error;
+      }
+      if (!profile) {
         return res
           .status(400)
-          .json({message: 'Failed to exchange code for tokens'});
+          .json({message: 'Failed to exchange code for tokens', mode});
       }
 
-      // Get user profile from provider
-      const profile = tokens.profile;
-      if (!profile) {
-        return res.status(400).json({message: 'Failed to get user profile'});
-      }
-      if (isReauth) {
-        if (!req.user) {
-          return res.status(401).json({ message: 'Authentication required for reauth' });
-        }
-        // Ensure the Discord account is linked to this user
+      if (pending.mode === 'reauth') {
+        const stepUpScope = pending.scope && isStepUpScope(pending.scope)
+          ? pending.scope
+          : 'email-change';
         const linked = await OAuthProvider.findOne({
           where: {
-            userId: req.user.id,
-            provider: 'discord',
+            userId: req.user!.id,
+            provider: profile.provider,
             providerId: profile.id,
           },
         });
         if (!linked) {
           return res.status(403).json({
-            message: 'Discord account does not match a linked provider on this account',
+            message: 'OAuth account does not match a linked provider on this account',
             code: 'OAUTH_REAUTH_MISMATCH',
+            mode,
           });
         }
-        await stepUpGrantService.grantAfterOAuthReauth(req.user.id, res, stepUpScope, {
+        await stepUpGrantService.grantAfterOAuthReauth(req.user!.id, res, stepUpScope, {
           ip: parseClientIp(req),
           userAgent: req.get('user-agent') ?? undefined,
         });
-        return res.json({ success: true, stepUp: true, scope: stepUpScope });
+        return res.json({success: true, stepUp: true, scope: stepUpScope, mode});
       }
 
-      if (isLinking) {
-        // Handle linking flow
-        if (!req.user) {
-          return res.status(401).json({message: 'Authentication required for linking'});
-        }
-
+      if (pending.mode === 'linking') {
         try {
-          await OAuthService.linkProvider(req.user.id, {
+          await OAuthService.linkProvider(req.user!.id, {
             id: profile.id,
-            provider: 'discord',
+            provider: profile.provider,
             username: profile.username,
             email: profile.email || undefined,
           });
-
-          // Invalidate user-specific cache
-          await CacheInvalidation.invalidateUser(req.user.id);
-
-          return res.json({success: true});
-        } catch (error: any) {
-          if (error.message.includes('ERR_BAD_REQUEST') || (error.response && error.response.status === 400)) {
-            return res.status(400).json({error: 'Invalid code'});
+          await CacheInvalidation.invalidateUser(req.user!.id);
+          return res.json({success: true, mode});
+        } catch (error: unknown) {
+          const err = error as {message?: string; response?: {status?: number}};
+          if (
+            (err.message && err.message.includes('ERR_BAD_REQUEST')) ||
+            err.response?.status === 400
+          ) {
+            return res.status(400).json({error: 'Invalid code', mode});
           }
           logger.error('Provider linking error:', error);
-          return res.status(400).json({error: error.message || 'Failed to link provider'});
-        }
-      } else {
-        // Handle login flow
-        const [user, isNew] = await OAuthService.findOrCreateUser({
-          id: profile.id,
-          provider: 'discord',
-          username: profile.username,
-          email: profile.email || undefined,
-        });
-
-        // Invalidate user-specific cache (for new users, this is a no-op but harmless)
-        await CacheInvalidation.invalidateUser(user.id);
-
-        const auth = await sessionIssuanceService.completeAuthentication(user, req, res, {
-          mfaExempt: true,
-        });
-        if (auth.status !== 'session') {
-          return res.status(500).json({ message: 'Authentication failed' });
-        }
-        if (!isNew) {
-          securityNotificationService.notify(user.id, 'new-signin', {
-            req,
-            method: 'discord',
+          return res.status(400).json({
+            error: err.message || 'Failed to link provider',
+            mode,
           });
         }
-        return res.json({
-          user: auth.user,
-          isNew,
-          expiresIn: auth.expiresIn,
-          sessionId: auth.sessionId,
+      }
+
+      const [user, isNew] = await OAuthService.findOrCreateUser({
+        id: profile.id,
+        provider: profile.provider,
+        username: profile.username,
+        email: profile.email || undefined,
+      });
+
+      await CacheInvalidation.invalidateUser(user.id);
+
+      const auth = await sessionIssuanceService.completeAuthentication(user, req, res, {
+        mfaExempt: true,
+      });
+      if (auth.status !== 'session') {
+        return res.status(500).json({message: 'Authentication failed', mode});
+      }
+      if (!isNew) {
+        securityNotificationService.notify(user.id, 'new-signin', {
+          req,
+          method: profile.provider,
         });
       }
+      return res.json({
+        user: auth.user,
+        isNew,
+        expiresIn: auth.expiresIn,
+        sessionId: auth.sessionId,
+        mode,
+      });
     } catch (error) {
       if (error instanceof Error && error.message.includes('400')) {
-        return res.status(400).json({message: 'Bad authentication code'});
+        return res.status(400).json({message: 'Bad authentication code', mode});
       }
-      //logger.error('OAuth callback error:', error);
-      return res.status(500).json({message: 'Authentication failed'});
+      logger.error('OAuth callback error:', error);
+      return res.status(500).json({message: 'Authentication failed', mode});
     }
   },
 
-  /**
-   * Get user profile
-   */
   async getProfile(req: Request, res: Response) {
     try {
       const providers = await OAuthService.getUserProviders(req.user!.id);
@@ -339,64 +317,6 @@ export const OAuthController = {
     }
   },
 
-  /**
-   * Link provider to user account
-   */
-  async linkProvider(req: Request, res: Response) {
-    const {provider} = req.params;
-    const {code} = req.body;
-
-    if (!code) {
-      return res.status(400).json({error: 'Authorization code required'});
-    }
-
-    try {
-      if (provider === 'discord') {
-        const result = await handleDiscordOAuth(code, 'linking');
-        //logger.error("Discord OAuth linking result", result)
-        if (!result) {
-          return res.status(400).json({error: 'Failed to exchange code for tokens'});
-        }
-        const {profile} = result;
-
-        // Check if this provider is already linked to another user
-        const existingProvider = await OAuthProvider.findOne({
-          where: {
-            provider: 'discord',
-            providerId: profile.id,
-          },
-        });
-
-        if (existingProvider) {
-          return res.status(400).json({
-            error: 'This Discord account is already linked to another user',
-          });
-        }
-
-        // Link provider to user
-        await OAuthService.linkProvider(req.user!.id, {
-          id: profile.id,
-          provider: 'discord',
-          username: profile.username,
-          email: profile.email || undefined,
-        });
-
-        // Invalidate user-specific cache
-        await CacheInvalidation.invalidateUser(req.user!.id);
-
-        return res.json({success: true});
-      }
-
-      return res.status(400).json({error: 'Unsupported provider'});
-    } catch (error) {
-      logger.error('Provider linking error:', error);
-      return res.status(500).json({error: 'Failed to link provider'});
-    }
-  },
-
-  /**
-   * Unlink provider from user account
-   */
   async unlinkProvider(req: Request, res: Response) {
     const {provider} = req.params;
 
@@ -411,7 +331,6 @@ export const OAuthController = {
 
       const success = await OAuthService.unlinkProvider(req.user!.id, provider);
 
-      // Invalidate user-specific cache
       await CacheInvalidation.invalidateUser(req.user!.id);
 
       return res.json({success});

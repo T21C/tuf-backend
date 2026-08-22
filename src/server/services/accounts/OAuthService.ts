@@ -120,11 +120,11 @@ class OAuthService {
     try {
       let playerId: number | undefined;
       const desiredNickname = profile.username;
-      const normalizedDiscordName = normalizeUsername(desiredNickname);
-      const canonicalFromDiscord = isValidUsername(normalizedDiscordName)
-        ? normalizedDiscordName
+      const normalizedName = normalizeUsername(desiredNickname);
+      const canonicalUsername = isValidUsername(normalizedName)
+        ? normalizedName
         : sanitizeUsername(desiredNickname);
-      let playerName = canonicalFromDiscord;
+      let playerName = canonicalUsername;
       let attempts = 0;
       const maxAttempts = 5;
 
@@ -147,7 +147,7 @@ class OAuthService {
             err.errors?.[0]?.path === 'name'
           ) {
             const suffix = String(Math.floor(Math.random() * 10000));
-            playerName = `${canonicalFromDiscord.slice(0, Math.max(0, USERNAME_MAX_LEN - suffix.length))}${suffix}`;
+            playerName = `${canonicalUsername.slice(0, Math.max(0, USERNAME_MAX_LEN - suffix.length))}${suffix}`;
             attempts++;
             continue;
           }
@@ -158,7 +158,7 @@ class OAuthService {
         throw new Error('Failed to create player after multiple attempts');
       }
 
-      let username = canonicalFromDiscord;
+      let username = canonicalUsername;
       let userAttempts = 0;
       const maxUserAttempts = 5;
       let user: User | null = null;
@@ -194,7 +194,7 @@ class OAuthService {
             err.errors?.[0]?.path === 'username'
           ) {
             const suffix = String(Math.floor(Math.random() * 10000));
-            username = `${canonicalFromDiscord.slice(0, Math.max(0, USERNAME_MAX_LEN - suffix.length))}${suffix}`;
+            username = `${canonicalUsername.slice(0, Math.max(0, USERNAME_MAX_LEN - suffix.length))}${suffix}`;
             userAttempts++;
             continue;
           }

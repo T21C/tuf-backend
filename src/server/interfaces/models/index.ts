@@ -53,6 +53,8 @@ export interface ICreator extends IBaseModel {
   /** Tournament placement card layout: `default` | `iconRail`. */
   placementCardLayout?: string;
   placementDisplayMode?: 'defaultHierarchy' | 'customLayers';
+  /** When false, the public profile header hides followerCount. Default true. */
+  showFollowerCount?: boolean;
   creatorAliases: CreatorAlias[];
   creatorTeams?: ITeam[];
   teamMemberships?: any[];
@@ -176,6 +178,8 @@ export interface IPlayer extends IBaseModel {
   /** Tournament placement card layout: `default` | `iconRail`. */
   placementCardLayout?: string;
   placementDisplayMode?: 'defaultHierarchy' | 'customLayers';
+  /** When false, the public profile header hides followerCount. Default true. */
+  showFollowerCount?: boolean;
 
   // Associations
   user?: Model<UserAttributes>;
