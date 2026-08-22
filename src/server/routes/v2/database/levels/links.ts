@@ -18,7 +18,7 @@ import {
   getLinkedLevels,
   LevelLinkError,
   removeMember,
-  updateLinkShare,
+  updateMemberSubgroups,
 } from '@/server/services/levels/levelLinkService.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
@@ -30,8 +30,6 @@ const linkedLevelsResponseSchema = {
   type: 'object',
   properties: {
     groupId: {type: 'integer'},
-    shareChart: {type: 'boolean'},
-    shareVfx: {type: 'boolean'},
     levels: {
       type: 'array',
       items: {
@@ -44,6 +42,8 @@ const linkedLevelsResponseSchema = {
           diffId: {type: 'integer'},
           isDeleted: {type: 'boolean'},
           isHidden: {type: 'boolean'},
+          chartSubgroup: {type: 'integer'},
+          vfxSubgroup: {type: 'integer'},
           difficulty: {type: 'object'},
         },
       },
@@ -233,23 +233,26 @@ router.delete(
 );
 
 router.patch(
-  '/:id([0-9]{1,20})/links',
+  '/:id([0-9]{1,20})/links/:memberLevelId([0-9]{1,20})',
   Auth.superAdmin(),
   ApiDoc({
-    operationId: 'patchLevelLinks',
-    summary: 'Update linked-group curation sharing',
+    operationId: 'patchLevelLinkMember',
+    summary: 'Update a linked level\'s Chart/VFX subgroups',
     description:
-      'Set shareChart and/or shareVfx on the current level\'s link group. Super admin only.',
+      'Set chartSubgroup and/or vfxSubgroup (1…member count) on a member of this level\'s link group. Super admin only.',
     tags: ['Levels'],
     security: ['bearerAuth'],
-    params: {id: idParamSpec},
+    params: {
+      id: idParamSpec,
+      memberLevelId: {description: 'Level ID whose subgroups to update', schema: {type: 'string'}},
+    },
     requestBody: {
-      description: 'shareChart and/or shareVfx booleans',
+      description: 'chartSubgroup and/or vfxSubgroup integers',
       schema: {
         type: 'object',
         properties: {
-          shareChart: {type: 'boolean'},
-          shareVfx: {type: 'boolean'},
+          chartSubgroup: {type: 'integer'},
+          vfxSubgroup: {type: 'integer'},
         },
       },
     },
@@ -261,26 +264,27 @@ router.patch(
   async (req: Request, res: Response) => {
     try {
       const levelId = parsePositiveInt(req.params.id);
-      if (levelId == null) {
+      const memberLevelId = parsePositiveInt(req.params.memberLevelId);
+      if (levelId == null || memberLevelId == null) {
         return res.status(400).json({error: 'Invalid level ID'});
       }
 
       const body = req.body ?? {};
-      const flags: {shareChart?: boolean; shareVfx?: boolean} = {};
-      if (Object.prototype.hasOwnProperty.call(body, 'shareChart')) {
-        if (typeof body.shareChart !== 'boolean') {
-          return res.status(400).json({error: 'shareChart must be a boolean'});
+      const flags: {chartSubgroup?: number; vfxSubgroup?: number} = {};
+      if (Object.prototype.hasOwnProperty.call(body, 'chartSubgroup')) {
+        if (typeof body.chartSubgroup !== 'number') {
+          return res.status(400).json({error: 'chartSubgroup must be an integer'});
         }
-        flags.shareChart = body.shareChart;
+        flags.chartSubgroup = body.chartSubgroup;
       }
-      if (Object.prototype.hasOwnProperty.call(body, 'shareVfx')) {
-        if (typeof body.shareVfx !== 'boolean') {
-          return res.status(400).json({error: 'shareVfx must be a boolean'});
+      if (Object.prototype.hasOwnProperty.call(body, 'vfxSubgroup')) {
+        if (typeof body.vfxSubgroup !== 'number') {
+          return res.status(400).json({error: 'vfxSubgroup must be an integer'});
         }
-        flags.shareVfx = body.shareVfx;
+        flags.vfxSubgroup = body.vfxSubgroup;
       }
 
-      const {affectedLevelIds} = await updateLinkShare(levelId, flags);
+      const {affectedLevelIds} = await updateMemberSubgroups(levelId, memberLevelId, flags);
       await invalidateLinkedLevelCaches(affectedLevelIds);
       await syncCreatorsForLinkedLevels(affectedLevelIds);
       const result = await getLinkedLevels(levelId, {includeHidden: true});

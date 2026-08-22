@@ -19,6 +19,8 @@ class LevelLinkMember extends Model<
   declare id: CreationOptional<number>;
   declare groupId: ForeignKey<LevelLinkGroup['id']>;
   declare levelId: ForeignKey<Level['id']>;
+  declare chartSubgroup: number | null;
+  declare vfxSubgroup: number | null;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
   declare group?: LevelLinkGroup;
@@ -51,6 +53,16 @@ LevelLinkMember.init(
       },
       onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
+    },
+    chartSubgroup: {
+      type: DataTypes.TINYINT.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
+    },
+    vfxSubgroup: {
+      type: DataTypes.TINYINT.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,

@@ -25,6 +25,8 @@ export type LinkedLevelDto = {
   diffId: number;
   isDeleted: boolean;
   isHidden: boolean;
+  chartSubgroup: number | null;
+  vfxSubgroup: number | null;
   difficulty: {
     id: number;
     name: string;
@@ -36,19 +38,18 @@ export type LinkedLevelDto = {
 
 export type LinkedLevelsResult = {
   groupId: number | null;
-  shareChart: boolean;
-  shareVfx: boolean;
   levels: LinkedLevelDto[];
 };
 
 const emptyLinkedLevelsResult = (): LinkedLevelsResult => ({
   groupId: null,
-  shareChart: false,
-  shareVfx: false,
   levels: [],
 });
 
-function serializeLinkedLevel(level: Level): LinkedLevelDto {
+function serializeLinkedLevel(
+  level: Level,
+  subgroups: {chartSubgroup: number | null; vfxSubgroup: number | null},
+): LinkedLevelDto {
   const diff = level.difficulty;
   return {
     id: level.id,
@@ -58,6 +59,8 @@ function serializeLinkedLevel(level: Level): LinkedLevelDto {
     diffId: level.diffId,
     isDeleted: Boolean(level.isDeleted),
     isHidden: Boolean(level.isHidden),
+    chartSubgroup: subgroups.chartSubgroup,
+    vfxSubgroup: subgroups.vfxSubgroup,
     difficulty: diff
       ? {
           id: diff.id,
@@ -81,12 +84,35 @@ async function withTransaction<T>(
 }
 
 async function loadLinkedLevelDtos(
-  levelIds: number[],
+  members: Array<{
+    levelId: number;
+    chartSubgroup: number | null;
+    vfxSubgroup: number | null;
+  }>,
   options: {includeHidden: boolean; transaction?: Transaction},
 ): Promise<LinkedLevelDto[]> {
+  const levelIds = members.map((row) => row.levelId);
   if (levelIds.length === 0) {
     return [];
   }
+
+  const sortedMembers = [...members].sort((a, b) => a.levelId - b.levelId);
+  const positionByLevelId = new Map(
+    sortedMembers.map((row, index) => [row.levelId, index + 1]),
+  );
+
+  const subgroupByLevelId = new Map(
+    members.map((row) => {
+      const position = positionByLevelId.get(row.levelId) ?? 1;
+      return [
+        row.levelId,
+        {
+          chartSubgroup: row.chartSubgroup ?? position,
+          vfxSubgroup: row.vfxSubgroup ?? position,
+        },
+      ];
+    }),
+  );
 
   const levels = await Level.findAll({
     where: {id: levelIds},
@@ -110,7 +136,55 @@ async function loadLinkedLevelDtos(
       }
       return !level.isDeleted && !level.isHidden;
     })
-    .map(serializeLinkedLevel);
+    .map((level) =>
+      serializeLinkedLevel(
+        level,
+        subgroupByLevelId.get(level.id) ?? {chartSubgroup: null, vfxSubgroup: null},
+      ),
+    );
+}
+
+function maxSubgroup(
+  members: Array<{chartSubgroup: number | null; vfxSubgroup: number | null}>,
+  field: 'chartSubgroup' | 'vfxSubgroup',
+): number {
+  let max = 0;
+  for (const row of members) {
+    const value = row[field];
+    if (typeof value === 'number' && value > max) max = value;
+  }
+  return max;
+}
+
+function parseSubgroupValue(
+  value: unknown,
+  memberCount: number,
+  field: string,
+): number {
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw new LevelLinkError(`${field} must be an integer 1–${memberCount}`, 400);
+  }
+  if (value < 1 || value > memberCount) {
+    throw new LevelLinkError(`${field} must be an integer 1–${memberCount}`, 400);
+  }
+  return value;
+}
+
+async function assignListPositionDefaults(
+  members: LevelLinkMember[],
+  transaction: Transaction,
+): Promise<void> {
+  const sorted = [...members].sort((a, b) => a.levelId - b.levelId);
+  for (let index = 0; index < sorted.length; index++) {
+    const row = sorted[index];
+    const position = index + 1;
+    const chartSubgroup = row.chartSubgroup ?? position;
+    const vfxSubgroup = row.vfxSubgroup ?? position;
+    if (chartSubgroup === row.chartSubgroup && vfxSubgroup === row.vfxSubgroup) {
+      continue;
+    }
+    await row.update({chartSubgroup, vfxSubgroup}, {transaction});
+  }
 }
 
 export async function getLinkedLevels(
@@ -122,17 +196,11 @@ export async function getLinkedLevels(
     return emptyLinkedLevelsResult();
   }
 
-  const [group, members] = await Promise.all([
-    LevelLinkGroup.findByPk(member.groupId, {
-      attributes: ['id', 'shareChart', 'shareVfx'],
-    }),
-    LevelLinkMember.findAll({
-      where: {groupId: member.groupId},
-      attributes: ['levelId'],
-    }),
-  ]);
-  const levelIds = members.map((row) => row.levelId);
-  const levels = await loadLinkedLevelDtos(levelIds, {
+  const members = await LevelLinkMember.findAll({
+    where: {groupId: member.groupId},
+    attributes: ['levelId', 'chartSubgroup', 'vfxSubgroup'],
+  });
+  const levels = await loadLinkedLevelDtos(members, {
     includeHidden: options.includeHidden,
   });
 
@@ -142,8 +210,6 @@ export async function getLinkedLevels(
 
   return {
     groupId: member.groupId,
-    shareChart: Boolean(group?.shareChart),
-    shareVfx: Boolean(group?.shareVfx),
     levels,
   };
 }
@@ -182,6 +248,11 @@ export async function addLink(
         ],
         {transaction},
       );
+      const created = await LevelLinkMember.findAll({
+        where: {groupId: group.id},
+        transaction,
+      });
+      await assignListPositionDefaults(created, transaction);
       return {groupId: group.id, merged: false, affectedLevelIds: [...affectedLevelIds]};
     }
 
@@ -202,11 +273,25 @@ export async function addLink(
       for (const row of otherMembers) affectedLevelIds.add(row.levelId);
 
       const oldGroupId = otherMember.groupId;
-      await LevelLinkMember.update(
-        {groupId: anchorMember.groupId},
-        {where: {groupId: oldGroupId}, transaction},
-      );
+      const chartOffset = maxSubgroup(anchorMembers, 'chartSubgroup');
+      const vfxOffset = maxSubgroup(anchorMembers, 'vfxSubgroup');
+      for (const row of otherMembers) {
+        await row.update(
+          {
+            groupId: anchorMember.groupId,
+            chartSubgroup:
+              row.chartSubgroup == null ? null : row.chartSubgroup + chartOffset,
+            vfxSubgroup: row.vfxSubgroup == null ? null : row.vfxSubgroup + vfxOffset,
+          },
+          {transaction},
+        );
+      }
       await LevelLinkGroup.destroy({where: {id: oldGroupId}, transaction});
+      const mergedMembers = await LevelLinkMember.findAll({
+        where: {groupId: anchorMember.groupId},
+        transaction,
+      });
+      await assignListPositionDefaults(mergedMembers, transaction);
       return {
         groupId: anchorMember.groupId,
         merged: true,
@@ -224,6 +309,7 @@ export async function addLink(
       where: {groupId: existing.groupId},
       transaction,
     });
+    await assignListPositionDefaults(allMembers, transaction);
     for (const row of allMembers) affectedLevelIds.add(row.levelId);
     return {
       groupId: existing.groupId,
@@ -289,34 +375,39 @@ export async function unlinkLevelForDelete(
   return removeMember(levelId, levelId, transaction);
 }
 
-export async function updateLinkShare(
-  levelId: number,
-  flags: {shareChart?: boolean; shareVfx?: boolean},
+export async function updateMemberSubgroups(
+  anchorLevelId: number,
+  memberLevelId: number,
+  flags: {chartSubgroup?: number; vfxSubgroup?: number},
 ): Promise<{affectedLevelIds: number[]}> {
-  const wantsChart = typeof flags.shareChart === 'boolean';
-  const wantsVfx = typeof flags.shareVfx === 'boolean';
+  const wantsChart = Object.prototype.hasOwnProperty.call(flags, 'chartSubgroup');
+  const wantsVfx = Object.prototype.hasOwnProperty.call(flags, 'vfxSubgroup');
   if (!wantsChart && !wantsVfx) {
-    throw new LevelLinkError('Request must include shareChart and/or shareVfx', 400);
+    throw new LevelLinkError('Request must include chartSubgroup and/or vfxSubgroup', 400);
   }
 
-  const member = await LevelLinkMember.findOne({where: {levelId}});
-  if (!member) {
-    throw new LevelLinkError('Level is not in a link group', 404);
-  }
-
-  const group = await LevelLinkGroup.findByPk(member.groupId);
-  if (!group) {
+  const anchorMember = await LevelLinkMember.findOne({where: {levelId: anchorLevelId}});
+  if (!anchorMember) {
     throw new LevelLinkError('Level is not in a link group', 404);
   }
 
   const members = await LevelLinkMember.findAll({
-    where: {groupId: group.id},
-    attributes: ['levelId'],
+    where: {groupId: anchorMember.groupId},
   });
-  await group.update({
-    ...(wantsChart ? {shareChart: flags.shareChart} : {}),
-    ...(wantsVfx ? {shareVfx: flags.shareVfx} : {}),
-  });
+  const member = members.find((row) => row.levelId === memberLevelId);
+  if (!member) {
+    throw new LevelLinkError('Level is not in this link group', 404);
+  }
+
+  const memberCount = members.length;
+  const updates: {chartSubgroup?: number; vfxSubgroup?: number} = {};
+  if (wantsChart) {
+    updates.chartSubgroup = parseSubgroupValue(flags.chartSubgroup, memberCount, 'chartSubgroup');
+  }
+  if (wantsVfx) {
+    updates.vfxSubgroup = parseSubgroupValue(flags.vfxSubgroup, memberCount, 'vfxSubgroup');
+  }
+  await member.update(updates);
 
   return {affectedLevelIds: members.map((row) => row.levelId)};
 }
