@@ -15,8 +15,6 @@ class LevelLinkGroup extends Model<
   InferCreationAttributes<LevelLinkGroup>
 > {
   declare id: CreationOptional<number>;
-  declare shareChart: CreationOptional<boolean>;
-  declare shareVfx: CreationOptional<boolean>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
   declare members?: LevelLinkMember[];
@@ -28,16 +26,6 @@ LevelLinkGroup.init(
       type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true,
-    },
-    shareChart: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false,
-    },
-    shareVfx: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false,
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
