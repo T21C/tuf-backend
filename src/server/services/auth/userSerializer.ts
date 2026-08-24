@@ -24,6 +24,7 @@ export function publicUserFields(user: User) {
     isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
     isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
     permissionFlags: user.permissionFlags.toString(),
+    publicFollows: user.publicFollows !== false && user.publicFollows !== 0,
   };
 }
 

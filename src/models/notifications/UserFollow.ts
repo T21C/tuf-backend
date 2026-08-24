@@ -12,10 +12,12 @@ export interface UserFollowAttributes {
   userId: string;
   targetType: UserFollowTargetType;
   targetId: number;
+  /** When false, this follow is omitted from public follower lists. */
+  isPublic: boolean;
   createdAt: Date;
 }
 
-type UserFollowCreationAttributes = Optional<UserFollowAttributes, 'id' | 'createdAt'>;
+type UserFollowCreationAttributes = Optional<UserFollowAttributes, 'id' | 'isPublic' | 'createdAt'>;
 
 class UserFollow
   extends Model<UserFollowAttributes, UserFollowCreationAttributes>
@@ -25,6 +27,7 @@ class UserFollow
   declare userId: string;
   declare targetType: UserFollowTargetType;
   declare targetId: number;
+  declare isPublic: boolean;
   declare createdAt: Date;
 
   declare user?: User;
@@ -52,6 +55,11 @@ UserFollow.init(
       type: DataTypes.INTEGER,
       allowNull: false,
     },
+    isPublic: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -69,8 +77,8 @@ UserFollow.init(
         fields: ['userId', 'targetType', 'targetId'],
       },
       {
-        name: 'user_follows_target_type_target_id',
-        fields: ['targetType', 'targetId'],
+        name: 'user_follows_target_type_target_id_is_public_created_at',
+        fields: ['targetType', 'targetId', 'isPublic', 'createdAt'],
       },
     ],
   },

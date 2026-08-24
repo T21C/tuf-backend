@@ -82,6 +82,114 @@ export async function getFollowState(
   };
 }
 
+export function coercePublicFollows(value: unknown): boolean {
+  return value !== false && value !== 0;
+}
+
+export interface FollowerListItem {
+  userId: string;
+  username: string;
+  nickname: string | null;
+  avatarUrl: string | null;
+  playerId: number | null;
+  creatorId: number | null;
+}
+
+export interface FollowerListResult {
+  items: FollowerListItem[];
+  page: number;
+  limit: number;
+  visibleCount: number;
+  hiddenCount: number;
+}
+
+const FOLLOWERS_MAX_LIMIT = 50;
+const FOLLOWERS_DEFAULT_LIMIT = 20;
+
+export function parseFollowerListPaging(query: {
+  page?: unknown;
+  limit?: unknown;
+}): {page: number; limit: number} {
+  const pageRaw = parseInt(String(query.page ?? '1'), 10);
+  const limitRaw = parseInt(String(query.limit ?? String(FOLLOWERS_DEFAULT_LIMIT)), 10);
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(FOLLOWERS_MAX_LIMIT, Math.max(1, limitRaw))
+    : FOLLOWERS_DEFAULT_LIMIT;
+  return {page, limit};
+}
+
+export async function listFollowers(args: {
+  targetType: UserFollowTargetType;
+  targetId: number;
+  page: number;
+  limit: number;
+  transaction?: Transaction;
+}): Promise<FollowerListResult> {
+  const {targetType, targetId, page, limit, transaction} = args;
+  const offset = (page - 1) * limit;
+
+  const [visibleCount, hiddenCount, rows] = await Promise.all([
+    UserFollow.count({
+      where: {targetType, targetId, isPublic: true},
+      transaction,
+    }),
+    UserFollow.count({
+      where: {targetType, targetId, isPublic: false},
+      transaction,
+    }),
+    UserFollow.findAll({
+      attributes: ['userId'],
+      where: {targetType, targetId, isPublic: true},
+      order: [
+        ['createdAt', 'DESC'],
+        ['id', 'DESC'],
+      ],
+      limit,
+      offset,
+      transaction,
+    }),
+  ]);
+
+  const userIds = rows.map((row) => row.userId);
+  const users = userIds.length
+    ? await User.findAll({
+        attributes: ['id', 'username', 'nickname', 'avatarUrl', 'playerId', 'creatorId', 'status'],
+        where: {id: {[Op.in]: userIds}},
+        transaction,
+      })
+    : [];
+  const byId = new Map(users.map((u) => [u.id, u]));
+  const items: FollowerListItem[] = [];
+  for (const userId of userIds) {
+    const u = byId.get(userId);
+    if (!u || u.status === 'banned' || u.status === 'suspended') continue;
+    items.push({
+      userId: u.id,
+      username: u.username,
+      nickname: u.nickname ?? null,
+      avatarUrl: u.avatarUrl ?? null,
+      playerId: u.playerId ?? null,
+      creatorId: u.creatorId ?? null,
+    });
+  }
+
+  return {items, page, limit, visibleCount, hiddenCount};
+}
+
+export async function setPublicFollows(
+  userId: string,
+  publicFollows: boolean,
+  transaction?: Transaction,
+): Promise<boolean> {
+  const user = await User.findByPk(userId, {attributes: ['id', 'publicFollows'], transaction});
+  if (!user) throw new FollowError('User not found', 404);
+  user.publicFollows = publicFollows;
+  await user.save({transaction});
+  await UserFollow.update({isPublic: publicFollows}, {where: {userId}, transaction});
+  return coercePublicFollows(user.publicFollows);
+}
+
 export async function setFollowing(args: {
   user: {id: string; playerId?: number | null; creatorId?: number | null};
   targetType: UserFollowTargetType;
@@ -96,9 +204,15 @@ export async function setFollowing(args: {
   await assertTargetExists(targetType, targetId, transaction);
   if (following) {
     assertNotSelfFollow(targetType, targetId, user);
+    const pref = await User.findByPk(user.id, {attributes: ['publicFollows'], transaction});
     try {
       await UserFollow.create(
-        {userId: user.id, targetType, targetId},
+        {
+          userId: user.id,
+          targetType,
+          targetId,
+          isPublic: coercePublicFollows(pref?.publicFollows),
+        },
         {transaction},
       );
     } catch (err) {

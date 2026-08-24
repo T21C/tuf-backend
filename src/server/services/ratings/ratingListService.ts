@@ -33,6 +33,7 @@ export interface RatingListQuery {
   lowDiff: ShowHideOnly;
   fourVote: ShowHideOnly;
   hideRated: boolean;
+  zeroClears: boolean;
   vote: VoteFilter;
   excludeUniversals: boolean;
   userId: string | null;
@@ -113,6 +114,10 @@ export function parseRatingListQuery(
       reqQuery.hideRated === 'true' ||
       reqQuery.hideRated === '1') &&
     Boolean(userId);
+  const zeroClears =
+    reqQuery.zeroClears === true ||
+    reqQuery.zeroClears === 'true' ||
+    reqQuery.zeroClears === '1';
 
   let vote: VoteFilter;
   if (reqQuery.vote === 'only' || reqQuery.vote === 'exclude') {
@@ -133,6 +138,7 @@ export function parseRatingListQuery(
     lowDiff,
     fourVote,
     hideRated,
+    zeroClears,
     vote,
     excludeUniversals: false,
     userId: userId || null,
@@ -147,6 +153,7 @@ export function ratingListPageCacheKey(params: RatingListQuery): string {
     order: params.order,
     lowDiff: params.lowDiff,
     fourVote: params.fourVote,
+    zeroClears: params.zeroClears,
     vote: params.vote ?? null,
     excludeUniversals: params.excludeUniversals,
     offset: params.offset,
@@ -158,13 +165,26 @@ export function ratingListPageCacheKey(params: RatingListQuery): string {
 }
 
 function slimDetails(
-  details: Array<{ id: number; userId: string; rating: string; isCommunityRating: boolean }>
-): Array<{ id: number; userId: string; rating: string; isCommunityRating: boolean }> {
+  details: Array<{
+    id: number;
+    userId: string;
+    rating: string;
+    isCommunityRating: boolean;
+    username?: string | null;
+  }>
+): Array<{
+  id: number;
+  userId: string;
+  rating: string;
+  isCommunityRating: boolean;
+  username: string | null;
+}> {
   return details.map((d) => ({
     id: d.id,
     userId: d.userId,
     rating: d.rating,
     isCommunityRating: d.isCommunityRating,
+    username: d.username ?? null,
   }));
 }
 
@@ -242,6 +262,14 @@ export async function hydrateRatingListRows(
   const details = await RatingDetail.findAll({
     where: { ratingId: ratingIds },
     attributes: ['id', 'ratingId', 'userId', 'rating', 'isCommunityRating'],
+    include: [
+      {
+        model: User,
+        as: 'user',
+        attributes: ['username'],
+        required: false,
+      },
+    ],
   });
   const detailsByRatingId = new Map<number, typeof details>();
   for (const d of details) {
@@ -281,6 +309,7 @@ export async function hydrateRatingListRows(
         userId: d.userId,
         rating: d.rating,
         isCommunityRating: d.isCommunityRating,
+        username: d.user?.username ?? null,
       }))
     );
     rows.push(plain);
@@ -351,6 +380,9 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
     isDeleted: false,
     isHidden: false,
   };
+  if (params.zeroClears) {
+    levelWhere.clears = 0;
+  }
 
   if (params.vote === 'only') {
     levelWhere.rerateNum = { [Op.regexp]: '^vote' };

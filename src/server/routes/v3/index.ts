@@ -6,6 +6,7 @@ import levelsTeamRouter from './levels/team.js';
 import billingRoutes from './billing/index.js';
 import profileCustomizationRouter from './profileCustomization.js';
 import teamsRouter from './teams.js';
+import followsRouter from './follows.js';
 
 const router: Router = Router();
 
@@ -15,6 +16,7 @@ router.use('/profile-customization', profileCustomizationRouter);
 router.use('/levels', levelsModificationRouter);
 router.use('/levels', levelsTeamRouter);
 router.use('/teams', teamsRouter);
+router.use('/follows', followsRouter);
 router.use('/billing', billingRoutes);
 
 

@@ -113,6 +113,7 @@ export async function dealZenDeck(
     lowDiff: parsed.onlyLowDiff ? 'only' : 'show',
     fourVote: 'hide',
     hideRated: true,
+    zeroClears: false,
     vote: 'exclude',
     excludeUniversals: parsed.excludeUniversals,
     userId,
