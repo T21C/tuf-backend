@@ -44,6 +44,8 @@ export interface UserAttributes {
   avatarIsGif?: boolean;
   lastUsernameChange?: Date | null;
   previousUsername?: string | null;
+  /** When false, this account’s follows are hidden on other people’s follower lists. */
+  publicFollows?: boolean;
   createdAt: Date;
   updatedAt: Date;
   providers?: OAuthProvider[];
@@ -83,6 +85,7 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare avatarIsGif?: boolean;
   declare lastUsernameChange?: Date | null;
   declare previousUsername?: string | null;
+  declare publicFollows?: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -250,6 +253,11 @@ User.init(
       type: DataTypes.STRING,
       allowNull: true,
       defaultValue: null,
+    },
+    publicFollows: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
     },
     createdAt: {
       type: DataTypes.DATE,

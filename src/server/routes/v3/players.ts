@@ -55,6 +55,7 @@ import {
 import {
   coerceShowFollowerCount,
   followFieldsForProfile,
+  handleFollowersGet,
   handleFollowPut,
   profileFollowLimiter,
 } from '@/server/services/notifications/followHttp.js';
@@ -700,6 +701,54 @@ router.get(
       });
     }
   },
+);
+
+router.get(
+  '/:id([0-9]{1,20})/followers',
+  Auth.addUserToRequest(),
+  profileFollowLimiter.middleware,
+  ApiDoc({
+    operationId: 'v3GetPlayerFollowers',
+    summary: 'List public followers of a player',
+    description:
+      'Paginated public follower list (newest first). Hidden follows are counted only, never named. If the owner hides the follower count, non-owners get an empty list.',
+    tags: ['Database', 'Players', 'v3'],
+    params: {id: idParamSpec},
+    query: {
+      page: {schema: {type: 'string'}},
+      limit: {schema: {type: 'string'}},
+    },
+    responses: {
+      200: {
+        description: 'Follower page',
+        schema: {
+          type: 'object',
+          properties: {
+            items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  userId: {type: 'string'},
+                  username: {type: 'string'},
+                  nickname: {type: 'string', nullable: true},
+                  avatarUrl: {type: 'string', nullable: true},
+                  playerId: {type: 'integer', nullable: true},
+                  creatorId: {type: 'integer', nullable: true},
+                },
+              },
+            },
+            page: {type: 'integer'},
+            limit: {type: 'integer'},
+            visibleCount: {type: 'integer'},
+            hiddenCount: {type: 'integer'},
+          },
+        },
+      },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => handleFollowersGet(req, res, 'player'),
 );
 
 router.put(
