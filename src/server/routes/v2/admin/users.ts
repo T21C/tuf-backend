@@ -558,6 +558,87 @@ router.patch(
   }
 );
 
+router.patch(
+  '/:playerId/tag-vote-ban',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'patchAdminTagVoteBan',
+    summary: 'Toggle community tag vote ban',
+    description: 'Set or clear community tag vote ban for a player. Body: isTagVoteBanned (boolean). Super admin.',
+    tags: ['Admin', 'Users'],
+    security: ['bearerAuth'],
+    params: { playerId: { schema: { type: 'string' } } },
+    requestBody: { description: 'isTagVoteBanned', schema: { type: 'object', properties: { isTagVoteBanned: { type: 'boolean' } }, required: ['isTagVoteBanned'] }, required: true },
+    responses: { 200: { description: 'Tag vote ban updated' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+    try {
+      const {playerId} = req.params;
+      const {isTagVoteBanned} = req.body;
+
+      if (typeof isTagVoteBanned !== 'boolean') {
+        return res.status(400).json({error: 'isTagVoteBanned must be a boolean'});
+      }
+
+      transaction = await sequelize.transaction();
+
+      const player = await Player.findByPk(playerId, {
+        include: [{
+          model: User,
+          as: 'user',
+          required: true,
+          attributes: [
+            'id',
+            'username',
+            'permissionFlags',
+            'permissionVersion',
+            'isTagVoteBanned',
+          ],
+        }],
+        transaction,
+      });
+
+      if (!player || !player.user) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({error: 'Player or associated user not found'});
+      }
+
+      await setUserPermissionAndSave(
+        player.user,
+        permissionFlags.TAG_VOTE_BANNED,
+        isTagVoteBanned,
+        transaction
+      );
+      await player.user.update({isTagVoteBanned}, {transaction});
+
+      await transaction.commit();
+      await player.user.reload();
+
+      await CacheInvalidation.invalidateUser(player.user.id);
+      await elasticsearchService.reindexPlayers([player.id]);
+
+      return res.json({
+        message: 'Tag vote ban status updated successfully',
+        user: {
+          id: player.user.id,
+          username: player.user.username,
+          isTagVoteBanned: hasFlag(player.user, permissionFlags.TAG_VOTE_BANNED),
+        },
+      });
+    } catch (error: any) {
+      await safeTransactionRollback(transaction);
+      logger.error('Failed to update tag vote ban status:', error);
+      logger.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      });
+      return res.status(500).json({error: 'Failed to update tag vote ban status'});
+    }
+  }
+);
+
 // Check user roles
 router.get(
   '/check/:discordId',

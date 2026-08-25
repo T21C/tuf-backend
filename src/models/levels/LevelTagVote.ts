@@ -8,28 +8,40 @@ import {
 } from 'sequelize';
 import Level from './Level.js';
 import LevelTag from './LevelTag.js';
+import User from '@/models/auth/User.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
+
 const sequelize = getSequelizeForModelGroup('levels');
 
-class LevelTagAssignment extends Model<
-  InferAttributes<LevelTagAssignment>,
-  InferCreationAttributes<LevelTagAssignment>
+class LevelTagVote extends Model<
+  InferAttributes<LevelTagVote>,
+  InferCreationAttributes<LevelTagVote>
 > {
   declare id: CreationOptional<number>;
+  declare userId: ForeignKey<User['id']>;
   declare levelId: ForeignKey<Level['id']>;
   declare tagId: ForeignKey<LevelTag['id']>;
-  declare pinned: CreationOptional<boolean>;
-  declare score: CreationOptional<number | null>;
+  declare weight: number;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
 
-LevelTagAssignment.init(
+LevelTagVote.init(
   {
     id: {
       type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      references: {
+        model: 'users',
+        key: 'id',
+      },
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
     },
     levelId: {
       type: DataTypes.INTEGER,
@@ -51,37 +63,33 @@ LevelTagAssignment.init(
       onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
     },
-    pinned: {
-      type: DataTypes.BOOLEAN,
+    weight: {
+      type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: false,
-      comment: 'Staff pin; community rematerialize will not drop this assignment',
-    },
-    score: {
-      type: DataTypes.DOUBLE,
-      allowNull: true,
-      comment: 'Wilson lower-bound score from community votes; null for staff/auto tags',
+      defaultValue: 1,
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
   },
   {
     sequelize,
-    tableName: 'level_tag_assignments',
+    tableName: 'level_tag_votes',
     indexes: [
       {
         unique: true,
+        fields: ['userId', 'levelId', 'tagId'],
+        name: 'level_tag_votes_user_level_tag_unique',
+      },
+      {
         fields: ['levelId', 'tagId'],
-        name: 'level_tag_assignments_unique',
+        name: 'idx_level_tag_votes_level_tag',
       },
       {
-        fields: ['levelId'],
-      },
-      {
-        fields: ['tagId'],
+        fields: ['userId', 'levelId'],
+        name: 'idx_level_tag_votes_user_level',
       },
     ],
   },
 );
 
-export default LevelTagAssignment;
+export default LevelTagVote;

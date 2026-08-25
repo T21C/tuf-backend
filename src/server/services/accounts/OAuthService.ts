@@ -179,6 +179,7 @@ class OAuthService {
             isRater: false,
             isSuperAdmin: false,
             isRatingBanned: false,
+            isTagVoteBanned: false,
             status: 'active',
             permissionVersion: 1,
             playerId,

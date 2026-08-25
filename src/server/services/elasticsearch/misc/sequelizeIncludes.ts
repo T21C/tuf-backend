@@ -84,9 +84,9 @@ export const LEVEL_INCLUDES: Includeable[] = [
     model: LevelTag,
     as: 'tags',
     required: false,
-    attributes: ['id', 'name', 'icon', 'color', 'groupId'],
+    attributes: ['id', 'name', 'icon', 'color', 'groupId', 'isCommunity'],
     through: {
-      attributes: [],
+      attributes: ['pinned', 'score'],
     },
     include: [
       {
@@ -189,9 +189,9 @@ export const PASS_INCLUDES: Includeable[] = [
         model: LevelTag,
         as: 'tags',
         required: false,
-        attributes: ['id', 'name', 'icon', 'color', 'groupId'],
+        attributes: ['id', 'name', 'icon', 'color', 'groupId', 'isCommunity'],
         through: {
-          attributes: [],
+          attributes: ['pinned', 'score'],
         },
         include: [
           {

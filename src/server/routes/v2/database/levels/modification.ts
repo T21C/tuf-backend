@@ -1713,7 +1713,7 @@ router.put(
   }
 );
 
-// Swap chart/metadata payload between two levels and remap child levelIds (except likes)
+// Swap chart/metadata payload between two levels and remap child levelIds
 router.post(
   '/:id([0-9]{1,20})/swap-payload',
   Auth.superAdmin(),
@@ -1721,7 +1721,7 @@ router.post(
     operationId: 'postLevelSwapPayload',
     summary: 'Swap level payloads',
     description:
-      'Exchange chart/metadata columns between two levels while keeping both IDs fixed, then remap child levelIds (passes, ratings, credits, packs, tags, curations, etc.). level_likes are not remapped.',
+      'Exchange chart/metadata columns between two levels while keeping both IDs fixed, then remap child levelIds (passes, ratings, credits, packs, tags, likes, community tag votes, curations, etc.).',
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },

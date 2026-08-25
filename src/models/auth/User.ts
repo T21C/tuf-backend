@@ -26,6 +26,7 @@ export interface UserAttributes {
   isRater: boolean;
   isSuperAdmin: boolean;
   isRatingBanned: boolean;
+  isTagVoteBanned: boolean;
   status: 'active' | 'suspended' | 'banned';
   playerId?: number;
   creatorId?: number | null;
@@ -69,6 +70,7 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare isRater: boolean;
   declare isSuperAdmin: boolean;
   declare isRatingBanned: boolean;
+  declare isTagVoteBanned: boolean;
   declare status: 'active' | 'suspended' | 'banned';
   declare playerId?: number;
   declare creatorId?: number | null;
@@ -166,6 +168,11 @@ User.init(
     },
     isRatingBanned: {
       type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    isTagVoteBanned: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
       defaultValue: false,
     },
     status: {

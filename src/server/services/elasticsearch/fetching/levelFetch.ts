@@ -63,8 +63,11 @@ function groupTagsByLevelId(assignments: LevelTagAssignment[]): Map<number, Leve
   for (const a of assignments) {
     const tag = (a as unknown as { tag?: LevelTag }).tag;
     if (!tag) continue;
+    const tagged = tag as LevelTag & { pinned?: boolean; score?: number | null };
+    tagged.pinned = Boolean(a.pinned);
+    tagged.score = a.score ?? null;
     const arr = m.get(a.levelId) ?? [];
-    arr.push(tag);
+    arr.push(tagged);
     m.set(a.levelId, arr);
   }
   return m;
@@ -209,6 +212,8 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
         'id',
         'levelId',
         'tagId',
+        'pinned',
+        'score',
       ],
       include: [
         {
@@ -220,6 +225,7 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
             'icon',
             'color',
             'groupId',
+            'isCommunity',
           ],
           include: [
             {

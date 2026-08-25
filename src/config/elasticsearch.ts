@@ -469,7 +469,10 @@ export const levelMapping = {
             fields: {
               keyword: { type: 'keyword' as const, ignore_above: 256 }
             }
-          }
+          },
+          score: { type: 'float' as const },
+          pinned: { type: 'boolean' as const },
+          isCommunity: { type: 'boolean' as const },
         }
       }
     }

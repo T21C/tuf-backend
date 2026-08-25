@@ -65,7 +65,7 @@ function num(v: unknown): number | null {
 }
 
 /**
- * Level ES documents embed tag id/name/icon/color/group only (see levelIndexDocument).
+ * Level ES documents embed tag id/name/icon/color/group/isCommunity plus assignment score/pinned.
  * `sortOrder` / timestamps affect admin UI ordering only — do not fan out to levels.
  * Inserts: no level references the tag until `level_tag_assignments` rows exist (handled there).
  */
@@ -82,6 +82,7 @@ function levelTagCdcChangeRequiresLevelReindex(
   for (const k of keys) {
     if (norm(before[k]) !== norm(after[k])) return true;
   }
+  if (Boolean(before.isCommunity) !== Boolean(after.isCommunity)) return true;
   return false;
 }
 
@@ -176,6 +177,27 @@ export function startCdcProjectors(): void {
           }
           case 'passes': {
             const id = rowId(before, after);
+            const deletedChanged =
+              op === 'u' && Boolean(before?.isDeleted) !== Boolean(after?.isDeleted);
+            const shouldSyncTagVotes = op === 'c' || op === 'd' || deletedChanged;
+            const tagVotePairs: Array<{ playerId: number; levelId: number }> = [];
+            if (shouldSyncTagVotes) {
+              const pids = new Set<number>();
+              const lids = new Set<number>();
+              const prevPlayer = num(before?.playerId);
+              const nextPlayer = num(after?.playerId);
+              const prevLevel = num(before?.levelId);
+              const nextLevel = num(after?.levelId);
+              if (prevPlayer != null) pids.add(prevPlayer);
+              if (nextPlayer != null) pids.add(nextPlayer);
+              if (prevLevel != null) lids.add(prevLevel);
+              if (nextLevel != null) lids.add(nextLevel);
+              for (const playerId of pids) {
+                for (const levelId of lids) {
+                  tagVotePairs.push({ playerId, levelId });
+                }
+              }
+            }
             if (op === 'd') {
               const lid = num(before?.levelId);
               const playerId = num(before?.playerId);
@@ -183,6 +205,7 @@ export function startCdcProjectors(): void {
                 deletePassId: id,
                 levelIds: lid != null ? [lid] : [],
                 playerId,
+                tagVotePairs,
               });
             } else {
               const prev = num(before?.levelId);
@@ -195,6 +218,7 @@ export function startCdcProjectors(): void {
                 passId: id,
                 levelIds: lids,
                 playerId,
+                tagVotePairs,
               });
             }
             break;

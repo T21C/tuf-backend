@@ -398,6 +398,9 @@ export interface ILevelTag extends IBaseModel {
   color: string; // Hex color code (e.g., "#FF5733")
   groupId?: number | null;
   sortOrder?: number;
+  isCommunity?: boolean;
+  pinned?: boolean;
+  score?: number | null;
   /** Serialized group name from `level_tag_groups` (not a DB column). */
   group?: string | null;
   /** Serialized group sort order from `level_tag_groups` (not a DB column). */

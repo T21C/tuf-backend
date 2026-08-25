@@ -4,6 +4,7 @@ export const permissionFlags = {
   BANNED: 1n << 60n,
   SUBMISSIONS_PAUSED: 1n << 59n,
   RATING_BANNED: 1n << 58n,
+  TAG_VOTE_BANNED: 1n << 57n,
   HEAD_CURATOR: 1n << 32n,
   CURATOR: 1n << 31n,
   EMAIL_VERIFIED: 1n << 0n,

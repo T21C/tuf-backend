@@ -20,6 +20,7 @@ class LevelTag extends Model<
   declare color: string; // Hex color code (e.g., "#FF5733")
   declare groupId: CreationOptional<number | null>;
   declare sortOrder: CreationOptional<number>; // Sort order for tags display
+  declare isCommunity: CreationOptional<boolean>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
   declare tagGroup?: LevelTagGroup | null;
@@ -62,6 +63,12 @@ LevelTag.init(
       allowNull: false,
       defaultValue: 0,
       comment: 'Sort order for tags display',
+    },
+    isCommunity: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      comment: 'When true, the public can vote this tag onto levels',
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,

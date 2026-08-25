@@ -13,6 +13,7 @@ import LevelPack from '@/models/packs/LevelPack.js';
 import LevelTag from './LevelTag.js';
 import LevelTagGroup from './LevelTagGroup.js';
 import LevelTagAssignment from './LevelTagAssignment.js';
+import LevelTagVote from './LevelTagVote.js';
 import LevelAnnouncementQueue from './LevelAnnouncementQueue.js';
 import LevelLinkGroup from './LevelLinkGroup.js';
 import LevelLinkMember from './LevelLinkMember.js';
@@ -260,6 +261,34 @@ export function initializeLevelsAssociations() {
   LevelTag.hasMany(LevelTagAssignment, {
     foreignKey: 'tagId',
     as: 'levelAssignments',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelTagVote.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  Level.hasMany(LevelTagVote, {
+    foreignKey: 'levelId',
+    as: 'tagVotes',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelTagVote.belongsTo(LevelTag, {
+    foreignKey: 'tagId',
+    as: 'tag',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelTag.hasMany(LevelTagVote, {
+    foreignKey: 'tagId',
+    as: 'votes',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   });

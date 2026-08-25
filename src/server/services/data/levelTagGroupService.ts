@@ -1,6 +1,7 @@
 import { Includeable, Order, Transaction } from 'sequelize';
 import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
+import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 
 export const TAG_GROUP_INCLUDE: Includeable = {
   model: LevelTagGroup,
@@ -36,6 +37,61 @@ export function serializeLevelTag(tag: LevelTag): Record<string, unknown> {
 
 export function serializeLevelTags(tags: LevelTag[]): Record<string, unknown>[] {
   return tags.map(serializeLevelTag);
+}
+
+export function serializeAssignedLevelTag(
+  tag: LevelTag,
+  assignment?: { pinned?: boolean | null; score?: number | null } | null,
+): Record<string, unknown> {
+  return {
+    ...serializeLevelTag(tag),
+    pinned: Boolean(assignment?.pinned),
+    score: assignment?.score ?? null,
+  };
+}
+
+export function compareSerializedTagOrder(
+  a: { groupSortOrder?: number | null; group?: string | null; sortOrder?: number | null; name?: string | null; id?: number },
+  b: { groupSortOrder?: number | null; group?: string | null; sortOrder?: number | null; name?: string | null; id?: number },
+): number {
+  const groupedA = a.group && String(a.group).trim() !== '';
+  const groupedB = b.group && String(b.group).trim() !== '';
+  const groupA = groupedA ? (a.groupSortOrder ?? 0) : Number.MAX_SAFE_INTEGER;
+  const groupB = groupedB ? (b.groupSortOrder ?? 0) : Number.MAX_SAFE_INTEGER;
+  if (groupA !== groupB) return groupA - groupB;
+  const sortA = a.sortOrder ?? 0;
+  const sortB = b.sortOrder ?? 0;
+  if (sortA !== sortB) return sortA - sortB;
+  const nameCmp = String(a.name || '').localeCompare(String(b.name || ''));
+  if (nameCmp !== 0) return nameCmp;
+  return (a.id ?? 0) - (b.id ?? 0);
+}
+
+export async function loadSerializedAssignedTags(
+  levelId: number,
+  transaction?: Transaction,
+): Promise<Record<string, unknown>[]> {
+  const assignments = await LevelTagAssignment.findAll({
+    where: { levelId },
+    include: [
+      {
+        model: LevelTag,
+        as: 'tag',
+        required: true,
+        include: [TAG_GROUP_INCLUDE],
+      },
+    ],
+    transaction,
+  });
+
+  return assignments
+    .map((assignment) => {
+      const tag = (assignment as LevelTagAssignment & { tag?: LevelTag }).tag;
+      if (!tag) return null;
+      return serializeAssignedLevelTag(tag, assignment);
+    })
+    .filter((row): row is Record<string, unknown> => row != null)
+    .sort(compareSerializedTagOrder);
 }
 
 export function tagGroupName(tag: LevelTag | { group?: string | null; tagGroup?: { name?: string } | null }): string {

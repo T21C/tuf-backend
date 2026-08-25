@@ -23,9 +23,14 @@ import {
   TAG_LIST_ORDER,
   findOrCreateTagGroupByName,
   loadSerializedTag,
+  loadSerializedAssignedTags,
   resolveTagGroupId,
   serializeLevelTags,
 } from '@/server/services/data/levelTagGroupService.js';
+import {
+  applyStaffTagSelection,
+  pinCommunityAssignmentsForTag,
+} from '@/server/services/data/communityTagVoteService.js';
 
 /**
  * Level tag CRUD + first-class tag groups + level➔tag assignments.
@@ -46,6 +51,15 @@ function isResolveGroupError(error: unknown): error is Error {
   return error instanceof Error && (
     error.message === 'Invalid groupId' || error.message === 'Tag group not found'
   );
+}
+
+function parseFormBoolean(value: unknown): boolean | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value === true || value === false) return value;
+  const s = String(value).trim().toLowerCase();
+  if (s === 'true' || s === '1' || s === 'on' || s === 'yes') return true;
+  if (s === 'false' || s === '0' || s === 'off' || s === 'no') return false;
+  return undefined;
 }
 
 router.put(
@@ -348,14 +362,14 @@ router.post(
     description: 'Create level tag. Body: name, color, icon?, group?, groupId?. Multipart: icon. Super admin password.',
     tags: ['Database', 'Difficulties'],
     security: ['bearerAuth'],
-    requestBody: { description: 'name, color, icon, group, groupId', schema: { type: 'object', properties: { name: { type: 'string' }, color: { type: 'string' }, icon: { type: 'string' }, group: { type: 'string' }, groupId: { type: 'number' } }, required: ['name', 'color'] }, required: true },
+    requestBody: { description: 'name, color, icon, group, groupId, isCommunity', schema: { type: 'object', properties: { name: { type: 'string' }, color: { type: 'string' }, icon: { type: 'string' }, group: { type: 'string' }, groupId: { type: 'number' }, isCommunity: { type: 'boolean' } }, required: ['name', 'color'] }, required: true },
     responses: { 201: { description: 'Tag created' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
     let transaction: any;
     try {
       transaction = await sequelize.transaction();
-      const { name, color, icon, group, groupId } = req.body;
+      const { name, color, icon, group, groupId, isCommunity } = req.body;
       const iconFile = req.file;
 
       if (!name || !color) {
@@ -412,6 +426,7 @@ router.post(
         color,
         groupId: resolvedGroupId,
         sortOrder: lastSortOrder + 1,
+        isCommunity: parseFormBoolean(isCommunity) ?? false,
         createdAt: new Date(),
         updatedAt: new Date(),
       }, { transaction });
@@ -449,7 +464,7 @@ router.put(
     try {
       transaction = await sequelize.transaction();
       const tagId = parseInt(req.params.id);
-      const { name, color, icon, group, groupId } = req.body;
+      const { name, color, icon, group, groupId, isCommunity } = req.body;
       const iconFile = req.file;
 
       const tag = await LevelTag.findByPk(tagId);
@@ -516,6 +531,14 @@ router.put(
 
       if (resolvedGroupId !== undefined) {
         updateData.groupId = resolvedGroupId;
+      }
+
+      const nextIsCommunity = parseFormBoolean(isCommunity);
+      if (nextIsCommunity !== undefined) {
+        updateData.isCommunity = nextIsCommunity;
+        if (tag.isCommunity && !nextIsCommunity) {
+          await pinCommunityAssignmentsForTag(tagId, transaction);
+        }
       }
 
       await tag.update(updateData, { transaction });
@@ -647,18 +670,7 @@ router.get(
         return res.status(404).json({ error: 'Level not found' });
       }
 
-      const assignments = await LevelTagAssignment.findAll({
-        where: { levelId },
-      });
-
-      const assignmentTagIds = assignments.map(a => a.tagId);
-      const tags = await LevelTag.findAll({
-        where: { id: { [Op.in]: assignmentTagIds } },
-        include: [TAG_GROUP_INCLUDE],
-        order: [['name', 'ASC']],
-      });
-
-      return res.json(serializeLevelTags(tags));
+      return res.json(await loadSerializedAssignedTags(levelId));
     } catch (error) {
       logger.error('Error fetching level tags:', error);
       return res.status(500).json({ error: 'Failed to fetch level tags' });
@@ -697,49 +709,19 @@ router.post(
         return res.status(404).json({ error: 'Level not found' });
       }
 
-      if (tagIds.length > 0) {
-        const tags = await LevelTag.findAll({
-          where: { id: { [Op.in]: tagIds } },
-          transaction,
-        });
-
-        if (tags.length !== tagIds.length) {
-          await safeTransactionRollback(transaction);
+      try {
+        await applyStaffTagSelection(levelId, tagIds, transaction);
+      } catch (assignError) {
+        await safeTransactionRollback(transaction);
+        if (assignError instanceof Error && assignError.message === 'INVALID_TAG_IDS') {
           return res.status(400).json({ error: 'One or more tag IDs are invalid' });
         }
-      }
-
-      await LevelTagAssignment.destroy({
-        where: { levelId },
-        transaction,
-      });
-
-      if (tagIds.length > 0) {
-        await LevelTagAssignment.bulkCreate(
-          tagIds.map((tagId: number) => ({
-            levelId,
-            tagId,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          })),
-          { transaction },
-        );
+        throw assignError;
       }
 
       await transaction.commit();
 
-      const assignments = await LevelTagAssignment.findAll({
-        where: { levelId },
-      });
-
-      const assignmentTagIds = assignments.map(a => a.tagId);
-      const updatedTags = await LevelTag.findAll({
-        where: { id: { [Op.in]: assignmentTagIds } },
-        include: [TAG_GROUP_INCLUDE],
-        order: [['name', 'ASC']],
-      });
-
-      return res.json(serializeLevelTags(updatedTags));
+      return res.json(await loadSerializedAssignedTags(levelId));
     } catch (error) {
       await safeTransactionRollback(transaction);
       logger.error('Error assigning tags to level:', error);
