@@ -6,6 +6,8 @@ import {
   CreationOptional,
 } from 'sequelize';
 import { getSequelizeForModelGroup } from '@/config/db.js';
+import type LevelTagGroup from './LevelTagGroup.js';
+
 const sequelize = getSequelizeForModelGroup('levels');
 
 class LevelTag extends Model<
@@ -16,11 +18,11 @@ class LevelTag extends Model<
   declare name: string;
   declare icon: CreationOptional<string | null>; // Full CDN URL for icon
   declare color: string; // Hex color code (e.g., "#FF5733")
-  declare group: CreationOptional<string | null>; // Optional group name for organizing tags
+  declare groupId: CreationOptional<number | null>;
   declare sortOrder: CreationOptional<number>; // Sort order for tags display
-  declare groupSortOrder: CreationOptional<number>; // Sort order for tag groups display
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
+  declare tagGroup?: LevelTagGroup | null;
 }
 
 LevelTag.init(
@@ -45,22 +47,21 @@ LevelTag.init(
       allowNull: false,
       comment: 'Hex color code (e.g., "#FF5733")',
     },
-    group: {
-      type: DataTypes.STRING,
+    groupId: {
+      type: DataTypes.INTEGER,
       allowNull: true,
-      comment: 'Optional group name for organizing tags',
+      references: {
+        model: 'level_tag_groups',
+        key: 'id',
+      },
+      onDelete: 'SET NULL',
+      onUpdate: 'CASCADE',
     },
     sortOrder: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
       comment: 'Sort order for tags display',
-    },
-    groupSortOrder: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
-      comment: 'Sort order for tag groups display',
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
@@ -71,6 +72,10 @@ LevelTag.init(
     indexes: [
       {
         fields: ['name'],
+      },
+      {
+        fields: ['groupId'],
+        name: 'idx_level_tags_group_id',
       },
     ],
   },

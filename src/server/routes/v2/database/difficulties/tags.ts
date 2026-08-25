@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Op } from 'sequelize';
 import Level from '@/models/levels/Level.js';
 import LevelTag from '@/models/levels/LevelTag.js';
+import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import { Auth } from '@/server/middleware/auth.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
@@ -17,25 +18,35 @@ import { safeTransactionRollback, getFileIdFromCdnUrl, isCdnUrl } from '@/misc/u
 import cdnService from '@/server/services/core/CdnService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { sendCdnErrorResponse, tagIconUpload, updateDifficultiesHash } from './shared.js';
+import {
+  TAG_GROUP_INCLUDE,
+  TAG_LIST_ORDER,
+  findOrCreateTagGroupByName,
+  loadSerializedTag,
+  resolveTagGroupId,
+  serializeLevelTags,
+} from '@/server/services/data/levelTagGroupService.js';
 
 /**
- * Level tag CRUD + sort-order management + level➔tag assignments.
+ * Level tag CRUD + first-class tag groups + level➔tag assignments.
  *
- * The tag tree is two-tiered: tags are grouped under a named `group`, and both
- * the tags within a group and the groups themselves have their own sort order
- * (`sortOrder` vs `groupSortOrder`). Tags with `group = null | ''` collapse
- * into a shared "Ungrouped" pseudo-group that shares a single `groupSortOrder`.
+ * Groups live in `level_tag_groups`. Tags reference them via nullable `groupId`
+ * (null = ungrouped). API responses still flatten `group` / `groupSortOrder`
+ * from the related group so existing clients keep grouping correctly.
  *
- * Note: `/tags/sort-orders` and `/tags/group-sort-orders` are registered before
- * `/tags/:id([0-9]{1,20})` so that Express' matcher doesn't greedily try to
- * parse the literal strings `sort-orders`/`group-sort-orders` as numeric IDs.
- * The id regex would fail that match, but keeping the bulk routes first avoids
- * relying on that detail.
+ * Note: `/tags/sort-orders`, `/tags/group-sort-orders`, and `/tags/groups`
+ * are registered before `/tags/:id([0-9]{1,20})`.
  */
 
 const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
 
 const router: Router = Router();
+
+function isResolveGroupError(error: unknown): error is Error {
+  return error instanceof Error && (
+    error.message === 'Invalid groupId' || error.message === 'Tag group not found'
+  );
+}
 
 router.put(
   '/tags/sort-orders',
@@ -98,10 +109,10 @@ router.put(
   ApiDoc({
     operationId: 'putTagGroupSortOrders',
     summary: 'Update tag group sort orders',
-    description: 'Bulk update tag group sort orders. Body: groups[{ name, sortOrder }]. Super admin password.',
+    description: 'Bulk update tag group sort orders. Body: groups[{ id?, name?, sortOrder }]. Super admin password.',
     tags: ['Database', 'Difficulties'],
     security: ['bearerAuth'],
-    requestBody: { description: 'groups', schema: { type: 'object', properties: { groups: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, sortOrder: { type: 'number' } } } } }, required: ['groups'] }, required: true },
+    requestBody: { description: 'groups', schema: { type: 'object', properties: { groups: { type: 'array', items: { type: 'object', properties: { id: { type: 'number' }, name: { type: 'string' }, sortOrder: { type: 'number' } } } } }, required: ['groups'] }, required: true },
     responses: { 200: { description: 'Group sort orders updated' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
@@ -117,21 +128,27 @@ router.put(
 
       await Promise.all(
         groups.map(async (item) => {
-          const { name, sortOrder } = item;
-          if (name === undefined || sortOrder === undefined) {
-            throw new Error('Missing name or sortOrder in groups array');
+          const { id, name, sortOrder } = item;
+          if (sortOrder === undefined) {
+            throw new Error('Missing sortOrder in groups array');
+          }
+          // Ungrouped is not a row; skip empty names without an id.
+          if (id === undefined && (name === undefined || name === '' || name === null)) {
+            return;
           }
 
-          // An empty or null name targets the "Ungrouped" bucket, which stores
-          // its membership as either `null` or `''` (legacy writes).
-          const whereClause = name === '' || name === null
-            ? { [Op.or]: [{ group: null }, { group: '' }] }
-            : { group: name };
-
-          await LevelTag.update(
-            { groupSortOrder: sortOrder },
-            { where: whereClause, transaction },
+          const where = id !== undefined ? { id } : { name };
+          const [affected] = await LevelTagGroup.update(
+            { sortOrder },
+            { where, transaction },
           );
+          if (affected === 0) {
+            throw new Error(
+              id !== undefined
+                ? `Tag group with ID ${id} not found`
+                : `Tag group "${name}" not found`,
+            );
+          }
         }),
       );
 
@@ -152,6 +169,153 @@ router.put(
 );
 
 router.get(
+  '/tags/groups',
+  ApiDoc({
+    operationId: 'getDifficultyTagGroups',
+    summary: 'List tag groups',
+    description: 'Get all named level tag groups (ordered by sort order). Ungrouped is not a row.',
+    tags: ['Database', 'Difficulties'],
+    responses: { 200: { description: 'Tag groups list' }, ...standardErrorResponses500 },
+  }),
+  async (_req: Request, res: Response) => {
+    try {
+      const groups = await LevelTagGroup.findAll({
+        order: [['sortOrder', 'ASC'], ['name', 'ASC']],
+      });
+      res.json(groups);
+    } catch (error) {
+      logger.error('Error fetching tag groups:', error);
+      res.status(500).json({ error: 'Failed to fetch tag groups' });
+    }
+  },
+);
+
+router.post(
+  '/tags/groups',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'postDifficultyTagGroup',
+    summary: 'Create tag group',
+    description: 'Create a named tag group. Body: name. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'name', schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }, required: true },
+    responses: { 201: { description: 'Tag group created' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+    try {
+      transaction = await sequelize.transaction();
+      const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+      if (!name) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Group name is required' });
+      }
+
+      const existing = await LevelTagGroup.findOne({ where: { name }, transaction });
+      if (existing) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'A tag group with this name already exists' });
+      }
+
+      const group = await findOrCreateTagGroupByName(name, transaction);
+      await transaction.commit();
+      await updateDifficultiesHash();
+      return res.status(201).json(group);
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error creating tag group:', error);
+      return res.status(500).json({ error: 'Failed to create tag group' });
+    }
+  },
+);
+
+router.put(
+  '/tags/groups/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'putDifficultyTagGroup',
+    summary: 'Update tag group',
+    description: 'Rename a tag group. Body: name. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'name', schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }, required: true },
+    responses: { 200: { description: 'Tag group updated' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+    try {
+      transaction = await sequelize.transaction();
+      const groupId = parseInt(req.params.id);
+      const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+      if (!name) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Group name is required' });
+      }
+
+      const group = await LevelTagGroup.findByPk(groupId, { transaction });
+      if (!group) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Tag group not found' });
+      }
+
+      if (name !== group.name) {
+        const existing = await LevelTagGroup.findOne({ where: { name }, transaction });
+        if (existing) {
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({ error: 'A tag group with this name already exists' });
+        }
+      }
+
+      await group.update({ name, updatedAt: new Date() }, { transaction });
+      await transaction.commit();
+      await updateDifficultiesHash();
+      return res.json(group);
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error updating tag group:', error);
+      return res.status(500).json({ error: 'Failed to update tag group' });
+    }
+  },
+);
+
+router.delete(
+  '/tags/groups/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'deleteDifficultyTagGroup',
+    summary: 'Delete tag group',
+    description: 'Delete a tag group. Member tags become ungrouped. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Tag group deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+    try {
+      transaction = await sequelize.transaction();
+      const groupId = parseInt(req.params.id);
+      const group = await LevelTagGroup.findByPk(groupId, { transaction });
+      if (!group) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Tag group not found' });
+      }
+
+      await group.destroy({ transaction });
+      await transaction.commit();
+      await updateDifficultiesHash();
+      return res.json({ message: 'Tag group deleted successfully' });
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error deleting tag group:', error);
+      return res.status(500).json({ error: 'Failed to delete tag group' });
+    }
+  },
+);
+
+router.get(
   '/tags',
   ApiDoc({
     operationId: 'getDifficultyTags',
@@ -160,12 +324,13 @@ router.get(
     tags: ['Database', 'Difficulties'],
     responses: { 200: { description: 'Tags list' }, ...standardErrorResponses500 },
   }),
-  async (req: Request, res: Response) => {
+  async (_req: Request, res: Response) => {
     try {
       const tags = await LevelTag.findAll({
-        order: [['groupSortOrder', 'ASC'], ['sortOrder', 'ASC'], ['name', 'ASC']],
+        include: [TAG_GROUP_INCLUDE],
+        order: TAG_LIST_ORDER,
       });
-      res.json(tags);
+      res.json(serializeLevelTags(tags));
     } catch (error) {
       logger.error('Error fetching tags:', error);
       res.status(500).json({ error: 'Failed to fetch tags' });
@@ -180,17 +345,17 @@ router.post(
   ApiDoc({
     operationId: 'postDifficultyTag',
     summary: 'Create tag',
-    description: 'Create level tag. Body: name, color, icon?, group?. Multipart: icon. Super admin password.',
+    description: 'Create level tag. Body: name, color, icon?, group?, groupId?. Multipart: icon. Super admin password.',
     tags: ['Database', 'Difficulties'],
     security: ['bearerAuth'],
-    requestBody: { description: 'name, color, icon, group', schema: { type: 'object', properties: { name: { type: 'string' }, color: { type: 'string' }, icon: { type: 'string' }, group: { type: 'string' } }, required: ['name', 'color'] }, required: true },
+    requestBody: { description: 'name, color, icon, group, groupId', schema: { type: 'object', properties: { name: { type: 'string' }, color: { type: 'string' }, icon: { type: 'string' }, group: { type: 'string' }, groupId: { type: 'number' } }, required: ['name', 'color'] }, required: true },
     responses: { 201: { description: 'Tag created' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
     let transaction: any;
     try {
       transaction = await sequelize.transaction();
-      const { name, color, icon, group } = req.body;
+      const { name, color, icon, group, groupId } = req.body;
       const iconFile = req.file;
 
       if (!name || !color) {
@@ -209,10 +374,18 @@ router.post(
         return res.status(400).json({ error: 'A tag with this name already exists' });
       }
 
-      // Icon resolution priority:
-      //   1. Attached file ➔ upload to CDN, return its canonical URL
-      //   2. Explicit null (string "null" or literal null) ➔ no icon
-      //   3. String URL provided ➔ store verbatim (external or pre-uploaded)
+      let resolvedGroupId: number | null = null;
+      try {
+        const resolved = await resolveTagGroupId({ group, groupId }, transaction);
+        resolvedGroupId = resolved === undefined ? null : resolved;
+      } catch (resolveError) {
+        await safeTransactionRollback(transaction);
+        if (isResolveGroupError(resolveError)) {
+          return res.status(400).json({ error: resolveError.message });
+        }
+        throw resolveError;
+      }
+
       let finalIconUrl: string | null = null;
       if (iconFile) {
         try {
@@ -233,40 +406,12 @@ router.post(
 
       const lastSortOrder = await LevelTag.max('sortOrder') as number || 0;
 
-      // Group sort order: reuse the existing group's value if the group is
-      // known, otherwise allocate max+1. Ungrouped tags share one bucket.
-      let groupSortOrder = 0;
-      if (group) {
-        const existingGroupTag = await LevelTag.findOne({
-          where: { group },
-          transaction,
-        });
-        if (existingGroupTag) {
-          groupSortOrder = existingGroupTag.groupSortOrder;
-        } else {
-          const maxGroupSortOrder = await LevelTag.max('groupSortOrder', { transaction }) as number || 0;
-          groupSortOrder = maxGroupSortOrder + 1;
-        }
-      } else {
-        const existingUngroupedTag = await LevelTag.findOne({
-          where: { [Op.or]: [{ group: null }, { group: '' }] },
-          transaction,
-        });
-        if (existingUngroupedTag) {
-          groupSortOrder = existingUngroupedTag.groupSortOrder;
-        } else {
-          const maxGroupSortOrder = await LevelTag.max('groupSortOrder', { transaction }) as number || 0;
-          groupSortOrder = maxGroupSortOrder + 1;
-        }
-      }
-
       const tag = await LevelTag.create({
         name,
         icon: finalIconUrl,
         color,
-        group: group || null,
+        groupId: resolvedGroupId,
         sortOrder: lastSortOrder + 1,
-        groupSortOrder,
         createdAt: new Date(),
         updatedAt: new Date(),
       }, { transaction });
@@ -275,7 +420,8 @@ router.post(
 
       await updateDifficultiesHash();
 
-      return res.status(201).json(tag);
+      const serialized = await loadSerializedTag(tag.id);
+      return res.status(201).json(serialized);
     } catch (error) {
       await safeTransactionRollback(transaction);
       logger.error('Error creating tag:', error);
@@ -291,11 +437,11 @@ router.put(
   ApiDoc({
     operationId: 'putDifficultyTag',
     summary: 'Update tag',
-    description: 'Update level tag. Body: name?, color?, icon?, group?. Multipart: icon. Super admin password.',
+    description: 'Update level tag. Body: name?, color?, icon?, group?, groupId?. Multipart: icon. Super admin password.',
     tags: ['Database', 'Difficulties'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
-    requestBody: { description: 'name, color, icon, group', schema: { type: 'object' }, required: true },
+    requestBody: { description: 'name, color, icon, group, groupId', schema: { type: 'object' }, required: true },
     responses: { 200: { description: 'Tag updated' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
@@ -303,7 +449,7 @@ router.put(
     try {
       transaction = await sequelize.transaction();
       const tagId = parseInt(req.params.id);
-      const { name, color, icon, group } = req.body;
+      const { name, color, icon, group, groupId } = req.body;
       const iconFile = req.file;
 
       const tag = await LevelTag.findByPk(tagId);
@@ -325,10 +471,6 @@ router.put(
         }
       }
 
-      // Icon update priority:
-      //   1. Attached file ➔ upload new and mark old for cleanup
-      //   2. Explicit null ➔ remove icon and mark old for cleanup
-      //   3. Anything else ➔ keep current icon (finalIconUrl stays undefined)
       let finalIconUrl: string | null | undefined = undefined;
       let oldFileId: string | null = null;
 
@@ -354,57 +496,32 @@ router.put(
         finalIconUrl = null;
       }
 
-      // Recompute groupSortOrder only when the group is actually changing, so
-      // a PUT that touches a single unrelated field doesn't accidentally shove
-      // the tag into a different row-ordering bucket.
-      let groupSortOrder: number | undefined = undefined;
-      const newGroup = group !== undefined ? (group || null) : tag.group;
-      const isGroupChanging = group !== undefined && newGroup !== tag.group;
-
-      if (isGroupChanging) {
-        if (newGroup) {
-          const existingGroupTag = await LevelTag.findOne({
-            where: { group: newGroup },
-            transaction,
-          });
-          if (existingGroupTag) {
-            groupSortOrder = existingGroupTag.groupSortOrder;
-          } else {
-            const maxGroupSortOrder = await LevelTag.max('groupSortOrder', { transaction }) as number || 0;
-            groupSortOrder = maxGroupSortOrder + 1;
-          }
-        } else {
-          const existingUngroupedTag = await LevelTag.findOne({
-            where: { [Op.or]: [{ group: null }, { group: '' }] },
-            transaction,
-          });
-          if (existingUngroupedTag) {
-            groupSortOrder = existingUngroupedTag.groupSortOrder;
-          } else {
-            const maxGroupSortOrder = await LevelTag.max('groupSortOrder', { transaction }) as number || 0;
-            groupSortOrder = maxGroupSortOrder + 1;
-          }
+      let resolvedGroupId: number | null | undefined;
+      try {
+        resolvedGroupId = await resolveTagGroupId({ group, groupId }, transaction);
+      } catch (resolveError) {
+        await safeTransactionRollback(transaction);
+        if (isResolveGroupError(resolveError)) {
+          return res.status(400).json({ error: resolveError.message });
         }
+        throw resolveError;
       }
 
-      const updateData: any = {
+      const updateData: Record<string, unknown> = {
         name: name ?? tag.name,
         icon: finalIconUrl !== undefined ? finalIconUrl : tag.icon,
         color: color ?? tag.color,
-        group: newGroup,
         updatedAt: new Date(),
       };
 
-      if (groupSortOrder !== undefined) {
-        updateData.groupSortOrder = groupSortOrder;
+      if (resolvedGroupId !== undefined) {
+        updateData.groupId = resolvedGroupId;
       }
 
       await tag.update(updateData, { transaction });
 
       await transaction.commit();
 
-      // Clean up the old CDN file only after the transaction commits. A failed
-      // cleanup must not roll back the successful tag update.
       if (oldFileId && (finalIconUrl !== undefined)) {
         try {
           logger.debug('Cleaning up old tag icon from CDN after tag update', {
@@ -428,7 +545,8 @@ router.put(
 
       await updateDifficultiesHash();
 
-      return res.json(tag);
+      const serialized = await loadSerializedTag(tagId);
+      return res.json(serialized);
     } catch (error) {
       await safeTransactionRollback(transaction);
       logger.error('Error updating tag:', error);
@@ -479,8 +597,6 @@ router.delete(
 
       await transaction.commit();
 
-      // CDN cleanup runs post-commit; a failure here must not leak back to
-      // the caller, which already observed a successful deletion.
       if (fileId) {
         try {
           logger.debug('Cleaning up tag icon from CDN after tag deletion', {
@@ -538,10 +654,11 @@ router.get(
       const assignmentTagIds = assignments.map(a => a.tagId);
       const tags = await LevelTag.findAll({
         where: { id: { [Op.in]: assignmentTagIds } },
+        include: [TAG_GROUP_INCLUDE],
         order: [['name', 'ASC']],
       });
 
-      return res.json(tags);
+      return res.json(serializeLevelTags(tags));
     } catch (error) {
       logger.error('Error fetching level tags:', error);
       return res.status(500).json({ error: 'Failed to fetch level tags' });
@@ -592,8 +709,6 @@ router.post(
         }
       }
 
-      // Replace-all semantics: destroy existing assignments then bulk-create
-      // the new set inside the same transaction.
       await LevelTagAssignment.destroy({
         where: { levelId },
         transaction,
@@ -620,10 +735,11 @@ router.post(
       const assignmentTagIds = assignments.map(a => a.tagId);
       const updatedTags = await LevelTag.findAll({
         where: { id: { [Op.in]: assignmentTagIds } },
+        include: [TAG_GROUP_INCLUDE],
         order: [['name', 'ASC']],
       });
 
-      return res.json(updatedTags);
+      return res.json(serializeLevelTags(updatedTags));
     } catch (error) {
       await safeTransactionRollback(transaction);
       logger.error('Error assigning tags to level:', error);

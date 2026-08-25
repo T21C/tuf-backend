@@ -396,6 +396,16 @@ export interface ILevelTag extends IBaseModel {
   name: string;
   icon: string | null; // Full CDN URL for icon
   color: string; // Hex color code (e.g., "#FF5733")
-  group: string | null; // Optional group name for organizing tags
+  groupId?: number | null;
+  sortOrder?: number;
+  /** Serialized group name from `level_tag_groups` (not a DB column). */
+  group?: string | null;
+  /** Serialized group sort order from `level_tag_groups` (not a DB column). */
+  groupSortOrder?: number | null;
+}
+
+export interface ILevelTagGroup extends IBaseModel {
+  name: string;
+  sortOrder: number;
 }
 

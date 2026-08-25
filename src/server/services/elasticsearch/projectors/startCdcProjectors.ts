@@ -11,6 +11,7 @@ import { cdcLevelCreditsProjectorDebounce } from './cdcLevelCreditsProjectorDebo
 import { CDC_PASSES_STREAM_BLOCK_MS } from '@/server/services/elasticsearch/misc/constants.js';
 import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
 import Curation from '@/models/curations/Curation.js';
+import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import User from '@/models/auth/User.js';
 
@@ -65,7 +66,7 @@ function num(v: unknown): number | null {
 
 /**
  * Level ES documents embed tag id/name/icon/color/group only (see levelIndexDocument).
- * `sortOrder` / `groupSortOrder` / timestamps affect admin UI ordering only — do not fan out to levels.
+ * `sortOrder` / timestamps affect admin UI ordering only — do not fan out to levels.
  * Inserts: no level references the tag until `level_tag_assignments` rows exist (handled there).
  */
 function levelTagCdcChangeRequiresLevelReindex(
@@ -77,11 +78,24 @@ function levelTagCdcChangeRequiresLevelReindex(
   if (op === 'c') return false;
   if (op !== 'u' || !before || !after) return true;
   const norm = (v: unknown) => (v == null ? '' : String(v));
-  const keys = ['name', 'icon', 'color', 'group'] as const;
+  const keys = ['name', 'icon', 'color', 'groupId'] as const;
   for (const k of keys) {
     if (norm(before[k]) !== norm(after[k])) return true;
   }
   return false;
+}
+
+/** Nested ES tag.group is the group name. sortOrder-only group updates do not reindex. */
+function levelTagGroupCdcChangeRequiresLevelReindex(
+  op: CdcOp,
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown> | null,
+): boolean {
+  if (op === 'd') return true;
+  if (op === 'c') return false;
+  if (op !== 'u' || !before || !after) return true;
+  const norm = (v: unknown) => (v == null ? '' : String(v));
+  return norm(before.name) !== norm(after.name);
 }
 
 /** Pass ES docs embed denormalized level fields (diffId, song, visibility, etc.). */
@@ -303,6 +317,31 @@ export function startCdcProjectors(): void {
             if (tagId == null) return;
             const assigns = await LevelTagAssignment.findAll({
               where: { tagId },
+              attributes: ['levelId'],
+              raw: true,
+            });
+            const lids = [...new Set((assigns as { levelId: number }[]).map((a) => a.levelId))].filter(Boolean);
+            if (lids.length) {
+              await es.reindexLevels(lids);
+              await invalidateLevels(lids);
+            }
+            break;
+          }
+          case 'level_tag_groups': {
+            if (!levelTagGroupCdcChangeRequiresLevelReindex(op, before, after)) {
+              break;
+            }
+            const groupId = rowId(before, after);
+            if (groupId == null) return;
+            const groupTags = await LevelTag.findAll({
+              where: { groupId },
+              attributes: ['id'],
+              raw: true,
+            });
+            const tagIds = (groupTags as { id: number }[]).map((t) => t.id).filter(Boolean);
+            if (tagIds.length === 0) break;
+            const assigns = await LevelTagAssignment.findAll({
+              where: { tagId: tagIds },
               attributes: ['levelId'],
               raw: true,
             });

@@ -11,6 +11,7 @@ import { PassSubmission } from '@/models/submissions/PassSubmission.js';
 import LevelPackItem from '@/models/packs/LevelPackItem.js';
 import LevelPack from '@/models/packs/LevelPack.js';
 import LevelTag from './LevelTag.js';
+import LevelTagGroup from './LevelTagGroup.js';
 import LevelTagAssignment from './LevelTagAssignment.js';
 import LevelAnnouncementQueue from './LevelAnnouncementQueue.js';
 import LevelLinkGroup from './LevelLinkGroup.js';
@@ -260,6 +261,20 @@ export function initializeLevelsAssociations() {
     foreignKey: 'tagId',
     as: 'levelAssignments',
     onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelTag.belongsTo(LevelTagGroup, {
+    foreignKey: 'groupId',
+    as: 'tagGroup',
+    onDelete: 'SET NULL',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelTagGroup.hasMany(LevelTag, {
+    foreignKey: 'groupId',
+    as: 'tags',
+    onDelete: 'SET NULL',
     onUpdate: 'CASCADE',
   });
 

@@ -41,6 +41,7 @@ import {hasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import {tagAssignmentService} from '@/server/services/data/TagAssignmentService.js';
 import { logLevelMetadataUpdateHook } from '@/server/routes/v2/webhooks/misc.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
+import { TAG_GROUP_INCLUDE } from '@/server/services/data/levelTagGroupService.js';
 import { getSongDisplayName, getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
@@ -853,7 +854,8 @@ router.put(
           required: false,
           through: {
             attributes: []
-          }
+          },
+          include: [TAG_GROUP_INCLUDE],
         },
         {
           model: Song,
@@ -1232,7 +1234,8 @@ router.patch(
             required: false,
             through: {
               attributes: []
-            }
+            },
+            include: [TAG_GROUP_INCLUDE],
           }
         ],
         transaction,

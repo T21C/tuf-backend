@@ -4,6 +4,7 @@ import { Op, QueryTypes } from 'sequelize';
 import LevelAlias from '@/models/levels/LevelAlias.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import LevelTag from '@/models/levels/LevelTag.js';
+import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import Creator from '@/models/credits/Creator.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
@@ -214,12 +215,20 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
           model: LevelTag, 
           as: 'tag', 
           attributes: [
-            'id', 
-            'name', 
-            'icon', 
-            'color', 
-            'group'
-          ]
+            'id',
+            'name',
+            'icon',
+            'color',
+            'groupId',
+          ],
+          include: [
+            {
+              model: LevelTagGroup,
+              as: 'tagGroup',
+              required: false,
+              attributes: ['id', 'name', 'sortOrder'],
+            },
+          ],
         }
       ],
     }),

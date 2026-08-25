@@ -212,12 +212,13 @@ export function buildLevelIndexDocument(level: Level): any {
     isCurated: arr(l.curations).length > 0,
     tags: arr<LevelTag>(l.tags).map((tag: any) => {
       const t = plainRow(tag as object) as any;
+      const groupName = t.tagGroup?.name ?? t.group ?? null;
       return {
         id: t.id,
         name: t.name,
         icon: t.icon,
         color: t.color,
-        group: t.group,
+        group: groupName,
       };
     }),
     uniqueClears: intFromLevelData(level, l, 'uniqueClears'),
