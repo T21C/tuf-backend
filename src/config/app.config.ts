@@ -19,6 +19,28 @@ export function isTufStellarFeatureEnabled(): boolean {
   return parseEnvBool(process.env.TUF_STELLAR_ENABLED, false);
 }
 
+/** Master kill switch for Web Push. Requires VAPID keys as well. */
+export function isPushNotificationsEnabled(): boolean {
+  return parseEnvBool(process.env.PUSH_NOTIFICATIONS_ENABLED, false);
+}
+
+export function getVapidConfig(): {
+  publicKey: string;
+  privateKey: string;
+  subject: string;
+} | null {
+  const publicKey = (process.env.VAPID_PUBLIC_KEY ?? '').trim();
+  const privateKey = (process.env.VAPID_PRIVATE_KEY ?? '').trim();
+  if (!publicKey || !privateKey) return null;
+  const subject =
+    (process.env.VAPID_SUBJECT ?? '').trim() || 'mailto:noreply@tuforums.com';
+  return {publicKey, privateKey, subject};
+}
+
+export function isPushAvailable(): boolean {
+  return isPushNotificationsEnabled() && getVapidConfig() !== null;
+}
+
 /**
  * When set, every announcement webhook send uses this URL instead of the configured
  * channel / rerate hook URLs. Delivery tracking still keys off the original URLs.

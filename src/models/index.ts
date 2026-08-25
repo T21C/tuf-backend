@@ -74,6 +74,8 @@ import Notification from './notifications/Notification.js';
 import NotificationPreference from './notifications/NotificationPreference.js';
 import NotificationCategoryPreference from './notifications/NotificationCategoryPreference.js';
 import UserFollow from './notifications/UserFollow.js';
+import NotificationUserSettings from './notifications/NotificationUserSettings.js';
+import PushSubscription from './notifications/PushSubscription.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -154,6 +156,8 @@ export const db = {
     NotificationPreference,
     NotificationCategoryPreference,
     UserFollow,
+    NotificationUserSettings,
+    PushSubscription,
   },
 };
 
@@ -188,6 +192,8 @@ export {
   NotificationPreference,
   NotificationCategoryPreference,
   UserFollow,
+  NotificationUserSettings,
+  PushSubscription,
 };
 
 // Export Discord models

@@ -97,6 +97,7 @@
     "swagger-ui-express": "^5.0.0",
     "twemoji": "^14.0.2",
     "uuid": "^11.0.3",
+    "web-push": "^3.6.7",
     "winston": "^3.17.0",
     "winston-daily-rotate-file": "^5.0.0",
     "zod": "^4.4.3"

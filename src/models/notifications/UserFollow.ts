@@ -7,6 +7,9 @@ const sequelize = getSequelizeForModelGroup('notifications');
 export const USER_FOLLOW_TARGET_TYPES = ['player', 'creator'] as const;
 export type UserFollowTargetType = (typeof USER_FOLLOW_TARGET_TYPES)[number];
 
+export const FOLLOW_NOTIFY_LEVELS = ['all', 'none'] as const;
+export type FollowNotifyLevel = (typeof FOLLOW_NOTIFY_LEVELS)[number];
+
 export interface UserFollowAttributes {
   id: number;
   userId: string;
@@ -14,10 +17,14 @@ export interface UserFollowAttributes {
   targetId: number;
   /** When false, this follow is omitted from public follower lists. */
   isPublic: boolean;
+  notifyLevel: FollowNotifyLevel;
   createdAt: Date;
 }
 
-type UserFollowCreationAttributes = Optional<UserFollowAttributes, 'id' | 'isPublic' | 'createdAt'>;
+type UserFollowCreationAttributes = Optional<
+  UserFollowAttributes,
+  'id' | 'isPublic' | 'notifyLevel' | 'createdAt'
+>;
 
 class UserFollow
   extends Model<UserFollowAttributes, UserFollowCreationAttributes>
@@ -28,6 +35,7 @@ class UserFollow
   declare targetType: UserFollowTargetType;
   declare targetId: number;
   declare isPublic: boolean;
+  declare notifyLevel: FollowNotifyLevel;
   declare createdAt: Date;
 
   declare user?: User;
@@ -59,6 +67,11 @@ UserFollow.init(
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: true,
+    },
+    notifyLevel: {
+      type: DataTypes.ENUM(...FOLLOW_NOTIFY_LEVELS),
+      allowNull: false,
+      defaultValue: 'all',
     },
     createdAt: {
       type: DataTypes.DATE,

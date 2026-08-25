@@ -27,7 +27,7 @@ export const NOTIFICATION_CATEGORIES = ['submissions', 'chart', 'clears', 'follo
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
-export type NotificationChannel = 'inApp' | 'email' | 'discord';
+export type NotificationChannel = 'inApp' | 'email' | 'discord' | 'push';
 
 export const chartSnapshotPayloadSchema = z.object({
   levelId: z.number().int().positive(),
@@ -133,6 +133,7 @@ const DEFAULT_CHANNELS: NotificationChannelDefaults = {
   inApp: true,
   email: false,
   discord: false,
+  push: false,
 };
 
 function chartSubmissionHref(payload: ChartSubmissionPayload): string | null {

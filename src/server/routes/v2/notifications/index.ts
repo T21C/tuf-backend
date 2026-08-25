@@ -8,7 +8,12 @@ import {
   successMessageSchema,
 } from '@/server/schemas/common.js';
 import {logger} from '@/server/services/core/LoggerService.js';
+import {getVapidConfig, isPushAvailable} from '@/config/app.config.js';
 import {notificationService} from '@/server/services/notifications/NotificationService.js';
+import {
+  deletePushSubscription,
+  upsertPushSubscription,
+} from '@/server/services/notifications/PushSubscriptionService.js';
 
 const router: Router = Router();
 
@@ -111,6 +116,8 @@ router.get(
           properties: {
             preferences: {type: 'array', items: {type: 'object'}},
             categories: {type: 'array', items: {type: 'object'}},
+            pushEnabled: {type: 'boolean'},
+            pushAvailable: {type: 'boolean'},
           },
         },
       },
@@ -136,19 +143,20 @@ router.put(
   ApiDoc({
     operationId: 'putNotificationPreferences',
     summary: 'Update a notification preference',
-    description: 'Upsert in-app preference for one registry type or one category. Locked channels cannot be changed.',
+    description:
+      'Upsert in-app preference for one registry type or one category, or set account-wide pushEnabled. Locked channels cannot be changed.',
     tags: ['Notifications'],
     security: ['bearerAuth'],
     requestBody: {
-      description: 'Type or category id and inApp flag',
+      description: 'Type or category id and inApp flag, or pushEnabled',
       schema: {
         type: 'object',
         properties: {
           type: {type: 'string'},
           category: {type: 'string'},
           inApp: {type: 'boolean'},
+          pushEnabled: {type: 'boolean'},
         },
-        required: ['inApp'],
       },
     },
     responses: {
@@ -171,6 +179,10 @@ router.put(
     try {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({error: 'User not authenticated'});
+      if (typeof req.body?.pushEnabled === 'boolean' && typeof req.body?.inApp !== 'boolean') {
+        const state = await notificationService.setPushEnabled(userId, req.body.pushEnabled);
+        return res.json(state);
+      }
       if (typeof req.body?.inApp !== 'boolean') {
         return res.status(400).json({error: 'inApp must be a boolean'});
       }
@@ -191,6 +203,131 @@ router.put(
     } catch (error) {
       logger.error('Error updating notification preference:', error);
       return res.status(500).json({error: 'Failed to update notification preference'});
+    }
+  },
+);
+
+function pushUnavailable(res: Response): Response {
+  return res.status(404).json({error: 'Push notifications are not available'});
+}
+
+router.get(
+  '/push/vapid-key',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getPushVapidKey',
+    summary: 'Public VAPID key',
+    description: 'Returns the public VAPID key for Web Push subscription. 404 when push is disabled.',
+    tags: ['Notifications'],
+    security: ['bearerAuth'],
+    responses: {
+      200: {
+        description: 'Public VAPID key',
+        schema: {type: 'object', properties: {publicKey: {type: 'string'}}},
+      },
+      ...standardErrorResponses401404500,
+    },
+  }),
+  async (_req: Request, res: Response) => {
+    try {
+      const vapid = getVapidConfig();
+      if (!isPushAvailable() || !vapid) return pushUnavailable(res);
+      return res.json({publicKey: vapid.publicKey});
+    } catch (error) {
+      logger.error('Error fetching VAPID key:', error);
+      return res.status(500).json({error: 'Failed to fetch VAPID key'});
+    }
+  },
+);
+
+router.post(
+  '/push/subscribe',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postPushSubscribe',
+    summary: 'Save a Web Push subscription',
+    description: 'Upserts this browser PushSubscription and locale for the authenticated user.',
+    tags: ['Notifications'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'PushSubscription JSON plus locale',
+      schema: {
+        type: 'object',
+        properties: {
+          endpoint: {type: 'string'},
+          expirationTime: {type: 'number', nullable: true},
+          keys: {
+            type: 'object',
+            properties: {p256dh: {type: 'string'}, auth: {type: 'string'}},
+          },
+          locale: {type: 'string'},
+        },
+        required: ['endpoint', 'keys'],
+      },
+    },
+    responses: {
+      200: {schema: successMessageSchema},
+      400: {schema: errorResponseSchema},
+      ...standardErrorResponses401404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({error: 'User not authenticated'});
+      if (!isPushAvailable()) return pushUnavailable(res);
+      await upsertPushSubscription(userId, {
+        endpoint: req.body?.endpoint,
+        expirationTime: req.body?.expirationTime,
+        keys: req.body?.keys,
+        locale: req.body?.locale,
+        userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null,
+      });
+      return res.json({message: 'OK'});
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Invalid')) {
+        return res.status(400).json({error: error.message});
+      }
+      logger.error('Error saving push subscription:', error);
+      return res.status(500).json({error: 'Failed to save push subscription'});
+    }
+  },
+);
+
+router.delete(
+  '/push/subscribe',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deletePushSubscribe',
+    summary: 'Remove a Web Push subscription',
+    description: 'Deletes this browser PushSubscription for the authenticated user.',
+    tags: ['Notifications'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'Endpoint to remove',
+      schema: {
+        type: 'object',
+        properties: {endpoint: {type: 'string'}},
+        required: ['endpoint'],
+      },
+    },
+    responses: {
+      200: {schema: successMessageSchema},
+      ...standardErrorResponses401404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({error: 'User not authenticated'});
+      if (!isPushAvailable()) return pushUnavailable(res);
+      const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint : '';
+      if (!endpoint) return res.status(400).json({error: 'endpoint is required'});
+      await deletePushSubscription(userId, endpoint);
+      return res.json({message: 'OK'});
+    } catch (error) {
+      logger.error('Error deleting push subscription:', error);
+      return res.status(500).json({error: 'Failed to delete push subscription'});
     }
   },
 );

@@ -3,6 +3,8 @@ import {Op} from 'sequelize';
 import Notification from '@/models/notifications/Notification.js';
 import NotificationPreference from '@/models/notifications/NotificationPreference.js';
 import NotificationCategoryPreference from '@/models/notifications/NotificationCategoryPreference.js';
+import NotificationUserSettings from '@/models/notifications/NotificationUserSettings.js';
+import {isPushAvailable} from '@/config/app.config.js';
 import {OutboxService} from '@/server/services/outbox/OutboxService.js';
 import {OUTBOX_EVENT_TYPES} from '@/server/services/outbox/events.js';
 import {mapMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
@@ -59,6 +61,7 @@ export interface EffectivePreference {
   categoryInApp: boolean;
   email: boolean;
   discord: boolean;
+  push: boolean;
   lockedChannels: Partial<Record<NotificationChannel, boolean>>;
 }
 
@@ -70,6 +73,8 @@ export interface EffectiveCategoryPreference {
 export interface PreferenceState {
   preferences: EffectivePreference[];
   categories: EffectiveCategoryPreference[];
+  pushEnabled: boolean;
+  pushAvailable: boolean;
 }
 
 function toIso(value: Date | string | null | undefined): string | null {
@@ -256,12 +261,15 @@ class NotificationService {
   }
 
   async getPreferenceState(userId: string): Promise<PreferenceState> {
-    const [typeRows, categoryRows] = await Promise.all([
+    const [typeRows, categoryRows, settings] = await Promise.all([
       NotificationPreference.findAll({where: {userId}}),
       NotificationCategoryPreference.findAll({where: {userId}}),
+      NotificationUserSettings.findByPk(userId),
     ]);
     const byType = new Map(typeRows.map((row) => [row.type, row]));
     const byCategory = new Map(categoryRows.map((row) => [row.category, row]));
+    const pushEnabled = Boolean(settings?.pushEnabled);
+    const pushAvailable = isPushAvailable();
 
     const categories: EffectiveCategoryPreference[] = listNotificationCategories().map(
       (category) => ({
@@ -274,19 +282,30 @@ class NotificationService {
     const preferences = listNotificationTypeDefinitions().map((definition) => {
       const override = byType.get(definition.id);
       const categoryInApp = categoryEnabled.get(definition.category) ?? true;
+      const inApp = categoryInApp && channelEnabled(definition, 'inApp', override?.inApp);
       return {
         type: definition.id,
         category: definition.category,
         i18nKey: definition.i18nKey,
         categoryInApp,
-        inApp: categoryInApp && channelEnabled(definition, 'inApp', override?.inApp),
+        inApp,
         email: channelEnabled(definition, 'email', override?.email),
         discord: channelEnabled(definition, 'discord', override?.discord),
+        push: pushEnabled && inApp,
         lockedChannels: definition.lockedChannels,
       };
     });
 
-    return {preferences, categories};
+    return {preferences, categories, pushEnabled, pushAvailable};
+  }
+
+  async setPushEnabled(userId: string, pushEnabled: boolean): Promise<PreferenceState> {
+    await NotificationUserSettings.upsert({
+      userId,
+      pushEnabled,
+      updatedAt: new Date(),
+    });
+    return this.getPreferenceState(userId);
   }
 
   async upsertInAppPreference(

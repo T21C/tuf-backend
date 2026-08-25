@@ -3,6 +3,8 @@ import Notification from './Notification.js';
 import NotificationPreference from './NotificationPreference.js';
 import NotificationCategoryPreference from './NotificationCategoryPreference.js';
 import UserFollow from './UserFollow.js';
+import NotificationUserSettings from './NotificationUserSettings.js';
+import PushSubscription from './PushSubscription.js';
 
 export function initializeNotificationAssociations(): void {
   User.hasMany(Notification, {
@@ -41,6 +43,24 @@ export function initializeNotificationAssociations(): void {
     as: 'follows',
   });
   UserFollow.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  User.hasOne(NotificationUserSettings, {
+    foreignKey: 'userId',
+    as: 'notificationUserSettings',
+  });
+  NotificationUserSettings.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  User.hasMany(PushSubscription, {
+    foreignKey: 'userId',
+    as: 'pushSubscriptions',
+  });
+  PushSubscription.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
   });

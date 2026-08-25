@@ -6,6 +6,7 @@ import Creator from '@/models/credits/Creator.js';
 import {
   FollowError,
   getFollowState,
+  isFollowNotifyLevel,
   listFollowers,
   parseFollowerListPaging,
   setFollowing,
@@ -37,6 +38,12 @@ export async function handleFollowPut(
   if (typeof req.body?.following !== 'boolean') {
     return res.status(400).json({error: 'following must be a boolean'});
   }
+  const notifyRaw = req.body?.notifyLevel;
+  const notifyLevel =
+    typeof notifyRaw === 'string' && isFollowNotifyLevel(notifyRaw) ? notifyRaw : undefined;
+  if (notifyRaw !== undefined && notifyRaw !== null && !notifyLevel) {
+    return res.status(400).json({error: 'notifyLevel must be all or none'});
+  }
 
   try {
     const state = await setFollowing({
@@ -48,6 +55,7 @@ export async function handleFollowPut(
       targetType,
       targetId,
       following: req.body.following,
+      notifyLevel,
     });
     return res.json(state);
   } catch (error) {
@@ -63,9 +71,13 @@ export async function followFieldsForProfile(
   targetType: UserFollowTargetType,
   targetId: number,
   viewerUserId?: string | null,
-): Promise<{isFollowing: boolean; followerCount: number}> {
+): Promise<{isFollowing: boolean; followerCount: number; notifyLevel: string | null}> {
   const state = await getFollowState(targetType, targetId, viewerUserId ?? null);
-  return {isFollowing: state.following, followerCount: state.followerCount};
+  return {
+    isFollowing: state.following,
+    followerCount: state.followerCount,
+    notifyLevel: state.notifyLevel,
+  };
 }
 
 /** MySQL BOOLEAN may come back as 0/1. Missing values default to shown. */
