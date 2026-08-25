@@ -4,16 +4,16 @@ on:
   pull_request:
   push:
     branches: [master]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: backend-ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   validate:
+    concurrency:
+      group: backend-ci-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v5
@@ -38,19 +38,153 @@ jobs:
       - name: Build
         run: npm run build
 
-      - uses: docker/setup-qemu-action@v3
+      - name: Verify compiled output
+        run: |
+          set -euo pipefail
+          test -f dist/app.js || {
+            echo "expected dist/app.js after npm run build" >&2
+            find dist -maxdepth 2 -print >&2 || true
+            exit 1
+          }
+
+      # Deploy reuses this tree for Sentry inject + the production image.
+      - name: Upload compiled dist
+        if: >-
+          github.ref == 'refs/heads/master' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dist
+          path: dist
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    needs: validate
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    concurrency:
+      group: tuf-backend-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["ubuntu-latest"]') }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Commit association for Sentry releases
+          fetch-depth: 0
+
+      - name: Download compiled dist
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-dist
+          path: dist
+
+      - name: Verify dist artifact
+        run: |
+          set -euo pipefail
+          test -f dist/app.js || {
+            echo "expected dist/app.js in backend-dist artifact" >&2
+            find dist -maxdepth 3 -print >&2 || true
+            exit 1
+          }
+
+      - name: Decide Sentry upload
+        id: sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_SKIP_UPLOAD: ${{ vars.SENTRY_SKIP_UPLOAD }}
+        run: |
+          set -euo pipefail
+          # secrets.* cannot be referenced in if: expressions; gate via step output instead.
+          if [[ "${SENTRY_SKIP_UPLOAD}" == "true" || -z "${SENTRY_AUTH_TOKEN}" ]]; then
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Prefer omitting empty SENTRY_URL — empty string breaks sentry-cli ("unknown scheme ()").
+      # Note: `secrets` cannot be referenced in `if:` — gate with vars only; missing token fails the action.
+      - name: Configure Sentry URL
+        if: ${{ vars.SENTRY_SKIP_UPLOAD != 'true' }}
+        run: |
+          if [[ -n "${{ vars.SENTRY_URL }}" ]]; then
+            echo "SENTRY_URL=${{ vars.SENTRY_URL }}" >> "$GITHUB_ENV"
+          else
+            echo "SENTRY_URL=https://sentry.tuforums.com" >> "$GITHUB_ENV"
+          fi
+
+      - name: Create Sentry release and upload sourcemaps
+        if: ${{ vars.SENTRY_SKIP_UPLOAD != 'true' }}
+        uses: getsentry/action-release@v3
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG != '' && vars.SENTRY_ORG || 'the-universal-forums' }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_SERVER_PROJECT != '' && vars.SENTRY_SERVER_PROJECT || 'main-server' }}
+        with:
+          environment: production
+          # Must match GIT_SHA / SENTRY_RELEASE baked into the runtime image.
+          release: ${{ github.sha }}
+          sourcemaps: ./dist
+          inject: true
+
+      - name: Set up QEMU
+        if: ${{ runner.arch != 'ARM64' }}
+        uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
 
-      # Image expects context ./dist from the Build step above (Sentry inject is deploy-only).
-      - name: Build container image
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push immutable image
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/arm64
-          push: false
-          tags: ghcr.io/t21c/tuf-backend:ci
+          push: true
+          tags: ghcr.io/t21c/tuf-backend:${{ github.sha }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
           build-args: |
             GIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Connect to Tailscale
+        if: ${{ vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:gh-runner
+          ping: ${{ vars.TUF_DEPLOY_HOST }}
+
+      - name: Configure deploy SSH identity
+        if: ${{ vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
+        env:
+          DEPLOY_KEY: ${{ secrets.TUF_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.TUF_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          install -m 600 /dev/null ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          install -m 600 /dev/null ~/.ssh/known_hosts
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy backend production
+        if: ${{ vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
+        env:
+          DEPLOY_HOST: ${{ vars.TUF_DEPLOY_HOST }}
+        run: |
+          set -euo pipefail
+          [[ -n "$DEPLOY_HOST" ]] || { echo "Repository variable TUF_DEPLOY_HOST is required" >&2; exit 64; }
+          ssh -i ~/.ssh/id_ed25519 "tuf-deploy@${DEPLOY_HOST}" \
+            "sudo /srv/tuf/infra/bin/tuf-deploy-backend '${{ github.sha }}'"

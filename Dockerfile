@@ -24,8 +24,11 @@ RUN apt-get update \
 
 COPY package.json package-lock.json ./
 COPY eslint-plugin-tuf ./eslint-plugin-tuf
-RUN --mount=type=cache,target=/root/.npm npm ci
-RUN npm prune --omit=dev
+# dist/ is compiled on the host. Skip devDependencies and the root postinstall
+# (patch-package is a devDependency). npm rebuild still runs native addon installs.
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev --ignore-scripts \
+    && npm rebuild
 
 COPY dist ./dist
 
