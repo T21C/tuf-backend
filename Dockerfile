@@ -24,10 +24,11 @@ RUN apt-get update \
 
 COPY package.json package-lock.json ./
 COPY eslint-plugin-tuf ./eslint-plugin-tuf
-# dist/ is compiled on the host. Skip devDependencies and the root postinstall
-# (patch-package is a devDependency). npm rebuild still runs native addon installs.
+# dist/ is compiled on the host. Skip devDependencies. Drop root postinstall
+# (patch-package) so npm rebuild cannot invoke a binary that was never installed.
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev --ignore-scripts \
+    && npm pkg delete scripts.postinstall \
     && npm rebuild
 
 COPY dist ./dist
