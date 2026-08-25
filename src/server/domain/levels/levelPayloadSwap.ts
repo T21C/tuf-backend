@@ -39,7 +39,7 @@ export const LEVEL_PAYLOAD_SWAP_FIELDS = [
 
 /**
  * Child tables whose `levelId` is remapped A↔B after the payload exchange.
- * `level_likes` is intentionally excluded (unique mid-update collisions).
+ * Two-phase negative ids avoid unique collisions on likes and tag votes.
  * Table names are a fixed allowlist for raw SQL.
  */
 const LEVEL_ID_REMAP_TABLES = [
@@ -50,6 +50,8 @@ const LEVEL_ID_REMAP_TABLES = [
   'level_pack_items',
   'level_aliases',
   'level_tag_assignments',
+  'level_tag_votes',
+  'level_likes',
   '`references`',
   'curations',
   'level_rerate_histories',
@@ -175,7 +177,7 @@ export type LevelPayloadSwapResult = {
 
 /**
  * Swap chart/metadata columns between two levels, then remap child levelIds
- * (except likes) so linked rows follow the chart content. IDs stay fixed.
+ * so linked rows follow the chart content. IDs stay fixed.
  */
 export async function executeLevelPayloadSwap(
   sourceId: number,

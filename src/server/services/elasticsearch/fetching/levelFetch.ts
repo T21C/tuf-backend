@@ -4,6 +4,7 @@ import { Op, QueryTypes } from 'sequelize';
 import LevelAlias from '@/models/levels/LevelAlias.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import LevelTag from '@/models/levels/LevelTag.js';
+import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import Creator from '@/models/credits/Creator.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
@@ -62,8 +63,11 @@ function groupTagsByLevelId(assignments: LevelTagAssignment[]): Map<number, Leve
   for (const a of assignments) {
     const tag = (a as unknown as { tag?: LevelTag }).tag;
     if (!tag) continue;
+    const tagged = tag as LevelTag & { pinned?: boolean; score?: number | null };
+    tagged.pinned = Boolean(a.pinned);
+    tagged.score = a.score ?? null;
     const arr = m.get(a.levelId) ?? [];
-    arr.push(tag);
+    arr.push(tagged);
     m.set(a.levelId, arr);
   }
   return m;
@@ -208,18 +212,29 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
         'id',
         'levelId',
         'tagId',
+        'pinned',
+        'score',
       ],
       include: [
         {
           model: LevelTag, 
           as: 'tag', 
           attributes: [
-            'id', 
-            'name', 
-            'icon', 
-            'color', 
-            'group'
-          ]
+            'id',
+            'name',
+            'icon',
+            'color',
+            'groupId',
+            'isCommunity',
+          ],
+          include: [
+            {
+              model: LevelTagGroup,
+              as: 'tagGroup',
+              required: false,
+              attributes: ['id', 'name', 'sortOrder'],
+            },
+          ],
         }
       ],
     }),

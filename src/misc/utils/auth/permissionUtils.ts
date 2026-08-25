@@ -24,6 +24,9 @@ const extractPermissionFlags = (input: PermissionInput): bigint => {
     if (input.isSuperAdmin) flags |= permissionFlags.SUPER_ADMIN;
     if (input.isRater) flags |= permissionFlags.RATER;
     if (input.isRatingBanned) flags |= permissionFlags.RATING_BANNED;
+    if ('isTagVoteBanned' in input && input.isTagVoteBanned) {
+      flags |= permissionFlags.TAG_VOTE_BANNED;
+    }
     // Do not read isEmailVerified — EMAIL_VERIFIED must come from permissionFlags
     if (input.status === 'banned') flags |= permissionFlags.BANNED;
 

@@ -52,6 +52,7 @@ export async function buildAuthProfileUser(userId: string) {
     isRater: hasFlag(user, permissionFlags.RATER),
     isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
     isRatingBanned: hasFlag(user, permissionFlags.RATING_BANNED),
+    isTagVoteBanned: hasFlag(user, permissionFlags.TAG_VOTE_BANNED),
     isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
     permissionFlags: user.permissionFlags,
     playerId: user.playerId,

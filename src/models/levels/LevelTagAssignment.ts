@@ -18,6 +18,8 @@ class LevelTagAssignment extends Model<
   declare id: CreationOptional<number>;
   declare levelId: ForeignKey<Level['id']>;
   declare tagId: ForeignKey<LevelTag['id']>;
+  declare pinned: CreationOptional<boolean>;
+  declare score: CreationOptional<number | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -48,6 +50,17 @@ LevelTagAssignment.init(
       },
       onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
+    },
+    pinned: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      comment: 'Staff pin; community rematerialize will not drop this assignment',
+    },
+    score: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+      comment: 'Wilson lower-bound score from community votes; null for staff/auto tags',
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,

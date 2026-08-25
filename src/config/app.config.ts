@@ -2,6 +2,33 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+/** Parses env numbers; invalid or empty strings fall back to `defaultValue`. */
+export function parseEnvNumber(raw: string | undefined, defaultValue: number): number {
+  if (raw === undefined || raw === '') return defaultValue;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : defaultValue;
+}
+
+export type CommunityTagConfig = {
+  wilsonZ: number;
+  scoreOn: number;
+  scoreOff: number;
+  cardCap: number;
+  clearerWeight: number;
+  defaultWeight: number;
+};
+
+export function getCommunityTagConfig(): CommunityTagConfig {
+  return {
+    wilsonZ: parseEnvNumber(process.env.COMMUNITY_TAG_WILSON_Z, 4),
+    scoreOn: parseEnvNumber(process.env.COMMUNITY_TAG_SCORE_ON, 0.45),
+    scoreOff: parseEnvNumber(process.env.COMMUNITY_TAG_SCORE_OFF, 0.35),
+    cardCap: Math.max(0, Math.floor(parseEnvNumber(process.env.COMMUNITY_TAG_CARD_CAP, 7))),
+    clearerWeight: Math.max(1, Math.floor(parseEnvNumber(process.env.COMMUNITY_TAG_CLEARER_WEIGHT, 10))),
+    defaultWeight: Math.max(1, Math.floor(parseEnvNumber(process.env.COMMUNITY_TAG_DEFAULT_WEIGHT, 1))),
+  };
+}
+
 /** Parses env booleans; unknown strings fall back to `defaultValue`. */
 export function parseEnvBool(raw: string | undefined, defaultValue: boolean): boolean {
   if (raw === undefined || raw === '') return defaultValue;
@@ -17,6 +44,28 @@ export function parseEnvBool(raw: string | undefined, defaultValue: boolean): bo
  */
 export function isTufStellarFeatureEnabled(): boolean {
   return parseEnvBool(process.env.TUF_STELLAR_ENABLED, false);
+}
+
+/** Master kill switch for Web Push. Requires VAPID keys as well. */
+export function isPushNotificationsEnabled(): boolean {
+  return parseEnvBool(process.env.PUSH_NOTIFICATIONS_ENABLED, false);
+}
+
+export function getVapidConfig(): {
+  publicKey: string;
+  privateKey: string;
+  subject: string;
+} | null {
+  const publicKey = (process.env.VAPID_PUBLIC_KEY ?? '').trim();
+  const privateKey = (process.env.VAPID_PRIVATE_KEY ?? '').trim();
+  if (!publicKey || !privateKey) return null;
+  const subject =
+    (process.env.VAPID_SUBJECT ?? '').trim() || 'mailto:noreply@tuforums.com';
+  return {publicKey, privateKey, subject};
+}
+
+export function isPushAvailable(): boolean {
+  return isPushNotificationsEnabled() && getVapidConfig() !== null;
 }
 
 /**

@@ -2,6 +2,7 @@ import cdnService from '@/server/services/core/CdnService.js';
 import Level from '@/models/levels/Level.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
+import { findOrCreateTagGroupByName } from '@/server/services/data/levelTagGroupService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { Op } from 'sequelize';
 
@@ -169,10 +170,13 @@ class TagAssignmentService {
         if (!tag) {
             const randomColor = this.generateRandomColor();
             logger.debug(`Creating new tag "${tagName}" with color ${randomColor}${groupName ? ` in group "${groupName}"` : ''}`);
+            const groupId = groupName
+                ? (await findOrCreateTagGroupByName(groupName)).id
+                : null;
             tag = await LevelTag.create({
                 name: tagName,
                 color: randomColor,
-                group: groupName
+                groupId,
             });
         }
         return tag;

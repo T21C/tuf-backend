@@ -20,6 +20,7 @@ import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import LevelTag from '@/models/levels/LevelTag.js';
+import { TAG_GROUP_INCLUDE, loadSerializedAssignedTags, tagGroupName } from '@/server/services/data/levelTagGroupService.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import cdnService, { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
@@ -149,12 +150,13 @@ router.get(
           where: {
             name: { [Op.in]: tagNames }
           },
-          attributes: ['id', 'name', 'group']
+          attributes: ['id', 'name', 'groupId'],
+          include: [TAG_GROUP_INCLUDE],
         });
 
         // Group tags by their group field (use empty string for null/undefined groups)
         tagGroups = tags.reduce((groups, tag) => {
-          const groupKey = tag.group || '';
+          const groupKey = tagGroupName(tag);
           if (!groups[groupKey]) {
             groups[groupKey] = [];
           }
@@ -467,17 +469,7 @@ router.get(
       where: { levelId: levelId },
       order: [['createdAt', 'DESC']],
     });
-    // Tags query
-    const tagsPromise = LevelTag.findAll({
-      where: {
-        id: {
-          [Op.in]: sequelize.literal(`(
-            SELECT tagId FROM level_tag_assignments WHERE levelId = ${levelId}
-          )`)
-        }
-      },
-      order: [['name', 'ASC']],
-    });
+    const tagsPromise = loadSerializedAssignedTags(levelId);
     const esLevelDocPromise = elasticsearchService
       .getLevelDocumentById(levelId)
       .catch((err) => {
@@ -534,7 +526,7 @@ router.get(
       curations: sortedCurations.map((c) => serializeCurationJson(c)),
       curation: themeCuration ? serializeCurationJson(themeCuration) : null,
       curationSchedules: mergedSchedules.map((s) => s.toJSON()),
-      tags: tags || [],
+      tags: (tags as Record<string, unknown>[]) || [],
       song: getSongDisplayName(level),
       artist: getArtistDisplayName(level) || null,
       clears: esClears ?? level.clears,

@@ -212,12 +212,23 @@ export function buildLevelIndexDocument(level: Level): any {
     isCurated: arr(l.curations).length > 0,
     tags: arr<LevelTag>(l.tags).map((tag: any) => {
       const t = plainRow(tag as object) as any;
+      const groupName = t.tagGroup?.name ?? t.group ?? null;
+      const through = t.LevelTagAssignment || t.level_tag_assignment || {};
+      const scoreRaw =
+        typeof tag.score === 'number'
+          ? tag.score
+          : typeof t.score === 'number'
+            ? t.score
+            : through.score;
       return {
         id: t.id,
         name: t.name,
         icon: t.icon,
         color: t.color,
-        group: t.group,
+        group: groupName,
+        score: typeof scoreRaw === 'number' && Number.isFinite(scoreRaw) ? scoreRaw : null,
+        pinned: Boolean(tag.pinned ?? t.pinned ?? through.pinned),
+        isCommunity: Boolean(tag.isCommunity ?? t.isCommunity),
       };
     }),
     uniqueClears: intFromLevelData(level, l, 'uniqueClears'),

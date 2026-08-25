@@ -24,6 +24,10 @@ import Creator from './credits/Creator.js';
 import LevelCredit from './levels/LevelCredit.js';
 import LevelLinkGroup from './levels/LevelLinkGroup.js';
 import LevelLinkMember from './levels/LevelLinkMember.js';
+import LevelTag from './levels/LevelTag.js';
+import LevelTagGroup from './levels/LevelTagGroup.js';
+import LevelTagAssignment from './levels/LevelTagAssignment.js';
+import LevelTagVote from './levels/LevelTagVote.js';
 import Team from './credits/Team.js';
 import TeamMember from './credits/TeamMember.js';
 import PlayerStats from './players/PlayerStats.js';
@@ -74,6 +78,8 @@ import Notification from './notifications/Notification.js';
 import NotificationPreference from './notifications/NotificationPreference.js';
 import NotificationCategoryPreference from './notifications/NotificationCategoryPreference.js';
 import UserFollow from './notifications/UserFollow.js';
+import NotificationUserSettings from './notifications/NotificationUserSettings.js';
+import PushSubscription from './notifications/PushSubscription.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -100,6 +106,10 @@ export const db = {
     LevelCredit,
     LevelLinkGroup,
     LevelLinkMember,
+    LevelTag,
+    LevelTagGroup,
+    LevelTagAssignment,
+    LevelTagVote,
     Team,
     TeamMember,
     PlayerStats,
@@ -154,6 +164,8 @@ export const db = {
     NotificationPreference,
     NotificationCategoryPreference,
     UserFollow,
+    NotificationUserSettings,
+    PushSubscription,
   },
 };
 
@@ -188,6 +200,8 @@ export {
   NotificationPreference,
   NotificationCategoryPreference,
   UserFollow,
+  NotificationUserSettings,
+  PushSubscription,
 };
 
 // Export Discord models

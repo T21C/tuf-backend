@@ -4,12 +4,27 @@ import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
 import UserFollow, {
+  FOLLOW_NOTIFY_LEVELS,
   USER_FOLLOW_TARGET_TYPES,
+  type FollowNotifyLevel,
   type UserFollowTargetType,
 } from '@/models/notifications/UserFollow.js';
 import {mapMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
 
-export {USER_FOLLOW_TARGET_TYPES, type UserFollowTargetType};
+export {
+  FOLLOW_NOTIFY_LEVELS,
+  USER_FOLLOW_TARGET_TYPES,
+  type FollowNotifyLevel,
+  type UserFollowTargetType,
+};
+
+export function isFollowNotifyLevel(value: string): value is FollowNotifyLevel {
+  return (FOLLOW_NOTIFY_LEVELS as readonly string[]).includes(value);
+}
+
+export function followFanoutNotifyFilter(): {notifyLevel: 'all'} {
+  return {notifyLevel: 'all'};
+}
 
 export class FollowError extends Error {
   status: number;
@@ -24,6 +39,7 @@ export class FollowError extends Error {
 export interface FollowState {
   following: boolean;
   followerCount: number;
+  notifyLevel: FollowNotifyLevel | null;
 }
 
 export function isFollowTargetType(value: string): value is UserFollowTargetType {
@@ -71,7 +87,7 @@ export async function getFollowState(
     viewerUserId
       ? UserFollow.findOne({
           where: {userId: viewerUserId, targetType, targetId},
-          attributes: ['id'],
+          attributes: ['id', 'notifyLevel'],
           transaction,
         })
       : Promise.resolve(null),
@@ -79,6 +95,7 @@ export async function getFollowState(
   return {
     following: Boolean(existing),
     followerCount,
+    notifyLevel: existing?.notifyLevel === 'none' ? 'none' : existing ? 'all' : null,
   };
 }
 
@@ -195,9 +212,11 @@ export async function setFollowing(args: {
   targetType: UserFollowTargetType;
   targetId: number;
   following: boolean;
+  notifyLevel?: FollowNotifyLevel;
   transaction?: Transaction;
 }): Promise<FollowState> {
   const {user, targetType, targetId, following, transaction} = args;
+  const notifyLevel = args.notifyLevel ?? 'all';
   if (!Number.isInteger(targetId) || targetId <= 0) {
     throw new FollowError('Invalid target id', 400);
   }
@@ -212,11 +231,18 @@ export async function setFollowing(args: {
           targetType,
           targetId,
           isPublic: coercePublicFollows(pref?.publicFollows),
+          notifyLevel,
         },
         {transaction},
       );
     } catch (err) {
       if (mapMysqlClientError(err)?.code !== 'ER_DUP_ENTRY') throw err;
+      if (args.notifyLevel) {
+        await UserFollow.update(
+          {notifyLevel: args.notifyLevel},
+          {where: {userId: user.id, targetType, targetId}, transaction},
+        );
+      }
     }
   } else {
     await UserFollow.destroy({
@@ -237,7 +263,7 @@ export async function listFollowerUserIds(
 
   const rows = await UserFollow.findAll({
     attributes: ['userId', 'targetId'],
-    where: {targetType, targetId: {[Op.in]: unique}},
+    where: {targetType, targetId: {[Op.in]: unique}, ...followFanoutNotifyFilter()},
     transaction,
   });
   if (!rows.length) return [];

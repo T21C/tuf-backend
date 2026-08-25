@@ -213,6 +213,7 @@ class AuthController {
         isRater: false,
         isSuperAdmin: false,
         isRatingBanned: false,
+        isTagVoteBanned: false,
         status: 'active',
         lastLogin: now,
         updatedAt: now,

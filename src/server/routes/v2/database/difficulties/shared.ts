@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import Difficulty from '@/models/levels/Difficulty.js';
 import CurationType from '@/models/curations/CurationType.js';
 import LevelTag from '@/models/levels/LevelTag.js';
+import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
 import { DirectiveConditionType, DirectiveCondition } from '@/server/interfaces/models/index.js';
 import { DirectiveParser } from '@/misc/utils/data/directiveParser.js';
 import cdnService, { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
@@ -31,14 +32,18 @@ async function calculateDifficultiesHash(): Promise<string> {
     const curationTypesList = curationTypes.map(type => type.toJSON());
     const tags = await LevelTag.findAll();
     const tagsList = tags.map(tag => tag.toJSON());
+    const tagGroups = await LevelTagGroup.findAll();
+    const tagGroupsList = tagGroups.map(group => group.toJSON());
 
     const diffsString = JSON.stringify(diffsList);
     const curationTypesString = JSON.stringify(curationTypesList);
     const tagsString = JSON.stringify(tagsList);
+    const tagGroupsString = JSON.stringify(tagGroupsList);
     const hash = crypto.createHash('sha256').update(diffsString).digest('hex');
     const curationTypesHash = crypto.createHash('sha256').update(curationTypesString).digest('hex');
     const tagsHash = crypto.createHash('sha256').update(tagsString).digest('hex');
-    return `${hash}-${curationTypesHash}-${tagsHash}` + (process.env.NODE_ENV === 'development' ? `-${Date.now()}` : '');
+    const tagGroupsHash = crypto.createHash('sha256').update(tagGroupsString).digest('hex');
+    return `${hash}-${curationTypesHash}-${tagsHash}-${tagGroupsHash}` + (process.env.NODE_ENV === 'development' ? `-${Date.now()}` : '');
   } catch (error) {
     logger.error('Error calculating difficulties hash:', error);
     return '';

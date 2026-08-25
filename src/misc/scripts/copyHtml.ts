@@ -41,3 +41,15 @@ if (!fs.existsSync(bannerManifestSource)) {
 fs.mkdirSync(path.dirname(bannerManifestDestination), { recursive: true });
 fs.copyFileSync(bannerManifestSource, bannerManifestDestination);
 console.log(`Copied banner preset manifest to ${bannerManifestDestination}`);
+
+const pushLocalesSource = path.join(srcDir, 'server', 'services', 'notifications', 'copy', 'locales');
+const pushLocalesDestination = path.join(destDir, 'server', 'services', 'notifications', 'copy', 'locales');
+if (!fs.existsSync(pushLocalesSource)) {
+  throw new Error(`copyHtml: push copy locales not found: ${pushLocalesSource}`);
+}
+fs.mkdirSync(pushLocalesDestination, { recursive: true });
+for (const file of fs.readdirSync(pushLocalesSource)) {
+  if (!file.endsWith('.json')) continue;
+  fs.copyFileSync(path.join(pushLocalesSource, file), path.join(pushLocalesDestination, file));
+}
+console.log(`Copied push copy locales to ${pushLocalesDestination}`);

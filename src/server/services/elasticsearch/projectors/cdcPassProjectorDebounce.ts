@@ -3,6 +3,7 @@ import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CDC_PASS_MAX_COALESCE_MS } from '@/server/services/elasticsearch/misc/constants.js';
+import { syncClearerVoteWeightsForPairs } from '@/server/services/data/communityTagVoteService.js';
 import * as Sentry from '@sentry/node';
 
 export interface PassCdcDebouncePayload {
@@ -10,6 +11,7 @@ export interface PassCdcDebouncePayload {
   levelIds?: Iterable<number>;
   playerId?: number | null;
   deletePassId?: number | null;
+  tagVotePairs?: Iterable<{ playerId: number; levelId: number }>;
 }
 
 /**
@@ -21,6 +23,7 @@ class CdcPassProjectorDebounce {
   private levelIds = new Set<number>();
   private playerIds = new Set<number>();
   private deletePassIds = new Set<number>();
+  private tagVotePairs = new Map<string, { playerId: number; levelId: number }>();
   private flushing = false;
   private flushAgain = false;
   private safetyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -39,6 +42,12 @@ class CdcPassProjectorDebounce {
     if (payload.levelIds) {
       for (const lid of payload.levelIds) {
         if (Number.isFinite(lid)) this.levelIds.add(lid);
+      }
+    }
+    if (payload.tagVotePairs) {
+      for (const pair of payload.tagVotePairs) {
+        if (!Number.isFinite(pair.playerId) || !Number.isFinite(pair.levelId)) continue;
+        this.tagVotePairs.set(`${pair.playerId}:${pair.levelId}`, pair);
       }
     }
     this.armSafetyTimer();
@@ -76,7 +85,8 @@ class CdcPassProjectorDebounce {
       this.deletePassIds.size > 0 ||
       this.passIds.size > 0 ||
       this.levelIds.size > 0 ||
-      this.playerIds.size > 0
+      this.playerIds.size > 0 ||
+      this.tagVotePairs.size > 0
     );
   }
 
@@ -85,17 +95,20 @@ class CdcPassProjectorDebounce {
     passIds: number[];
     levelIds: number[];
     playerIds: number[];
+    tagVotePairs: Array<{ playerId: number; levelId: number }>;
   } {
     const snapshot = {
       deletePassIds: [...this.deletePassIds],
       passIds: [...this.passIds],
       levelIds: [...this.levelIds],
       playerIds: [...this.playerIds],
+      tagVotePairs: [...this.tagVotePairs.values()],
     };
     this.deletePassIds.clear();
     this.passIds.clear();
     this.levelIds.clear();
     this.playerIds.clear();
+    this.tagVotePairs.clear();
     return snapshot;
   }
 
@@ -110,7 +123,7 @@ class CdcPassProjectorDebounce {
       do {
         if (!this.hasPendingWork()) break;
 
-        const { deletePassIds, passIds, levelIds, playerIds } = this.takeSnapshot();
+        const { deletePassIds, passIds, levelIds, playerIds, tagVotePairs } = this.takeSnapshot();
         const es = ElasticsearchService.getInstance();
 
         await Sentry.startSpan(
@@ -123,9 +136,14 @@ class CdcPassProjectorDebounce {
               'cdc.level_ids': levelIds.length,
               'cdc.player_ids': playerIds.length,
               'cdc.delete_ids': deletePassIds.length,
+              'cdc.tag_vote_pairs': tagVotePairs.length,
             },
           },
           async () => {
+            if (tagVotePairs.length > 0) {
+              await syncClearerVoteWeightsForPairs(tagVotePairs);
+            }
+
             for (const id of deletePassIds) {
               await es.deletePassDocumentById(id);
             }

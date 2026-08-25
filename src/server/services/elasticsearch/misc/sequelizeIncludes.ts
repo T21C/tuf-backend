@@ -3,6 +3,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import LevelAlias from '@/models/levels/LevelAlias.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import LevelTag from '@/models/levels/LevelTag.js';
+import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
 import Creator from '@/models/credits/Creator.js';
 import Team from '@/models/credits/Team.js';
 import Player from '@/models/players/Player.js';
@@ -83,10 +84,18 @@ export const LEVEL_INCLUDES: Includeable[] = [
     model: LevelTag,
     as: 'tags',
     required: false,
-    attributes: ['id', 'name', 'icon', 'color', 'group'],
+    attributes: ['id', 'name', 'icon', 'color', 'groupId', 'isCommunity'],
     through: {
-      attributes: [],
+      attributes: ['pinned', 'score'],
     },
+    include: [
+      {
+        model: LevelTagGroup,
+        as: 'tagGroup',
+        required: false,
+        attributes: ['id', 'name', 'sortOrder'],
+      },
+    ],
   },
   {
     model: Song,
@@ -180,10 +189,18 @@ export const PASS_INCLUDES: Includeable[] = [
         model: LevelTag,
         as: 'tags',
         required: false,
-        attributes: ['id', 'name', 'icon', 'color', 'group'],
+        attributes: ['id', 'name', 'icon', 'color', 'groupId', 'isCommunity'],
         through: {
-          attributes: [],
+          attributes: ['pinned', 'score'],
         },
+        include: [
+          {
+            model: LevelTagGroup,
+            as: 'tagGroup',
+            required: false,
+            attributes: ['id', 'name', 'sortOrder'],
+          },
+        ],
       },
     ],
   },
