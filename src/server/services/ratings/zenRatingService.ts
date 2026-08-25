@@ -114,6 +114,7 @@ export async function dealZenDeck(
     fourVote: 'hide',
     hideRated: true,
     zeroClears: false,
+    rankReady: false,
     vote: 'exclude',
     excludeUniversals: parsed.excludeUniversals,
     userId,

@@ -34,6 +34,7 @@ export interface RatingListQuery {
   fourVote: ShowHideOnly;
   hideRated: boolean;
   zeroClears: boolean;
+  rankReady: boolean;
   vote: VoteFilter;
   excludeUniversals: boolean;
   userId: string | null;
@@ -52,6 +53,29 @@ const MANAGER_DETAIL_COUNT_SQL = `(
   SELECT COUNT(*) FROM rating_details AS rd
   WHERE rd.ratingId = Rating.id AND rd.isCommunityRating = 0
 )`;
+
+function managerDetailCountSql(excludeAutorater: boolean): string {
+  const autoraterId = process.env.AUTORATER_UUID;
+  const autoraterClause =
+    excludeAutorater && autoraterId
+      ? ` AND rd.userId != ${Rating.sequelize!.escape(autoraterId)}`
+      : '';
+  return `(
+    SELECT COUNT(*) FROM rating_details AS rd
+    WHERE rd.ratingId = Rating.id AND rd.isCommunityRating = 0${autoraterClause}
+  )`;
+}
+
+/** Universals (U*, UQ*, Q*) first, then galactics (G*), then planetarys (P*). */
+const RANK_READY_PGU_BAND_SQL = `CASE LEFT(UPPER(IFNULL((
+  SELECT d.name FROM difficulties d WHERE d.id = Rating.averageDifficultyId
+), '')), 1)
+  WHEN 'U' THEN 0
+  WHEN 'Q' THEN 0
+  WHEN 'G' THEN 1
+  WHEN 'P' THEN 2
+  ELSE 3
+END`;
 
 export function parseCommaSeparatedIds(query: string): number[] | null {
   if (!query.includes(',')) return null;
@@ -118,6 +142,10 @@ export function parseRatingListQuery(
     reqQuery.zeroClears === true ||
     reqQuery.zeroClears === 'true' ||
     reqQuery.zeroClears === '1';
+  const rankReady =
+    reqQuery.rankReady === true ||
+    reqQuery.rankReady === 'true' ||
+    reqQuery.rankReady === '1';
 
   let vote: VoteFilter;
   if (reqQuery.vote === 'only' || reqQuery.vote === 'exclude') {
@@ -139,6 +167,7 @@ export function parseRatingListQuery(
     fourVote,
     hideRated,
     zeroClears,
+    rankReady,
     vote,
     excludeUniversals: false,
     userId: userId || null,
@@ -154,6 +183,7 @@ export function ratingListPageCacheKey(params: RatingListQuery): string {
     lowDiff: params.lowDiff,
     fourVote: params.fourVote,
     zeroClears: params.zeroClears,
+    rankReady: params.rankReady,
     vote: params.vote ?? null,
     excludeUniversals: params.excludeUniversals,
     offset: params.offset,
@@ -414,16 +444,22 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
     }
   }
 
+  const managerCountSql = managerDetailCountSql(params.rankReady);
   const havingParts: string[] = [];
-  if (params.fourVote === 'hide') {
+  if (params.rankReady) {
+    havingParts.push(`${managerCountSql} >= 2`);
+  } else if (params.fourVote === 'hide') {
     havingParts.push(`${MANAGER_DETAIL_COUNT_SQL} < 4`);
   } else if (params.fourVote === 'only') {
     havingParts.push(`${MANAGER_DETAIL_COUNT_SQL} >= 4`);
   }
 
   const orderClause: any[] = [];
+  if (params.rankReady) {
+    orderClause.push([literal(RANK_READY_PGU_BAND_SQL), 'ASC']);
+  }
   if (params.sort === 'ratings') {
-    orderClause.push([literal(MANAGER_DETAIL_COUNT_SQL), params.order]);
+    orderClause.push([literal(managerCountSql), params.order]);
   } else if (params.sort === 'updatedAt') {
     orderClause.push(['updatedAt', params.order]);
   } else {
@@ -449,7 +485,7 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
 
   if (havingParts.length > 0) {
     findOptions.attributes = {
-      include: [[literal(MANAGER_DETAIL_COUNT_SQL), 'managerDetailCount']],
+      include: [[literal(managerCountSql), 'managerDetailCount']],
     };
     findOptions.group = ['Rating.id'];
     findOptions.having = literal(havingParts.join(' AND '));
