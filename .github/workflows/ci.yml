@@ -39,7 +39,13 @@ jobs:
         run: npm run build
 
       - name: Verify compiled output
-        run: test -f dist/app.js
+        run: |
+          set -euo pipefail
+          test -f dist/app.js || {
+            echo "expected dist/app.js after npm run build" >&2
+            find dist -maxdepth 2 -print >&2 || true
+            exit 1
+          }
 
       # Deploy reuses this tree for Sentry inject + the production image.
       - name: Upload compiled dist
@@ -78,7 +84,13 @@ jobs:
           path: dist
 
       - name: Verify dist artifact
-        run: test -f dist/app.js
+        run: |
+          set -euo pipefail
+          test -f dist/app.js || {
+            echo "expected dist/app.js in backend-dist artifact" >&2
+            find dist -maxdepth 3 -print >&2 || true
+            exit 1
+          }
 
       - name: Decide Sentry upload
         id: sentry
@@ -119,9 +131,9 @@ jobs:
           sourcemaps: ./dist
           inject: true
 
-      # linux/arm64 is native on the self-hosted runner; QEMU is only for amd64 failover.
-      - uses: docker/setup-qemu-action@v3
+      - name: Set up QEMU
         if: ${{ runner.arch != 'ARM64' }}
+        uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
 
