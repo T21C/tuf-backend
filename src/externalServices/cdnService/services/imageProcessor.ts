@@ -5,6 +5,9 @@ import type { Sharp } from 'sharp';
 import gifResize from '@gumlet/gif-resize';
 import { IMAGE_TYPES, ImageType } from '../config.js';
 
+// libvips otherwise uses every core; keep image work inside the CDN cgroup with pack 7z.
+sharp.concurrency(2);
+
 type RasterOutputExt = '.jpg' | '.png' | '.webp';
 
 /** Normalize upload extension to a supported raster output extension. */
