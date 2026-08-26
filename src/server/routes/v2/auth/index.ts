@@ -270,7 +270,7 @@ router.get(
     operationId: 'getAuthSession',
     summary: 'Bootstrap SPA auth session',
     description:
-      'Ensure CSRF, silently refresh when access is expired, and return the rich profile (or user:null). Always 200 for anonymous clients.',
+      'Ensure CSRF, silently refresh when access is expired, and return the rich profile (or user:null). Always 200 for anonymous clients. 503 when session lookup failed and the client must retry.',
     tags: ['Auth'],
     responses: {
       200: {
@@ -283,6 +283,10 @@ router.get(
           },
           required: ['csrfToken'],
         },
+      },
+      503: {
+        description: 'Session lookup failed; retry until an explicit 200',
+        schema: errorResponseSchema,
       },
     },
   }),

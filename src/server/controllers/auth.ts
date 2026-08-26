@@ -718,12 +718,14 @@ class AuthController {
   /**
    * Combined SPA boot: CSRF + optional silent refresh + rich profile in one GET.
    * Always 200 with user:null when anonymous (never 401 for logged-out).
+   * Returns 503 when a session may exist but lookup failed (client must retry).
    */
   public async getSession(req: Request, res: Response): Promise<Response> {
     // Carries the profile and rotates cookies — must never sit in a shared cache.
     res.setHeader('Cache-Control', 'no-store');
     let userId: string | null = null;
     let rotatedCsrf: string | null = null;
+    let sessionUnknown = false;
 
     const accessToken =
       (typeof req.cookies?.accessToken === 'string' && req.cookies.accessToken) ||
@@ -741,6 +743,7 @@ class AuthController {
           }
         } catch (error) {
           logger.error('Session active check error:', error);
+          sessionUnknown = true;
         }
       }
     }
@@ -762,6 +765,7 @@ class AuthController {
               res,
             );
             userId = rotated.user.id;
+            sessionUnknown = false;
             // setAuthCookies minted a new CSRF token; req.cookies still holds the
             // old one, so echo the rotated value instead of the stale request cookie.
             const header = res.getHeader('X-CSRF-Token');
@@ -769,12 +773,17 @@ class AuthController {
           }
         } catch (error) {
           logger.error('Session silent refresh error:', error);
+          const csrfToken = cookieUtils.ensureCsrfToken(req, res);
+          return res.status(503).json({ error: 'Session unavailable', csrfToken });
         }
       }
     }
 
     const csrfToken = rotatedCsrf ?? cookieUtils.ensureCsrfToken(req, res);
     if (!userId) {
+      if (sessionUnknown) {
+        return res.status(503).json({ error: 'Session unavailable', csrfToken });
+      }
       return res.json({ user: null, csrfToken });
     }
     try {
