@@ -1,7 +1,11 @@
 name: CI
 
+# pull_request / merge_group: lint, test, compile (no image/deploy)
+# push to master / workflow_dispatch: that plus image push and deploy
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
   push:
     branches: [master]
   workflow_dispatch:

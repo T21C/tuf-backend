@@ -58,6 +58,7 @@ export interface EffectivePreference {
   category: string;
   i18nKey: string;
   inApp: boolean;
+  inAppExplicit: boolean;
   categoryInApp: boolean;
   email: boolean;
   discord: boolean;
@@ -289,6 +290,7 @@ class NotificationService {
         i18nKey: definition.i18nKey,
         categoryInApp,
         inApp,
+        inAppExplicit: Boolean(override),
         email: channelEnabled(definition, 'email', override?.email),
         discord: channelEnabled(definition, 'discord', override?.discord),
         push: pushEnabled && inApp,

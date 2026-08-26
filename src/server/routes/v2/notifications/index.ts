@@ -11,6 +11,10 @@ import {logger} from '@/server/services/core/LoggerService.js';
 import {getVapidConfig, isPushAvailable} from '@/config/app.config.js';
 import {notificationService} from '@/server/services/notifications/NotificationService.js';
 import {
+  getChartClearMuteState,
+  setChartClearMuted,
+} from '@/server/services/notifications/chartClearNotify.js';
+import {
   deletePushSubscription,
   upsertPushSubscription,
 } from '@/server/services/notifications/PushSubscriptionService.js';
@@ -203,6 +207,108 @@ router.put(
     } catch (error) {
       logger.error('Error updating notification preference:', error);
       return res.status(500).json({error: 'Failed to update notification preference'});
+    }
+  },
+);
+
+router.get(
+  '/chart-clears/:levelId',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getChartClearMute',
+    summary: 'Per-chart clear notification mute state',
+    description:
+      'Returns whether the current user is a charter or vfxer on this level and whether they muted chart-cleared notifications for it.',
+    tags: ['Notifications'],
+    security: ['bearerAuth'],
+    params: {levelId: {schema: {type: 'string', pattern: '^[0-9]{1,20}$'}}},
+    responses: {
+      200: {
+        description: 'Mute state',
+        schema: {
+          type: 'object',
+          properties: {
+            credited: {type: 'boolean'},
+            muted: {type: 'boolean'},
+          },
+        },
+      },
+      400: {schema: errorResponseSchema},
+      ...standardErrorResponses401500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({error: 'User not authenticated'});
+      const levelId = parsePositiveInt(req.params.levelId);
+      if (!levelId) return res.status(400).json({error: 'Invalid level id'});
+      const state = await getChartClearMuteState(userId, req.user?.creatorId, levelId);
+      return res.json(state);
+    } catch (error) {
+      logger.error('Error fetching chart-clear mute state:', error);
+      return res.status(500).json({error: 'Failed to fetch mute state'});
+    }
+  },
+);
+
+router.put(
+  '/chart-clears/:levelId',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putChartClearMute',
+    summary: 'Mute or unmute chart-cleared notifications for a level',
+    description:
+      'Creates or removes a per-level mute for chart.cleared. Only charters and vfxers credited on the level can change this.',
+    tags: ['Notifications'],
+    security: ['bearerAuth'],
+    params: {levelId: {schema: {type: 'string', pattern: '^[0-9]{1,20}$'}}},
+    requestBody: {
+      description: 'muted flag',
+      schema: {
+        type: 'object',
+        properties: {muted: {type: 'boolean'}},
+        required: ['muted'],
+      },
+    },
+    responses: {
+      200: {
+        description: 'Updated mute state',
+        schema: {
+          type: 'object',
+          properties: {
+            credited: {type: 'boolean'},
+            muted: {type: 'boolean'},
+          },
+        },
+      },
+      400: {schema: errorResponseSchema},
+      403: {schema: errorResponseSchema},
+      ...standardErrorResponses401500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({error: 'User not authenticated'});
+      const levelId = parsePositiveInt(req.params.levelId);
+      if (!levelId) return res.status(400).json({error: 'Invalid level id'});
+      if (typeof req.body?.muted !== 'boolean') {
+        return res.status(400).json({error: 'muted must be a boolean'});
+      }
+      const result = await setChartClearMuted(
+        userId,
+        req.user?.creatorId,
+        levelId,
+        req.body.muted,
+      );
+      if ('error' in result) {
+        return res.status(403).json({error: 'Not credited as charter or vfxer on this level'});
+      }
+      return res.json(result);
+    } catch (error) {
+      logger.error('Error updating chart-clear mute:', error);
+      return res.status(500).json({error: 'Failed to update mute state'});
     }
   },
 );
