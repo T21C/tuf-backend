@@ -12,6 +12,7 @@ import discordRolesRoutes from './discordRoles.js';
 import adminCreatorsRoutes from './creators.js';
 import tournamentsRoutes from './tournaments.js';
 import oauthClientsRoutes from './oauthClients.js';
+import usefulLinksRoutes from './usefulLinks.js';
 // Import other admin routes here
 
 const router: Router = Router();
@@ -31,6 +32,7 @@ router.use('/discord', discordRolesRoutes);
 router.use('/creators', adminCreatorsRoutes);
 router.use('/tournaments', tournamentsRoutes);
 router.use('/oauth-clients', oauthClientsRoutes);
+router.use('/useful-links', usefulLinksRoutes);
 
 router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
       return res.status(200).send({});
