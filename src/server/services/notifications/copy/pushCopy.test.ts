@@ -30,7 +30,7 @@ test('chart.cleared interpolates player and level', () => {
     levelId: 12,
     playerId: 3,
   });
-  assert.equal(title, 'Your chart has been cleared!');
+  assert.equal(title, 'Your chart has been cleared');
   assert.match(body, /Alice/);
   assert.match(body, /Storm/);
   assert.match(body, /Camellia/);
