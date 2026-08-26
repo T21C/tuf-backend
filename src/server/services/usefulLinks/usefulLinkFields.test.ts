@@ -12,7 +12,7 @@ import {
   parseUsefulLinkPatch,
   TITLE_MAX,
 } from './usefulLinkFields.js';
-import {serializeUsefulLink, compareSerializedLinkOrder} from './serializeUsefulLink.js';
+import {serializeUsefulLink, serializeUsefulLinkGroup, compareSerializedLinkOrder} from './serializeUsefulLink.js';
 
 void test('parseHttpUrl accepts http(s) and rejects dangerous schemes', () => {
   assert.equal(
@@ -130,6 +130,25 @@ void test('parseOrderedIds keeps unique positive integers in order', () => {
 
 void test('mergeOrderedIds uses requested order then appends missing ids', () => {
   assert.deepEqual(mergeOrderedIds([3, 1, 99], [1, 2, 3]), [3, 1, 2]);
+});
+
+void test('serializeUsefulLinkGroup returns plain JSON fields', () => {
+  const createdAt = new Date('2026-01-01T00:00:00.000Z');
+  const updatedAt = new Date('2026-01-02T00:00:00.000Z');
+  const json = serializeUsefulLinkGroup({
+    id: 4,
+    name: 'Guides',
+    sortOrder: 2,
+    createdAt,
+    updatedAt,
+  } as any);
+  assert.deepEqual(json, {
+    id: 4,
+    name: 'Guides',
+    sortOrder: 2,
+    createdAt,
+    updatedAt,
+  });
 });
 
 void test('serializeUsefulLink flattens nested group fields', () => {

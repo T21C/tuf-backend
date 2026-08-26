@@ -3,6 +3,8 @@ import UsefulLink from '@/models/misc/UsefulLink.js';
 import UsefulLinkGroup from '@/models/misc/UsefulLinkGroup.js';
 import {serializeUsefulLink, compareSerializedLinkOrder, type UsefulLinkJson} from './serializeUsefulLink.js';
 
+export {serializeUsefulLinkGroup, type UsefulLinkGroupJson} from './serializeUsefulLink.js';
+
 export const LINK_GROUP_INCLUDE: Includeable = {
   model: UsefulLinkGroup,
   as: 'linkGroup',
@@ -44,16 +46,6 @@ export async function loadSerializedLink(
     transaction,
   });
   return link ? serializeUsefulLink(link) : null;
-}
-
-export function serializeUsefulLinkGroup(group: UsefulLinkGroup) {
-  return {
-    id: group.id,
-    name: group.name,
-    sortOrder: group.sortOrder,
-    createdAt: group.createdAt,
-    updatedAt: group.updatedAt,
-  };
 }
 
 export async function findOrCreateLinkGroupByName(
