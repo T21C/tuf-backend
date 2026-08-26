@@ -5,6 +5,11 @@ import fs from 'fs';
 import cors from 'cors';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { CDN_CONFIG } from './config.js';
+import {
+    PACK_DOWNLOAD_MAX_CONCURRENT_JOBS,
+    PACK_DOWNLOAD_PARALLELISM,
+} from './domain/pack/packDownloadConfig.js';
+import { resolveSevenZipThreadCount } from './infra/archive/sevenZipCpuClamp.js';
 import router from './routes/index.js';
 import { rewriteDevLanOriginsMiddleware } from './http/middleware/rewriteDevLanOrigins.js';
 import dotenv from 'dotenv';
@@ -83,6 +88,12 @@ app.use('/', router);
 const bindAddress = process.env.CDN_BIND_ADDRESS || '127.0.0.1';
 app.listen(CDN_CONFIG.port, bindAddress, () => {
     logger.info(`CDN service running on http://${bindAddress}:${CDN_CONFIG.port}`);
+    logger.info('CDN CPU clamps', {
+        packMaxConcurrentJobs: PACK_DOWNLOAD_MAX_CONCURRENT_JOBS,
+        packParallelism: PACK_DOWNLOAD_PARALLELISM,
+        sevenZipThreads: resolveSevenZipThreadCount(),
+        uvThreadpoolSize: process.env.UV_THREADPOOL_SIZE || '4',
+    });
     const lanHost = process.env.NODE_ENV === 'development'
         ? process.env.CDN_DEV_PUBLIC_HOST?.trim()
         : undefined;

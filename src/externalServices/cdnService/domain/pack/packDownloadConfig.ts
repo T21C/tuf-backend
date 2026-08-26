@@ -22,7 +22,10 @@ export const PACK_DOWNLOAD_MAX_CONCURRENT_DISK_BYTES = envNumber(
     Math.ceil(20 * 1024 * 1024 * 1024 * PACK_DOWNLOAD_DISK_MULTIPLIER),
 );
 
-/** Max pack generation jobs running at once (independent of size budget). */
+/**
+ * Max pack generation jobs running at once (independent of size budget).
+ * Default 2: 4 OCPU host with CDN `cpus: 2.0` can run two packs; disk budget still gates.
+ */
 export const PACK_DOWNLOAD_MAX_CONCURRENT_JOBS = Math.max(
     1,
     Math.floor(envNumber('PACK_DOWNLOAD_MAX_CONCURRENT_JOBS', 2)),
@@ -34,10 +37,14 @@ export const PACK_DOWNLOAD_MIN_FREE_DISK_BYTES = envNumber(
     5 * 1024 * 1024 * 1024,
 );
 
-/** Max parallel level DB fetches / extractions within one pack job. */
+/**
+ * Max parallel level download+extract tasks within one pack job.
+ * Default 4: overlap R2 download with extract. Each slot may spawn a 7z process
+ * limited by `CDN_7Z_THREADS`; Compose `cdn.cpus` is the hard cap.
+ */
 export const PACK_DOWNLOAD_PARALLELISM = Math.max(
     1,
-    Math.floor(envNumber('PACK_DOWNLOAD_PARALLELISM', 6)),
+    Math.floor(envNumber('PACK_DOWNLOAD_PARALLELISM', 4)),
 );
 
 /** Remove orphaned `pack-downloads/temp/*` dirs older than this age. */

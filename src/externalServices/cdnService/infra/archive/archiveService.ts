@@ -10,6 +10,10 @@ import {
     levelPackDottedExtToSevenZipIncludeGlobs
 } from '@/externalServices/cdnService/constants/levelPackAudio.js';
 import { detectZipFilenameCodePage } from './zipFilenameEncoding.js';
+import {
+    SEVEN_ZIP_CHILD_NICE,
+    withSevenZipThreadLimit,
+} from './sevenZipCpuClamp.js';
 
 /**
  * Archive service: a single chokepoint for read/list/extract/create operations
@@ -318,18 +322,34 @@ function formatSevenZFailureSummary(result: RunSevenZResult, maxLen = 6000): str
  * Callers decide whether a non-zero exit code is fatal — list/extract treat
  * code 1 (warning) as soft success when output is present (matches the existing
  * pack-download behaviour).
+ *
+ * Every invocation gets `-mmt=N` (see {@link withSevenZipThreadLimit}) and a
+ * lower CFS niceness so 7z cannot starve the CDN Node process inside the same
+ * cgroup (Compose `cpus` on the CDN service).
  */
 async function runSevenZ(args: string[], opts: RunSevenZOptions = {}): Promise<RunSevenZResult> {
     const { cwd, signal, maxStdoutBytes = 16 * 1024 * 1024, onStderrChunk, onStdoutChunk, env: envOverride } = opts;
 
     return new Promise<RunSevenZResult>((resolve, reject) => {
         const env = envOverride ?? { ...process.env };
+        const spawnArgs = withSevenZipThreadLimit(args, env);
 
-        const child = spawn(SEVEN_ZIP_BIN, args, {
+        const child = spawn(SEVEN_ZIP_BIN, spawnArgs, {
             cwd,
             env,
             windowsHide: true,
             stdio: ['ignore', 'pipe', 'pipe']
+        });
+
+        child.on('spawn', () => {
+            if (child.pid == null) {
+                return;
+            }
+            try {
+                os.setPriority(child.pid, SEVEN_ZIP_CHILD_NICE);
+            } catch {
+                // cap_drop / Windows priority classes may deny this; cgroup quota still applies.
+            }
         });
 
         const stdoutChunks: Buffer[] = [];
@@ -912,7 +932,7 @@ export async function extractAdofaiFilesForDetection(
         '-bb0'
     ];
 
-    const spawnDump = formatSevenZipSpawnDump(SEVEN_ZIP_BIN, args);
+    const spawnDump = formatSevenZipSpawnDump(SEVEN_ZIP_BIN, withSevenZipThreadLimit(args));
     logger.debug('archiveService.extractAdofaiFilesForDetection: 7z invocation (spawn argv + shell-style)', {
         archivePath,
         destDir,
