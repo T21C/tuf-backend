@@ -7,6 +7,7 @@ import eventsRoutes from './events.js';
 import uploadRoutes from './upload.js';
 import externalRouter from './external.js';
 import jobsRoutes from './jobs.js';
+import usefulLinksRoutes from './usefulLinks.js';
 
 const router: Router = Router();
 
@@ -33,5 +34,8 @@ router.use('/upload', uploadRoutes);
 
 // Job progress (read)
 router.use('/jobs', jobsRoutes);
+
+// Public useful / Notion links
+router.use('/useful-links', usefulLinksRoutes);
 
 export default router;

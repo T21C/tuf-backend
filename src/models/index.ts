@@ -80,6 +80,8 @@ import NotificationCategoryPreference from './notifications/NotificationCategory
 import UserFollow from './notifications/UserFollow.js';
 import NotificationUserSettings from './notifications/NotificationUserSettings.js';
 import PushSubscription from './notifications/PushSubscription.js';
+import UsefulLink from './misc/UsefulLink.js';
+import UsefulLinkGroup from './misc/UsefulLinkGroup.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -166,6 +168,8 @@ export const db = {
     UserFollow,
     NotificationUserSettings,
     PushSubscription,
+    UsefulLink,
+    UsefulLinkGroup,
   },
 };
 
