@@ -49,6 +49,7 @@ import SongService from '@/server/services/data/SongService.js';
 import EvidenceService from '@/server/services/data/EvidenceService.js';
 import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
 import { notifyPassSubmissionOutcome } from '@/server/services/notifications/passSubmissionNotify.js';
+import { notifyChartCleared } from '@/server/services/notifications/chartClearNotify.js';
 import { notifyChartSubmission } from '@/server/services/notifications/levelSubmissionNotify.js';
 import { resolveLevelCreatedAtFromVideoLink } from '@/misc/utils/data/levelCreatedAtFromVideoLink.js';
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
@@ -676,6 +677,14 @@ async function approvePassSubmission(
     outcome: 'approved',
     passId: pass.id,
     actorId: actorId ?? null,
+    transaction,
+  });
+
+  await notifyChartCleared({
+    level: level,
+    passId: pass.id,
+    playerId: submission.assignedPlayerId,
+    playerName: player.name ?? null,
     transaction,
   });
 

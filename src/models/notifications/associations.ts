@@ -5,6 +5,7 @@ import NotificationCategoryPreference from './NotificationCategoryPreference.js'
 import UserFollow from './UserFollow.js';
 import NotificationUserSettings from './NotificationUserSettings.js';
 import PushSubscription from './PushSubscription.js';
+import ChartClearNotificationMute from './ChartClearNotificationMute.js';
 
 export function initializeNotificationAssociations(): void {
   User.hasMany(Notification, {
@@ -61,6 +62,15 @@ export function initializeNotificationAssociations(): void {
     as: 'pushSubscriptions',
   });
   PushSubscription.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  User.hasMany(ChartClearNotificationMute, {
+    foreignKey: 'userId',
+    as: 'chartClearNotificationMutes',
+  });
+  ChartClearNotificationMute.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
   });

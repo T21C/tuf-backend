@@ -17,6 +17,7 @@ export const NOTIFICATION_TYPES = {
   ChartCurated: 'chart.curated',
   ChartCurationRemoved: 'chart.curation.removed',
   ChartWeeklySelected: 'chart.weekly.selected',
+  ChartCleared: 'chart.cleared',
   FollowingPlayerPass: 'following.player.pass',
   FollowingCreatorLevel: 'following.creator.level',
 } as const;
@@ -111,6 +112,7 @@ export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.ChartCurated]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartCurationRemoved]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartWeeklySelected]: ChartWeeklyPayload;
+  [NOTIFICATION_TYPES.ChartCleared]: FollowingPlayerPassPayload;
   [NOTIFICATION_TYPES.FollowingPlayerPass]: FollowingPlayerPassPayload;
   [NOTIFICATION_TYPES.FollowingCreatorLevel]: FollowingCreatorLevelPayload;
 };
@@ -155,12 +157,13 @@ function def<K extends NotificationType>(
   category: NotificationCategory,
   payload: z.ZodType<NotificationPayloadByType[K]>,
   href: (payload: NotificationPayloadByType[K]) => string | null,
+  extras?: {defaults?: Partial<NotificationChannelDefaults>},
 ): NotificationTypeDefinition<K> {
   return {
     id,
     category,
     payload,
-    defaults: DEFAULT_CHANNELS,
+    defaults: extras?.defaults ? {...DEFAULT_CHANNELS, ...extras.defaults} : DEFAULT_CHANNELS,
     lockedChannels: {},
     i18nKey: `notifications.types.${id}`,
     href,
@@ -265,6 +268,13 @@ const notificationTypeRegistry: {
     'chart',
     chartWeeklyPayloadSchema,
     levelHref,
+  ),
+  [NOTIFICATION_TYPES.ChartCleared]: def(
+    NOTIFICATION_TYPES.ChartCleared,
+    'chart',
+    followingPlayerPassPayloadSchema,
+    (payload) => `/passes/${payload.passId}`,
+    {defaults: {inApp: false}},
   ),
   [NOTIFICATION_TYPES.FollowingPlayerPass]: def(
     NOTIFICATION_TYPES.FollowingPlayerPass,
