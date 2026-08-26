@@ -15,6 +15,14 @@ export type UsefulLinkJson = {
   updatedAt: Date;
 };
 
+export type UsefulLinkGroupJson = {
+  id: number;
+  name: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 type LinkWithGroup = UsefulLink & {linkGroup?: UsefulLinkGroup | null};
 
 export function serializeUsefulLink(row: UsefulLink): UsefulLinkJson {
@@ -31,6 +39,16 @@ export function serializeUsefulLink(row: UsefulLink): UsefulLinkJson {
     isPublished: Boolean(row.isPublished),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  };
+}
+
+export function serializeUsefulLinkGroup(group: UsefulLinkGroup): UsefulLinkGroupJson {
+  return {
+    id: group.id,
+    name: group.name,
+    sortOrder: group.sortOrder,
+    createdAt: group.createdAt,
+    updatedAt: group.updatedAt,
   };
 }
 
