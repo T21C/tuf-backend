@@ -31,6 +31,7 @@ const SENSITIVE_AUDIT_KEYS = new Set([
   'clientsecret',
   'authorization',
   'x-super-admin-password',
+  'x-super-admin-proof',
 ]);
 
 /**

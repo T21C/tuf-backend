@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import {Request, Response, NextFunction} from 'express';
 import {User, OAuthProvider, UserTufStellarBilling} from '@/models/index.js';
 import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC, refreshTokenService} from '@/misc/utils/auth/auth.js';
@@ -16,6 +15,7 @@ import {
   RateLimitStorageError,
   sendRateLimited,
 } from '@/server/decorators/rateLimiter.js';
+import {verifySuperAdminProof} from '@/misc/utils/auth/superAdminProof.js';
 
 /**
  * Columns loaded onto `req.user`.
@@ -307,13 +307,6 @@ const superAdminPasswordRateLimit = createFailureAwareRateLimit({
   failClosed: true,
 });
 
-/** Constant-time secret compare via equal-length SHA-256 digests. */
-function safeEqualSecret(provided: string, expected: string): boolean {
-  const a = crypto.createHash('sha256').update(provided, 'utf8').digest();
-  const b = crypto.createHash('sha256').update(expected, 'utf8').digest();
-  return crypto.timingSafeEqual(a, b);
-}
-
 /**
  * Auth middleware factory
  */
@@ -411,17 +404,25 @@ export const Auth = {
         }
 
         const {origin} = req.query;
-        const {superAdminPassword: superAdminPasswordBody} = req.body;
-        const superAdminPasswordHeader = req.headers['x-super-admin-password'];
-        const provided =
-          typeof superAdminPasswordBody === 'string'
-            ? superAdminPasswordBody
-            : typeof superAdminPasswordHeader === 'string'
-              ? superAdminPasswordHeader
-              : '';
+        const proofHeader = req.headers['x-super-admin-proof'];
+        const provided = typeof proofHeader === 'string' ? proofHeader : '';
         const expected = process.env.SUPER_ADMIN_KEY;
+        const requestPath = String(req.originalUrl || req.url || '').split('?')[0];
+        const proofOk = Boolean(
+          expected &&
+            provided &&
+            req.user?.id &&
+            verifySuperAdminProof({
+              proof: provided,
+              secret: expected,
+              userId: req.user.id,
+              username: req.user.username || '',
+              method: req.method,
+              path: requestPath,
+            }),
+        );
 
-        if (!expected || !provided || !safeEqualSecret(provided, expected)) {
+        if (!proofOk) {
           try {
             const {blocked, retryAfter} =
               await superAdminPasswordRateLimit.recordFailure(req);

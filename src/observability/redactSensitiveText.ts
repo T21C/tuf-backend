@@ -47,7 +47,7 @@ function collectEnvSecrets(): string[] {
  * Includes HTTP span/header attribute names that embed the secret in the key.
  */
 export const SENSITIVE_KEY_RE =
-  /password|token|secret|authorization|cookie|set-cookie|cdn-ingest|ingest-key|webhook|hookurl|hook_url|api[_-]?key|private[_-]?key|request[._-]?body|response[._-]?body/i;
+  /password|token|secret|authorization|cookie|set-cookie|cdn-ingest|ingest-key|webhook|hookurl|hook_url|api[_-]?key|private[_-]?key|request[._-]?body|response[._-]?body|super-admin-proof/i;
 
 const MAX_REDACT_DEPTH = 8;
 

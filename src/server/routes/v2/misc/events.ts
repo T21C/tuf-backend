@@ -57,7 +57,7 @@ router.get(
     'Cache-Control',
     'Last-Event-ID',
     'X-Form-Type',
-    'X-Super-Admin-Password',
+    'X-Super-Admin-Proof',
     'baggage',
     'sentry-trace',
   ].join(', '));
@@ -67,7 +67,6 @@ router.get(
     'Cache-Control',
     'Last-Event-ID',
     'X-Form-Type',
-    'X-Super-Admin-Password'
   ].join(', '));
 
   // Handle preflight requests
