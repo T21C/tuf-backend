@@ -31,9 +31,9 @@ import type { ZipCentralDirectoryEntry } from './zipCentralDirectory.js';
  *      `adm-zip`, no second ZIP reader, and no need to load multi-gigabyte archives
  *      into memory. Mojibake parent-folder names on disk are fine: the *contents* of
  *      `.adofai` are always UTF-8 regardless of how the archive named the entry.
- *   3. Stream-scan each extracted `.adofai` with {@link scanOversizedLevelFile} (bounded
- *      memory, tolerant of malformed JSON via its regex fallback). Pull
- *      `songFilename` / `song` / `artist` / `author` from `settings`.
+ *   3. Stream-scan each extracted `.adofai` with {@link scanOversizedLevelFile} (JSON5,
+ *      stops after `angleData`/`settings`). Pull `songFilename` / `song` / `artist` /
+ *      `author` from `settings`.
  *   4. For each candidate codec (Korean → Simplified Chinese → Big5 → Japanese → Latin),
  *      decode every audio entry's basename and score it against the reference strings.
  *      Comparisons apply {@link normalizeLegacyFilenameComparison} (NFC + trim only; chart and
@@ -314,8 +314,7 @@ function basenameOfRawBytes(buf: Buffer): Buffer {
  * Extract reference strings (`songFilename` / `song` / `artist` / `author`) from any
  * `.adofai` inside the archive, using the **shared CDN 7-Zip path** + the existing
  * **streaming oversized-level scanner**. No `adm-zip`, no second ZIP reader, and never
- * loads more than {@link scanOversizedLevelFile}'s rolling window into memory regardless
- * of archive or `.adofai` file size.
+ * loads the whole `.adofai` into memory — the scanner stops after `angleData` + `settings`.
  *
  * Failure semantics: returns `null` rather than throwing — the caller has a byte-pattern
  * fallback and we don't want best-effort detection to crash the upload pipeline.

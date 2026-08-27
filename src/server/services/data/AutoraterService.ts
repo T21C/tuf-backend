@@ -158,8 +158,8 @@ class AutoraterService {
       if (error instanceof AutoraterError) {
         throw error;
       }
-      if (axios.isAxiosError(error) && error.response) {
-        throw new AutoraterError('Failed to autorate level', 500, error.response.data);
+      if (axios.isAxiosError(error)) {
+        throw new AutoraterError('Failed to autorate level', 500, error.response?.data);
       }
       logger.error('Error autorating level:', error);
       throw new AutoraterError('Failed to autorate level', 500);
