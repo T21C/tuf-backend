@@ -47,6 +47,18 @@ export function shouldKeepCommunityAssignment(opts: {
   return opts.score >= opts.knobs.scoreOn;
 }
 
+/** Whether rematerialize may delete an existing unpinned community assignment. */
+export function shouldDestroyCommunityAssignment(opts: {
+  preserveAssignments: boolean;
+  chartCleared: boolean;
+  bandOk: boolean;
+  keep: boolean;
+}): boolean {
+  if (opts.preserveAssignments) return false;
+  if (!opts.chartCleared || !opts.bandOk) return true;
+  return !opts.keep;
+}
+
 export type CardSelectableTag = {
   id: number;
   isCommunity?: boolean | null;

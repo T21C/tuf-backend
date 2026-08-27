@@ -30,11 +30,13 @@ export type CommunityTagSettingsSource = {
   scoreOff?: number | null;
   scoringMode?: string | null;
   allowedBands?: unknown;
+  requireTopPlay?: unknown;
 };
 
 export type CommunityTagResolvedSettings = CommunityTagScoreKnobs & {
   scoringMode: CommunityTagScoringMode;
   allowedBands: CommunityTagBand[] | null;
+  requireTopPlay: boolean;
 };
 
 export function pguBandFromDifficultyName(name: string | null | undefined): Extract<CommunityTagBand, 'P' | 'G' | 'U'> | null {
@@ -96,6 +98,17 @@ export function parseScoringMode(value: unknown): CommunityTagScoringMode | null
   throw new Error('Invalid scoringMode');
 }
 
+export function parseOptionalBoolean(value: unknown): boolean | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (typeof value === 'boolean') return value;
+  if (value === 1 || value === 0) return value === 1;
+  const s = String(value).trim().toLowerCase();
+  if (s === 'true' || s === '1' || s === 'yes' || s === 'on') return true;
+  if (s === 'false' || s === '0' || s === 'no' || s === 'off') return false;
+  throw new Error('Invalid boolean');
+}
+
 export function parseOptionalPositiveNumber(value: unknown): number | null | undefined {
   if (value === undefined) return undefined;
   if (value === null || value === '') return null;
@@ -130,6 +143,13 @@ function firstFinite(values: Array<number | null | undefined>, fallback: number)
   return fallback;
 }
 
+function firstBoolean(values: Array<boolean | null | undefined>, fallback: boolean): boolean {
+  for (const value of values) {
+    if (typeof value === 'boolean') return value;
+  }
+  return fallback;
+}
+
 export function resolveCommunityTagSettings(
   tag: CommunityTagSettingsSource,
   group: CommunityTagSettingsSource | null | undefined,
@@ -153,12 +173,22 @@ export function resolveCommunityTagSettings(
     allowedBands = null;
   }
 
+  let requireTopPlay = true;
+  try {
+    const tagRequire = parseOptionalBoolean(tag.requireTopPlay);
+    const groupRequire = parseOptionalBoolean(group?.requireTopPlay);
+    requireTopPlay = firstBoolean([tagRequire, groupRequire], true);
+  } catch {
+    requireTopPlay = true;
+  }
+
   return {
     wilsonZ: firstFinite([tag.wilsonZ, group?.wilsonZ], env.wilsonZ),
     scoreOn: firstFinite([tag.scoreOn, group?.scoreOn], env.scoreOn),
     scoreOff: firstFinite([tag.scoreOff, group?.scoreOff], env.scoreOff),
     scoringMode,
     allowedBands,
+    requireTopPlay,
   };
 }
 
@@ -218,6 +248,7 @@ export type CommunityTagKnobFields = {
   scoreOff?: number | null;
   scoringMode?: CommunityTagScoringMode | null;
   allowedBands?: CommunityTagBand[] | null;
+  requireTopPlay?: boolean | null;
 };
 
 function wrapParse<T>(fn: () => T, message: string): T {
@@ -250,6 +281,9 @@ export function parseCommunityTagKnobFields(
   }
   if ('allowedBands' in body) {
     out.allowedBands = wrapParse(() => parseAllowedBands(body.allowedBands), 'Invalid allowedBands') ?? null;
+  }
+  if ('requireTopPlay' in body) {
+    out.requireTopPlay = wrapParse(() => parseOptionalBoolean(body.requireTopPlay), 'Invalid requireTopPlay') ?? null;
   }
   return out;
 }

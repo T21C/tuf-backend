@@ -298,7 +298,7 @@ router.put(
 
       await group.update({ name, ...knobs, updatedAt: new Date() }, { transaction });
 
-      const knobKeys = ['wilsonZ', 'scoreOn', 'scoreOff', 'scoringMode', 'allowedBands'] as const;
+      const knobKeys = ['wilsonZ', 'scoreOn', 'scoreOff', 'scoringMode', 'allowedBands', 'requireTopPlay'] as const;
       const knobsChanged = knobKeys.some((key) => key in knobs);
       if (knobsChanged) {
         const memberTags = await LevelTag.findAll({
@@ -309,6 +309,7 @@ router.put(
         await rematerializeCommunityTagsForTagIds(
           memberTags.map((tag) => tag.id),
           transaction,
+          { preserveAssignments: true },
         );
       }
 
@@ -583,7 +584,7 @@ router.put(
       const nextIsCommunity = parseFormBoolean(isCommunity);
       if (nextIsCommunity !== undefined) {
         updateData.isCommunity = nextIsCommunity;
-        if (tag.isCommunity && !nextIsCommunity) {
+        if (Boolean(tag.isCommunity) !== Boolean(nextIsCommunity)) {
           await pinCommunityAssignmentsForTag(tagId, transaction);
         }
       }
@@ -603,9 +604,11 @@ router.put(
 
       await tag.update(updateData, { transaction });
 
-      const knobKeys = ['wilsonZ', 'scoreOn', 'scoreOff', 'scoringMode', 'allowedBands'] as const;
+      const knobKeys = ['wilsonZ', 'scoreOn', 'scoreOff', 'scoringMode', 'allowedBands', 'requireTopPlay'] as const;
       if (nextIsCommunity !== undefined || knobKeys.some((key) => key in knobs)) {
-        await rematerializeCommunityTagsForTagIds([tagId], transaction);
+        await rematerializeCommunityTagsForTagIds([tagId], transaction, {
+          preserveAssignments: true,
+        });
       }
 
       await transaction.commit();

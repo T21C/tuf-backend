@@ -174,7 +174,7 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
         chartCleared,
         levelDeleted: Boolean(level?.isDeleted),
         bandOk: true,
-        topPlayOk,
+        topPlayOk: settings.requireTopPlay ? topPlayOk : true,
         scoringMode: settings.scoringMode,
         isClearer,
       });
@@ -320,13 +320,15 @@ router.put(
         });
       }
 
-      const pguDifficulties = await loadPguDifficulties();
-      if (!canVoteByTopPlay(level.difficulty, topDiffFromUser(req.user), pguDifficulties)) {
-        await safeTransactionRollback(transaction);
-        return res.status(403).json({
-          error: 'Your top play is not high enough to vote on this chart',
-          reason: 'topPlay',
-        });
+      if (settings.requireTopPlay) {
+        const pguDifficulties = await loadPguDifficulties();
+        if (!canVoteByTopPlay(level.difficulty, topDiffFromUser(req.user), pguDifficulties)) {
+          await safeTransactionRollback(transaction);
+          return res.status(403).json({
+            error: 'Your top play is not high enough to vote on this chart',
+            reason: 'topPlay',
+          });
+        }
       }
 
       const isClearer = await userHasClearerPass(req.user.playerId, levelId, transaction);

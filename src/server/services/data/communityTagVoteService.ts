@@ -11,6 +11,7 @@ import Player from '@/models/players/Player.js';
 import User from '@/models/auth/User.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {
+  shouldDestroyCommunityAssignment,
   shouldKeepCommunityAssignment,
   voteWeightForClearer,
   wilsonLowerBound,
@@ -106,11 +107,17 @@ async function loadLevelDifficulty(
   };
 }
 
+export type RematerializeCommunityTagOptions = {
+  preserveAssignments?: boolean;
+};
+
 export async function rematerializeCommunityTagsForLevel(
   levelId: number,
   tagIds?: number[],
   transaction?: Transaction,
+  options?: RematerializeCommunityTagOptions,
 ): Promise<void> {
+  const preserveAssignments = Boolean(options?.preserveAssignments);
   const envKnobs = getCommunityTagConfig();
   const where: Record<string, unknown> = { isCommunity: true };
   if (tagIds && tagIds.length > 0) {
@@ -180,37 +187,43 @@ export async function rematerializeCommunityTagsForLevel(
       continue;
     }
 
-    if (!chartCleared || !bandOk) {
-      if (assignment) {
-        await assignment.destroy({ transaction });
-      }
-      continue;
-    }
-
-    const keep = shouldKeepCommunityAssignment({
-      assigned,
-      pinned: false,
-      score,
-      knobs: settings,
+    const destroy = shouldDestroyCommunityAssignment({
+      preserveAssignments,
+      chartCleared,
+      bandOk,
+      keep: shouldKeepCommunityAssignment({
+        assigned,
+        pinned: false,
+        score,
+        knobs: settings,
+      }),
     });
 
-    if (keep) {
+    if (!destroy) {
       if (assignment) {
         if (assignment.score !== score) {
           await assignment.update({ score }, { transaction });
         }
-      } else {
-        await LevelTagAssignment.create(
-          {
-            levelId,
-            tagId: tag.id,
-            pinned: false,
-            score,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-          { transaction },
-        );
+      } else if (chartCleared && bandOk) {
+        const keepNew = shouldKeepCommunityAssignment({
+          assigned: false,
+          pinned: false,
+          score,
+          knobs: settings,
+        });
+        if (keepNew) {
+          await LevelTagAssignment.create(
+            {
+              levelId,
+              tagId: tag.id,
+              pinned: false,
+              score,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+            { transaction },
+          );
+        }
       }
     } else if (assignment) {
       await assignment.destroy({ transaction });
@@ -221,6 +234,7 @@ export async function rematerializeCommunityTagsForLevel(
 export async function rematerializeCommunityTagsForTagIds(
   tagIds: number[],
   transaction?: Transaction,
+  options?: RematerializeCommunityTagOptions,
 ): Promise<void> {
   const ids = [...new Set(tagIds.filter((id) => Number.isFinite(id)))];
   if (ids.length === 0) return;
@@ -244,7 +258,7 @@ export async function rematerializeCommunityTagsForTagIds(
   ])];
 
   for (const levelId of levelIds) {
-    await rematerializeCommunityTagsForLevel(levelId, ids, transaction);
+    await rematerializeCommunityTagsForLevel(levelId, ids, transaction, options);
   }
 }
 
