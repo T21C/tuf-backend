@@ -298,7 +298,7 @@ router.put(
 
       await group.update({ name, ...knobs, updatedAt: new Date() }, { transaction });
 
-      const knobKeys = ['wilsonZ', 'scoreOn', 'scoreOff', 'scoringMode', 'allowedBands'] as const;
+      const knobKeys = ['wilsonZ', 'scoreOn', 'scoreOff', 'scoringMode', 'allowedBands', 'requireTopPlay'] as const;
       const knobsChanged = knobKeys.some((key) => key in knobs);
       if (knobsChanged) {
         const memberTags = await LevelTag.findAll({
@@ -604,7 +604,7 @@ router.put(
 
       await tag.update(updateData, { transaction });
 
-      const knobKeys = ['wilsonZ', 'scoreOn', 'scoreOff', 'scoringMode', 'allowedBands'] as const;
+      const knobKeys = ['wilsonZ', 'scoreOn', 'scoreOff', 'scoringMode', 'allowedBands', 'requireTopPlay'] as const;
       if (nextIsCommunity !== undefined || knobKeys.some((key) => key in knobs)) {
         await rematerializeCommunityTagsForTagIds([tagId], transaction, {
           preserveAssignments: true,

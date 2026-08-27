@@ -18,6 +18,7 @@ export const TAG_GROUP_INCLUDE: Includeable = {
     'scoreOff',
     'scoringMode',
     'allowedBands',
+    'requireTopPlay',
   ],
 };
 

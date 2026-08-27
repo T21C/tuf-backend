@@ -228,6 +228,27 @@ test('resolveCommunityTagSettings inherits tag then group then env', () => {
   assert.equal(resolved.scoreOn, 0.3);
   assert.equal(resolved.scoreOff, 0.35);
   assert.deepEqual(resolved.allowedBands, ['P']);
+  assert.equal(resolved.requireTopPlay, true);
+});
+
+test('requireTopPlay inherits tag then group then true', () => {
+  const env = {
+    wilsonZ: 4,
+    scoreOn: 0.45,
+    scoreOff: 0.35,
+    cardCap: 7,
+    clearerWeight: 10,
+    defaultWeight: 1,
+  };
+  assert.equal(resolveCommunityTagSettings({}, {}, env).requireTopPlay, true);
+  assert.equal(
+    resolveCommunityTagSettings({ requireTopPlay: false }, { requireTopPlay: true }, env).requireTopPlay,
+    false,
+  );
+  assert.equal(
+    resolveCommunityTagSettings({}, { requireTopPlay: false }, env).requireTopPlay,
+    false,
+  );
 });
 
 test('parseAllowedBands and scoringMode accept form values', () => {
@@ -249,6 +270,7 @@ test('parseCommunityTagKnobFields treats blanks as inherit', () => {
       scoreOn: '0.3',
       scoringMode: 'skillset',
       allowedBands: '[]',
+      requireTopPlay: '',
     },
     { includeDescription: true },
   );
@@ -257,6 +279,7 @@ test('parseCommunityTagKnobFields treats blanks as inherit', () => {
   assert.equal(parsed.scoreOn, 0.3);
   assert.equal(parsed.scoringMode, 'skillset');
   assert.equal(parsed.allowedBands, null);
+  assert.equal(parsed.requireTopPlay, null);
 });
 
 test('parseCommunityTagKnobFields rejects invalid knobs', () => {
