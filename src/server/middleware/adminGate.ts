@@ -36,7 +36,7 @@ const PUBLIC_ADMIN_READS: readonly RegExp[] = [
   // Deep-link / share open of a pending rating by level id.
   /^\/rating\/by-level\/\d+$/,
   // Zen Mode deal (client/src/pages/admin/RatingZenPage): GET with query filters;
-  // still needs a logged-in user for hideRated (Auth on the route).
+  // still needs a logged-in user for myRated hide/only (Auth on the route).
   /^\/rating\/zen\/deal$/,
   /^\/statistics\/ratings-per-user$/,
 ];

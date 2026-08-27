@@ -1,7 +1,9 @@
 export const ZEN_DECK_UNIT = 5;
 export const ZEN_DEFAULT_DECK_SIZE = 15;
-export const ZEN_MAX_DECK_SIZE = 30;
-export const ZEN_ALLOWED_DECK_SIZES = [5, 10, 15, 20, 25, 30] as const;
+export const ZEN_MAX_DECK_SIZE = 200;
+export const ZEN_ALLOWED_DECK_SIZES = [
+  5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 125, 150, 175, 200,
+] as const;
 
 /** Soft left-bias default; 0 = strict sort order, 100 = uniform across pool. */
 export const ZEN_DEFAULT_RANDOMNESS = 40;
@@ -11,6 +13,49 @@ export const ZEN_MAX_RANDOMNESS = 100;
 export const ZEN_CANDIDATE_POOL_CAP = 500;
 
 export type ZenDeckSize = (typeof ZEN_ALLOWED_DECK_SIZES)[number];
+export type ZenRequestBand = 'P' | 'G' | 'U';
+
+function parseOptionalBool(value: unknown): boolean | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value === true || value === 'true' || value === '1') return true;
+  if (value === false || value === 'false' || value === '0') return false;
+  return undefined;
+}
+
+/**
+ * Include P/G/U request bands. Defaults all on.
+ * Legacy onlyLowDiff / excludeUniversals map onto the same include set.
+ */
+export function parseZenIncludeBands(body: Record<string, unknown>): {
+  includeP: boolean;
+  includeG: boolean;
+  includeU: boolean;
+} {
+  const includeP = parseOptionalBool(body.includeP);
+  const includeG = parseOptionalBool(body.includeG);
+  const includeU = parseOptionalBool(body.includeU);
+  if (
+    includeP !== undefined ||
+    includeG !== undefined ||
+    includeU !== undefined
+  ) {
+    return {
+      includeP: includeP !== false,
+      includeG: includeG !== false,
+      includeU: includeU !== false,
+    };
+  }
+
+  const onlyLowDiff = parseOptionalBool(body.onlyLowDiff) === true;
+  const excludeUniversals = parseOptionalBool(body.excludeUniversals) === true;
+  if (onlyLowDiff) {
+    return { includeP: true, includeG: false, includeU: false };
+  }
+  if (excludeUniversals) {
+    return { includeP: true, includeG: true, includeU: false };
+  }
+  return { includeP: true, includeG: true, includeU: true };
+}
 
 export function isZenDeckSize(value: unknown): value is ZenDeckSize {
   const n = Number(value);

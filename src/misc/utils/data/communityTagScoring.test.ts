@@ -144,7 +144,18 @@ test('card cap keeps pinned community tags and top unpinned by score', () => {
     { id: 5, isCommunity: true, pinned: false, score: 0.7, sortOrder: 5 },
   ];
   const visible = selectLevelCardDisplayTags(tags, 2);
-  assert.deepEqual(visible.map((t) => t.id), [1, 3, 4, 2]);
+  assert.deepEqual(visible.map((t) => t.id), [1, 2, 3, 4]);
+});
+
+test('card display order follows group then tag sortOrder, not score or input order', () => {
+  const tags = [
+    { id: 10, isCommunity: false, group: 'B', groupSortOrder: 1, sortOrder: 0, name: 'Staff B' },
+    { id: 11, isCommunity: true, pinned: false, score: 0.99, group: 'A', groupSortOrder: 0, sortOrder: 5, name: 'High score late in A' },
+    { id: 12, isCommunity: true, pinned: true, score: 0.1, group: 'A', groupSortOrder: 0, sortOrder: 0, name: 'Pinned early in A' },
+    { id: 13, isCommunity: false, group: 'A', groupSortOrder: 0, sortOrder: 1, name: 'Staff A' },
+  ];
+  const visible = selectLevelCardDisplayTags(tags, 7);
+  assert.deepEqual(visible.map((t) => t.id), [12, 13, 11, 10]);
 });
 
 test('card cap 0 keeps pinned community and drops unpinned community', () => {

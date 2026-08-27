@@ -192,13 +192,50 @@ export function isUniversalFeelingRating(raw: string | null | undefined): boolea
   return false;
 }
 
+export const REQUEST_PGU_BANDS = ['P', 'G', 'U'] as const;
+export type RequestPguBand = (typeof REQUEST_PGU_BANDS)[number];
+
 /** Proposed request string preferred the same way as rating UI: rerateNum, else requesterFR. */
+export function ratingProposalString(
+  rerateNum: string | null | undefined,
+  requesterFR: string | null | undefined,
+): string {
+  const primary =
+    rerateNum != null && String(rerateNum).trim() !== '' ? rerateNum : requesterFR;
+  return primary != null ? String(primary).trim() : '';
+}
+
 export function isUniversalRatingProposal(
   rerateNum: string | null | undefined,
   requesterFR: string | null | undefined,
 ): boolean {
-  const primary = rerateNum != null && String(rerateNum).trim() !== '' ? rerateNum : requesterFR;
-  return isUniversalFeelingRating(primary);
+  return isUniversalFeelingRating(ratingProposalString(rerateNum, requesterFR));
+}
+
+/**
+ * Bucket a rating request the same way zen/list filters do:
+ * U = universal proposal, P = lowDiff / planetary request, G = the rest.
+ */
+export function requestPguBand(
+  rerateNum: string | null | undefined,
+  requesterFR: string | null | undefined,
+  lowDiff?: boolean,
+): RequestPguBand {
+  if (isUniversalRatingProposal(rerateNum, requesterFR)) return 'U';
+  const primary = ratingProposalString(rerateNum, requesterFR);
+  if (lowDiff || /^[pP]\d/.test(primary)) return 'P';
+  return 'G';
+}
+
+/** SQL/list `lowDiff` approximation for an include-set of request bands. */
+export function lowDiffFilterForRequestBands(
+  includeP: boolean,
+  includeG: boolean,
+  includeU: boolean,
+): 'show' | 'hide' | 'only' {
+  if (includeP && !includeG && !includeU) return 'only';
+  if (!includeP) return 'hide';
+  return 'show';
 }
 
 /** PGU difficulties closest to `targetSortOrder`; on equal distance prefer higher sortOrder (e.g. 40.5 → U1 not G20). */

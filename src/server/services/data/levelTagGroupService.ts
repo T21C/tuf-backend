@@ -42,6 +42,7 @@ export function serializeLevelTag(tag: LevelTag): Record<string, unknown> {
 
   return {
     ...rest,
+    sortOrder: tag.sortOrder,
     groupId: (rest.groupId as number | null | undefined) ?? null,
     group: nested?.name ?? null,
     groupSortOrder: nested?.sortOrder ?? null,
