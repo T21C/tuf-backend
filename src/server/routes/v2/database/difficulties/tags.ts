@@ -30,7 +30,9 @@ import {
 import {
   applyStaffTagSelection,
   pinCommunityAssignmentsForTag,
+  rematerializeCommunityTagsForTagIds,
 } from '@/server/services/data/communityTagVoteService.js';
+import { parseCommunityTagKnobFields } from '@/misc/utils/data/communityTagEligibility.js';
 
 /**
  * Level tag CRUD + first-class tag groups + level➔tag assignments.
@@ -282,7 +284,34 @@ router.put(
         }
       }
 
-      await group.update({ name, updatedAt: new Date() }, { transaction });
+      let knobs: ReturnType<typeof parseCommunityTagKnobFields> = {};
+      try {
+        knobs = parseCommunityTagKnobFields(req.body as Record<string, unknown>, {
+          includeDescription: false,
+        });
+      } catch (parseError) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({
+          error: parseError instanceof Error ? parseError.message : 'Invalid scoring settings',
+        });
+      }
+
+      await group.update({ name, ...knobs, updatedAt: new Date() }, { transaction });
+
+      const knobKeys = ['wilsonZ', 'scoreOn', 'scoreOff', 'scoringMode', 'allowedBands'] as const;
+      const knobsChanged = knobKeys.some((key) => key in knobs);
+      if (knobsChanged) {
+        const memberTags = await LevelTag.findAll({
+          where: { groupId: group.id },
+          attributes: ['id'],
+          transaction,
+        });
+        await rematerializeCommunityTagsForTagIds(
+          memberTags.map((tag) => tag.id),
+          transaction,
+        );
+      }
+
       await transaction.commit();
       await updateDifficultiesHash();
       return res.json(group);
@@ -418,6 +447,18 @@ router.post(
         finalIconUrl = icon;
       }
 
+      let knobs: ReturnType<typeof parseCommunityTagKnobFields> = {};
+      try {
+        knobs = parseCommunityTagKnobFields(req.body as Record<string, unknown>, {
+          includeDescription: true,
+        });
+      } catch (parseError) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({
+          error: parseError instanceof Error ? parseError.message : 'Invalid scoring settings',
+        });
+      }
+
       const lastSortOrder = await LevelTag.max('sortOrder') as number || 0;
 
       const tag = await LevelTag.create({
@@ -427,6 +468,12 @@ router.post(
         groupId: resolvedGroupId,
         sortOrder: lastSortOrder + 1,
         isCommunity: parseFormBoolean(isCommunity) ?? false,
+        description: knobs.description ?? null,
+        wilsonZ: knobs.wilsonZ ?? null,
+        scoreOn: knobs.scoreOn ?? null,
+        scoreOff: knobs.scoreOff ?? null,
+        scoringMode: knobs.scoringMode ?? null,
+        allowedBands: knobs.allowedBands ?? null,
         createdAt: new Date(),
         updatedAt: new Date(),
       }, { transaction });
@@ -541,7 +588,25 @@ router.put(
         }
       }
 
+      let knobs: ReturnType<typeof parseCommunityTagKnobFields> = {};
+      try {
+        knobs = parseCommunityTagKnobFields(req.body as Record<string, unknown>, {
+          includeDescription: true,
+        });
+      } catch (parseError) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({
+          error: parseError instanceof Error ? parseError.message : 'Invalid scoring settings',
+        });
+      }
+      Object.assign(updateData, knobs);
+
       await tag.update(updateData, { transaction });
+
+      const knobKeys = ['wilsonZ', 'scoreOn', 'scoreOff', 'scoringMode', 'allowedBands'] as const;
+      if (nextIsCommunity !== undefined || knobKeys.some((key) => key in knobs)) {
+        await rematerializeCommunityTagsForTagIds([tagId], transaction);
+      }
 
       await transaction.commit();
 

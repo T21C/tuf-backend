@@ -22,6 +22,8 @@ class LevelTagVote extends Model<
   declare levelId: ForeignKey<Level['id']>;
   declare tagId: ForeignKey<LevelTag['id']>;
   declare weight: number;
+  /** 1 upvote, -1 downvote */
+  declare direction: CreationOptional<number>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -67,6 +69,12 @@ LevelTagVote.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 1,
+    },
+    direction: {
+      type: DataTypes.TINYINT,
+      allowNull: false,
+      defaultValue: 1,
+      comment: '1 upvote, -1 downvote',
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,

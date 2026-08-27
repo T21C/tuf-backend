@@ -32,7 +32,7 @@ function applyJobStreamCors(req: Request, res: Response): void {
       'Cache-Control',
       'Last-Event-ID',
       'X-Form-Type',
-      'X-Super-Admin-Password',
+      'X-Super-Admin-Proof',
       'baggage',
       'sentry-trace',
     ].join(', ')

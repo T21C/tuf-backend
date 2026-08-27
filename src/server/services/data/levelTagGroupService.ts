@@ -2,12 +2,23 @@ import { Includeable, Order, Transaction } from 'sequelize';
 import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
+import { getCommunityTagConfig } from '@/config/app.config.js';
+import { resolveCommunityTagSettings } from '@/misc/utils/data/communityTagEligibility.js';
 
 export const TAG_GROUP_INCLUDE: Includeable = {
   model: LevelTagGroup,
   as: 'tagGroup',
   required: false,
-  attributes: ['id', 'name', 'sortOrder'],
+  attributes: [
+    'id',
+    'name',
+    'sortOrder',
+    'wilsonZ',
+    'scoreOn',
+    'scoreOff',
+    'scoringMode',
+    'allowedBands',
+  ],
 };
 
 export const TAG_LIST_ORDER: Order = [
@@ -23,15 +34,18 @@ export function serializeLevelTag(tag: LevelTag): Record<string, unknown> {
       : { ...(tag as unknown as Record<string, unknown>) }
   ) as Record<string, unknown> & { tagGroup?: { name?: string; sortOrder?: number } | null };
 
-  const nested =
-    (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? plain.tagGroup ?? null;
+  const groupModel = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
+  const nested = groupModel ?? plain.tagGroup ?? null;
   const { tagGroup: _nested, ...rest } = plain;
+  const settings = resolveCommunityTagSettings(tag, groupModel, getCommunityTagConfig());
 
   return {
     ...rest,
     groupId: (rest.groupId as number | null | undefined) ?? null,
     group: nested?.name ?? null,
     groupSortOrder: nested?.sortOrder ?? null,
+    description: (rest.description as string | null | undefined) ?? tag.description ?? null,
+    settings,
   };
 }
 

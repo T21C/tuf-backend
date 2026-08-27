@@ -1,15 +1,26 @@
-import { Op, Transaction } from 'sequelize';
+import { Op, QueryTypes, Transaction } from 'sequelize';
+import sequelize from '@/config/db.js';
 import { getCommunityTagConfig } from '@/config/app.config.js';
+import Level from '@/models/levels/Level.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
+import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
 import LevelTagVote from '@/models/levels/LevelTagVote.js';
 import Pass from '@/models/passes/Pass.js';
+import Player from '@/models/players/Player.js';
 import User from '@/models/auth/User.js';
+import Difficulty from '@/models/levels/Difficulty.js';
 import {
   shouldKeepCommunityAssignment,
   voteWeightForClearer,
-  wilsonScore,
+  wilsonLowerBound,
 } from '@/misc/utils/data/communityTagScoring.js';
+import {
+  resolveCommunityTagSettings,
+  tagAllowedForDifficulty,
+  type DifficultyLike,
+} from '@/misc/utils/data/communityTagEligibility.js';
+import { TAG_GROUP_INCLUDE } from '@/server/services/data/levelTagGroupService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 
 export async function userHasClearerPass(
@@ -23,11 +34,76 @@ export async function userHasClearerPass(
       playerId,
       levelId,
       isDeleted: false,
+      isHidden: false,
     },
+    include: [
+      {
+        model: Player,
+        as: 'player',
+        attributes: ['id'],
+        required: true,
+        where: { isBanned: false },
+      },
+    ],
     attributes: ['id'],
     transaction,
   });
   return !!pass;
+}
+
+export async function countUniqueClears(
+  levelId: number,
+  transaction?: Transaction,
+): Promise<number> {
+  const rows = await sequelize.query<{ uniqueCnt: number | string }>(
+    `SELECT COUNT(DISTINCT p.playerId) AS uniqueCnt
+     FROM passes AS p
+     INNER JOIN players AS pl ON p.playerId = pl.id AND pl.isBanned = 0
+     WHERE p.levelId = :levelId AND p.isDeleted = 0 AND p.isHidden = 0`,
+    { replacements: { levelId }, type: QueryTypes.SELECT, transaction },
+  );
+  return Number(rows[0]?.uniqueCnt ?? 0);
+}
+
+export async function uniqueClearerUserIds(
+  levelId: number,
+  transaction?: Transaction,
+): Promise<Set<string>> {
+  const rows = await sequelize.query<{ userId: string }>(
+    `SELECT u.id AS userId
+     FROM passes AS p
+     INNER JOIN players AS pl ON p.playerId = pl.id AND pl.isBanned = 0
+     INNER JOIN users AS u ON u.playerId = p.playerId
+     WHERE p.levelId = :levelId AND p.isDeleted = 0 AND p.isHidden = 0`,
+    { replacements: { levelId }, type: QueryTypes.SELECT, transaction },
+  );
+  return new Set(rows.map((row) => row.userId));
+}
+
+async function loadLevelDifficulty(
+  levelId: number,
+  transaction?: Transaction,
+): Promise<DifficultyLike | null> {
+  const level = await Level.findByPk(levelId, {
+    attributes: ['id', 'diffId'],
+    include: [
+      {
+        model: Difficulty,
+        as: 'difficulty',
+        attributes: ['id', 'name', 'type', 'sortOrder'],
+        required: false,
+      },
+    ],
+    transaction,
+  });
+  const difficulty = (level as Level & { difficulty?: Difficulty | null } | null)?.difficulty ?? null;
+  if (!difficulty) return null;
+  return {
+    id: difficulty.id,
+    name: difficulty.name,
+    type: difficulty.type,
+    sortOrder: difficulty.sortOrder,
+  };
 }
 
 export async function rematerializeCommunityTagsForLevel(
@@ -35,7 +111,7 @@ export async function rematerializeCommunityTagsForLevel(
   tagIds?: number[],
   transaction?: Transaction,
 ): Promise<void> {
-  const knobs = getCommunityTagConfig();
+  const envKnobs = getCommunityTagConfig();
   const where: Record<string, unknown> = { isCommunity: true };
   if (tagIds && tagIds.length > 0) {
     where.id = { [Op.in]: tagIds };
@@ -43,17 +119,20 @@ export async function rematerializeCommunityTagsForLevel(
 
   const communityTags = await LevelTag.findAll({
     where,
-    attributes: ['id'],
+    include: [TAG_GROUP_INCLUDE],
     transaction,
   });
   if (communityTags.length === 0) return;
 
   const ids = communityTags.map((t) => t.id);
+  const uniqueClears = await countUniqueClears(levelId, transaction);
+  const difficulty = await loadLevelDifficulty(levelId, transaction);
+  const clearerUserIds = await uniqueClearerUserIds(levelId, transaction);
 
   const [votes, assignments] = await Promise.all([
     LevelTagVote.findAll({
       where: { levelId, tagId: { [Op.in]: ids } },
-      attributes: ['tagId', 'weight'],
+      attributes: ['tagId', 'userId', 'weight', 'direction'],
       transaction,
     }),
     LevelTagAssignment.findAll({
@@ -62,30 +141,63 @@ export async function rematerializeCommunityTagsForLevel(
     }),
   ]);
 
-  const weightByTag = new Map<number, number>();
+  const votesByTag = new Map<number, LevelTagVote[]>();
   for (const vote of votes) {
-    weightByTag.set(vote.tagId, (weightByTag.get(vote.tagId) ?? 0) + vote.weight);
+    const list = votesByTag.get(vote.tagId) ?? [];
+    list.push(vote);
+    votesByTag.set(vote.tagId, list);
   }
   const assignmentByTag = new Map(assignments.map((a) => [a.tagId, a]));
 
   for (const tag of communityTags) {
+    const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
+    const settings = resolveCommunityTagSettings(tag, group, envKnobs);
     const assignment = assignmentByTag.get(tag.id) ?? null;
-    const weightSum = weightByTag.get(tag.id) ?? 0;
-    const score = wilsonScore(weightSum, knobs.wilsonZ);
     const pinned = Boolean(assignment?.pinned);
     const assigned = assignment != null;
+    const bandOk = tagAllowedForDifficulty(settings.allowedBands, difficulty);
+    const chartCleared = uniqueClears > 0;
+
+    let upWeight = 0;
+    let downWeight = 0;
+    if (chartCleared && bandOk) {
+      const tagVotes = votesByTag.get(tag.id) ?? [];
+      for (const vote of tagVotes) {
+        if (settings.scoringMode === 'skillset' && !clearerUserIds.has(vote.userId)) {
+          continue;
+        }
+        if (vote.direction < 0) downWeight += vote.weight;
+        else upWeight += vote.weight;
+      }
+    }
+    const totalWeight = upWeight + downWeight;
+    const score = wilsonLowerBound(upWeight, totalWeight, settings.wilsonZ);
+
+    if (pinned) {
+      if (assignment && assignment.score !== score) {
+        await assignment.update({ score }, { transaction });
+      }
+      continue;
+    }
+
+    if (!chartCleared || !bandOk) {
+      if (assignment) {
+        await assignment.destroy({ transaction });
+      }
+      continue;
+    }
+
     const keep = shouldKeepCommunityAssignment({
       assigned,
-      pinned,
+      pinned: false,
       score,
-      knobs,
+      knobs: settings,
     });
 
     if (keep) {
       if (assignment) {
-        const nextScore = weightSum > 0 || pinned ? score : assignment.score;
-        if (assignment.score !== nextScore) {
-          await assignment.update({ score: nextScore }, { transaction });
+        if (assignment.score !== score) {
+          await assignment.update({ score }, { transaction });
         }
       } else {
         await LevelTagAssignment.create(
@@ -100,9 +212,39 @@ export async function rematerializeCommunityTagsForLevel(
           { transaction },
         );
       }
-    } else if (assignment && !assignment.pinned) {
+    } else if (assignment) {
       await assignment.destroy({ transaction });
     }
+  }
+}
+
+export async function rematerializeCommunityTagsForTagIds(
+  tagIds: number[],
+  transaction?: Transaction,
+): Promise<void> {
+  const ids = [...new Set(tagIds.filter((id) => Number.isFinite(id)))];
+  if (ids.length === 0) return;
+
+  const [voteRows, assignmentRows] = await Promise.all([
+    LevelTagVote.findAll({
+      where: { tagId: { [Op.in]: ids } },
+      attributes: ['levelId'],
+      transaction,
+    }),
+    LevelTagAssignment.findAll({
+      where: { tagId: { [Op.in]: ids } },
+      attributes: ['levelId'],
+      transaction,
+    }),
+  ]);
+
+  const levelIds = [...new Set([
+    ...voteRows.map((row) => row.levelId),
+    ...assignmentRows.map((row) => row.levelId),
+  ])];
+
+  for (const levelId of levelIds) {
+    await rematerializeCommunityTagsForLevel(levelId, ids, transaction);
   }
 }
 
@@ -126,20 +268,21 @@ export async function syncClearerVoteWeightsForPlayerLevel(
     attributes: ['id', 'playerId'],
     transaction,
   });
-  if (!user) return;
+  if (!user) {
+    await rematerializeCommunityTagsForLevel(levelId, undefined, transaction);
+    return;
+  }
 
   const knobs = getCommunityTagConfig();
   const isClearer = await userHasClearerPass(playerId, levelId, transaction);
   const weight = voteWeightForClearer(isClearer, knobs);
 
-  const [affected] = await LevelTagVote.update(
+  await LevelTagVote.update(
     { weight },
     { where: { userId: user.id, levelId }, transaction },
   );
 
-  if (affected > 0) {
-    await rematerializeCommunityTagsForLevel(levelId, undefined, transaction);
-  }
+  await rematerializeCommunityTagsForLevel(levelId, undefined, transaction);
 }
 
 export async function syncClearerVoteWeightsForPairs(

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import type { Transaction } from 'sequelize';
 import { Auth } from '@/server/middleware/auth.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import {
@@ -10,14 +11,26 @@ import {
 import Level from '@/models/levels/Level.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
+import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
 import LevelTagVote from '@/models/levels/LevelTagVote.js';
+import Difficulty from '@/models/levels/Difficulty.js';
 import { TAG_GROUP_INCLUDE, TAG_LIST_ORDER, serializeLevelTag } from '@/server/services/data/levelTagGroupService.js';
 import {
+  countUniqueClears,
   rematerializeCommunityTagsForLevel,
+  uniqueClearerUserIds,
   userHasClearerPass,
 } from '@/server/services/data/communityTagVoteService.js';
 import { getCommunityTagConfig } from '@/config/app.config.js';
-import { voteWeightForClearer, wilsonScore } from '@/misc/utils/data/communityTagScoring.js';
+import { voteWeightForClearer, wilsonLowerBound } from '@/misc/utils/data/communityTagScoring.js';
+import {
+  canVoteByTopPlay,
+  normalizeVoteAction,
+  resolveCommunityTagSettings,
+  tagAllowedForDifficulty,
+  type CommunityTagVoteBlockReason,
+  type DifficultyLike,
+} from '@/misc/utils/data/communityTagEligibility.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { createRateLimiter } from '@/server/decorators/rateLimiter.js';
@@ -38,59 +51,154 @@ const communityTagVoteLimiter = createRateLimiter({
   failClosed: false,
 });
 
-async function loadCommunityTagVoteState(levelId: number, userId?: string | null) {
-  const knobs = getCommunityTagConfig();
+function topDiffFromUser(user: Request['user']): DifficultyLike | null {
+  const nested = user as
+    | { player?: { stats?: { topDiff?: DifficultyLike | null } | null } | null }
+    | undefined;
+  return nested?.player?.stats?.topDiff ?? null;
+}
+
+async function loadPguDifficulties() {
+  return Difficulty.findAll({
+    where: { type: 'PGU' },
+    attributes: ['id', 'name', 'type', 'sortOrder'],
+    order: [['sortOrder', 'ASC']],
+  });
+}
+
+async function loadLevelWithDifficulty(levelId: number, transaction?: Transaction) {
+  return Level.findByPk(levelId, {
+    attributes: ['id', 'isDeleted', 'diffId'],
+    include: [
+      {
+        model: Difficulty,
+        as: 'difficulty',
+        attributes: ['id', 'name', 'type', 'sortOrder'],
+        required: false,
+      },
+    ],
+    transaction,
+  }) as Promise<(Level & { difficulty?: Difficulty | null }) | null>;
+}
+
+function voteBlockReason(opts: {
+  user: Request['user'];
+  isBanned: boolean;
+  chartCleared: boolean;
+  levelDeleted: boolean;
+  bandOk: boolean;
+  topPlayOk: boolean;
+  scoringMode: 'wilson' | 'skillset';
+  isClearer: boolean;
+}): CommunityTagVoteBlockReason {
+  if (opts.levelDeleted) return 'deleted';
+  if (!opts.chartCleared) return 'uncleared';
+  if (!opts.user) return 'login';
+  if (opts.isBanned) return 'banned';
+  if (!opts.bandOk) return 'band';
+  if (!opts.topPlayOk) return 'topPlay';
+  if (opts.scoringMode === 'skillset' && !opts.isClearer) return 'mustClear';
+  return null;
+}
+
+async function loadCommunityTagVoteState(levelId: number, user: Request['user']) {
+  const envKnobs = getCommunityTagConfig();
   const catalog = await LevelTag.findAll({
     where: { isCommunity: true },
     include: [TAG_GROUP_INCLUDE],
     order: TAG_LIST_ORDER,
   });
 
-  const [assignments, votes] = await Promise.all([
+  const [assignments, votes, uniqueClears, pguDifficulties, level, clearerUserIds] = await Promise.all([
     LevelTagAssignment.findAll({
       where: { levelId },
       attributes: ['tagId', 'pinned', 'score'],
     }),
     LevelTagVote.findAll({
       where: { levelId },
-      attributes: ['tagId', 'userId', 'weight'],
+      attributes: ['tagId', 'userId', 'weight', 'direction'],
     }),
+    countUniqueClears(levelId),
+    loadPguDifficulties(),
+    loadLevelWithDifficulty(levelId),
+    uniqueClearerUserIds(levelId),
   ]);
 
+  const difficulty = level?.difficulty ?? null;
+  const chartCleared = uniqueClears > 0;
+  const isBanned = Boolean(
+    user && (hasFlag(user, permissionFlags.TAG_VOTE_BANNED) || user.isTagVoteBanned),
+  );
+  const topPlayOk = canVoteByTopPlay(difficulty, topDiffFromUser(user), pguDifficulties);
+  const isClearer = user?.playerId != null
+    ? await userHasClearerPass(user.playerId, levelId)
+    : false;
+
   const assignmentByTag = new Map(assignments.map((a) => [a.tagId, a]));
-  const weightSumByTag = new Map<number, number>();
-  const voteCountByTag = new Map<number, number>();
-  const userVoteByTag = new Map<number, number>();
+  const votesByTag = new Map<number, LevelTagVote[]>();
+  const userVoteByTag = new Map<number, { weight: number; direction: number }>();
 
   for (const vote of votes) {
-    weightSumByTag.set(vote.tagId, (weightSumByTag.get(vote.tagId) ?? 0) + vote.weight);
-    voteCountByTag.set(vote.tagId, (voteCountByTag.get(vote.tagId) ?? 0) + 1);
-    if (userId && vote.userId === userId) {
-      userVoteByTag.set(vote.tagId, vote.weight);
+    const list = votesByTag.get(vote.tagId) ?? [];
+    list.push(vote);
+    votesByTag.set(vote.tagId, list);
+    if (user?.id && vote.userId === user.id) {
+      userVoteByTag.set(vote.tagId, { weight: vote.weight, direction: vote.direction });
     }
   }
 
-  return catalog.map((tag) => {
-    const assignment = assignmentByTag.get(tag.id);
-    const weightSum = weightSumByTag.get(tag.id) ?? 0;
-    return {
-      ...serializeLevelTag(tag),
-      score: wilsonScore(weightSum, knobs.wilsonZ),
-      assigned: assignment != null,
-      pinned: Boolean(assignment?.pinned),
-      voted: userVoteByTag.has(tag.id),
-      weight: userVoteByTag.get(tag.id) ?? null,
-      voteCount: voteCountByTag.get(tag.id) ?? 0,
-      weightSum,
-    };
-  });
-}
+  const tags = catalog
+    .map((tag) => {
+      const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
+      const settings = resolveCommunityTagSettings(tag, group, envKnobs);
+      const bandOk = tagAllowedForDifficulty(settings.allowedBands, difficulty);
+      if (!bandOk) return null;
 
-async function findVotableLevel(levelId: number) {
-  const level = await Level.findByPk(levelId, {
-    attributes: ['id', 'isDeleted'],
-  });
-  return level;
+      const assignment = assignmentByTag.get(tag.id);
+      let upWeight = 0;
+      let downWeight = 0;
+      let voteCount = 0;
+      for (const vote of votesByTag.get(tag.id) ?? []) {
+        if (settings.scoringMode === 'skillset' && !clearerUserIds.has(String(vote.userId))) {
+          continue;
+        }
+        voteCount += 1;
+        if (vote.direction < 0) downWeight += vote.weight;
+        else upWeight += vote.weight;
+      }
+      const totalWeight = upWeight + downWeight;
+      const userVote = userVoteByTag.get(tag.id) ?? null;
+      const blockReason = voteBlockReason({
+        user,
+        isBanned,
+        chartCleared,
+        levelDeleted: Boolean(level?.isDeleted),
+        bandOk: true,
+        topPlayOk,
+        scoringMode: settings.scoringMode,
+        isClearer,
+      });
+
+      return {
+        ...serializeLevelTag(tag),
+        description: tag.description ?? null,
+        scoringMode: settings.scoringMode,
+        score: wilsonLowerBound(upWeight, totalWeight, settings.wilsonZ),
+        assigned: assignment != null,
+        pinned: Boolean(assignment?.pinned),
+        voted: userVote != null,
+        voteDirection: userVote?.direction ?? null,
+        weight: userVote?.weight ?? null,
+        voteCount,
+        upWeight,
+        downWeight,
+        canVote: blockReason == null,
+        voteBlockReason: blockReason,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row != null);
+
+  return { tags, uniqueClears, chartCleared };
 }
 
 router.get(
@@ -99,7 +207,7 @@ router.get(
   ApiDoc({
     operationId: 'getLevelCommunityTags',
     summary: 'List community tag votes for a level',
-    description: 'Returns every community catalog tag with scores and the current user vote.',
+    description: 'Returns community catalog tags allowed for this level, with scores and the current user vote.',
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
@@ -108,15 +216,15 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const levelId = parseInt(req.params.id, 10);
-      const level = await findVotableLevel(levelId);
+      const level = await Level.findByPk(levelId, { attributes: ['id', 'isDeleted'] });
       if (!level) {
         return res.status(404).json({ error: 'Level not found' });
       }
       if (level.isDeleted && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
         return res.status(403).json({ error: 'Cannot vote on deleted level' });
       }
-      const tags = await loadCommunityTagVoteState(levelId, req.user?.id ?? null);
-      return res.json({ tags });
+      const payload = await loadCommunityTagVoteState(levelId, req.user);
+      return res.json(payload);
     } catch (error) {
       logger.error('Error fetching community tags:', error);
       return res.status(500).json({ error: 'Failed to fetch community tags' });
@@ -130,14 +238,18 @@ router.put(
   communityTagVoteLimiter.middleware,
   ApiDoc({
     operationId: 'putLevelCommunityTagVote',
-    summary: 'Vote or unvote a community tag on a level',
-    description: 'action: "vote" | "unvote". Verified email required.',
+    summary: 'Upvote, downvote, or unvote a community tag on a level',
+    description: 'action: "upvote" | "downvote" | "unvote" ("vote" is an upvote alias). Verified email required.',
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec, tagId: { schema: { type: 'string' } } },
     requestBody: {
-      description: 'action: "vote" | "unvote"',
-      schema: { type: 'object', properties: { action: { type: 'string', enum: ['vote', 'unvote'] } }, required: ['action'] },
+      description: 'action: upvote | downvote | unvote | vote',
+      schema: {
+        type: 'object',
+        properties: { action: { type: 'string', enum: ['upvote', 'downvote', 'unvote', 'vote'] } },
+        required: ['action'],
+      },
       required: true,
     },
     responses: {
@@ -154,33 +266,76 @@ router.put(
       return res.status(401).json({ error: 'Unauthorized' });
     }
     if (hasFlag(req.user, permissionFlags.TAG_VOTE_BANNED) || req.user.isTagVoteBanned) {
-      return res.status(403).json({ error: 'You are not allowed to vote on community tags' });
+      return res.status(403).json({
+        error: 'You are not allowed to vote on community tags',
+        reason: 'banned',
+      });
     }
 
     try {
       const levelId = parseInt(req.params.id, 10);
       const tagId = parseInt(req.params.tagId, 10);
-      const { action } = req.body as { action?: string };
-
-      if (!action || !['vote', 'unvote'].includes(action)) {
-        return res.status(400).json({ error: 'Invalid action. Must be "vote" or "unvote"' });
+      const action = normalizeVoteAction((req.body as { action?: string }).action);
+      if (!action) {
+        return res.status(400).json({ error: 'Invalid action. Must be "upvote", "downvote", or "unvote"' });
       }
 
       transaction = await sequelize.transaction();
-      const level = await Level.findByPk(levelId, { transaction, attributes: ['id', 'isDeleted'] });
+      const level = await loadLevelWithDifficulty(levelId, transaction);
       if (!level) {
         await safeTransactionRollback(transaction);
         return res.status(404).json({ error: 'Level not found' });
       }
       if (level.isDeleted) {
         await safeTransactionRollback(transaction);
-        return res.status(403).json({ error: 'Cannot vote on deleted level' });
+        return res.status(403).json({ error: 'Cannot vote on deleted level', reason: 'deleted' });
       }
 
-      const tag = await LevelTag.findByPk(tagId, { transaction, attributes: ['id', 'isCommunity'] });
+      const uniqueClears = await countUniqueClears(levelId, transaction);
+      if (uniqueClears < 1) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({
+          error: 'Community tags only work on cleared charts',
+          reason: 'uncleared',
+        });
+      }
+
+      const tag = await LevelTag.findByPk(tagId, {
+        include: [TAG_GROUP_INCLUDE],
+        transaction,
+      });
       if (!tag || !tag.isCommunity) {
         await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'Tag is not a community tag' });
+      }
+
+      const envKnobs = getCommunityTagConfig();
+      const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
+      const settings = resolveCommunityTagSettings(tag, group, envKnobs);
+      if (!tagAllowedForDifficulty(settings.allowedBands, level.difficulty)) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({
+          error: 'This tag is not available for this difficulty',
+          reason: 'band',
+        });
+      }
+
+      const pguDifficulties = await loadPguDifficulties();
+      if (!canVoteByTopPlay(level.difficulty, topDiffFromUser(req.user), pguDifficulties)) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({
+          error: 'Your top play is not high enough to vote on this chart',
+          reason: 'topPlay',
+        });
+      }
+
+      const isClearer = await userHasClearerPass(req.user.playerId, levelId, transaction);
+      if (settings.scoringMode === 'skillset' && !isClearer) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({
+          error: 'You must clear this chart to vote on this tag',
+          reason: 'mustClear',
+        });
       }
 
       const existing = await LevelTagVote.findOne({
@@ -188,31 +343,34 @@ router.put(
         transaction,
       });
 
-      if (action === 'vote') {
-        const knobs = getCommunityTagConfig();
-        const isClearer = await userHasClearerPass(req.user.playerId, levelId, transaction);
-        const weight = voteWeightForClearer(isClearer, knobs);
-        const [vote, created] = await LevelTagVote.findOrCreate({
-          where: { levelId, tagId, userId: req.user.id },
-          defaults: {
-            levelId,
-            tagId,
-            userId: req.user.id,
-            weight,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-          transaction,
-        });
-        if (!created && vote.weight !== weight) {
-          await vote.update({ weight }, { transaction });
-        }
-      } else {
+      if (action === 'unvote') {
         if (!existing) {
           await safeTransactionRollback(transaction);
           return res.status(400).json({ error: 'You have not voted for this tag' });
         }
         await existing.destroy({ transaction });
+      } else {
+        const direction = action === 'downvote' ? -1 : 1;
+        const weight = voteWeightForClearer(
+          settings.scoringMode === 'skillset' ? true : isClearer,
+          envKnobs,
+        );
+        if (existing) {
+          await existing.update({ direction, weight }, { transaction });
+        } else {
+          await LevelTagVote.create(
+            {
+              levelId,
+              tagId,
+              userId: req.user.id,
+              weight,
+              direction,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+            { transaction },
+          );
+        }
       }
 
       await rematerializeCommunityTagsForLevel(levelId, [tagId], transaction);
@@ -227,8 +385,8 @@ router.put(
         logger.warn('Failed to reindex after community tag vote', reindexError);
       }
 
-      const tags = await loadCommunityTagVoteState(levelId, req.user.id);
-      return res.json({ success: true, action, tags });
+      const payload = await loadCommunityTagVoteState(levelId, req.user);
+      return res.json({ success: true, action, ...payload });
     } catch (error) {
       await safeTransactionRollback(transaction);
       logger.error('Error toggling community tag vote:', error);
