@@ -9,10 +9,24 @@ export type CommunityTagWeightKnobs = {
   defaultWeight: number;
 };
 
-export function wilsonScore(weightSum: number, wilsonZ: number): number {
-  if (!(weightSum > 0) || !(wilsonZ > 0)) return 0;
+/**
+ * Wilson score lower bound for a binomial proportion.
+ * With no downvotes (p=1) this equals `n / (n + z²)`, matching the old apply-only helper.
+ */
+export function wilsonLowerBound(upWeight: number, totalWeight: number, wilsonZ: number): number {
+  if (!(totalWeight > 0) || !(wilsonZ > 0) || !(upWeight >= 0)) return 0;
+  const p = Math.min(1, Math.max(0, upWeight / totalWeight));
   const z2 = wilsonZ * wilsonZ;
-  return weightSum / (weightSum + z2);
+  const n = totalWeight;
+  const denom = 1 + z2 / n;
+  const center = p + z2 / (2 * n);
+  const margin = z2 === 0 ? 0 : wilsonZ * Math.sqrt((p * (1 - p) + z2 / (4 * n)) / n);
+  return Math.max(0, (center - margin) / denom);
+}
+
+/** Apply-only Wilson (all weight is upvotes). */
+export function wilsonScore(weightSum: number, wilsonZ: number): number {
+  return wilsonLowerBound(weightSum, weightSum, wilsonZ);
 }
 
 export function voteWeightForClearer(

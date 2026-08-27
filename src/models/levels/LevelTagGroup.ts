@@ -17,6 +17,11 @@ class LevelTagGroup extends Model<
   declare id: CreationOptional<number>;
   declare name: string;
   declare sortOrder: CreationOptional<number>;
+  declare wilsonZ: CreationOptional<number | null>;
+  declare scoreOn: CreationOptional<number | null>;
+  declare scoreOff: CreationOptional<number | null>;
+  declare scoringMode: CreationOptional<string | null>;
+  declare allowedBands: CreationOptional<string[] | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
   declare tags?: LevelTag[];
@@ -39,6 +44,28 @@ LevelTagGroup.init(
       allowNull: false,
       defaultValue: 0,
       comment: 'Sort order for tag groups display',
+    },
+    wilsonZ: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+    },
+    scoreOn: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+    },
+    scoreOff: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+    },
+    scoringMode: {
+      type: DataTypes.STRING(16),
+      allowNull: true,
+      comment: 'wilson | skillset; null means wilson',
+    },
+    allowedBands: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: 'PGU bands P/G/U/SPEC; null means all difficulties',
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,

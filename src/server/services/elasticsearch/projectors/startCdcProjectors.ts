@@ -14,6 +14,7 @@ import Curation from '@/models/curations/Curation.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import User from '@/models/auth/User.js';
+import { rematerializeCommunityTagsForLevel } from '@/server/services/data/communityTagVoteService.js';
 
 const CDC_PREFIX = 'cdc:';
 
@@ -165,6 +166,17 @@ export function startCdcProjectors(): void {
           case 'levels': {
             const id = rowId(before, after);
             if (id == null) return;
+            const diffChanged = op === 'u' && num(before?.diffId) !== num(after?.diffId);
+            if (diffChanged) {
+              try {
+                await rematerializeCommunityTagsForLevel(id);
+              } catch (error) {
+                logger.error('[cdc-projectors] Failed to rematerialize community tags after diffId change', {
+                  levelId: id,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              }
+            }
             await es.indexLevel(id);
             await invalidateLevel(id);
             if (levelCdcChangeRequiresPassReindex(op, before, after)) {
@@ -179,7 +191,9 @@ export function startCdcProjectors(): void {
             const id = rowId(before, after);
             const deletedChanged =
               op === 'u' && Boolean(before?.isDeleted) !== Boolean(after?.isDeleted);
-            const shouldSyncTagVotes = op === 'c' || op === 'd' || deletedChanged;
+            const hiddenChanged =
+              op === 'u' && Boolean(before?.isHidden) !== Boolean(after?.isHidden);
+            const shouldSyncTagVotes = op === 'c' || op === 'd' || deletedChanged || hiddenChanged;
             const tagVotePairs: Array<{ playerId: number; levelId: number }> = [];
             if (shouldSyncTagVotes) {
               const pids = new Set<number>();
@@ -241,6 +255,17 @@ export function startCdcProjectors(): void {
             await es.indexPlayer(pid);
             if (op === 'u' && Boolean(before?.isBanned) !== Boolean(after?.isBanned)) {
               const levelIds = await getLevelIdsByPlayerId(pid);
+              for (const levelId of levelIds) {
+                try {
+                  await rematerializeCommunityTagsForLevel(levelId);
+                } catch (error) {
+                  logger.error('[cdc-projectors] Failed to rematerialize community tags after player ban change', {
+                    playerId: pid,
+                    levelId,
+                    error: error instanceof Error ? error.message : String(error),
+                  });
+                }
+              }
               if (levelIds.length) await es.reindexLevels(levelIds);
             }
             break;

@@ -21,6 +21,12 @@ class LevelTag extends Model<
   declare groupId: CreationOptional<number | null>;
   declare sortOrder: CreationOptional<number>; // Sort order for tags display
   declare isCommunity: CreationOptional<boolean>;
+  declare description: CreationOptional<string | null>;
+  declare wilsonZ: CreationOptional<number | null>;
+  declare scoreOn: CreationOptional<number | null>;
+  declare scoreOff: CreationOptional<number | null>;
+  declare scoringMode: CreationOptional<string | null>;
+  declare allowedBands: CreationOptional<string[] | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
   declare tagGroup?: LevelTagGroup | null;
@@ -69,6 +75,32 @@ LevelTag.init(
       allowNull: false,
       defaultValue: false,
       comment: 'When true, the public can vote this tag onto levels',
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    wilsonZ: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+    },
+    scoreOn: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+    },
+    scoreOff: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+    },
+    scoringMode: {
+      type: DataTypes.STRING(16),
+      allowNull: true,
+      comment: 'wilson | skillset; null inherits group then wilson',
+    },
+    allowedBands: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: 'PGU bands P/G/U/SPEC; null inherits group then all',
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
