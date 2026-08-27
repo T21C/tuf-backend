@@ -309,6 +309,7 @@ router.put(
         await rematerializeCommunityTagsForTagIds(
           memberTags.map((tag) => tag.id),
           transaction,
+          { preserveAssignments: true },
         );
       }
 
@@ -583,7 +584,7 @@ router.put(
       const nextIsCommunity = parseFormBoolean(isCommunity);
       if (nextIsCommunity !== undefined) {
         updateData.isCommunity = nextIsCommunity;
-        if (tag.isCommunity && !nextIsCommunity) {
+        if (Boolean(tag.isCommunity) !== Boolean(nextIsCommunity)) {
           await pinCommunityAssignmentsForTag(tagId, transaction);
         }
       }
@@ -605,7 +606,9 @@ router.put(
 
       const knobKeys = ['wilsonZ', 'scoreOn', 'scoreOff', 'scoringMode', 'allowedBands'] as const;
       if (nextIsCommunity !== undefined || knobKeys.some((key) => key in knobs)) {
-        await rematerializeCommunityTagsForTagIds([tagId], transaction);
+        await rematerializeCommunityTagsForTagIds([tagId], transaction, {
+          preserveAssignments: true,
+        });
       }
 
       await transaction.commit();

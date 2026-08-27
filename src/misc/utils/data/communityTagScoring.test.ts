@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   selectLevelCardDisplayTags,
+  shouldDestroyCommunityAssignment,
   shouldKeepCommunityAssignment,
   voteWeightForClearer,
   wilsonLowerBound,
@@ -74,6 +75,63 @@ test('pinned assignments are kept below the off threshold', () => {
   assert.equal(
     shouldKeepCommunityAssignment({ assigned: true, pinned: true, score: 0, knobs }),
     true,
+  );
+});
+
+test('shouldDestroyCommunityAssignment honors preserveAssignments', () => {
+  assert.equal(
+    shouldDestroyCommunityAssignment({
+      preserveAssignments: true,
+      chartCleared: true,
+      bandOk: true,
+      keep: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldDestroyCommunityAssignment({
+      preserveAssignments: true,
+      chartCleared: false,
+      bandOk: false,
+      keep: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldDestroyCommunityAssignment({
+      preserveAssignments: false,
+      chartCleared: true,
+      bandOk: true,
+      keep: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDestroyCommunityAssignment({
+      preserveAssignments: false,
+      chartCleared: false,
+      bandOk: true,
+      keep: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDestroyCommunityAssignment({
+      preserveAssignments: false,
+      chartCleared: true,
+      bandOk: false,
+      keep: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDestroyCommunityAssignment({
+      preserveAssignments: false,
+      chartCleared: true,
+      bandOk: true,
+      keep: true,
+    }),
+    false,
   );
 });
 
