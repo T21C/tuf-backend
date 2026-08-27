@@ -12,7 +12,12 @@ import { fetchLevelsByIdsFromElasticsearch } from '@/server/services/elasticsear
 import { pruneLevelForRatingList } from '@/server/services/elasticsearch/search/levels/ratingReferencedLevelSerialize.js';
 import { getOrFetchCacheLayer } from '@/server/middleware/stackedCacheLayers.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { isUniversalRatingProposal } from '@/misc/utils/data/RatingUtils.js';
+import {
+  isUniversalRatingProposal,
+  lowDiffFilterForRequestBands,
+  requestPguBand,
+  type RequestPguBand,
+} from '@/misc/utils/data/RatingUtils.js';
 import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
 
 export const RATING_LIST_PAGE_SIZE = 30;
@@ -32,11 +37,13 @@ export interface RatingListQuery {
   order: RatingListOrder;
   lowDiff: ShowHideOnly;
   fourVote: ShowHideOnly;
-  hideRated: boolean;
+  myRated: ShowHideOnly;
   zeroClears: boolean;
   rankReady: boolean;
   vote: VoteFilter;
   excludeUniversals: boolean;
+  /** When set, keep only these request bands (P=lowDiff, U=universal proposal, G=rest). */
+  includeRequestBands?: RequestPguBand[] | null;
   userId: string | null;
   levelIdsFilter: number[] | null;
 }
@@ -77,6 +84,18 @@ const RANK_READY_PGU_BAND_SQL = `CASE LEFT(UPPER(IFNULL((
   ELSE 3
 END`;
 
+function normalizeIncludeRequestBands(
+  bands: RequestPguBand[] | null | undefined
+): Set<RequestPguBand> | null {
+  if (!bands) return null;
+  return new Set(
+    bands.filter(
+      (band): band is RequestPguBand =>
+        band === 'P' || band === 'G' || band === 'U'
+    )
+  );
+}
+
 export function parseCommaSeparatedIds(query: string): number[] | null {
   if (!query.includes(',')) return null;
   const parts = query.split(',').map((part) => part.trim());
@@ -115,6 +134,18 @@ function normalizeShowHideOnly(value: unknown): ShowHideOnly {
   return 'show';
 }
 
+/** `myRated` show/hide/only; legacy `hideRated=true` maps to hide. User-specific. */
+function parseMyRated(
+  reqQuery: Record<string, unknown>,
+  userId?: string | null
+): ShowHideOnly {
+  if (!userId) return 'show';
+  const raw = reqQuery.myRated ?? reqQuery.hideRated;
+  if (raw === 'hide' || raw === 'only' || raw === 'show') return raw;
+  if (raw === true || raw === 'true' || raw === '1') return 'hide';
+  return 'show';
+}
+
 export function parseRatingListQuery(
   reqQuery: Record<string, unknown>,
   userId?: string | null
@@ -133,11 +164,7 @@ export function parseRatingListQuery(
 
   const lowDiff = normalizeShowHideOnly(reqQuery.lowDiff);
   const fourVote = normalizeShowHideOnly(reqQuery.fourVote);
-  const hideRated =
-    (reqQuery.hideRated === true ||
-      reqQuery.hideRated === 'true' ||
-      reqQuery.hideRated === '1') &&
-    Boolean(userId);
+  const myRated = parseMyRated(reqQuery, userId);
   const zeroClears =
     reqQuery.zeroClears === true ||
     reqQuery.zeroClears === 'true' ||
@@ -165,7 +192,7 @@ export function parseRatingListQuery(
     order,
     lowDiff,
     fourVote,
-    hideRated,
+    myRated,
     zeroClears,
     rankReady,
     vote,
@@ -186,6 +213,7 @@ export function ratingListPageCacheKey(params: RatingListQuery): string {
     rankReady: params.rankReady,
     vote: params.vote ?? null,
     excludeUniversals: params.excludeUniversals,
+    includeRequestBands: params.includeRequestBands ?? null,
     offset: params.offset,
     limit: params.limit,
     levelIds: params.levelIdsFilter ?? null,
@@ -395,13 +423,33 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
     };
   }
 
+  const includeBandSet = normalizeIncludeRequestBands(params.includeRequestBands);
+  if (includeBandSet && includeBandSet.size === 0) {
+    return {
+      results: [],
+      total: 0,
+      offset: params.offset,
+      limit: params.limit,
+      hasMore: false,
+    };
+  }
+
+  let lowDiff = params.lowDiff;
+  if (includeBandSet && includeBandSet.size < 3) {
+    lowDiff = lowDiffFilterForRequestBands(
+      includeBandSet.has('P'),
+      includeBandSet.has('G'),
+      includeBandSet.has('U'),
+    );
+  }
+
   const ratingWhere: Record<string, unknown> = { confirmedAt: null };
   if (searchIds) {
     ratingWhere.levelId = { [Op.in]: searchIds };
   }
-  if (params.lowDiff === 'hide') {
+  if (lowDiff === 'hide') {
     ratingWhere.lowDiff = false;
-  } else if (params.lowDiff === 'only') {
+  } else if (lowDiff === 'only') {
     ratingWhere.lowDiff = true;
   }
 
@@ -426,14 +474,13 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
     });
   }
 
-  if (params.hideRated && params.userId) {
+  if (params.myRated !== 'show' && params.userId) {
+    const ratedIdsSql = `(SELECT ratingId FROM rating_details WHERE userId = ${Rating.sequelize!.escape(params.userId)})`;
     ratingWhere.id = {
-      [Op.notIn]: literal(
-        `(SELECT ratingId FROM rating_details WHERE userId = ${Rating.sequelize!.escape(params.userId)})`
-      ),
+      [params.myRated === 'only' ? Op.in : Op.notIn]: literal(ratedIdsSql),
     };
-    // Match legacy client: hideRated also hid VOTE queue entries
-    if (!params.vote) {
+    // Match legacy client: hide also hid VOTE queue entries
+    if (params.myRated === 'hide' && !params.vote) {
       Object.assign(levelWhere, {
         [Op.or]: [
           { rerateNum: { [Op.is]: null } },
@@ -530,7 +577,18 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
   const ratings = await Rating.findAll(findOptions);
   let results = await hydrateRatingListRows(ratings);
 
-  if (params.excludeUniversals) {
+  const bandFiltered = Boolean(includeBandSet && includeBandSet.size < 3);
+  if (bandFiltered && includeBandSet) {
+    results = results.filter((row) => {
+      const level = row.level as { rerateNum?: string | null } | undefined;
+      const band = requestPguBand(
+        level?.rerateNum,
+        row.requesterFR as string | null | undefined,
+        Boolean(row.lowDiff)
+      );
+      return includeBandSet.has(band);
+    });
+  } else if (params.excludeUniversals) {
     results = results.filter((row) => {
       const level = row.level as { rerateNum?: string | null } | undefined;
       return !isUniversalRatingProposal(
@@ -540,21 +598,20 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
     });
   }
 
+  const postFiltered = bandFiltered || params.excludeUniversals;
   return {
     results,
-    total: params.excludeUniversals ? results.length : total,
+    total: postFiltered ? results.length : total,
     offset: params.offset,
     limit: params.limit,
-    hasMore: params.excludeUniversals
-      ? false
-      : params.offset + params.limit < total,
+    hasMore: postFiltered ? false : params.offset + params.limit < total,
   };
 }
 
 export async function getRatingListPage(params: RatingListQuery): Promise<RatingListPage> {
   const run = () => fetchRatingListPageInternal(params);
 
-  if (params.hideRated) {
+  if (params.myRated !== 'show') {
     return run();
   }
 

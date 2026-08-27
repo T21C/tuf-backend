@@ -305,7 +305,12 @@ router.get(
   ttl: 300,
   varyByUser: true,
   varyByQuery: ['query', 'viewMode', 'pinned', 'myLikesOnly', 'offset', 'limit', 'sort', 'order'],
-  tags: ['packs:all']
+  tags: ['packs:all'],
+  // levelId filters are used to decide "already in pack"; a cached miss stays wrong for the TTL.
+  skipIf: (req) => {
+    const query = typeof req.query.query === 'string' ? req.query.query : '';
+    return /(?:^|,|\s)levelid\s*[:=]/i.test(query);
+  },
 }),
   async (req: Request, res: Response) => {
   try {

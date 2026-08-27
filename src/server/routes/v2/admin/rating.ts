@@ -170,7 +170,7 @@ router.get(
     operationId: 'getAdminRatings',
     summary: 'Unconfirmed ratings (paged)',
     description:
-      'Paged pending ratings (confirmedAt null, toRate true). Hybrid ES text search + MySQL filters. Cached public pages; hideRated uncached.',
+      'Paged pending ratings (confirmedAt null, toRate true). Hybrid ES text search + MySQL filters. Cached public pages; myRated hide/only uncached.',
     tags: ['Admin', 'Rating'],
     responses: { 200: { description: 'Paged ratings list' }, ...standardErrorResponses500 },
   }),
@@ -196,7 +196,7 @@ router.get(
     operationId: 'getAdminRatingZenDeal',
     summary: 'Deal a Zen Mode rating deck',
     description:
-      'Returns a finite snapshot deck for Zen Mode (unrated by user, <4 manager votes, exclude VOTE). Query: deckSize, onlyLowDiff, sort, order, randomness (0–100; 0 = strict sort order, 100 = uniform across pool). Uncached.',
+      'Returns a finite snapshot deck for Zen Mode (unrated by user, <4 manager votes, exclude VOTE). Query: deckSize, includeP, includeG, includeU, sort, order, randomness (0–100; 0 = strict sort order, 100 = uniform across pool). Uncached.',
     tags: ['Admin', 'Rating'],
     responses: { 200: { description: 'Zen deck' }, ...standardErrorResponses },
   }),

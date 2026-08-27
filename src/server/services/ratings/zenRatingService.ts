@@ -19,6 +19,7 @@ import {
 import {
   clampZenRandomness,
   isZenDeckSize,
+  parseZenIncludeBands,
   peeksAllowedForDeckSize,
   sampleZenPoolIndices,
   ZEN_CANDIDATE_POOL_CAP,
@@ -30,6 +31,9 @@ import {
 
 export interface ZenDealOptions {
   deckSize?: number;
+  includeP?: boolean;
+  includeG?: boolean;
+  includeU?: boolean;
   onlyLowDiff?: boolean;
   excludeUniversals?: boolean;
   sort?: RatingListSort;
@@ -43,8 +47,9 @@ export interface ZenDealResult {
   peeksAllowed: number;
   sort: RatingListSort;
   order: RatingListOrder;
-  onlyLowDiff: boolean;
-  excludeUniversals: boolean;
+  includeP: boolean;
+  includeG: boolean;
+  includeU: boolean;
   randomness: number;
   dealtAt: string;
   cards: Record<string, unknown>[];
@@ -52,8 +57,9 @@ export interface ZenDealResult {
 
 export function parseZenDealOptions(body: Record<string, unknown>): {
   deckSize: ZenDeckSize;
-  onlyLowDiff: boolean;
-  excludeUniversals: boolean;
+  includeP: boolean;
+  includeG: boolean;
+  includeU: boolean;
   sort: RatingListSort;
   order: RatingListOrder;
   randomness: number;
@@ -73,15 +79,7 @@ export function parseZenDealOptions(body: Record<string, unknown>): {
   const order: RatingListOrder =
     String(body.order || 'ASC').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
-  const onlyLowDiff =
-    body.onlyLowDiff === true ||
-    body.onlyLowDiff === 'true' ||
-    body.onlyLowDiff === '1';
-
-  const excludeUniversals =
-    body.excludeUniversals === true ||
-    body.excludeUniversals === 'true' ||
-    body.excludeUniversals === '1';
+  const { includeP, includeG, includeU } = parseZenIncludeBands(body);
 
   const randomness = clampZenRandomness(
     body.randomness === undefined || body.randomness === null || body.randomness === ''
@@ -89,11 +87,12 @@ export function parseZenDealOptions(body: Record<string, unknown>): {
       : body.randomness
   );
 
-  return { deckSize, onlyLowDiff, excludeUniversals, sort, order, randomness };
+  return { deckSize, includeP, includeG, includeU, sort, order, randomness };
 }
 
 /**
- * Deal a finite Zen deck: unrated-by-user, &lt;4 manager votes, exclude VOTE, optional lowDiff.
+ * Deal a finite Zen deck: unrated-by-user, &lt;4 manager votes, exclude VOTE,
+ * optional P/G/U request-band include set.
  * Uncached; returns complete rating snapshots for offline session play.
  * Options come from GET query params (same shape as {@link parseZenDealOptions}).
  */
@@ -104,19 +103,28 @@ export async function dealZenDeck(
   const parsed = parseZenDealOptions(options as Record<string, unknown>);
 
   const poolLimit = Math.max(parsed.deckSize, ZEN_CANDIDATE_POOL_CAP);
+  const includeRequestBands = (
+    [
+      parsed.includeP ? 'P' : null,
+      parsed.includeG ? 'G' : null,
+      parsed.includeU ? 'U' : null,
+    ] as const
+  ).filter((band): band is 'P' | 'G' | 'U' => band != null);
+
   const page = await getRatingListPage({
     offset: 0,
     limit: poolLimit,
     query: '',
     sort: parsed.sort,
     order: parsed.order,
-    lowDiff: parsed.onlyLowDiff ? 'only' : 'show',
+    lowDiff: 'show',
     fourVote: 'hide',
-    hideRated: true,
+    myRated: 'hide',
     zeroClears: false,
     rankReady: false,
     vote: 'exclude',
-    excludeUniversals: parsed.excludeUniversals,
+    excludeUniversals: false,
+    includeRequestBands,
     userId,
     levelIdsFilter: null,
   });
@@ -150,8 +158,9 @@ export async function dealZenDeck(
     peeksAllowed: peeksAllowedForDeckSize(parsed.deckSize),
     sort: parsed.sort,
     order: parsed.order,
-    onlyLowDiff: parsed.onlyLowDiff,
-    excludeUniversals: parsed.excludeUniversals,
+    includeP: parsed.includeP,
+    includeG: parsed.includeG,
+    includeU: parsed.includeU,
     randomness: parsed.randomness,
     dealtAt: new Date().toISOString(),
     cards,

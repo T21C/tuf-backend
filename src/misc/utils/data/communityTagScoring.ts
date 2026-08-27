@@ -65,6 +65,9 @@ export type CardSelectableTag = {
   pinned?: boolean | null;
   score?: number | null;
   sortOrder?: number | null;
+  group?: string | null;
+  groupSortOrder?: number | null;
+  name?: string | null;
 };
 
 function compareScoreThenSortOrder(a: CardSelectableTag, b: CardSelectableTag): number {
@@ -77,10 +80,25 @@ function compareScoreThenSortOrder(a: CardSelectableTag, b: CardSelectableTag): 
   return a.id - b.id;
 }
 
+/** Catalog order: groupSortOrder, then tag sortOrder, then name/id. */
+export function compareTagCatalogOrder(a: CardSelectableTag, b: CardSelectableTag): number {
+  const groupedA = a.group && String(a.group).trim() !== '';
+  const groupedB = b.group && String(b.group).trim() !== '';
+  const groupA = groupedA ? (a.groupSortOrder ?? 0) : Number.MAX_SAFE_INTEGER;
+  const groupB = groupedB ? (b.groupSortOrder ?? 0) : Number.MAX_SAFE_INTEGER;
+  if (groupA !== groupB) return groupA - groupB;
+  const sortA = a.sortOrder ?? 0;
+  const sortB = b.sortOrder ?? 0;
+  if (sortA !== sortB) return sortA - sortB;
+  const nameCmp = String(a.name || '').localeCompare(String(b.name || ''));
+  if (nameCmp !== 0) return nameCmp;
+  return (a.id ?? 0) - (b.id ?? 0);
+}
+
 /**
  * Card row: all non-community tags, all pinned community tags, and the top
- * `cap` unpinned community tags by score then sortOrder. Community visibles
- * are ordered by score then sortOrder; non-community keep caller order.
+ * `cap` unpinned community tags by score then sortOrder. Visible tags are
+ * then ordered by group sortOrder and tag sortOrder (not assignment/id order).
  */
 export function selectLevelCardDisplayTags<T extends CardSelectableTag>(
   tags: T[],
@@ -104,6 +122,5 @@ export function selectLevelCardDisplayTags<T extends CardSelectableTag>(
 
   unpinnedCommunity.sort(compareScoreThenSortOrder);
   const limitedUnpinned = unpinnedCommunity.slice(0, Math.max(0, cap));
-  const communityVisible = [...pinnedCommunity, ...limitedUnpinned].sort(compareScoreThenSortOrder);
-  return [...nonCommunity, ...communityVisible];
+  return [...nonCommunity, ...pinnedCommunity, ...limitedUnpinned].sort(compareTagCatalogOrder);
 }
