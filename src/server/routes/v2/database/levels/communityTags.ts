@@ -17,6 +17,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import { TAG_GROUP_INCLUDE, TAG_LIST_ORDER, serializeLevelTag } from '@/server/services/data/levelTagGroupService.js';
 import {
   countUniqueClears,
+  loadPlayerTopPguDifficulty,
   rematerializeCommunityTagsForLevel,
   uniqueClearerUserIds,
   userHasClearerPass,
@@ -24,12 +25,11 @@ import {
 import { getCommunityTagConfig } from '@/config/app.config.js';
 import { voteWeightForClearer, wilsonLowerBound } from '@/misc/utils/data/communityTagScoring.js';
 import {
-  canVoteByTopPlay,
+  isTopPlayRequirementSatisfied,
   normalizeVoteAction,
   resolveCommunityTagSettings,
   tagAllowedForDifficulty,
   type CommunityTagVoteBlockReason,
-  type DifficultyLike,
 } from '@/misc/utils/data/communityTagEligibility.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
@@ -50,13 +50,6 @@ const communityTagVoteLimiter = createRateLimiter({
   blockDuration: 2 * 60 * 1000,
   failClosed: false,
 });
-
-function topDiffFromUser(user: Request['user']): DifficultyLike | null {
-  const nested = user as
-    | { player?: { stats?: { topDiff?: DifficultyLike | null } | null } | null }
-    | undefined;
-  return nested?.player?.stats?.topDiff ?? null;
-}
 
 async function loadPguDifficulties() {
   return Difficulty.findAll({
@@ -109,30 +102,35 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
     order: TAG_LIST_ORDER,
   });
 
-  const [assignments, votes, uniqueClears, pguDifficulties, level, clearerUserIds] = await Promise.all([
-    LevelTagAssignment.findAll({
-      where: { levelId },
-      attributes: ['tagId', 'pinned', 'score'],
-    }),
-    LevelTagVote.findAll({
-      where: { levelId },
-      attributes: ['tagId', 'userId', 'weight', 'direction'],
-    }),
-    countUniqueClears(levelId),
-    loadPguDifficulties(),
-    loadLevelWithDifficulty(levelId),
-    uniqueClearerUserIds(levelId),
-  ]);
+  const [assignments, votes, uniqueClears, pguDifficulties, level, clearerUserIds, isClearer, liveTopDiff] =
+    await Promise.all([
+      LevelTagAssignment.findAll({
+        where: { levelId },
+        attributes: ['tagId', 'pinned', 'score'],
+      }),
+      LevelTagVote.findAll({
+        where: { levelId },
+        attributes: ['tagId', 'userId', 'weight', 'direction'],
+      }),
+      countUniqueClears(levelId),
+      loadPguDifficulties(),
+      loadLevelWithDifficulty(levelId),
+      uniqueClearerUserIds(levelId),
+      user?.playerId != null ? userHasClearerPass(user.playerId, levelId) : Promise.resolve(false),
+      user?.playerId != null ? loadPlayerTopPguDifficulty(user.playerId) : Promise.resolve(null),
+    ]);
 
   const difficulty = level?.difficulty ?? null;
   const chartCleared = uniqueClears > 0;
   const isBanned = Boolean(
     user && (hasFlag(user, permissionFlags.TAG_VOTE_BANNED) || user.isTagVoteBanned),
   );
-  const topPlayOk = canVoteByTopPlay(difficulty, topDiffFromUser(user), pguDifficulties);
-  const isClearer = user?.playerId != null
-    ? await userHasClearerPass(user.playerId, levelId)
-    : false;
+  const topPlayOk = isTopPlayRequirementSatisfied({
+    levelDiff: difficulty,
+    topDiff: liveTopDiff,
+    pguDifficulties,
+    hasClearOfThisLevel: isClearer,
+  });
 
   const assignmentByTag = new Map(assignments.map((a) => [a.tagId, a]));
   const votesByTag = new Map<number, LevelTagVote[]>();
@@ -183,6 +181,7 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
         ...serializeLevelTag(tag),
         description: tag.description ?? null,
         scoringMode: settings.scoringMode,
+        requireTopPlay: settings.requireTopPlay,
         score: wilsonLowerBound(upWeight, totalWeight, settings.wilsonZ),
         assigned: assignment != null,
         pinned: Boolean(assignment?.pinned),
@@ -198,7 +197,7 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
     })
     .filter((row): row is NonNullable<typeof row> => row != null);
 
-  return { tags, uniqueClears, chartCleared };
+  return { tags, uniqueClears, chartCleared, viewerCleared: isClearer };
 }
 
 router.get(
@@ -320,9 +319,18 @@ router.put(
         });
       }
 
-      if (settings.requireTopPlay) {
-        const pguDifficulties = await loadPguDifficulties();
-        if (!canVoteByTopPlay(level.difficulty, topDiffFromUser(req.user), pguDifficulties)) {
+      const isClearer = await userHasClearerPass(req.user.playerId, levelId, transaction);
+      if (settings.requireTopPlay && !isClearer) {
+        const [pguDifficulties, liveTopDiff] = await Promise.all([
+          loadPguDifficulties(),
+          loadPlayerTopPguDifficulty(req.user.playerId, transaction),
+        ]);
+        if (!isTopPlayRequirementSatisfied({
+          levelDiff: level.difficulty,
+          topDiff: liveTopDiff,
+          pguDifficulties,
+          hasClearOfThisLevel: false,
+        })) {
           await safeTransactionRollback(transaction);
           return res.status(403).json({
             error: 'Your top play is not high enough to vote on this chart',
@@ -330,8 +338,6 @@ router.put(
           });
         }
       }
-
-      const isClearer = await userHasClearerPass(req.user.playerId, levelId, transaction);
       if (settings.scoringMode === 'skillset' && !isClearer) {
         await safeTransactionRollback(transaction);
         return res.status(403).json({

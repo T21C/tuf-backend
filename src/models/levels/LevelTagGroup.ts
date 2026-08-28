@@ -71,7 +71,7 @@ LevelTagGroup.init(
     requireTopPlay: {
       type: DataTypes.BOOLEAN,
       allowNull: true,
-      comment: 'Require top play + 1 to vote; null means true',
+      comment: 'Require top play + 1 to vote; inherited by tags set to inherit. Null means not required.',
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,

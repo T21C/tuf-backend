@@ -52,6 +52,49 @@ export async function userHasClearerPass(
   return !!pass;
 }
 
+function coerceDifficultyLike(row: {
+  id?: number | string | null;
+  name?: string | null;
+  type?: string | null;
+  sortOrder?: number | string | null;
+} | undefined): DifficultyLike | null {
+  if (!row) return null;
+  const id = Number(row.id);
+  const sortOrder = Number(row.sortOrder);
+  if (!Number.isFinite(id) || !Number.isFinite(sortOrder)) return null;
+  return {
+    id,
+    name: row.name ?? null,
+    type: row.type ?? null,
+    sortOrder,
+  };
+}
+
+/**
+ * Live PGU top play from passes, not stale MySQL player_stats / /me.
+ */
+export async function loadPlayerTopPguDifficulty(
+  playerId: number | null | undefined,
+  transaction?: Transaction,
+): Promise<DifficultyLike | null> {
+  if (playerId == null) return null;
+  const rows = await sequelize.query<{
+    id: number | string;
+    name: string | null;
+    type: string | null;
+    sortOrder: number | string | null;
+  }>(
+    `SELECT ps.diffId AS id, ps.name, ps.type, ps.sortOrder
+     FROM player_pass_summary AS ps
+     INNER JOIN players AS pl ON pl.id = ps.playerId AND pl.isBanned = 0
+     WHERE ps.playerId = :playerId AND ps.type = 'PGU'
+     ORDER BY ps.sortOrder DESC, ps.diffId DESC
+     LIMIT 1`,
+    { replacements: { playerId }, type: QueryTypes.SELECT, transaction },
+  );
+  return coerceDifficultyLike(rows[0]);
+}
+
 export async function countUniqueClears(
   levelId: number,
   transaction?: Transaction,

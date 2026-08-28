@@ -143,13 +143,6 @@ function firstFinite(values: Array<number | null | undefined>, fallback: number)
   return fallback;
 }
 
-function firstBoolean(values: Array<boolean | null | undefined>, fallback: boolean): boolean {
-  for (const value of values) {
-    if (typeof value === 'boolean') return value;
-  }
-  return fallback;
-}
-
 export function resolveCommunityTagSettings(
   tag: CommunityTagSettingsSource,
   group: CommunityTagSettingsSource | null | undefined,
@@ -173,13 +166,13 @@ export function resolveCommunityTagSettings(
     allowedBands = null;
   }
 
-  let requireTopPlay = true;
+  let requireTopPlay = false;
   try {
-    const tagRequire = parseOptionalBoolean(tag.requireTopPlay);
-    const groupRequire = parseOptionalBoolean(group?.requireTopPlay);
-    requireTopPlay = firstBoolean([tagRequire, groupRequire], true);
+    const tagValue = parseOptionalBoolean(tag.requireTopPlay);
+    const groupValue = parseOptionalBoolean(group?.requireTopPlay);
+    requireTopPlay = (tagValue ?? groupValue) === true;
   } catch {
-    requireTopPlay = true;
+    requireTopPlay = false;
   }
 
   return {
@@ -231,6 +224,21 @@ export function canVoteByTopPlay(
   const max = maxVotableSortOrder(topDiff, pguDifficulties);
   if (max == null || levelDiff?.sortOrder == null) return false;
   return levelDiff.sortOrder <= max;
+}
+
+/**
+ * Top-play + 1, or a live clear of this chart.
+ * A clear of this level satisfies the requirement even when cached /me
+ * player_stats.topDiff is missing or stale.
+ */
+export function isTopPlayRequirementSatisfied(opts: {
+  levelDiff: DifficultyLike | null | undefined;
+  topDiff: DifficultyLike | null | undefined;
+  pguDifficulties: DifficultyLike[];
+  hasClearOfThisLevel: boolean;
+}): boolean {
+  if (opts.hasClearOfThisLevel) return true;
+  return canVoteByTopPlay(opts.levelDiff, opts.topDiff, opts.pguDifficulties);
 }
 
 export function normalizeVoteAction(action: string | undefined): 'upvote' | 'downvote' | 'unvote' | null {

@@ -10,6 +10,7 @@ import {
 } from './communityTagScoring.js';
 import {
   canVoteByTopPlay,
+  isTopPlayRequirementSatisfied,
   maxVotableSortOrder,
   normalizeVoteAction,
   parseAllowedBands,
@@ -220,6 +221,50 @@ test('G15 top play can vote on G16 and below, not U1', () => {
   );
 });
 
+test('a clear of this level satisfies top-play even with no cached topDiff', () => {
+  const pgu = [
+    { id: 15, name: 'G15', type: 'PGU', sortOrder: 35 },
+    { id: 16, name: 'G16', type: 'PGU', sortOrder: 36 },
+    { id: 41, name: 'U1', type: 'PGU', sortOrder: 41 },
+  ];
+  assert.equal(
+    isTopPlayRequirementSatisfied({
+      levelDiff: pgu[0],
+      topDiff: null,
+      pguDifficulties: pgu,
+      hasClearOfThisLevel: true,
+    }),
+    true,
+  );
+  assert.equal(
+    isTopPlayRequirementSatisfied({
+      levelDiff: { name: 'Grandmaster', type: 'SPECIAL', sortOrder: 99 },
+      topDiff: null,
+      pguDifficulties: pgu,
+      hasClearOfThisLevel: true,
+    }),
+    true,
+  );
+  assert.equal(
+    isTopPlayRequirementSatisfied({
+      levelDiff: pgu[0],
+      topDiff: null,
+      pguDifficulties: pgu,
+      hasClearOfThisLevel: false,
+    }),
+    false,
+  );
+  assert.equal(
+    isTopPlayRequirementSatisfied({
+      levelDiff: pgu[1],
+      topDiff: pgu[0],
+      pguDifficulties: pgu,
+      hasClearOfThisLevel: false,
+    }),
+    true,
+  );
+});
+
 test('resolveCommunityTagSettings inherits tag then group then env', () => {
   const env = {
     wilsonZ: 4,
@@ -239,10 +284,10 @@ test('resolveCommunityTagSettings inherits tag then group then env', () => {
   assert.equal(resolved.scoreOn, 0.3);
   assert.equal(resolved.scoreOff, 0.35);
   assert.deepEqual(resolved.allowedBands, ['P']);
-  assert.equal(resolved.requireTopPlay, true);
+  assert.equal(resolved.requireTopPlay, false);
 });
 
-test('requireTopPlay inherits tag then group then true', () => {
+test('requireTopPlay inherits from the group unless the tag overrides', () => {
   const env = {
     wilsonZ: 4,
     scoreOn: 0.45,
@@ -251,13 +296,17 @@ test('requireTopPlay inherits tag then group then true', () => {
     clearerWeight: 10,
     defaultWeight: 1,
   };
-  assert.equal(resolveCommunityTagSettings({}, {}, env).requireTopPlay, true);
+  assert.equal(resolveCommunityTagSettings({}, {}, env).requireTopPlay, false);
   assert.equal(
-    resolveCommunityTagSettings({ requireTopPlay: false }, { requireTopPlay: true }, env).requireTopPlay,
-    false,
+    resolveCommunityTagSettings({}, { requireTopPlay: true }, env).requireTopPlay,
+    true,
   );
   assert.equal(
-    resolveCommunityTagSettings({}, { requireTopPlay: false }, env).requireTopPlay,
+    resolveCommunityTagSettings({ requireTopPlay: true }, { requireTopPlay: false }, env).requireTopPlay,
+    true,
+  );
+  assert.equal(
+    resolveCommunityTagSettings({ requireTopPlay: false }, { requireTopPlay: true }, env).requireTopPlay,
     false,
   );
 });
