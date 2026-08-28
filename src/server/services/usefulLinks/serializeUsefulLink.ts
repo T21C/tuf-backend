@@ -7,6 +7,7 @@ export type UsefulLinkLocaleJson = {
   title: string;
   url: string;
   description: string | null;
+  shorthand: string | null;
 };
 
 export type UsefulLinkJson = {
@@ -14,6 +15,7 @@ export type UsefulLinkJson = {
   title: string;
   url: string;
   description: string | null;
+  shorthand: string | null;
   sortWeight: number;
   groupIds: number[];
   locales: UsefulLinkLocaleJson[];
@@ -33,6 +35,7 @@ export function serializeLocale(row: UsefulLinkLocale): UsefulLinkLocaleJson {
     title: row.title,
     url: row.url,
     description: row.description ?? null,
+    shorthand: row.shorthand ?? null,
   };
 }
 
@@ -72,6 +75,7 @@ export function serializeUsefulLink(row: UsefulLink, groupIds?: number[]): Usefu
     title: row.title,
     url: row.url,
     description: row.description ?? null,
+    shorthand: row.shorthand ?? null,
     sortWeight: row.sortWeight,
     groupIds: [...new Set(ids)],
     locales,

@@ -14,6 +14,7 @@ import {
   parseUsefulLinkCreate,
   parseUsefulLinkPatch,
   TITLE_MAX,
+  SHORTHAND_MAX,
 } from './usefulLinkFields.js';
 import {serializeUsefulLink, compareSerializedLinkOrder} from './serializeUsefulLink.js';
 import {resolveLinkLocale, linkHasLocale} from './serializeUsefulLink.js';
@@ -38,6 +39,7 @@ void test('parseUsefulLinkCreate requires title and url and accepts groupIds', (
     title: '  Rating guide  ',
     url: 'https://www.notion.so/rating',
     description: '  How we rate  ',
+    shorthand: '  TUF Notion  ',
     groupIds: [3, '3', 1],
   });
   assert.equal(created.ok, true);
@@ -46,6 +48,7 @@ void test('parseUsefulLinkCreate requires title and url and accepts groupIds', (
     title: 'Rating guide',
     url: 'https://www.notion.so/rating',
     description: 'How we rate',
+    shorthand: 'TUF Notion',
     groupIds: [3, 1],
   });
 });
@@ -67,7 +70,17 @@ void test('parseUsefulLinkCreate blank optional fields become null', () => {
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.value.description, null);
+  assert.equal(result.value.shorthand, null);
   assert.deepEqual(result.value.groupIds, []);
+});
+
+void test('parseUsefulLinkCreate rejects oversized shorthand', () => {
+  const result = parseUsefulLinkCreate({
+    title: 'Docs',
+    url: 'https://www.notion.so/docs',
+    shorthand: 'x'.repeat(SHORTHAND_MAX + 1),
+  });
+  assert.equal(result.ok, false);
 });
 
 void test('parseUsefulLinkPatch applies only provided fields', () => {
@@ -81,6 +94,16 @@ void test('parseUsefulLinkPatch applies only provided fields', () => {
   if (!patch.ok) return;
   assert.deepEqual(patch.value.groupIds, [2]);
   assert.equal(patch.value.title, undefined);
+
+  const shorthandPatch = parseUsefulLinkPatch({shorthand: '  TUF Notion  '});
+  assert.equal(shorthandPatch.ok, true);
+  if (!shorthandPatch.ok) return;
+  assert.equal(shorthandPatch.value.shorthand, 'TUF Notion');
+
+  const clearShorthand = parseUsefulLinkPatch({shorthand: '   '});
+  assert.equal(clearShorthand.ok, true);
+  if (!clearShorthand.ok) return;
+  assert.equal(clearShorthand.value.shorthand, null);
 });
 
 void test('parseTagIds rejects invalid ids', () => {
@@ -121,12 +144,32 @@ void test('parseLocaleFields requires languageCode title and url', () => {
     title: '  Guide  ',
     url: 'https://kr.example/docs',
     description: '',
+    shorthand: '  TUF  ',
   });
   assert.equal(ok.ok, true);
   if (!ok.ok) return;
   assert.equal(ok.value.languageCode, 'kr');
   assert.equal(ok.value.title, 'Guide');
   assert.equal(ok.value.description, null);
+  assert.equal(ok.value.shorthand, 'TUF');
+
+  const blankShorthand = parseLocaleFields({
+    languageCode: 'en',
+    title: 'Guide',
+    url: 'https://en.example/docs',
+    shorthand: '   ',
+  });
+  assert.equal(blankShorthand.ok, true);
+  if (!blankShorthand.ok) return;
+  assert.equal(blankShorthand.value.shorthand, null);
+
+  const oversized = parseLocaleFields({
+    languageCode: 'en',
+    title: 'Guide',
+    url: 'https://en.example/docs',
+    shorthand: 'x'.repeat(SHORTHAND_MAX + 1),
+  });
+  assert.equal(oversized.ok, false);
 });
 
 void test('parseSortOrders keeps unique positive ids', () => {
@@ -152,18 +195,34 @@ void test('serializeUsefulLink includes groupIds and locales', () => {
     title: 'Guide',
     url: 'https://www.notion.so/x',
     description: null,
+    shorthand: 'TUF Notion',
     sortWeight: 2,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     groups: [{id: 4}],
     locales: [
-      {languageCode: 'en', title: 'Guide', url: 'https://www.notion.so/x', description: null},
-      {languageCode: 'kr', title: '가이드', url: 'https://kr.example', description: 'ko'},
+      {
+        languageCode: 'en',
+        title: 'Guide',
+        url: 'https://www.notion.so/x',
+        description: null,
+        shorthand: 'TUF Notion',
+      },
+      {
+        languageCode: 'kr',
+        title: '가이드',
+        url: 'https://kr.example',
+        description: 'ko',
+        shorthand: null,
+      },
     ],
   } as any);
   assert.deepEqual(json.groupIds, [4]);
+  assert.equal(json.shorthand, 'TUF Notion');
   assert.equal(json.locales[0].languageCode, 'en');
+  assert.equal(json.locales[0].shorthand, 'TUF Notion');
   assert.equal(json.locales[1].languageCode, 'kr');
+  assert.equal(json.locales[1].shorthand, null);
 });
 
 void test('compareSerializedLinkOrder sorts by sortWeight then id', () => {
@@ -171,6 +230,7 @@ void test('compareSerializedLinkOrder sorts by sortWeight then id', () => {
     title: 'A',
     url: 'https://a.example',
     description: null,
+    shorthand: null,
     groupIds: [],
     locales: [],
     createdAt: new Date(),
@@ -186,8 +246,8 @@ void test('compareSerializedLinkOrder sorts by sortWeight then id', () => {
 
 void test('resolveLinkLocale uses requested locale then falls back to en', () => {
   const locales = [
-    {languageCode: 'en', title: 'EN', url: 'https://en.example', description: null},
-    {languageCode: 'kr', title: 'KR', url: 'https://kr.example', description: null},
+    {languageCode: 'en', title: 'EN', url: 'https://en.example', description: null, shorthand: null},
+    {languageCode: 'kr', title: 'KR', url: 'https://kr.example', description: null, shorthand: 'KR Label'},
   ];
   assert.equal(resolveLinkLocale(locales, 'kr')?.title, 'KR');
   assert.equal(resolveLinkLocale(locales, 'us')?.title, 'EN');
@@ -200,8 +260,8 @@ void test('add language rejects unknown codes but stale locales still resolve', 
   assert.equal(isConfiguredSiteLanguage('xx'), false);
   assert.equal(isConfiguredSiteLanguage('kr'), true);
   const locales = [
-    {languageCode: 'en', title: 'EN', url: 'https://en.example', description: null},
-    {languageCode: 'xx', title: 'XX', url: 'https://xx.example', description: null},
+    {languageCode: 'en', title: 'EN', url: 'https://en.example', description: null, shorthand: 'TUF Notion'},
+    {languageCode: 'xx', title: 'XX', url: 'https://xx.example', description: null, shorthand: null},
   ];
   assert.equal(resolveLinkLocale(locales, 'xx')?.title, 'XX');
 });
