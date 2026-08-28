@@ -38,5 +38,5 @@ function createMemoryCdnImageMulter(fileSizeBytes: number) {
 /** Matches `CDN_CONFIG.maxImageSize` / typical admin evidence and profile uploads */
 export const multerMemoryCdnImage10Mb = createMemoryCdnImageMulter(10 * 1024 * 1024);
 
-/** Matches PACK_ICON / TAG_ICON / CURATION_ICON `maxSize` in IMAGE_TYPES */
+/** Matches PACK_ICON / CLUSTER_ICON / TAG_ICON / CURATION_ICON `maxSize` in IMAGE_TYPES */
 export const multerMemoryCdnImage5Mb = createMemoryCdnImageMulter(5 * 1024 * 1024);

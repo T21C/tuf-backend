@@ -28,25 +28,9 @@ const upload = multer({
 
 const router: Router = express.Router();
 
-type LanguageConfig = {
-  display: string;
-  countryCode: string;
-  folder: string;
-  contributors: string[];
-};
+import {SITE_LANGUAGE_CONFIGS} from '@/config/siteLanguages.js';
 
-const languageConfigs: Record<string, LanguageConfig> = {
-  en: {display: 'English', countryCode: 'us', folder: 'en', contributors: []},
-  pl: {display: 'Polish', countryCode: 'pl', folder: 'pl', contributors: ["Matsum"]},
-  kr: {display: '한국어', countryCode: 'kr', folder: 'kr', contributors: ["부담토끼", "van-ci", "HaeengIn", "동찬토끼"]},
-  cn: {display: '中文', countryCode: 'cn', folder: 'cn', contributors: ["-Desktop0114514", "Alex1044", "Ariaelle"]},
-  id: {display: 'Bahasa Indonesia', countryCode: 'id', folder: 'id', contributors: []},
-  jp: {display: '日本語', countryCode: 'jp', folder: 'jp', contributors: []},
-  ru: {display: 'Русский', countryCode: 'ru', folder: 'ru', contributors: []},
-  de: {display: 'Deutsch', countryCode: 'de', folder: 'de', contributors: []},
-  fr: {display: 'Français', countryCode: 'fr', folder: 'fr', contributors: ["Folcrome", "Dexical"]},
-  es: {display: 'Español', countryCode: 'es', folder: 'es', contributors: []},
-};
+const languageConfigs = SITE_LANGUAGE_CONFIGS;
 
 interface MulterRequest extends Request {
   file?: Express.Multer.File;

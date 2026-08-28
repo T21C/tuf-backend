@@ -82,7 +82,13 @@ import NotificationUserSettings from './notifications/NotificationUserSettings.j
 import PushSubscription from './notifications/PushSubscription.js';
 import ChartClearNotificationMute from './notifications/ChartClearNotificationMute.js';
 import UsefulLink from './misc/UsefulLink.js';
-import UsefulLinkGroup from './misc/UsefulLinkGroup.js';
+import UsefulLinkTag from './misc/UsefulLinkTag.js';
+import UsefulLinkTagGroup from './misc/UsefulLinkTagGroup.js';
+import UsefulLinkTagAssignment from './misc/UsefulLinkTagAssignment.js';
+import UsefulLinkLocale from './misc/UsefulLinkLocale.js';
+import UsefulLinkCluster from './misc/UsefulLinkCluster.js';
+import UsefulLinkClusterItem from './misc/UsefulLinkClusterItem.js';
+import UsefulLinkClusterLocaleDefault from './misc/UsefulLinkClusterLocaleDefault.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -171,7 +177,13 @@ export const db = {
     PushSubscription,
     ChartClearNotificationMute,
     UsefulLink,
-    UsefulLinkGroup,
+    UsefulLinkTag,
+    UsefulLinkTagGroup,
+    UsefulLinkTagAssignment,
+    UsefulLinkLocale,
+    UsefulLinkCluster,
+    UsefulLinkClusterItem,
+    UsefulLinkClusterLocaleDefault,
   },
 };
 

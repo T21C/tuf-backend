@@ -6,7 +6,9 @@ import {
   CreationOptional,
 } from 'sequelize';
 import {getSequelizeForModelGroup} from '@/config/db.js';
-import type UsefulLinkGroup from './UsefulLinkGroup.js';
+import type UsefulLinkTag from './UsefulLinkTag.js';
+import type UsefulLinkTagAssignment from './UsefulLinkTagAssignment.js';
+import type UsefulLinkLocale from './UsefulLinkLocale.js';
 
 const sequelize = getSequelizeForModelGroup('admin');
 
@@ -18,12 +20,15 @@ class UsefulLink extends Model<
   declare title: string;
   declare url: string;
   declare description: CreationOptional<string | null>;
-  declare groupId: CreationOptional<number | null>;
+  declare ownerId: CreationOptional<string | null>;
+  declare isCatalog: CreationOptional<boolean>;
   declare sortWeight: CreationOptional<number>;
   declare isPublished: CreationOptional<boolean>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
-  declare linkGroup?: UsefulLinkGroup | null;
+  declare tags?: UsefulLinkTag[];
+  declare tagAssignments?: UsefulLinkTagAssignment[];
+  declare locales?: UsefulLinkLocale[];
 }
 
 UsefulLink.init(
@@ -45,15 +50,14 @@ UsefulLink.init(
       type: DataTypes.TEXT,
       allowNull: true,
     },
-    groupId: {
-      type: DataTypes.INTEGER,
+    ownerId: {
+      type: DataTypes.UUID,
       allowNull: true,
-      references: {
-        model: 'useful_link_groups',
-        key: 'id',
-      },
-      onDelete: 'SET NULL',
-      onUpdate: 'CASCADE',
+    },
+    isCatalog: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
     },
     sortWeight: {
       type: DataTypes.INTEGER,
@@ -79,7 +83,8 @@ UsefulLink.init(
     tableName: 'useful_links',
     indexes: [
       {fields: ['sortWeight'], name: 'idx_useful_links_sort_weight'},
-      {fields: ['groupId'], name: 'idx_useful_links_group_id'},
+      {fields: ['ownerId'], name: 'idx_useful_links_owner_id'},
+      {fields: ['isCatalog'], name: 'idx_useful_links_is_catalog'},
     ],
   },
 );
