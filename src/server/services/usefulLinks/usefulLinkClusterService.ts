@@ -12,10 +12,24 @@ import {
   serializeUsefulLinkTag,
   type UsefulLinkTagJson,
 } from './usefulLinkTagService.js';
-import {DEFAULT_SITE_LANGUAGE} from '@/config/siteLanguages.js';
 import {getFileIdFromCdnUrl, isCdnUrl} from '@/misc/utils/Utility.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import {logger} from '@/server/services/core/LoggerService.js';
+import {
+  checkPublishReady,
+  itemHasLocale,
+  itemsByLocale,
+  localesOnItem,
+  type PublishCheckResult,
+} from './usefulLinkClusterPublish.js';
+
+export {
+  checkPublishReady,
+  itemHasLocale,
+  itemsByLocale,
+  localesOnItem,
+  type PublishCheckResult,
+};
 
 export type ClusterOwnerJson = {
   id: string;
@@ -236,26 +250,6 @@ export async function loadSerializedCluster(
   });
 }
 
-export function localesOnItem(item: ClusterItemJson): string[] {
-  return (item.link?.locales ?? []).map((row) => row.languageCode);
-}
-
-export function itemHasLocale(item: ClusterItemJson, languageCode: string): boolean {
-  return localesOnItem(item).includes(languageCode);
-}
-
-export function itemsByLocale(items: ClusterItemJson[]): Map<string, ClusterItemJson[]> {
-  const map = new Map<string, ClusterItemJson[]>();
-  for (const item of items) {
-    for (const code of new Set(localesOnItem(item))) {
-      const list = map.get(code) ?? [];
-      list.push(item);
-      map.set(code, list);
-    }
-  }
-  return map;
-}
-
 export async function syncClusterLocaleDefaults(
   clusterId: number,
   transaction?: Transaction,
@@ -298,33 +292,6 @@ export async function syncClusterLocaleDefaults(
       {transaction},
     );
   }
-}
-
-export type PublishCheckResult = {ok: true} | {ok: false; error: string};
-
-export function checkPublishReady(items: ClusterItemJson[], defaults: ClusterLocaleDefaultJson[]): PublishCheckResult {
-  for (const item of items) {
-    if (!item.linkId || !item.link) continue;
-    const hasEn =
-      item.link.locales.some((row) => row.languageCode === DEFAULT_SITE_LANGUAGE) ||
-      Boolean(item.link.title && item.link.url);
-    if (!hasEn) {
-      return {ok: false, error: 'Every link must have an English locale before publishing'};
-    }
-  }
-  const byLocale = itemsByLocale(items);
-  const defaultByCode = new Map(defaults.map((row) => [row.languageCode, row.itemId]));
-  for (const [code, live] of byLocale.entries()) {
-    if (live.length < 2) continue;
-    const itemId = defaultByCode.get(code);
-    if (!itemId || !live.some((item) => item.id === itemId)) {
-      return {
-        ok: false,
-        error: `Select a default ${code} link before publishing`,
-      };
-    }
-  }
-  return {ok: true};
 }
 
 export function generateLinkCode(): string {

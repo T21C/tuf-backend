@@ -24,12 +24,14 @@ import {
   ownerMaySetViewMode,
   UsefulLinkClusterViewModes,
 } from './usefulLinkClusterAccess.js';
-import {checkPublishReady, itemsByLocale} from './usefulLinkClusterService.js';
+import {checkPublishReady, itemsByLocale} from './usefulLinkClusterPublish.js';
 import {permissionFlags} from '@/config/constants.js';
 import {isConfiguredSiteLanguage, siteLanguageCodesMatchingQuery} from '@/config/siteLanguages.js';
 
-const hasFlag = (user: {permissionFlags?: bigint} | null, flag: bigint) =>
-  Boolean(user && (BigInt(user.permissionFlags ?? 0) & flag) === flag);
+const hasFlag = (user: unknown, flag: bigint) => {
+  if (!user || typeof user !== 'object' || !('permissionFlags' in user)) return false;
+  return (BigInt((user.permissionFlags as bigint | string | number | undefined) ?? 0) & flag) === flag;
+};
 
 void test('parseHttpUrl accepts http(s) and rejects dangerous schemes', () => {
   assert.equal(parseHttpUrl('https://www.notion.so/TUF-guides-abc').ok, true);
@@ -102,7 +104,10 @@ void test('parseUsefulLinkPatch applies only provided fields', () => {
 
 void test('parseTagIds rejects invalid ids', () => {
   assert.equal(parseTagIds('nope').ok, false);
-  assert.deepEqual(parseTagIds([1, 1, 2]).value, [1, 2]);
+  const ids = parseTagIds([1, 1, 2]);
+  assert.equal(ids.ok, true);
+  if (!ids.ok) return;
+  assert.deepEqual(ids.value, [1, 2]);
 });
 
 void test('parseHexColor requires six-digit hex', () => {
