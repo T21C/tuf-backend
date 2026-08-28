@@ -13,19 +13,24 @@ export const DEFAULT_MAX_ITEMS_PER_CLUSTER = 250;
 export const TUF_STELLAR_MAX_ITEMS_PER_CLUSTER = 250;
 
 type UserLike = {id?: string; permissionFlags?: string | number | bigint} | null | undefined;
+type HasFlagFn<T extends UserLike> = (user: T, flag: bigint) => boolean;
 
 function userIdOf(user: UserLike): string | null {
   return user && typeof user.id === 'string' ? user.id : null;
 }
 
-export function isSuperAdminUser(user: UserLike, hasFlag: (u: unknown, flag: bigint) => boolean, flag: bigint): boolean {
+export function isSuperAdminUser<T extends UserLike>(
+  user: T,
+  hasFlag: HasFlagFn<T>,
+  flag: bigint,
+): boolean {
   return Boolean(user && hasFlag(user, flag));
 }
 
-export function canViewCluster(
+export function canViewCluster<T extends UserLike>(
   cluster: {ownerId: string; viewMode: number},
-  user: UserLike,
-  hasFlag: (u: unknown, flag: bigint) => boolean,
+  user: T,
+  hasFlag: HasFlagFn<T>,
   superAdminFlag: bigint,
 ): boolean {
   if (!cluster) return false;
@@ -38,10 +43,10 @@ export function canViewCluster(
   );
 }
 
-export function canEditCluster(
+export function canEditCluster<T extends UserLike>(
   cluster: {ownerId: string; viewMode: number},
-  user: UserLike,
-  hasFlag: (u: unknown, flag: bigint) => boolean,
+  user: T,
+  hasFlag: HasFlagFn<T>,
   superAdminFlag: bigint,
 ): boolean {
   if (!user || !cluster) return false;
