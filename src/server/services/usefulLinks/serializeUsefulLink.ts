@@ -1,63 +1,95 @@
 import type UsefulLink from '@/models/misc/UsefulLink.js';
-import type UsefulLinkGroup from '@/models/misc/UsefulLinkGroup.js';
+import type UsefulLinkTag from '@/models/misc/UsefulLinkTag.js';
+import type UsefulLinkLocale from '@/models/misc/UsefulLinkLocale.js';
+import {
+  serializeUsefulLinkTag,
+  compareSerializedTagOrder,
+  type UsefulLinkTagJson,
+} from './usefulLinkTagService.js';
+import {DEFAULT_SITE_LANGUAGE, normalizeSiteLanguage} from '@/config/siteLanguages.js';
+
+export type UsefulLinkLocaleJson = {
+  languageCode: string;
+  title: string;
+  url: string;
+  description: string | null;
+};
 
 export type UsefulLinkJson = {
   id: number;
   title: string;
   url: string;
   description: string | null;
-  groupId: number | null;
-  group: string | null;
-  groupSortOrder: number | null;
   sortWeight: number;
   isPublished: boolean;
+  isCatalog: boolean;
+  ownerId: string | null;
+  tags: UsefulLinkTagJson[];
+  locales: UsefulLinkLocaleJson[];
   createdAt: Date;
   updatedAt: Date;
 };
 
-export type UsefulLinkGroupJson = {
-  id: number;
-  name: string;
-  sortOrder: number;
-  createdAt: Date;
-  updatedAt: Date;
+type LinkWithRelations = UsefulLink & {
+  tags?: UsefulLinkTag[];
+  locales?: UsefulLinkLocale[];
 };
 
-type LinkWithGroup = UsefulLink & {linkGroup?: UsefulLinkGroup | null};
+export function serializeLocale(row: UsefulLinkLocale): UsefulLinkLocaleJson {
+  return {
+    languageCode: row.languageCode,
+    title: row.title,
+    url: row.url,
+    description: row.description ?? null,
+  };
+}
+
+export function resolveLinkLocale(
+  locales: UsefulLinkLocaleJson[],
+  requested: string | null | undefined,
+): UsefulLinkLocaleJson | null {
+  if (!locales.length) return null;
+  const wanted = normalizeSiteLanguage(requested);
+  const match = locales.find((row) => row.languageCode === wanted);
+  if (match) return match;
+  return locales.find((row) => row.languageCode === DEFAULT_SITE_LANGUAGE) ?? locales[0] ?? null;
+}
+
+export function linkHasLocale(locales: UsefulLinkLocaleJson[], languageCode: string): boolean {
+  const wanted = normalizeSiteLanguage(languageCode);
+  return locales.some((row) => row.languageCode === wanted);
+}
 
 export function serializeUsefulLink(row: UsefulLink): UsefulLinkJson {
-  const nested = (row as LinkWithGroup).linkGroup ?? null;
+  const nested = row as LinkWithRelations;
+  const tags = [...(nested.tags ?? [])]
+    .map(serializeUsefulLinkTag)
+    .sort(compareSerializedTagOrder);
+  const locales = [...(nested.locales ?? [])]
+    .map(serializeLocale)
+    .sort((a, b) => {
+      if (a.languageCode === DEFAULT_SITE_LANGUAGE) return -1;
+      if (b.languageCode === DEFAULT_SITE_LANGUAGE) return 1;
+      return a.languageCode.localeCompare(b.languageCode);
+    });
+
   return {
     id: row.id,
     title: row.title,
     url: row.url,
     description: row.description ?? null,
-    groupId: row.groupId ?? null,
-    group: nested?.name ?? null,
-    groupSortOrder: nested?.sortOrder ?? null,
     sortWeight: row.sortWeight,
     isPublished: Boolean(row.isPublished),
+    isCatalog: row.isCatalog !== false,
+    ownerId: row.ownerId ?? null,
+    tags,
+    locales,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
 }
 
-export function serializeUsefulLinkGroup(group: UsefulLinkGroup): UsefulLinkGroupJson {
-  return {
-    id: group.id,
-    name: group.name,
-    sortOrder: group.sortOrder,
-    createdAt: group.createdAt,
-    updatedAt: group.updatedAt,
-  };
-}
-
 export function compareSerializedLinkOrder(a: UsefulLinkJson, b: UsefulLinkJson): number {
-  const groupedA = a.group && String(a.group).trim() !== '';
-  const groupedB = b.group && String(b.group).trim() !== '';
-  const groupA = groupedA ? (a.groupSortOrder ?? 0) : Number.MAX_SAFE_INTEGER;
-  const groupB = groupedB ? (b.groupSortOrder ?? 0) : Number.MAX_SAFE_INTEGER;
-  if (groupA !== groupB) return groupA - groupB;
   const sortA = a.sortWeight ?? 0;
   const sortB = b.sortWeight ?? 0;
   if (sortA !== sortB) return sortA - sortB;

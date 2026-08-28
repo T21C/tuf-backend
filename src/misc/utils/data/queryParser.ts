@@ -209,6 +209,9 @@ export const queryParserConfigs = {
     allowedFields: ['name', 'owner', 'levelId', 'viewMode', 'pinned'],
     numericFields: ['levelId']
   },
+  usefulLinkCluster: {
+    allowedFields: ['name', 'owner', 'tag', 'language', 'lang'],
+  },
   song: {
     allowedFields: ['artists'],
     numericFields: ['artists']

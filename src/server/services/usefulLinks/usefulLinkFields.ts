@@ -1,15 +1,23 @@
 export const TITLE_MAX = 255;
 export const URL_MAX = 2048;
 export const DESCRIPTION_MAX = 2000;
-export const GROUP_NAME_MAX = 64;
+export const TAG_NAME_MAX = 64;
+export const TAG_GROUP_NAME_MAX = 64;
+export const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
 
 export type UsefulLinkFields = {
   title: string;
   url: string;
   description: string | null;
   isPublished: boolean;
-  group?: string | null;
-  groupId?: number | null;
+  tagIds?: number[];
+};
+
+export type UsefulLinkLocaleFields = {
+  languageCode: string;
+  title: string;
+  url: string;
+  description: string | null;
 };
 
 export type ParseResult<T> = {ok: true; value: T} | {ok: false; error: string};
@@ -47,28 +55,51 @@ export function parseHttpUrl(raw: unknown): ParseResult<string> {
   }
 }
 
-export function parseGroupName(raw: unknown): ParseResult<string> {
+export function parseTagName(raw: unknown): ParseResult<string> {
+  if (typeof raw !== 'string') return {ok: false, error: 'Tag name is required'};
+  const name = raw.trim();
+  if (!name) return {ok: false, error: 'Tag name is required'};
+  if (name.length > TAG_NAME_MAX) {
+    return {ok: false, error: 'Tag name is too long'};
+  }
+  return {ok: true, value: name};
+}
+
+export function parseTagGroupName(raw: unknown): ParseResult<string> {
   if (typeof raw !== 'string') return {ok: false, error: 'Group name is required'};
   const name = raw.trim();
   if (!name) return {ok: false, error: 'Group name is required'};
-  if (name.length > GROUP_NAME_MAX) {
+  if (name.length > TAG_GROUP_NAME_MAX) {
     return {ok: false, error: 'Group name is too long'};
   }
   return {ok: true, value: name};
 }
 
-function parseOptionalGroupName(raw: unknown): ParseResult<string | null | undefined> {
-  if (raw === undefined) return {ok: true, value: undefined};
-  if (raw === null || raw === 'null') return {ok: true, value: null};
-  return optionalText(raw, GROUP_NAME_MAX);
+export function parseHexColor(raw: unknown): ParseResult<string> {
+  if (typeof raw !== 'string') return {ok: false, error: 'color is required'};
+  const color = raw.trim();
+  if (!HEX_COLOR_PATTERN.test(color)) {
+    return {ok: false, error: 'Invalid color format. Must be a hex color (e.g., #FF5733)'};
+  }
+  return {ok: true, value: color.toUpperCase()};
 }
 
-function parseOptionalGroupId(raw: unknown): ParseResult<number | null | undefined> {
+export function parseTagIds(raw: unknown): ParseResult<number[] | undefined> {
   if (raw === undefined) return {ok: true, value: undefined};
-  if (raw === null || raw === '' || raw === 'null') return {ok: true, value: null};
-  const n = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isInteger(n) || n <= 0) return {ok: false, error: 'Invalid groupId'};
-  return {ok: true, value: n};
+  if (raw === null) return {ok: true, value: []};
+  if (!Array.isArray(raw)) return {ok: false, error: 'tagIds must be an array'};
+  const seen = new Set<number>();
+  const ids: number[] = [];
+  for (const item of raw) {
+    const n = typeof item === 'number' ? item : Number(item);
+    if (!Number.isInteger(n) || n <= 0) {
+      return {ok: false, error: 'Invalid tagId'};
+    }
+    if (seen.has(n)) continue;
+    seen.add(n);
+    ids.push(n);
+  }
+  return {ok: true, value: ids};
 }
 
 export function parseUsefulLinkCreate(body: unknown): ParseResult<UsefulLinkFields> {
@@ -83,11 +114,8 @@ export function parseUsefulLinkCreate(body: unknown): ParseResult<UsefulLinkFiel
   const description = optionalText(src.description, DESCRIPTION_MAX);
   if (!description.ok) return description;
 
-  const group = parseOptionalGroupName(src.group);
-  if (!group.ok) return group;
-
-  const groupId = parseOptionalGroupId(src.groupId);
-  if (!groupId.ok) return groupId;
+  const tagIds = parseTagIds(src.tagIds);
+  if (!tagIds.ok) return tagIds;
 
   const isPublished =
     typeof src.isPublished === 'boolean' ? src.isPublished : true;
@@ -99,8 +127,7 @@ export function parseUsefulLinkCreate(body: unknown): ParseResult<UsefulLinkFiel
       url: url.value,
       description: description.value,
       isPublished,
-      group: group.value === undefined ? null : group.value,
-      groupId: groupId.value === undefined ? null : groupId.value,
+      tagIds: tagIds.value ?? [],
     },
   };
 }
@@ -134,16 +161,10 @@ export function parseUsefulLinkPatch(
     updates.description = description.value;
   }
 
-  if (src.group !== undefined) {
-    const group = parseOptionalGroupName(src.group);
-    if (!group.ok) return group;
-    updates.group = group.value ?? null;
-  }
-
-  if (src.groupId !== undefined) {
-    const groupId = parseOptionalGroupId(src.groupId);
-    if (!groupId.ok) return groupId;
-    updates.groupId = groupId.value ?? null;
+  if (src.tagIds !== undefined) {
+    const tagIds = parseTagIds(src.tagIds);
+    if (!tagIds.ok) return tagIds;
+    updates.tagIds = tagIds.value ?? [];
   }
 
   if (src.isPublished !== undefined) {
@@ -205,4 +226,39 @@ export function mergeOrderedIds(requested: number[], existingIds: number[]): num
     if (!seen.has(id)) ordered.push(id);
   }
   return ordered;
+}
+
+export function parseTitle(raw: unknown): ParseResult<string> {
+  if (typeof raw !== 'string') return {ok: false, error: 'title is required'};
+  const title = raw.trim();
+  if (!title) return {ok: false, error: 'title is required'};
+  if (title.length > TITLE_MAX) return {ok: false, error: 'title is too long'};
+  return {ok: true, value: title};
+}
+
+export function parseLocaleFields(
+  body: unknown,
+): ParseResult<UsefulLinkLocaleFields> {
+  const src = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const languageCode =
+    typeof src.languageCode === 'string' ? src.languageCode.trim().toLowerCase() : '';
+  if (!languageCode) return {ok: false, error: 'languageCode is required'};
+  if (languageCode.length > 8) return {ok: false, error: 'languageCode is invalid'};
+
+  const title = parseTitle(src.title);
+  if (!title.ok) return title;
+  const url = parseHttpUrl(src.url);
+  if (!url.ok) return url;
+  const description = optionalText(src.description, DESCRIPTION_MAX);
+  if (!description.ok) return description;
+
+  return {
+    ok: true,
+    value: {
+      languageCode,
+      title: title.value,
+      url: url.value,
+      description: description.value,
+    },
+  };
 }
