@@ -287,7 +287,7 @@ test('resolveCommunityTagSettings inherits tag then group then env', () => {
   assert.equal(resolved.requireTopPlay, false);
 });
 
-test('requireTopPlay is tag-specific and does not inherit from the group', () => {
+test('requireTopPlay inherits from the group unless the tag overrides', () => {
   const env = {
     wilsonZ: 4,
     scoreOn: 0.45,
@@ -298,15 +298,15 @@ test('requireTopPlay is tag-specific and does not inherit from the group', () =>
   };
   assert.equal(resolveCommunityTagSettings({}, {}, env).requireTopPlay, false);
   assert.equal(
+    resolveCommunityTagSettings({}, { requireTopPlay: true }, env).requireTopPlay,
+    true,
+  );
+  assert.equal(
     resolveCommunityTagSettings({ requireTopPlay: true }, { requireTopPlay: false }, env).requireTopPlay,
     true,
   );
   assert.equal(
     resolveCommunityTagSettings({ requireTopPlay: false }, { requireTopPlay: true }, env).requireTopPlay,
-    false,
-  );
-  assert.equal(
-    resolveCommunityTagSettings({}, { requireTopPlay: true }, env).requireTopPlay,
     false,
   );
 });

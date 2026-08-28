@@ -168,7 +168,9 @@ export function resolveCommunityTagSettings(
 
   let requireTopPlay = false;
   try {
-    requireTopPlay = parseOptionalBoolean(tag.requireTopPlay) === true;
+    const tagValue = parseOptionalBoolean(tag.requireTopPlay);
+    const groupValue = parseOptionalBoolean(group?.requireTopPlay);
+    requireTopPlay = (tagValue ?? groupValue) === true;
   } catch {
     requireTopPlay = false;
   }
