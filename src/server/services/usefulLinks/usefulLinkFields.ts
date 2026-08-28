@@ -1,6 +1,7 @@
 export const TITLE_MAX = 255;
 export const URL_MAX = 2048;
 export const DESCRIPTION_MAX = 2000;
+export const SHORTHAND_MAX = 64;
 export const GROUP_NAME_MAX = 64;
 export const TAG_GROUP_NAME_MAX = GROUP_NAME_MAX;
 
@@ -8,6 +9,7 @@ export type UsefulLinkFields = {
   title: string;
   url: string;
   description: string | null;
+  shorthand: string | null;
   groupIds?: number[];
 };
 
@@ -16,6 +18,7 @@ export type UsefulLinkLocaleFields = {
   title: string;
   url: string;
   description: string | null;
+  shorthand: string | null;
 };
 
 export type ParseResult<T> = {ok: true; value: T} | {ok: false; error: string};
@@ -97,6 +100,9 @@ export function parseUsefulLinkCreate(body: unknown): ParseResult<UsefulLinkFiel
   const description = optionalText(src.description, DESCRIPTION_MAX);
   if (!description.ok) return description;
 
+  const shorthand = optionalText(src.shorthand, SHORTHAND_MAX);
+  if (!shorthand.ok) return shorthand;
+
   const groupIds = parseGroupIds(src.groupIds ?? src.tagIds);
   if (!groupIds.ok) return groupIds;
 
@@ -106,6 +112,7 @@ export function parseUsefulLinkCreate(body: unknown): ParseResult<UsefulLinkFiel
       title: titleRaw,
       url: url.value,
       description: description.value,
+      shorthand: shorthand.value,
       groupIds: groupIds.value ?? [],
     },
   };
@@ -138,6 +145,12 @@ export function parseUsefulLinkPatch(
     const description = optionalText(src.description, DESCRIPTION_MAX);
     if (!description.ok) return description;
     updates.description = description.value;
+  }
+
+  if (src.shorthand !== undefined) {
+    const shorthand = optionalText(src.shorthand, SHORTHAND_MAX);
+    if (!shorthand.ok) return shorthand;
+    updates.shorthand = shorthand.value;
   }
 
   if (src.groupIds !== undefined || src.tagIds !== undefined) {
@@ -244,6 +257,8 @@ export function parseLocaleFields(
   if (!url.ok) return url;
   const description = optionalText(src.description, DESCRIPTION_MAX);
   if (!description.ok) return description;
+  const shorthand = optionalText(src.shorthand, SHORTHAND_MAX);
+  if (!shorthand.ok) return shorthand;
 
   return {
     ok: true,
@@ -252,6 +267,7 @@ export function parseLocaleFields(
       title: title.value,
       url: url.value,
       description: description.value,
+      shorthand: shorthand.value,
     },
   };
 }

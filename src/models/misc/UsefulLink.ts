@@ -20,6 +20,7 @@ class UsefulLink extends Model<
   declare title: string;
   declare url: string;
   declare description: CreationOptional<string | null>;
+  declare shorthand: CreationOptional<string | null>;
   declare sortWeight: CreationOptional<number>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
@@ -45,6 +46,10 @@ UsefulLink.init(
     },
     description: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    shorthand: {
+      type: DataTypes.STRING(64),
       allowNull: true,
     },
     sortWeight: {

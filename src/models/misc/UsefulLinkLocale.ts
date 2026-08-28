@@ -21,6 +21,7 @@ class UsefulLinkLocale extends Model<
   declare title: string;
   declare url: string;
   declare description: CreationOptional<string | null>;
+  declare shorthand: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -56,6 +57,10 @@ UsefulLinkLocale.init(
     },
     description: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    shorthand: {
+      type: DataTypes.STRING(64),
       allowNull: true,
     },
     createdAt: DataTypes.DATE,

@@ -375,7 +375,8 @@ router.patch(
         if (
           fields.title !== undefined ||
           fields.url !== undefined ||
-          fields.description !== undefined
+          fields.description !== undefined ||
+          fields.shorthand !== undefined
         ) {
           await upsertEnglishLocale(link, transaction);
         }
@@ -427,6 +428,7 @@ router.put(
               title: parsed.value.title,
               url: parsed.value.url,
               description: parsed.value.description,
+              shorthand: parsed.value.shorthand,
             },
             {transaction},
           );
@@ -447,6 +449,7 @@ router.put(
               title: parsed.value.title,
               url: parsed.value.url,
               description: parsed.value.description,
+              shorthand: parsed.value.shorthand,
             },
             {transaction},
           );

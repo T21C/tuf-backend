@@ -120,7 +120,7 @@ export async function listResourcesCatalog(
 }
 
 export async function upsertEnglishLocale(
-  link: {id: number; title: string; url: string; description?: string | null},
+  link: {id: number; title: string; url: string; description?: string | null; shorthand?: string | null},
   transaction?: Transaction,
 ): Promise<void> {
   const existing = await UsefulLinkLocale.findOne({
@@ -131,6 +131,7 @@ export async function upsertEnglishLocale(
     title: link.title,
     url: link.url,
     description: link.description ?? null,
+    shorthand: link.shorthand ?? null,
     updatedAt: new Date(),
   };
   if (existing) {
