@@ -1,11 +1,5 @@
 import type UsefulLink from '@/models/misc/UsefulLink.js';
-import type UsefulLinkTag from '@/models/misc/UsefulLinkTag.js';
 import type UsefulLinkLocale from '@/models/misc/UsefulLinkLocale.js';
-import {
-  serializeUsefulLinkTag,
-  compareSerializedTagOrder,
-  type UsefulLinkTagJson,
-} from './usefulLinkTagService.js';
 import {DEFAULT_SITE_LANGUAGE, normalizeSiteLanguage} from '@/config/siteLanguages.js';
 
 export type UsefulLinkLocaleJson = {
@@ -21,18 +15,16 @@ export type UsefulLinkJson = {
   url: string;
   description: string | null;
   sortWeight: number;
-  isPublished: boolean;
-  isCatalog: boolean;
-  ownerId: string | null;
-  tags: UsefulLinkTagJson[];
+  groupIds: number[];
   locales: UsefulLinkLocaleJson[];
   createdAt: Date;
   updatedAt: Date;
 };
 
 type LinkWithRelations = UsefulLink & {
-  tags?: UsefulLinkTag[];
   locales?: UsefulLinkLocale[];
+  groups?: {id: number}[];
+  groupAssignments?: {groupId: number}[];
 };
 
 export function serializeLocale(row: UsefulLinkLocale): UsefulLinkLocaleJson {
@@ -60,11 +52,8 @@ export function linkHasLocale(locales: UsefulLinkLocaleJson[], languageCode: str
   return locales.some((row) => row.languageCode === wanted);
 }
 
-export function serializeUsefulLink(row: UsefulLink): UsefulLinkJson {
+export function serializeUsefulLink(row: UsefulLink, groupIds?: number[]): UsefulLinkJson {
   const nested = row as LinkWithRelations;
-  const tags = [...(nested.tags ?? [])]
-    .map(serializeUsefulLinkTag)
-    .sort(compareSerializedTagOrder);
   const locales = [...(nested.locales ?? [])]
     .map(serializeLocale)
     .sort((a, b) => {
@@ -72,6 +61,11 @@ export function serializeUsefulLink(row: UsefulLink): UsefulLinkJson {
       if (b.languageCode === DEFAULT_SITE_LANGUAGE) return 1;
       return a.languageCode.localeCompare(b.languageCode);
     });
+  const ids =
+    groupIds ??
+    nested.groupAssignments?.map((row) => row.groupId) ??
+    nested.groups?.map((row) => row.id) ??
+    [];
 
   return {
     id: row.id,
@@ -79,10 +73,7 @@ export function serializeUsefulLink(row: UsefulLink): UsefulLinkJson {
     url: row.url,
     description: row.description ?? null,
     sortWeight: row.sortWeight,
-    isPublished: Boolean(row.isPublished),
-    isCatalog: row.isCatalog !== false,
-    ownerId: row.ownerId ?? null,
-    tags,
+    groupIds: [...new Set(ids)],
     locales,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

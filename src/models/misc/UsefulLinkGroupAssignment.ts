@@ -7,50 +7,50 @@ import {
   ForeignKey,
 } from 'sequelize';
 import {getSequelizeForModelGroup} from '@/config/db.js';
-import type UsefulLinkCluster from './UsefulLinkCluster.js';
 import type UsefulLink from './UsefulLink.js';
+import type UsefulLinkGroup from './UsefulLinkGroup.js';
 
 const sequelize = getSequelizeForModelGroup('admin');
 
-class UsefulLinkClusterItem extends Model<
-  InferAttributes<UsefulLinkClusterItem>,
-  InferCreationAttributes<UsefulLinkClusterItem>
+class UsefulLinkGroupAssignment extends Model<
+  InferAttributes<UsefulLinkGroupAssignment>,
+  InferCreationAttributes<UsefulLinkGroupAssignment>
 > {
   declare id: CreationOptional<number>;
-  declare clusterId: ForeignKey<UsefulLinkCluster['id']>;
-  declare linkId: CreationOptional<number | null>;
+  declare linkId: ForeignKey<UsefulLink['id']>;
+  declare groupId: ForeignKey<UsefulLinkGroup['id']>;
   declare sortOrder: CreationOptional<number>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
-  declare link?: UsefulLink | null;
-  declare cluster?: UsefulLinkCluster;
+  declare link?: UsefulLink;
+  declare group?: UsefulLinkGroup;
 }
 
-UsefulLinkClusterItem.init(
+UsefulLinkGroupAssignment.init(
   {
     id: {
       type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true,
     },
-    clusterId: {
+    linkId: {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'useful_link_clusters',
+        model: 'useful_links',
         key: 'id',
       },
       onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
     },
-    linkId: {
+    groupId: {
       type: DataTypes.INTEGER,
-      allowNull: true,
+      allowNull: false,
       references: {
-        model: 'useful_links',
+        model: 'useful_link_groups',
         key: 'id',
       },
-      onDelete: 'SET NULL',
+      onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
     },
     sortOrder: {
@@ -63,17 +63,17 @@ UsefulLinkClusterItem.init(
   },
   {
     sequelize,
-    tableName: 'useful_link_cluster_items',
+    tableName: 'useful_link_group_assignments',
     indexes: [
       {
         unique: true,
-        fields: ['clusterId', 'linkId'],
-        name: 'useful_link_cluster_items_unique',
+        fields: ['linkId', 'groupId'],
+        name: 'useful_link_group_assignments_unique',
       },
-      {fields: ['clusterId']},
-      {fields: ['linkId']},
+      {fields: ['groupId'], name: 'idx_useful_link_group_assignments_group_id'},
+      {fields: ['linkId'], name: 'idx_useful_link_group_assignments_link_id'},
     ],
   },
 );
 
-export default UsefulLinkClusterItem;
+export default UsefulLinkGroupAssignment;
