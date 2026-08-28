@@ -4,7 +4,7 @@ import test from 'node:test';
 import {
   TAG_GROUP_NAME_MAX,
   mergeOrderedIds,
-  parseHexColor,
+  parseGroupAssignmentSnapshot,
   parseLocaleFields,
   parseHttpUrl,
   parseOrderedIds,
@@ -17,21 +17,7 @@ import {
 } from './usefulLinkFields.js';
 import {serializeUsefulLink, compareSerializedLinkOrder} from './serializeUsefulLink.js';
 import {resolveLinkLocale, linkHasLocale} from './serializeUsefulLink.js';
-import {
-  canEditCluster,
-  canViewCluster,
-  isPublishTransition,
-  ownerMaySetViewMode,
-  UsefulLinkClusterViewModes,
-} from './usefulLinkClusterAccess.js';
-import {checkPublishReady, itemsByLocale} from './usefulLinkClusterPublish.js';
-import {permissionFlags} from '@/config/constants.js';
 import {isConfiguredSiteLanguage, siteLanguageCodesMatchingQuery} from '@/config/siteLanguages.js';
-
-const hasFlag = (user: unknown, flag: bigint) => {
-  if (!user || typeof user !== 'object' || !('permissionFlags' in user)) return false;
-  return (BigInt((user.permissionFlags as bigint | string | number | undefined) ?? 0) & flag) === flag;
-};
 
 void test('parseHttpUrl accepts http(s) and rejects dangerous schemes', () => {
   assert.equal(parseHttpUrl('https://www.notion.so/TUF-guides-abc').ok, true);
@@ -44,7 +30,7 @@ void test('parseHttpUrl accepts http(s) and rejects dangerous schemes', () => {
   assert.equal(parseHttpUrl('https://user:pass@evil.example/x').ok, false);
 });
 
-void test('parseUsefulLinkCreate requires title and url and accepts tagIds', () => {
+void test('parseUsefulLinkCreate requires title and url and accepts groupIds', () => {
   const missing = parseUsefulLinkCreate({});
   assert.equal(missing.ok, false);
 
@@ -52,7 +38,7 @@ void test('parseUsefulLinkCreate requires title and url and accepts tagIds', () 
     title: '  Rating guide  ',
     url: 'https://www.notion.so/rating',
     description: '  How we rate  ',
-    tagIds: [3, '3', 1],
+    groupIds: [3, '3', 1],
   });
   assert.equal(created.ok, true);
   if (!created.ok) return;
@@ -60,8 +46,7 @@ void test('parseUsefulLinkCreate requires title and url and accepts tagIds', () 
     title: 'Rating guide',
     url: 'https://www.notion.so/rating',
     description: 'How we rate',
-    isPublished: true,
-    tagIds: [3, 1],
+    groupIds: [3, 1],
   });
 });
 
@@ -78,13 +63,11 @@ void test('parseUsefulLinkCreate blank optional fields become null', () => {
     title: 'Docs',
     url: 'https://www.notion.so/docs',
     description: '   ',
-    isPublished: false,
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.value.description, null);
-  assert.equal(result.value.isPublished, false);
-  assert.deepEqual(result.value.tagIds, []);
+  assert.deepEqual(result.value.groupIds, []);
 });
 
 void test('parseUsefulLinkPatch applies only provided fields', () => {
@@ -92,13 +75,11 @@ void test('parseUsefulLinkPatch applies only provided fields', () => {
   assert.equal(empty.ok, false);
 
   const patch = parseUsefulLinkPatch({
-    tagIds: [2],
-    isPublished: false,
+    groupIds: [2],
   });
   assert.equal(patch.ok, true);
   if (!patch.ok) return;
-  assert.deepEqual(patch.value.tagIds, [2]);
-  assert.equal(patch.value.isPublished, false);
+  assert.deepEqual(patch.value.groupIds, [2]);
   assert.equal(patch.value.title, undefined);
 });
 
@@ -110,17 +91,26 @@ void test('parseTagIds rejects invalid ids', () => {
   assert.deepEqual(ids.value, [1, 2]);
 });
 
-void test('parseHexColor requires six-digit hex', () => {
-  assert.equal(parseHexColor('#ff5733').ok, true);
-  assert.equal(parseHexColor('#fff').ok, false);
-  assert.equal(parseHexColor('red').ok, false);
-});
-
 void test('parseTagGroupName requires a trimmed non-empty name', () => {
   assert.equal(parseTagGroupName('').ok, false);
   assert.equal(parseTagGroupName('  Guides  ').ok, true);
   const long = parseTagGroupName('x'.repeat(TAG_GROUP_NAME_MAX + 1));
   assert.equal(long.ok, false);
+});
+
+void test('parseGroupAssignmentSnapshot keeps ordered unique link ids per group', () => {
+  const parsed = parseGroupAssignmentSnapshot([
+    {id: 2, linkIds: [5, 5, 1]},
+    {id: 1, linkIds: ['3', 0, 4]},
+  ]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.deepEqual(parsed.value, [
+    {id: 2, linkIds: [5, 1]},
+    {id: 1, linkIds: [3, 4]},
+  ]);
+  assert.equal(parseGroupAssignmentSnapshot('nope').ok, false);
+  assert.equal(parseGroupAssignmentSnapshot([{id: 1}, {id: 1, linkIds: []}]).ok, false);
 });
 
 void test('parseLocaleFields requires languageCode title and url', () => {
@@ -156,34 +146,22 @@ void test('mergeOrderedIds uses requested order then appends missing ids', () =>
   assert.deepEqual(mergeOrderedIds([3, 1, 99], [1, 2, 3]), [3, 1, 2]);
 });
 
-void test('serializeUsefulLink includes tags and locales', () => {
+void test('serializeUsefulLink includes groupIds and locales', () => {
   const json = serializeUsefulLink({
     id: 1,
     title: 'Guide',
     url: 'https://www.notion.so/x',
     description: null,
     sortWeight: 2,
-    isPublished: true,
-    isCatalog: true,
-    ownerId: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-    tags: [
-      {
-        id: 4,
-        name: 'KR',
-        color: '#FF0000',
-        groupId: 1,
-        sortOrder: 0,
-        tagGroup: {id: 1, name: 'Region', sortOrder: 0},
-      },
-    ],
+    groups: [{id: 4}],
     locales: [
       {languageCode: 'en', title: 'Guide', url: 'https://www.notion.so/x', description: null},
       {languageCode: 'kr', title: '가이드', url: 'https://kr.example', description: 'ko'},
     ],
   } as any);
-  assert.equal(json.tags[0].group, 'Region');
+  assert.deepEqual(json.groupIds, [4]);
   assert.equal(json.locales[0].languageCode, 'en');
   assert.equal(json.locales[1].languageCode, 'kr');
 });
@@ -193,10 +171,7 @@ void test('compareSerializedLinkOrder sorts by sortWeight then id', () => {
     title: 'A',
     url: 'https://a.example',
     description: null,
-    isPublished: true,
-    isCatalog: true,
-    ownerId: null,
-    tags: [],
+    groupIds: [],
     locales: [],
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -229,103 +204,6 @@ void test('add language rejects unknown codes but stale locales still resolve', 
     {languageCode: 'xx', title: 'XX', url: 'https://xx.example', description: null},
   ];
   assert.equal(resolveLinkLocale(locales, 'xx')?.title, 'XX');
-});
-
-void test('canEditCluster freezes public clusters for owners and thaws when unpublished', () => {
-  const owner = {id: 'owner-1', permissionFlags: 0n};
-  const admin = {id: 'admin-1', permissionFlags: permissionFlags.SUPER_ADMIN};
-  const publicCluster = {ownerId: 'owner-1', viewMode: UsefulLinkClusterViewModes.PUBLIC};
-  const privateCluster = {ownerId: 'owner-1', viewMode: UsefulLinkClusterViewModes.PRIVATE};
-
-  assert.equal(canEditCluster(publicCluster, owner, hasFlag, permissionFlags.SUPER_ADMIN), false);
-  assert.equal(canEditCluster(privateCluster, owner, hasFlag, permissionFlags.SUPER_ADMIN), true);
-  assert.equal(canEditCluster(publicCluster, admin, hasFlag, permissionFlags.SUPER_ADMIN), true);
-  assert.equal(canViewCluster(publicCluster, null, hasFlag, permissionFlags.SUPER_ADMIN), true);
-  assert.equal(canViewCluster(privateCluster, null, hasFlag, permissionFlags.SUPER_ADMIN), false);
-  assert.equal(
-    ownerMaySetViewMode(UsefulLinkClusterViewModes.PRIVATE, UsefulLinkClusterViewModes.LINKONLY),
-    true,
-  );
-  assert.equal(
-    ownerMaySetViewMode(UsefulLinkClusterViewModes.PRIVATE, UsefulLinkClusterViewModes.PUBLIC),
-    false,
-  );
-  assert.equal(
-    isPublishTransition(UsefulLinkClusterViewModes.PRIVATE, UsefulLinkClusterViewModes.PUBLIC),
-    true,
-  );
-  assert.equal(
-    isPublishTransition(UsefulLinkClusterViewModes.PUBLIC, UsefulLinkClusterViewModes.PUBLIC),
-    false,
-  );
-  assert.equal(
-    isPublishTransition(UsefulLinkClusterViewModes.PUBLIC, UsefulLinkClusterViewModes.PRIVATE),
-    false,
-  );
-});
-
-void test('publish checklist requires en and contested locale defaults', () => {
-  const enOnly = {
-    id: 1,
-    clusterId: 1,
-    linkId: 10,
-    sortOrder: 0,
-    link: {
-      id: 10,
-      title: 'A',
-      url: 'https://a.example',
-      description: null,
-      sortWeight: 0,
-      isPublished: true,
-      isCatalog: true,
-      ownerId: null,
-      tags: [],
-      locales: [{languageCode: 'en', title: 'A', url: 'https://a.example', description: null}],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-  };
-  const krA = {
-    ...enOnly,
-    id: 2,
-    linkId: 11,
-    link: {
-      ...enOnly.link,
-      id: 11,
-      locales: [
-        {languageCode: 'en', title: 'A', url: 'https://a.example', description: null},
-        {languageCode: 'kr', title: '가', url: 'https://kr-a.example', description: null},
-      ],
-    },
-  };
-  const krB = {
-    ...enOnly,
-    id: 3,
-    linkId: 12,
-    link: {
-      ...enOnly.link,
-      id: 12,
-      locales: [
-        {languageCode: 'en', title: 'B', url: 'https://b.example', description: null},
-        {languageCode: 'kr', title: '나', url: 'https://kr-b.example', description: null},
-      ],
-    },
-  };
-
-  const missingDefault = checkPublishReady([enOnly, krA, krB], []);
-  assert.equal(missingDefault.ok, false);
-
-  const ready = checkPublishReady(
-    [enOnly, krA, krB],
-    [
-      {languageCode: 'en', itemId: 1},
-      {languageCode: 'kr', itemId: 2},
-    ],
-  );
-  assert.equal(ready.ok, true);
-
-  const sliced = itemsByLocale([enOnly, krA, krB]).get('kr') ?? [];
-  assert.deepEqual(sliced.map((row) => row.id), [2, 3]);
 });
 
 void test('siteLanguageCodesMatchingQuery matches code, native name, and English name', () => {

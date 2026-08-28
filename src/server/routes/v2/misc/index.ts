@@ -8,7 +8,6 @@ import uploadRoutes from './upload.js';
 import externalRouter from './external.js';
 import jobsRoutes from './jobs.js';
 import usefulLinksRoutes from './usefulLinks.js';
-import usefulLinkClustersRoutes from './usefulLinkClusters.js';
 
 const router: Router = Router();
 
@@ -36,9 +35,6 @@ router.use('/upload', uploadRoutes);
 // Job progress (read)
 router.use('/jobs', jobsRoutes);
 
-router.use('/useful-link-clusters', usefulLinkClustersRoutes);
-
-// Public useful / Notion links
 router.use('/useful-links', usefulLinksRoutes);
 
 export default router;

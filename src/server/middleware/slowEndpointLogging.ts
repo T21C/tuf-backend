@@ -28,7 +28,8 @@ const SLOW_LOG_EXCLUDED_ROUTES = [
   '/v3/levels/*/upload-from-url',
   '/v2/jobs/*/stream',
   '/v2/auth/oauth/callback',
-  '/v2/media/player-avatar/*'
+  '/v2/media/player-avatar/*',
+  '/v2/cdn/download-events'
 ];
 
 function isExcludedRoute(path: string): boolean {

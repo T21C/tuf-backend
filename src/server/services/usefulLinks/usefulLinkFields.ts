@@ -1,16 +1,14 @@
 export const TITLE_MAX = 255;
 export const URL_MAX = 2048;
 export const DESCRIPTION_MAX = 2000;
-export const TAG_NAME_MAX = 64;
-export const TAG_GROUP_NAME_MAX = 64;
-export const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
+export const GROUP_NAME_MAX = 64;
+export const TAG_GROUP_NAME_MAX = GROUP_NAME_MAX;
 
 export type UsefulLinkFields = {
   title: string;
   url: string;
   description: string | null;
-  isPublished: boolean;
-  tagIds?: number[];
+  groupIds?: number[];
 };
 
 export type UsefulLinkLocaleFields = {
@@ -23,7 +21,7 @@ export type UsefulLinkLocaleFields = {
 export type ParseResult<T> = {ok: true; value: T} | {ok: false; error: string};
 
 function optionalText(raw: unknown, max: number): ParseResult<string | null> {
-  if (raw == null) return {ok: true, value: null};
+  if (raw === null || raw === undefined) return {ok: true, value: null};
   if (typeof raw !== 'string') return {ok: false, error: 'Invalid text field'};
   const trimmed = raw.trim();
   if (!trimmed) return {ok: true, value: null};
@@ -55,45 +53,28 @@ export function parseHttpUrl(raw: unknown): ParseResult<string> {
   }
 }
 
-export function parseTagName(raw: unknown): ParseResult<string> {
-  if (typeof raw !== 'string') return {ok: false, error: 'Tag name is required'};
-  const name = raw.trim();
-  if (!name) return {ok: false, error: 'Tag name is required'};
-  if (name.length > TAG_NAME_MAX) {
-    return {ok: false, error: 'Tag name is too long'};
-  }
-  return {ok: true, value: name};
-}
-
-export function parseTagGroupName(raw: unknown): ParseResult<string> {
+export function parseGroupName(raw: unknown): ParseResult<string> {
   if (typeof raw !== 'string') return {ok: false, error: 'Group name is required'};
   const name = raw.trim();
   if (!name) return {ok: false, error: 'Group name is required'};
-  if (name.length > TAG_GROUP_NAME_MAX) {
+  if (name.length > GROUP_NAME_MAX) {
     return {ok: false, error: 'Group name is too long'};
   }
   return {ok: true, value: name};
 }
 
-export function parseHexColor(raw: unknown): ParseResult<string> {
-  if (typeof raw !== 'string') return {ok: false, error: 'color is required'};
-  const color = raw.trim();
-  if (!HEX_COLOR_PATTERN.test(color)) {
-    return {ok: false, error: 'Invalid color format. Must be a hex color (e.g., #FF5733)'};
-  }
-  return {ok: true, value: color.toUpperCase()};
-}
+export const parseTagGroupName = parseGroupName;
 
-export function parseTagIds(raw: unknown): ParseResult<number[] | undefined> {
+export function parseGroupIds(raw: unknown): ParseResult<number[] | undefined> {
   if (raw === undefined) return {ok: true, value: undefined};
   if (raw === null) return {ok: true, value: []};
-  if (!Array.isArray(raw)) return {ok: false, error: 'tagIds must be an array'};
+  if (!Array.isArray(raw)) return {ok: false, error: 'groupIds must be an array'};
   const seen = new Set<number>();
   const ids: number[] = [];
   for (const item of raw) {
     const n = typeof item === 'number' ? item : Number(item);
     if (!Number.isInteger(n) || n <= 0) {
-      return {ok: false, error: 'Invalid tagId'};
+      return {ok: false, error: 'Invalid groupId'};
     }
     if (seen.has(n)) continue;
     seen.add(n);
@@ -101,6 +82,8 @@ export function parseTagIds(raw: unknown): ParseResult<number[] | undefined> {
   }
   return {ok: true, value: ids};
 }
+
+export const parseTagIds = parseGroupIds;
 
 export function parseUsefulLinkCreate(body: unknown): ParseResult<UsefulLinkFields> {
   const src = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
@@ -114,11 +97,8 @@ export function parseUsefulLinkCreate(body: unknown): ParseResult<UsefulLinkFiel
   const description = optionalText(src.description, DESCRIPTION_MAX);
   if (!description.ok) return description;
 
-  const tagIds = parseTagIds(src.tagIds);
-  if (!tagIds.ok) return tagIds;
-
-  const isPublished =
-    typeof src.isPublished === 'boolean' ? src.isPublished : true;
+  const groupIds = parseGroupIds(src.groupIds ?? src.tagIds);
+  if (!groupIds.ok) return groupIds;
 
   return {
     ok: true,
@@ -126,8 +106,7 @@ export function parseUsefulLinkCreate(body: unknown): ParseResult<UsefulLinkFiel
       title: titleRaw,
       url: url.value,
       description: description.value,
-      isPublished,
-      tagIds: tagIds.value ?? [],
+      groupIds: groupIds.value ?? [],
     },
   };
 }
@@ -161,17 +140,10 @@ export function parseUsefulLinkPatch(
     updates.description = description.value;
   }
 
-  if (src.tagIds !== undefined) {
-    const tagIds = parseTagIds(src.tagIds);
-    if (!tagIds.ok) return tagIds;
-    updates.tagIds = tagIds.value ?? [];
-  }
-
-  if (src.isPublished !== undefined) {
-    if (typeof src.isPublished !== 'boolean') {
-      return {ok: false, error: 'isPublished must be a boolean'};
-    }
-    updates.isPublished = src.isPublished;
+  if (src.groupIds !== undefined || src.tagIds !== undefined) {
+    const groupIds = parseGroupIds(src.groupIds ?? src.tagIds);
+    if (!groupIds.ok) return groupIds;
+    updates.groupIds = groupIds.value ?? [];
   }
 
   if (!Object.keys(updates).length) {
@@ -211,6 +183,27 @@ export function parseOrderedIds(value: unknown): number[] {
     ids.push(n);
   }
   return ids;
+}
+
+export type GroupAssignmentSnapshot = {id: number; linkIds: number[]};
+
+export function parseGroupAssignmentSnapshot(raw: unknown): ParseResult<GroupAssignmentSnapshot[]> {
+  if (!Array.isArray(raw)) return {ok: false, error: 'groups must be an array'};
+  const seenGroups = new Set<number>();
+  const groups: GroupAssignmentSnapshot[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') {
+      return {ok: false, error: 'Invalid group assignment'};
+    }
+    const src = item as Record<string, unknown>;
+    const id = Number(src.id);
+    if (!Number.isInteger(id) || id <= 0 || seenGroups.has(id)) {
+      return {ok: false, error: 'Invalid group id'};
+    }
+    seenGroups.add(id);
+    groups.push({id, linkIds: parseOrderedIds(src.linkIds)});
+  }
+  return {ok: true, value: groups};
 }
 
 export function mergeOrderedIds(requested: number[], existingIds: number[]): number[] {
