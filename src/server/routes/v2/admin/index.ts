@@ -13,6 +13,7 @@ import adminCreatorsRoutes from './creators.js';
 import tournamentsRoutes from './tournaments.js';
 import oauthClientsRoutes from './oauthClients.js';
 import usefulLinksRoutes from './usefulLinks.js';
+import modsRoutes from './mods.js';
 // Import other admin routes here
 
 const router: Router = Router();
@@ -33,6 +34,7 @@ router.use('/creators', adminCreatorsRoutes);
 router.use('/tournaments', tournamentsRoutes);
 router.use('/oauth-clients', oauthClientsRoutes);
 router.use('/useful-links', usefulLinksRoutes);
+router.use('/mods', modsRoutes);
 
 router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
       return res.status(200).send({});

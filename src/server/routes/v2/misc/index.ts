@@ -8,6 +8,7 @@ import uploadRoutes from './upload.js';
 import externalRouter from './external.js';
 import jobsRoutes from './jobs.js';
 import usefulLinksRoutes from './usefulLinks.js';
+import modsRoutes from './mods.js';
 
 const router: Router = Router();
 
@@ -36,5 +37,6 @@ router.use('/upload', uploadRoutes);
 router.use('/jobs', jobsRoutes);
 
 router.use('/useful-links', usefulLinksRoutes);
+router.use('/mods', modsRoutes);
 
 export default router;
