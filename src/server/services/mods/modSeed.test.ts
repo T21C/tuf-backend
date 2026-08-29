@@ -26,7 +26,7 @@ void test('mapModSeedRow maps dump fields and drops discord images', () => {
   assert.equal(mapped?.version, '2.9.2');
 });
 
-void test('mapModSeedRow keeps github imageUrl and falls back to download', () => {
+void test('mapModSeedRow always drops imageURL including github hosts', () => {
   const mapped = mapModSeedRow({
     ...base,
     name: 'Tool',
@@ -39,7 +39,7 @@ void test('mapModSeedRow keeps github imageUrl and falls back to download', () =
     mapped?.downloadUrl,
     'https://github.com/org/repo/releases/download/1.0/mod.zip',
   );
-  assert.equal(mapped?.imageUrl, 'https://raw.githubusercontent.com/org/repo/main/icon.png');
+  assert.equal(mapped?.imageUrl, null);
 });
 
 void test('mapModSeedRow skips rows without a usable name or url', () => {

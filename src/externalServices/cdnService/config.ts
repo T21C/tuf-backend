@@ -175,6 +175,16 @@ export const IMAGE_TYPES = {
         formats: ['jpg', 'jpeg', 'png', 'webp', 'gif'] as const,
         maxSize: 5 * 1024 * 1024 // 5MB
     },
+    MOD_ICON: {
+        name: 'mod_icon',
+        sizes: {
+            original: { width: 256, height: 256 },
+            medium: { width: 128, height: 128 },
+            small: { width: 64, height: 64 }
+        },
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif'] as const,
+        maxSize: 5 * 1024 * 1024 // 5MB
+    },
     EVIDENCE: {
         name: 'evidence',
         sizes: {
@@ -218,6 +228,7 @@ export const MIME_TYPES = {
     'CLUSTER_ICON': 'image/png',
     'OAUTH_CLIENT_ICON': 'image/png',
     'TAG_ICON': 'image/png',
+    'MOD_ICON': 'image/png',
     'LEVELZIP': 'application/zip',
     'EVIDENCE': 'image/png',
     'TOURNAMENT_PLACEMENT_ICON': 'image/png',

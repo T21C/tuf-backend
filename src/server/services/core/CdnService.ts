@@ -472,6 +472,18 @@ class CdnService {
         }
     }
 
+    async uploadModIcon(
+        iconBuffer: Buffer,
+        filename: string
+    ): Promise<{
+        success: boolean;
+        fileId: string;
+        urls: Record<string, string>;
+        metadata: any;
+    }> {
+        return this.uploadImage(iconBuffer, filename, 'MOD_ICON');
+    }
+
     async uploadOAuthClientIcon(
         iconBuffer: Buffer,
         filename: string

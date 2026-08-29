@@ -400,6 +400,7 @@ export interface ILevelTag extends IBaseModel {
   groupId?: number | null;
   sortOrder?: number;
   isCommunity?: boolean;
+  passWarningEnabled?: boolean;
   pinned?: boolean;
   score?: number | null;
   /** Serialized group name from `level_tag_groups` (not a DB column). */

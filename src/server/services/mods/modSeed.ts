@@ -48,9 +48,6 @@ export function mapModSeedRow(raw: unknown): MappedModSeed | null {
 
   const versionRaw = asTrimmedString(row.version);
   const descriptionRaw = typeof row.description === 'string' ? row.description.trim() : '';
-  const imageRaw = asTrimmedString(row.imageURL);
-  const imageUrl =
-    imageRaw && looksLikeHttpUrl(imageRaw) && isGithubHostedUrl(imageRaw) ? imageRaw : null;
 
   return {
     name,
@@ -59,7 +56,7 @@ export function mapModSeedRow(raw: unknown): MappedModSeed | null {
     version: versionRaw || null,
     description: descriptionRaw || null,
     downloadUrl,
-    imageUrl,
+    imageUrl: null,
     sourceUploadedAt: new Date(uploadedTimestamp),
     uploadedTimestamp,
   };

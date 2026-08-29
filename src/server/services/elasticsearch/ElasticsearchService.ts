@@ -3,6 +3,7 @@ import client, {
   passIndexName,
   playerIndexName,
   creatorIndexName,
+  modIndexName,
   initializeElasticsearch,
   updateMappingHash
 } from '@/config/elasticsearch.js';
@@ -14,15 +15,19 @@ import LevelCredit from '@/models/levels/LevelCredit.js';
 import Pass from '@/models/passes/Pass.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
+import Mod from '@/models/misc/Mod.js';
+import ModAssignee from '@/models/misc/ModAssignee.js';
 import { searchLevels as runLevelSearch, searchLevelIds as runSearchLevelIds } from './search/levels/levelSearch.js';
 import { searchPasses as runPassSearch } from './search/passes/passSearch.js';
 import { searchPlayers as runPlayerSearch, PlayerSearchOptions, PlayerSearchResult } from './search/players/playerSearch.js';
 import { searchCreators as runCreatorSearch, hydrateCreatorUsers, CreatorSearchOptions, CreatorSearchResult } from './search/creators/creatorSearch.js';
+import { searchMods as runModSearch, type ModSearchOptions, type ModSearchResult } from './search/mods/modSearch.js';
 import { ARTIST_REINDEX_DEBOUNCE_MS, BATCH_SIZE, FULL_REINDEX_PAGE_SIZE, MAX_BATCH_SIZE } from './misc/constants.js';
 import { fetchLevelWithRelations, fetchLevelsForBulkIndex, clearEsIndexRelationCaches } from './fetching/levelFetch.js';
 import { fetchPassWithRelations, fetchPassesForBulkIndex, clearEsPassIndexRelationCaches, invalidateEsLevelCacheForLevelIds } from './fetching/passFetch.js';
 import { fetchPlayersForBulkIndex } from './fetching/playerFetch.js';
 import { fetchCreatorsForBulkIndex } from './fetching/creatorFetch.js';
+import { fetchModsForBulkIndex } from './fetching/modFetch.js';
 import { buildLevelIndexDocument } from './indexing/levelIndexDocument.js';
 import { buildPassIndexDocument } from './indexing/passIndexDocument.js';
 import { decodePuaDeep } from '@/misc/utils/data/searchHelpers.js';
@@ -56,13 +61,14 @@ class ElasticsearchService {
       logger.info('Starting ElasticsearchService initialization...');
 
       // Initialize Elasticsearch indices
-      const { reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators } = await initializeElasticsearch();
+      const { reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods } = await initializeElasticsearch();
 
-      if (reindexedLevels || reindexedPasses || reindexedPlayers || reindexedCreators) {
+      if (reindexedLevels || reindexedPasses || reindexedPlayers || reindexedCreators || reindexedMods) {
         if (reindexedLevels) logger.info('Reindexing levels...');
         if (reindexedPasses) logger.info('Reindexing passes...');
         if (reindexedPlayers) logger.info('Reindexing players...');
         if (reindexedCreators) logger.info('Reindexing creators...');
+        if (reindexedMods) logger.info('Reindexing mods...');
         const start = Date.now();
         if (reindexedLevels) {
           await this.reindexLevels();
@@ -76,9 +82,12 @@ class ElasticsearchService {
         if (reindexedCreators) {
           await this.reindexAllCreators();
         }
+        if (reindexedMods) {
+          await this.reindexAllMods();
+        }
         const end = Date.now();
         logger.info(`Data reindexing completed successfully in ${Math.round((end - start)/100)/10}s`);
-        await updateMappingHash({ reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators });
+        await updateMappingHash({ reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods });
       }
 
       this.isInitialized = true;
@@ -790,6 +799,138 @@ class ElasticsearchService {
       logger.error(`Error fetching creator ${creatorId} from index:`, error);
       throw error;
     }
+  }
+
+  public async indexMod(modId: number): Promise<void> {
+    if (!Number.isFinite(modId) || modId <= 0) {
+      logger.warn(`indexMod skipped: invalid id ${modId}`);
+      return;
+    }
+    try {
+      const docs = await fetchModsForBulkIndex([modId]);
+      const prepared = docs[0];
+      if (!prepared) {
+        logger.warn(`indexMod: mod ${modId} not found in DB — removing from index if present`);
+        await this.deleteMod(modId).catch(() => {});
+        return;
+      }
+      await client.index({
+        index: modIndexName,
+        id: prepared.id.toString(),
+        document: prepared.document,
+        refresh: true,
+      });
+    } catch (error) {
+      logger.error(`Error indexing mod ${modId}:`, error);
+      throw error;
+    }
+  }
+
+  public async reindexMods(modIds: number[]): Promise<void> {
+    if (!modIds || modIds.length === 0) return;
+    try {
+      const uniqueIds = [...new Set(modIds)].filter((id) => Number.isFinite(id) && id > 0);
+      if (uniqueIds.length === 0) return;
+
+      let processedCount = 0;
+      for (let i = 0; i < uniqueIds.length; i += MAX_BATCH_SIZE) {
+        const chunk = uniqueIds.slice(i, i + MAX_BATCH_SIZE);
+        const docs = await fetchModsForBulkIndex(chunk);
+        if (docs.length === 0) continue;
+
+        for (let j = 0; j < docs.length; j += BATCH_SIZE) {
+          const batch = docs.slice(j, j + BATCH_SIZE);
+          const operations = batch.flatMap((doc) => [
+            { index: { _index: modIndexName, _id: doc.id.toString() } },
+            doc.document,
+          ]);
+          if (operations.length > 0) {
+            await client.bulk({ operations, refresh: false });
+          }
+        }
+        processedCount += docs.length;
+      }
+      logger.debug(`Reindexed ${processedCount} mods (requested ${uniqueIds.length})`);
+    } catch (error) {
+      logger.error('Error reindexing mods:', error);
+      throw error;
+    }
+  }
+
+  public async deleteMod(modId: number): Promise<void> {
+    try {
+      await client.delete({
+        index: modIndexName,
+        id: modId.toString(),
+      });
+    } catch (error: unknown) {
+      const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
+      if (status === 404) return;
+      logger.error(`Error deleting mod ${modId} from index:`, error);
+      throw error;
+    }
+  }
+
+  public async reindexAllMods(): Promise<void> {
+    try {
+      let processedCount = 0;
+      let afterId = 0;
+      while (true) {
+        const idRows = await Mod.findAll({
+          where: { id: { [Op.gt]: afterId } },
+          attributes: ['id'],
+          order: [['id', 'ASC']],
+          limit: FULL_REINDEX_PAGE_SIZE,
+          raw: true,
+        });
+        const idList = idRows.map((r: { id: number }) => r.id);
+        if (idList.length === 0) break;
+
+        const docs = await fetchModsForBulkIndex(idList);
+        for (let j = 0; j < docs.length; j += BATCH_SIZE) {
+          const batch = docs.slice(j, j + BATCH_SIZE);
+          const operations = batch.flatMap((doc) => [
+            { index: { _index: modIndexName, _id: doc.id.toString() } },
+            doc.document,
+          ]);
+          if (operations.length > 0) {
+            await client.bulk({ operations, refresh: false });
+          }
+        }
+        processedCount += docs.length;
+        logger.debug(`Reindexed ${processedCount} mods...`);
+
+        afterId = idList[idList.length - 1];
+        if (idList.length < FULL_REINDEX_PAGE_SIZE) break;
+      }
+      logger.info(`Mod reindexing complete. Total indexed: ${processedCount}`);
+    } catch (error) {
+      logger.error('Error reindexing all mods:', error);
+      throw error;
+    }
+  }
+
+  public async reindexModsForUser(userId: string): Promise<void> {
+    if (!userId) return;
+    const [assigneeRows, postedRows] = await Promise.all([
+      ModAssignee.findAll({
+        where: { userId },
+        attributes: ['modId'],
+      }),
+      Mod.findAll({
+        where: { postedByUserId: userId },
+        attributes: ['id'],
+      }),
+    ]);
+    const ids = [
+      ...assigneeRows.map((row) => row.modId),
+      ...postedRows.map((row) => row.id),
+    ];
+    await this.reindexMods(ids);
+  }
+
+  public async searchMods(options: ModSearchOptions): Promise<ModSearchResult> {
+    return runModSearch(options);
   }
 }
 

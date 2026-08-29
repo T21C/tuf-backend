@@ -15,6 +15,7 @@ export type ModCreateFields = {
   description: string | null;
   downloadUrl: string;
   imageUrl: string | null;
+  projectUrl: string | null;
   sourceUploadedAt: Date;
   hidden: boolean;
 };
@@ -60,6 +61,14 @@ export function parseHttpUrl(raw: unknown, label = 'url'): ParseResult<string> {
   } catch {
     return {ok: false, error: `${label} is invalid`};
   }
+}
+
+export function parseOptionalHttpUrl(raw: unknown, label: string): ParseResult<string | null> {
+  if (raw === null || raw === undefined) return {ok: true, value: null};
+  if (typeof raw !== 'string') return {ok: false, error: `${label} is invalid`};
+  const trimmed = raw.trim();
+  if (!trimmed) return {ok: true, value: null};
+  return parseHttpUrl(trimmed, label);
 }
 
 export function isGithubHostedUrl(url: string): boolean {
@@ -138,6 +147,7 @@ function parseHidden(raw: unknown, fallback: boolean): ParseResult<boolean> {
 
 export function parseModCreate(body: unknown): ParseResult<ModCreateFields> {
   const src = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  if ('imageUrl' in src) return {ok: false, error: 'Cannot update this field'};
   const name = requiredText(src.name, 'name', NAME_MAX);
   if (!name.ok) return name;
   const creatorUsername = requiredText(src.creatorUsername, 'creatorUsername', USERNAME_MAX);
@@ -150,8 +160,8 @@ export function parseModCreate(body: unknown): ParseResult<ModCreateFields> {
   if (!description.ok) return description;
   const downloadUrl = parseHttpUrl(src.downloadUrl, 'downloadUrl');
   if (!downloadUrl.ok) return downloadUrl;
-  const imageUrl = parseGithubImageUrl(src.imageUrl);
-  if (!imageUrl.ok) return imageUrl;
+  const projectUrl = parseOptionalHttpUrl(src.projectUrl, 'projectUrl');
+  if (!projectUrl.ok) return projectUrl;
   const sourceUploadedAt = parseSourceUploadedAt(src.sourceUploadedAt, true);
   if (!sourceUploadedAt.ok) return sourceUploadedAt;
   const hidden = parseHidden(src.hidden, false);
@@ -166,7 +176,8 @@ export function parseModCreate(body: unknown): ParseResult<ModCreateFields> {
       version: version.value,
       description: description.value,
       downloadUrl: downloadUrl.value,
-      imageUrl: imageUrl.value,
+      imageUrl: null,
+      projectUrl: projectUrl.value,
       sourceUploadedAt: sourceUploadedAt.value as Date,
       hidden: hidden.value,
     },
@@ -178,6 +189,7 @@ export function parseModPatch(body: unknown): ParseResult<ModPatchFields> {
     return {ok: false, error: 'Invalid body'};
   }
   const src = body as Record<string, unknown>;
+  if ('imageUrl' in src) return {ok: false, error: 'Cannot update this field'};
   const value: ModPatchFields = {};
 
   if (src.name !== undefined) {
@@ -210,10 +222,10 @@ export function parseModPatch(body: unknown): ParseResult<ModPatchFields> {
     if (!downloadUrl.ok) return downloadUrl;
     value.downloadUrl = downloadUrl.value;
   }
-  if (src.imageUrl !== undefined) {
-    const imageUrl = parseGithubImageUrl(src.imageUrl);
-    if (!imageUrl.ok) return imageUrl;
-    value.imageUrl = imageUrl.value;
+  if (src.projectUrl !== undefined) {
+    const projectUrl = parseOptionalHttpUrl(src.projectUrl, 'projectUrl');
+    if (!projectUrl.ok) return projectUrl;
+    value.projectUrl = projectUrl.value;
   }
   if (src.sourceUploadedAt !== undefined) {
     const sourceUploadedAt = parseSourceUploadedAt(src.sourceUploadedAt, false);
@@ -231,3 +243,96 @@ export function parseModPatch(body: unknown): ParseResult<ModPatchFields> {
   }
   return {ok: true, value};
 }
+
+const ASSIGNEE_FORBIDDEN_FIELDS = new Set([
+  'hidden',
+  'creatorUsername',
+  'creatorDiscordId',
+  'imageUrl',
+]);
+
+export type ModAssigneePatchFields = Pick<
+  ModPatchFields,
+  'name' | 'version' | 'description' | 'downloadUrl' | 'projectUrl' | 'sourceUploadedAt'
+>;
+
+export function parsePlayerId(raw: unknown): ParseResult<number> {
+  if (typeof raw === 'number' && Number.isInteger(raw) && raw > 0) {
+    return {ok: true, value: raw};
+  }
+  if (typeof raw === 'string' && /^\d{1,20}$/.test(raw.trim())) {
+    const parsed = Number(raw.trim());
+    if (Number.isInteger(parsed) && parsed > 0) return {ok: true, value: parsed};
+  }
+  return {ok: false, error: 'playerId is required'};
+}
+
+export function parseAssignAssigneesBody(
+  body: unknown,
+): ParseResult<{playerId: number; applyToSameCreator: boolean}> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return {ok: false, error: 'Invalid body'};
+  }
+  const src = body as Record<string, unknown>;
+  const playerId = parsePlayerId(src.playerId);
+  if (!playerId.ok) return playerId;
+  const applyRaw = src.applyToSameCreator;
+  let applyToSameCreator = false;
+  if (applyRaw !== undefined) {
+    if (typeof applyRaw === 'boolean') applyToSameCreator = applyRaw;
+    else if (applyRaw === 1 || applyRaw === '1' || applyRaw === 'true') applyToSameCreator = true;
+    else if (applyRaw === 0 || applyRaw === '0' || applyRaw === 'false') applyToSameCreator = false;
+    else return {ok: false, error: 'applyToSameCreator must be a boolean'};
+  }
+  return {ok: true, value: {playerId: playerId.value, applyToSameCreator}};
+}
+
+export function parseModAssigneePatch(body: unknown): ParseResult<ModAssigneePatchFields> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return {ok: false, error: 'Invalid body'};
+  }
+  const src = body as Record<string, unknown>;
+  for (const key of Object.keys(src)) {
+    if (ASSIGNEE_FORBIDDEN_FIELDS.has(key)) {
+      return {ok: false, error: 'Cannot update this field'};
+    }
+  }
+
+  const value: ModAssigneePatchFields = {};
+  if (src.name !== undefined) {
+    const name = requiredText(src.name, 'name', NAME_MAX);
+    if (!name.ok) return name;
+    value.name = name.value;
+  }
+  if (src.version !== undefined) {
+    const version = optionalText(src.version, VERSION_MAX);
+    if (!version.ok) return version;
+    value.version = version.value;
+  }
+  if (src.description !== undefined) {
+    const description = optionalText(src.description, DESCRIPTION_MAX);
+    if (!description.ok) return description;
+    value.description = description.value;
+  }
+  if (src.downloadUrl !== undefined) {
+    const downloadUrl = parseHttpUrl(src.downloadUrl, 'downloadUrl');
+    if (!downloadUrl.ok) return downloadUrl;
+    value.downloadUrl = downloadUrl.value;
+  }
+  if (src.projectUrl !== undefined) {
+    const projectUrl = parseOptionalHttpUrl(src.projectUrl, 'projectUrl');
+    if (!projectUrl.ok) return projectUrl;
+    value.projectUrl = projectUrl.value;
+  }
+  if (src.sourceUploadedAt !== undefined) {
+    const sourceUploadedAt = parseSourceUploadedAt(src.sourceUploadedAt, false);
+    if (!sourceUploadedAt.ok) return sourceUploadedAt;
+    if (sourceUploadedAt.value) value.sourceUploadedAt = sourceUploadedAt.value;
+  }
+
+  if (Object.keys(value).length === 0) {
+    return {ok: false, error: 'No fields to update'};
+  }
+  return {ok: true, value};
+}
+

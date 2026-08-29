@@ -18,8 +18,10 @@ class Mod extends Model<InferAttributes<Mod>, InferCreationAttributes<Mod>> {
   declare description: CreationOptional<string | null>;
   declare downloadUrl: string;
   declare imageUrl: CreationOptional<string | null>;
+  declare projectUrl: CreationOptional<string | null>;
   declare sourceUploadedAt: Date;
   declare hidden: CreationOptional<boolean>;
+  declare postedByUserId: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -59,6 +61,10 @@ Mod.init(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    projectUrl: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
     sourceUploadedAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -67,6 +73,10 @@ Mod.init(
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,
+    },
+    postedByUserId: {
+      type: DataTypes.UUID,
+      allowNull: true,
     },
     createdAt: {
       type: DataTypes.DATE,
@@ -80,7 +90,10 @@ Mod.init(
   {
     sequelize,
     tableName: 'mods',
-    indexes: [{fields: ['hidden'], name: 'idx_mods_hidden'}],
+    indexes: [
+      {fields: ['hidden'], name: 'idx_mods_hidden'},
+      {fields: ['postedByUserId'], name: 'idx_mods_posted_by_user_id'},
+    ],
   },
 );
 

@@ -21,6 +21,7 @@ class LevelTag extends Model<
   declare groupId: CreationOptional<number | null>;
   declare sortOrder: CreationOptional<number>; // Sort order for tags display
   declare isCommunity: CreationOptional<boolean>;
+  declare passWarningEnabled: CreationOptional<boolean>;
   declare description: CreationOptional<string | null>;
   declare wilsonZ: CreationOptional<number | null>;
   declare scoreOn: CreationOptional<number | null>;
@@ -76,6 +77,12 @@ LevelTag.init(
       allowNull: false,
       defaultValue: false,
       comment: 'When true, the public can vote this tag onto levels',
+    },
+    passWarningEnabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+      comment: 'When false, skip this tag in the pass-submit requirement warning modal',
     },
     description: {
       type: DataTypes.TEXT,

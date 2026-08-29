@@ -277,7 +277,7 @@ export function getValidationOptionsForType(imageType: ImageType): ValidationOpt
         };
     }
 
-    if (['CURATION_ICON','PACK_ICON','CLUSTER_ICON','TAG_ICON','OAUTH_CLIENT_ICON'].includes(imageType)) {
+    if (['CURATION_ICON','PACK_ICON','CLUSTER_ICON','TAG_ICON','OAUTH_CLIENT_ICON','MOD_ICON'].includes(imageType)) {
         return {
             minWidth: 32,
             maxWidth: sizes.width * 8,

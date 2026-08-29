@@ -86,6 +86,7 @@ import UsefulLinkLocale from './misc/UsefulLinkLocale.js';
 import UsefulLinkGroup from './misc/UsefulLinkGroup.js';
 import UsefulLinkGroupAssignment from './misc/UsefulLinkGroupAssignment.js';
 import Mod from './misc/Mod.js';
+import ModAssignee from './misc/ModAssignee.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -178,6 +179,7 @@ export const db = {
     UsefulLinkGroup,
     UsefulLinkGroupAssignment,
     Mod,
+    ModAssignee,
   },
 };
 

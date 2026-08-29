@@ -71,6 +71,7 @@ export const levelIndexName = `${indexPrefix}levels_v1`;
 export const passIndexName = `${indexPrefix}passes_v1`;
 export const playerIndexName = `${indexPrefix}players_v1`;
 export const creatorIndexName = `${indexPrefix}creators_v1`;
+export const modIndexName = `${indexPrefix}mods_v1`;
 
 // Alias names
 export const levelAlias = `${indexPrefix}levels`;
@@ -78,6 +79,7 @@ export const passAlias = `${indexPrefix}passes`;
 export const creditsAlias = `${indexPrefix}credits`;
 export const playerAlias = `${indexPrefix}players`;
 export const creatorAlias = `${indexPrefix}creators`;
+export const modAlias = `${indexPrefix}mods`;
 
 // Combined index and alias configuration
 const settings = {
@@ -816,6 +818,65 @@ export const creatorMapping = {
   },
 };
 
+const modTextField = {
+  type: 'text' as const,
+  analyzer: 'custom_text_analyzer',
+  fields: {
+    exact: {
+      type: 'text' as const,
+      analyzer: 'exact_match_analyzer',
+    },
+    keyword: {
+      type: 'keyword' as const,
+    },
+    lower: {
+      type: 'keyword' as const,
+      normalizer: 'lowercase_normalizer',
+    },
+  },
+};
+
+const modPersonMapping = {
+  properties: {
+    userId: { type: 'keyword' as const },
+    playerId: { type: 'integer' as const },
+    name: modTextField,
+    username: modTextField,
+  },
+};
+
+export const modMapping = {
+  settings,
+  mappings: {
+    properties: {
+      id: { type: 'integer' as const },
+      name: modTextField,
+      creatorUsername: modTextField,
+      creatorDiscordId: {
+        type: 'keyword' as const,
+        normalizer: 'lowercase_normalizer',
+      },
+      version: { type: 'keyword' as const },
+      description: modTextField,
+      downloadUrl: { type: 'keyword' as const },
+      imageUrl: { type: 'keyword' as const },
+      projectUrl: { type: 'keyword' as const },
+      sourceUploadedAt: { type: 'date' as const },
+      hidden: { type: 'boolean' as const },
+      assignees: {
+        type: 'nested' as const,
+        ...modPersonMapping,
+      },
+      postedBy: modPersonMapping,
+      searchText: modTextField,
+      creatorSortKey: {
+        type: 'keyword' as const,
+        normalizer: 'lowercase_normalizer',
+      },
+    },
+  },
+};
+
 export const indices = {
   [levelIndexName]: {
     alias: levelAlias,
@@ -836,6 +897,11 @@ export const indices = {
     alias: creatorAlias,
     settings: creatorMapping.settings,
     mappings: creatorMapping.mappings
+  },
+  [modIndexName]: {
+    alias: modAlias,
+    settings: modMapping.settings,
+    mappings: modMapping.mappings
   }
 };
 
@@ -907,6 +973,19 @@ const creatorMappingHashPayload = {
   indexerVersion: 6,
 };
 
+/**
+ * Payload hashed for mods index (settings + mappings + indexer version).
+ *
+ * History:
+ *   1 — initial catalog index with denormalized assignees and searchText.
+ *   2 — creatorSortKey for paginated creator sort.
+ */
+const modMappingHashPayload = {
+  settings: modMapping.settings,
+  mappings: modMapping.mappings,
+  indexerVersion: 2,
+};
+
 // Store mapping hash files next to the `server/` package, not `process.cwd()`.
 // Dev servers can be launched from repo root or `server/`, so `cwd` is not stable.
 const serverPackageRoot = path.resolve(fileURLToPath(new URL('../../mapping-hashes', import.meta.url)));
@@ -914,6 +993,7 @@ const levelMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-levels.j
 const passMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-passes.json');
 const playerMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-players.json');
 const creatorMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-creators.json');
+const modMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-mods.json');
 
 // Function to generate hash of mappings
 export function generateMappingHash(mappings: any): string {
@@ -925,7 +1005,13 @@ export function generateMappingHash(mappings: any): string {
   });
 }
 
-export async function updateMappingHash(opts: { reindexedLevels: boolean; reindexedPasses: boolean; reindexedPlayers: boolean; reindexedCreators: boolean }): Promise<void> {
+export async function updateMappingHash(opts: {
+  reindexedLevels: boolean;
+  reindexedPasses: boolean;
+  reindexedPlayers: boolean;
+  reindexedCreators: boolean;
+  reindexedMods: boolean;
+}): Promise<void> {
   if (opts.reindexedLevels) {
     await storeLevelMappingHash(generateMappingHash(levelMappingHashPayload));
   }
@@ -937,6 +1023,9 @@ export async function updateMappingHash(opts: { reindexedLevels: boolean; reinde
   }
   if (opts.reindexedCreators) {
     await storeCreatorMappingHash(generateMappingHash(creatorMappingHashPayload));
+  }
+  if (opts.reindexedMods) {
+    await storeModMappingHash(generateMappingHash(modMappingHashPayload));
   }
 }
 
@@ -981,6 +1070,10 @@ export function readStoredCreatorMappingHash(): string | null {
   return readHashFromFile(creatorMappingHashPath);
 }
 
+export function readStoredModMappingHash(): string | null {
+  return readHashFromFile(modMappingHashPath);
+}
+
 async function storeLevelMappingHash(hashValue: string): Promise<void> {
   await writeHashFile(levelMappingHashPath, hashValue);
 }
@@ -997,11 +1090,16 @@ async function storeCreatorMappingHash(hashValue: string): Promise<void> {
   await writeHashFile(creatorMappingHashPath, hashValue);
 }
 
+async function storeModMappingHash(hashValue: string): Promise<void> {
+  await writeHashFile(modMappingHashPath, hashValue);
+}
+
 export type ReindexFlags = {
   levelNeedsReindex: boolean;
   passNeedsReindex: boolean;
   playerNeedsReindex: boolean;
   creatorNeedsReindex: boolean;
+  modNeedsReindex: boolean;
 };
 
 async function isLevelIndexReady(): Promise<boolean> {
@@ -1037,6 +1135,14 @@ async function isCreatorIndexReady(): Promise<boolean> {
   return Boolean(idx && crAlias);
 }
 
+async function isModIndexReady(): Promise<boolean> {
+  const [idx, alias] = await Promise.all([
+    client.indices.exists({ index: modIndexName }),
+    client.indices.exists({ index: modAlias })
+  ]);
+  return Boolean(idx && alias);
+}
+
 // Function to check if reindexing is needed (per index)
 export async function checkIfReindexingNeeded(): Promise<ReindexFlags> {
   try {
@@ -1044,38 +1150,43 @@ export async function checkIfReindexingNeeded(): Promise<ReindexFlags> {
     const currentPassHash = generateMappingHash(passMappingHashPayload);
     const currentPlayerHash = generateMappingHash(playerMappingHashPayload);
     const currentCreatorHash = generateMappingHash(creatorMappingHashPayload);
+    const currentModHash = generateMappingHash(modMappingHashPayload);
     const storedLevelHash = readStoredLevelMappingHash();
     const storedPassHash = readStoredPassMappingHash();
     const storedPlayerHash = readStoredPlayerMappingHash();
     const storedCreatorHash = readStoredCreatorMappingHash();
+    const storedModHash = readStoredModMappingHash();
 
     const levelHashMismatch = currentLevelHash !== storedLevelHash;
     const passHashMismatch = currentPassHash !== storedPassHash;
     const playerHashMismatch = currentPlayerHash !== storedPlayerHash;
     const creatorHashMismatch = currentCreatorHash !== storedCreatorHash;
+    const modHashMismatch = currentModHash !== storedModHash;
 
-    const [levelReady, passReady, playerReady, creatorReady] = await Promise.all([
+    const [levelReady, passReady, playerReady, creatorReady, modReady] = await Promise.all([
       isLevelIndexReady(),
       isPassIndexReady(),
       isPlayerIndexReady(),
       isCreatorIndexReady(),
+      isModIndexReady(),
     ]);
 
     const levelNeedsReindex = levelHashMismatch || !levelReady;
     const passNeedsReindex = passHashMismatch || !passReady;
     const playerNeedsReindex = playerHashMismatch || !playerReady;
     const creatorNeedsReindex = creatorHashMismatch || !creatorReady;
+    const modNeedsReindex = modHashMismatch || !modReady;
 
-    if (levelNeedsReindex || passNeedsReindex || playerNeedsReindex || creatorNeedsReindex) {
+    if (levelNeedsReindex || passNeedsReindex || playerNeedsReindex || creatorNeedsReindex || modNeedsReindex) {
       logger.info(
-        `Index configuration: levels reindex=${levelNeedsReindex} (hash=${levelHashMismatch}, ready=${levelReady}), passes reindex=${passNeedsReindex} (hash=${passHashMismatch}, ready=${passReady}), players reindex=${playerNeedsReindex} (hash=${playerHashMismatch}, ready=${playerReady}), creators reindex=${creatorNeedsReindex} (hash=${creatorHashMismatch}, ready=${creatorReady})`
+        `Index configuration: levels reindex=${levelNeedsReindex} (hash=${levelHashMismatch}, ready=${levelReady}), passes reindex=${passNeedsReindex} (hash=${passHashMismatch}, ready=${passReady}), players reindex=${playerNeedsReindex} (hash=${playerHashMismatch}, ready=${playerReady}), creators reindex=${creatorNeedsReindex} (hash=${creatorHashMismatch}, ready=${creatorReady}), mods reindex=${modNeedsReindex} (hash=${modHashMismatch}, ready=${modReady})`
       );
     }
 
-    return { levelNeedsReindex, passNeedsReindex, playerNeedsReindex, creatorNeedsReindex };
+    return { levelNeedsReindex, passNeedsReindex, playerNeedsReindex, creatorNeedsReindex, modNeedsReindex };
   } catch (error) {
     logger.error('Error checking if reindexing is needed:', error);
-    return { levelNeedsReindex: true, passNeedsReindex: true, playerNeedsReindex: true, creatorNeedsReindex: true };
+    return { levelNeedsReindex: true, passNeedsReindex: true, playerNeedsReindex: true, creatorNeedsReindex: true, modNeedsReindex: true };
   }
 }
 
@@ -1101,6 +1212,7 @@ export type InitializeElasticsearchResult = {
   reindexedPasses: boolean;
   reindexedPlayers: boolean;
   reindexedCreators: boolean;
+  reindexedMods: boolean;
 };
 
 export async function initializeElasticsearch(): Promise<InitializeElasticsearchResult> {
@@ -1110,12 +1222,13 @@ export async function initializeElasticsearch(): Promise<InitializeElasticsearch
       throw new Error('Elasticsearch failed to initialize after multiple retries');
     }
 
-    const { levelNeedsReindex, passNeedsReindex, playerNeedsReindex, creatorNeedsReindex } = await checkIfReindexingNeeded();
+    const { levelNeedsReindex, passNeedsReindex, playerNeedsReindex, creatorNeedsReindex, modNeedsReindex } = await checkIfReindexingNeeded();
 
     let reindexedLevels = false;
     let reindexedPasses = false;
     let reindexedPlayers = false;
     let reindexedCreators = false;
+    let reindexedMods = false;
 
     if (levelNeedsReindex) {
       logger.info('Recreating levels index and aliases...');
@@ -1227,11 +1340,37 @@ export async function initializeElasticsearch(): Promise<InitializeElasticsearch
       reindexedCreators = true;
     }
 
-    if (!reindexedLevels && !reindexedPasses && !reindexedPlayers && !reindexedCreators) {
+    if (modNeedsReindex) {
+      logger.info('Recreating mods index and alias...');
+      await client.indices
+        .delete({
+          index: [modIndexName, modAlias],
+          ignore_unavailable: true
+        })
+        .catch(() => {});
+
+      const modConfig = indices[modIndexName];
+      await client.indices.create({
+        index: modIndexName,
+        settings: modConfig.settings,
+        mappings: modConfig.mappings
+      });
+      logger.info(`Created index: ${modIndexName}`);
+
+      await client.indices.putAlias({
+        index: modIndexName,
+        name: modAlias
+      });
+      logger.info(`Created alias: ${modAlias} -> ${modIndexName}`);
+
+      reindexedMods = true;
+    }
+
+    if (!reindexedLevels && !reindexedPasses && !reindexedPlayers && !reindexedCreators && !reindexedMods) {
       logger.info('No index recreation needed');
     }
 
-    return { reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators };
+    return { reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods };
   } catch (error) {
     logger.error('Error initializing Elasticsearch:', error);
     throw error;

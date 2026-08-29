@@ -57,6 +57,8 @@ void test('parseModCreate requires core fields and defaults hidden/sourceUploade
   assert.equal(created.value.description, 'tweaks');
   assert.equal(created.value.hidden, false);
   assert.ok(created.value.sourceUploadedAt instanceof Date);
+  assert.equal(created.value.imageUrl, null);
+  assert.equal(created.value.projectUrl, null);
 });
 
 void test('parseModCreate rejects oversized name and description', () => {
@@ -88,19 +90,58 @@ void test('parseModCreate rejects invalid snowflake', () => {
   assert.equal(result.ok, false);
 });
 
-void test('parseModPatch updates hidden and imageUrl', () => {
+void test('parseModCreate rejects imageUrl and javascript projectUrl', () => {
+  const imageUrl = parseModCreate({
+    name: 'Mod',
+    creatorUsername: 'user',
+    creatorDiscordId: '12345',
+    downloadUrl: 'https://github.com/a/b',
+    imageUrl: 'https://raw.githubusercontent.com/a/b/main/icon.png',
+  });
+  assert.equal(imageUrl.ok, false);
+  if (!imageUrl.ok) assert.equal(imageUrl.error, 'Cannot update this field');
+
+  const javascript = parseModCreate({
+    name: 'Mod',
+    creatorUsername: 'user',
+    creatorDiscordId: '12345',
+    downloadUrl: 'https://github.com/a/b',
+    projectUrl: 'javascript:alert(1)',
+  });
+  assert.equal(javascript.ok, false);
+});
+
+void test('parseModCreate accepts optional projectUrl from any host', () => {
+  const created = parseModCreate({
+    name: 'Mod',
+    creatorUsername: 'user',
+    creatorDiscordId: '12345',
+    downloadUrl: 'https://github.com/a/b/releases',
+    projectUrl: 'https://gitlab.com/org/repo',
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  assert.equal(created.value.projectUrl, 'https://gitlab.com/org/repo');
+});
+
+void test('parseModPatch updates hidden and projectUrl but rejects imageUrl', () => {
   const empty = parseModPatch({});
   assert.equal(empty.ok, false);
 
-  const patched = parseModPatch({
+  const imageUrl = parseModPatch({
     hidden: true,
     imageUrl: 'https://raw.githubusercontent.com/a/b/main/icon.png',
+  });
+  assert.equal(imageUrl.ok, false);
+  if (!imageUrl.ok) assert.equal(imageUrl.error, 'Cannot update this field');
+
+  const patched = parseModPatch({
+    hidden: true,
+    projectUrl: 'https://gitlab.com/org/repo',
   });
   assert.equal(patched.ok, true);
   if (!patched.ok) return;
   assert.equal(patched.value.hidden, true);
-  assert.equal(
-    patched.value.imageUrl,
-    'https://raw.githubusercontent.com/a/b/main/icon.png',
-  );
+  assert.equal(patched.value.projectUrl, 'https://gitlab.com/org/repo');
+  assert.equal('imageUrl' in patched.value, false);
 });
