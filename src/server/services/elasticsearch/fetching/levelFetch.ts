@@ -226,6 +226,7 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
             'color',
             'groupId',
             'isCommunity',
+            'passWarningEnabled',
           ],
           include: [
             {

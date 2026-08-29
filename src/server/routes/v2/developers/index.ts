@@ -3,8 +3,11 @@ import { Auth } from '@/server/middleware/auth.js';
 import { oauthDeveloperController } from '@/server/controllers/oauthDeveloper.js';
 import { requireCsrfForCookieAuth } from '@/server/middleware/csrf.js';
 import { multerMemoryCdnImage5Mb as upload } from '@/config/multerMemoryUploads.js';
+import modsRoutes from './mods.js';
 
 const router: Router = Router();
+
+router.use('/mods', modsRoutes);
 
 router.get('/apps', Auth.user(), (req, res) => oauthDeveloperController.listMine(req, res));
 router.post(

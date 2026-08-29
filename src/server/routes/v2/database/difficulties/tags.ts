@@ -33,6 +33,7 @@ import {
   rematerializeCommunityTagsForTagIds,
 } from '@/server/services/data/communityTagVoteService.js';
 import { parseCommunityTagKnobFields } from '@/misc/utils/data/communityTagEligibility.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 /**
  * Level tag CRUD + first-class tag groups + level➔tag assignments.
@@ -389,17 +390,17 @@ router.post(
   ApiDoc({
     operationId: 'postDifficultyTag',
     summary: 'Create tag',
-    description: 'Create level tag. Body: name, color, icon?, group?, groupId?. Multipart: icon. Super admin password.',
+    description: 'Create level tag. Body: name, color, icon?, group?, groupId?, isCommunity?, passWarningEnabled?. Multipart: icon. Super admin password.',
     tags: ['Database', 'Difficulties'],
     security: ['bearerAuth'],
-    requestBody: { description: 'name, color, icon, group, groupId, isCommunity', schema: { type: 'object', properties: { name: { type: 'string' }, color: { type: 'string' }, icon: { type: 'string' }, group: { type: 'string' }, groupId: { type: 'number' }, isCommunity: { type: 'boolean' } }, required: ['name', 'color'] }, required: true },
+    requestBody: { description: 'name, color, icon, group, groupId, isCommunity, passWarningEnabled', schema: { type: 'object', properties: { name: { type: 'string' }, color: { type: 'string' }, icon: { type: 'string' }, group: { type: 'string' }, groupId: { type: 'number' }, isCommunity: { type: 'boolean' }, passWarningEnabled: { type: 'boolean' } }, required: ['name', 'color'] }, required: true },
     responses: { 201: { description: 'Tag created' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
     let transaction: any;
     try {
       transaction = await sequelize.transaction();
-      const { name, color, icon, group, groupId, isCommunity } = req.body;
+      const { name, color, icon, group, groupId, isCommunity, passWarningEnabled } = req.body;
       const iconFile = req.file;
 
       if (!name || !color) {
@@ -469,6 +470,7 @@ router.post(
         groupId: resolvedGroupId,
         sortOrder: lastSortOrder + 1,
         isCommunity: parseFormBoolean(isCommunity) ?? false,
+        passWarningEnabled: parseFormBoolean(passWarningEnabled) ?? true,
         description: knobs.description ?? null,
         wilsonZ: knobs.wilsonZ ?? null,
         scoreOn: knobs.scoreOn ?? null,
@@ -512,7 +514,7 @@ router.put(
     try {
       transaction = await sequelize.transaction();
       const tagId = parseInt(req.params.id);
-      const { name, color, icon, group, groupId, isCommunity } = req.body;
+      const { name, color, icon, group, groupId, isCommunity, passWarningEnabled } = req.body;
       const iconFile = req.file;
 
       const tag = await LevelTag.findByPk(tagId);
@@ -589,6 +591,11 @@ router.put(
         }
       }
 
+      const nextPassWarningEnabled = parseFormBoolean(passWarningEnabled);
+      if (nextPassWarningEnabled !== undefined) {
+        updateData.passWarningEnabled = nextPassWarningEnabled;
+      }
+
       let knobs: ReturnType<typeof parseCommunityTagKnobFields> = {};
       try {
         knobs = parseCommunityTagKnobFields(req.body as Record<string, unknown>, {
@@ -637,6 +644,7 @@ router.put(
       await updateDifficultiesHash();
 
       const serialized = await loadSerializedTag(tagId);
+      await CacheInvalidation.invalidateTags(['levels:all']);
       return res.json(serialized);
     } catch (error) {
       await safeTransactionRollback(transaction);
@@ -710,6 +718,7 @@ router.delete(
 
       await updateDifficultiesHash();
 
+      await CacheInvalidation.invalidateTags(['levels:all']);
       return res.json({ message: 'Tag deleted successfully' });
     } catch (error) {
       await safeTransactionRollback(transaction);

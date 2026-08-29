@@ -13,6 +13,7 @@ class PassSubmission extends BaseModel {
   declare passerRequest: boolean;
   declare videoLink: string;
   declare status: 'pending' | 'approved' | 'declined';
+  declare isLocked: boolean;
   declare assignedPlayerId: number | null;
   declare levelId: number;
   declare speed: number | null;
@@ -83,6 +84,11 @@ PassSubmission.init(
     status: {
       type: DataTypes.ENUM('pending', 'approved', 'declined'),
       defaultValue: 'pending',
+    },
+    isLocked: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
     assignedPlayerId: {
       type: DataTypes.INTEGER,

@@ -15,6 +15,7 @@ import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import User from '@/models/auth/User.js';
 import { rematerializeCommunityTagsForLevel } from '@/server/services/data/communityTagVoteService.js';
+import { invalidatePublicModsCache } from '@/server/services/mods/modCache.js';
 
 const CDC_PREFIX = 'cdc:';
 
@@ -289,6 +290,13 @@ export function startCdcProjectors(): void {
             if (prevC != null) cids.add(prevC);
             if (nextC != null) cids.add(nextC);
             if (cids.size > 0) await es.reindexCreators([...cids]);
+
+            const userId = String(after?.id ?? before?.id ?? '');
+            const nickChanged =
+              op === 'd' ||
+              String(before?.username ?? '') !== String(after?.username ?? '') ||
+              String(before?.nickname ?? '') !== String(after?.nickname ?? '');
+            if (userId && nickChanged) await es.reindexModsForUser(userId);
             break;
           }
           case 'user_oauth_providers': {
@@ -463,6 +471,26 @@ export function startCdcProjectors(): void {
           case 'creator_aliases': {
             const cid = num(after?.creatorId ?? before?.creatorId);
             if (cid != null) await es.indexCreator(cid);
+            break;
+          }
+          case 'mods': {
+            const modId = rowId(before, after);
+            if (modId == null) return;
+            if (op === 'd') {
+              await es.deleteMod(modId);
+              await invalidatePublicModsCache();
+              return;
+            }
+            await es.indexMod(modId);
+            await invalidatePublicModsCache();
+            break;
+          }
+          case 'mod_assignees': {
+            const modId = num(after?.modId ?? before?.modId);
+            if (modId != null) {
+              await es.indexMod(modId);
+              await invalidatePublicModsCache();
+            }
             break;
           }
           default:

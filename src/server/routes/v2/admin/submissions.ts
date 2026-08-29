@@ -81,6 +81,51 @@ function passSubmissionLabel(row: { title?: string | null; passer?: string | nul
   return row.title || row.passer || `#${row.id}`;
 }
 
+const SUBMISSION_LOCKED_ERROR = 'Submission is locked';
+
+function parseIsLockedBody(body: unknown): boolean | null {
+  if (!body || typeof body !== 'object') return null;
+  const isLocked = (body as { isLocked?: unknown }).isLocked;
+  return typeof isLocked === 'boolean' ? isLocked : null;
+}
+
+function rejectIfSubmissionLocked(
+  submission: { isLocked?: boolean },
+  res: Response,
+): Response | null {
+  if (!submission.isLocked) return null;
+  return res.status(409).json({ error: SUBMISSION_LOCKED_ERROR });
+}
+
+async function setPendingSubmissionLock(
+  req: Request,
+  res: Response,
+  kind: 'pass' | 'level',
+): Promise<Response> {
+  const id = parseInt(String(req.params.id), 10);
+  if (Number.isNaN(id) || id <= 0) {
+    return res.status(400).json({ error: 'Invalid submission id' });
+  }
+  const isLocked = parseIsLockedBody(req.body);
+  if (isLocked === null) {
+    return res.status(400).json({ error: 'isLocked must be a boolean' });
+  }
+  const submission = kind === 'pass'
+    ? await PassSubmission.findOne({
+        where: { [Op.and]: [{ id }, { status: 'pending' }] },
+      })
+    : await LevelSubmission.findOne({
+        where: { [Op.and]: [{ id }, { status: 'pending' }] },
+      });
+  if (!submission) {
+    return res.status(404).json({
+      error: kind === 'pass' ? 'Submission not found or already processed' : 'Submission not found',
+    });
+  }
+  await submission.update({ isLocked });
+  return res.json({ submission });
+}
+
 async function enqueueSubmissionItems(
   req: Request,
   res: Response,
@@ -323,6 +368,7 @@ router.get(
   try {
     const pendingLevelSubmissions = await LevelSubmission.findAll({
       where: { status: 'pending' },
+      order: [['isLocked', 'ASC'], ['createdAt', 'DESC']],
       include: [
         {
           model: LevelSubmissionCreatorRequest,
@@ -555,7 +601,7 @@ router.get(
             attributes: ['id', 'username', 'playerId']
           }
         ],
-        order: [['createdAt', 'DESC']],
+        order: [['isLocked', 'ASC'], ['createdAt', 'DESC']],
       });
 
       const recordStats = await getSubmitterRecordStats(
@@ -614,7 +660,7 @@ router.put(
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
-    responses: { 202: { description: 'Queued' }, ...standardErrorResponses },
+    responses: { 202: { description: 'Queued' }, 409: { description: 'Submission is locked' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
@@ -624,6 +670,8 @@ router.put(
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
+    const locked = rejectIfSubmissionLocked(submission, res);
+    if (locked) return locked;
     return enqueueSubmissionItems(req, res, {
       kind: 'level',
       action: 'approve',
@@ -650,7 +698,7 @@ router.put(
         properties: { reason: { type: 'string', maxLength: 4000 } },
       },
     },
-    responses: { 202: { description: 'Queued' }, ...standardErrorResponses404500 },
+    responses: { 202: { description: 'Queued' }, 409: { description: 'Submission is locked' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
@@ -660,6 +708,8 @@ router.put(
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
+    const locked = rejectIfSubmissionLocked(submission, res);
+    if (locked) return locked;
     return enqueueSubmissionItems(req, res, {
       kind: 'level',
       action: 'decline',
@@ -680,7 +730,7 @@ router.put(
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
-    responses: { 202: { description: 'Queued' }, ...standardErrorResponses },
+    responses: { 202: { description: 'Queued' }, 409: { description: 'Submission is locked' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
@@ -690,6 +740,8 @@ router.put(
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found or already processed' });
     }
+    const locked = rejectIfSubmissionLocked(submission, res);
+    if (locked) return locked;
     return enqueueSubmissionItems(req, res, {
       kind: 'pass',
       action: 'approve',
@@ -719,7 +771,7 @@ router.put(
         properties: { reason: { type: 'string', maxLength: 4000 } },
       },
     },
-    responses: { 202: { description: 'Queued' }, ...standardErrorResponses500 },
+    responses: { 202: { description: 'Queued' }, 409: { description: 'Submission is locked' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
@@ -729,6 +781,8 @@ router.put(
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found or already processed' });
     }
+    const locked = rejectIfSubmissionLocked(submission, res);
+    if (locked) return locked;
     return enqueueSubmissionItems(req, res, {
       kind: 'pass',
       action: 'decline',
@@ -739,6 +793,66 @@ router.put(
         : undefined,
       reason: optionalReasonFromBody(req.body),
     });
+  },
+);
+
+router.put(
+  '/levels/:id/lock',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionLock',
+    summary: 'Lock or unlock a pending level submission',
+    description:
+      'Park a pending level submission at the bottom of the review queue. Super admin. Body: { isLocked: boolean }.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: {
+      description: 'isLocked',
+      schema: {
+        type: 'object',
+        properties: { isLocked: { type: 'boolean' } },
+        required: ['isLocked'],
+      },
+      required: true,
+    },
+    responses: {
+      200: { description: 'Lock updated' },
+      ...standardErrorResponses,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    return setPendingSubmissionLock(req, res, 'level');
+  },
+);
+
+router.put(
+  '/passes/:id/lock',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminPassSubmissionLock',
+    summary: 'Lock or unlock a pending pass submission',
+    description:
+      'Park a pending pass submission at the bottom of the review queue. Super admin. Body: { isLocked: boolean }.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: {
+      description: 'isLocked',
+      schema: {
+        type: 'object',
+        properties: { isLocked: { type: 'boolean' } },
+        required: ['isLocked'],
+      },
+      required: true,
+    },
+    responses: {
+      200: { description: 'Lock updated' },
+      ...standardErrorResponses,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    return setPendingSubmissionLock(req, res, 'pass');
   },
 );
 
@@ -1163,7 +1277,7 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const pendingSubmissions = await PassSubmission.findAll({
-        where: { status: 'pending', assignedPlayerId: { [Op.ne]: null } },
+        where: { status: 'pending', isLocked: false, assignedPlayerId: { [Op.ne]: null } },
         attributes: ['id', 'title', 'passer', 'levelId'],
       });
       if (pendingSubmissions.length === 0) {
