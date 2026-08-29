@@ -25,6 +25,7 @@ class LevelSubmission extends BaseModel {
   declare notes: string | null;
   declare submitterId: string;
   declare status: 'pending' | 'approved' | 'declined';
+  declare isLocked: boolean;
   declare charterId: number | null;
   declare charterRequest: boolean;
   declare vfxerId: number | null;
@@ -99,6 +100,11 @@ LevelSubmission.init(
     status: {
       type: DataTypes.ENUM('pending', 'approved', 'declined'),
       defaultValue: 'pending',
+    },
+    isLocked: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
     charterId: {
       type: DataTypes.INTEGER,

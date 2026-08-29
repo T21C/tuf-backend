@@ -281,6 +281,7 @@ export interface IPassSubmission extends IBaseModel {
   videoLink: string;
   rawTime: Date;
   status: 'pending' | 'approved' | 'declined';
+  isLocked?: boolean;
   assignedPlayerId?: number | null;
 
   // Associations

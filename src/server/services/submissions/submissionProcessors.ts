@@ -125,6 +125,9 @@ async function processLevelApprove(
     if (!submissionObj) {
       throw new Error('Submission not found');
     }
+    if (submissionObj.isLocked) {
+      throw new Error('Submission is locked');
+    }
 
     const hasUnhandledCreators = submissionObj.creatorRequests?.some(
       request => !request.creatorId && !request.isNewRequest,
@@ -483,6 +486,7 @@ async function processLevelDecline(
     });
     if (!submission) throw new Error('Submission not found');
     if (submission.status !== 'pending') throw new Error('Submission not found');
+    if (submission.isLocked) throw new Error('Submission is locked');
 
     await onStep('cleanup');
     if (submission.directDL && submission.directDL.includes(CDN_CONFIG.baseUrl)) {
@@ -712,6 +716,7 @@ async function processPassApprove(
       transaction,
     });
     if (!submission) throw new Error('Submission not found or already processed');
+    if (submission.isLocked) throw new Error('Submission is locked');
 
     await onStep('createPass');
     const { newPass, createdRatingId, assignedPlayerId, levelId } = await approvePassSubmission(
@@ -783,6 +788,7 @@ async function processPassDecline(
       transaction,
     });
     if (!submission) throw new Error('Submission not found or already processed');
+    if (submission.isLocked) throw new Error('Submission is locked');
 
     await onStep('notify');
     await submission.update({ status: 'declined' }, { transaction });
