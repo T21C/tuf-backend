@@ -6,8 +6,8 @@ import {
   parseModAssigneePatch,
   parsePlayerId,
 } from './modFields.js';
-import {otherModIdsForSameCreator, postedByAfterUnassign} from './modAssign.js';
-import {displayNameForUser, userSummaryFromUser} from './modUsers.js';
+import {otherModIdsForSameCreator, postedByAfterUnassign} from './modAssignHelpers.js';
+import {displayNameForUser, userSummaryFromUser} from './modUserSummary.js';
 
 void test('parsePlayerId requires a positive integer', () => {
   assert.equal(parsePlayerId(12).ok, true);

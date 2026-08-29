@@ -4,6 +4,7 @@ import ModAssignee from '@/models/misc/ModAssignee.js';
 import Player from '@/models/players/Player.js';
 import User from '@/models/auth/User.js';
 import {invalidatePublicModsCache} from './modCache.js';
+import {otherModIdsForSameCreator, postedByAfterUnassign} from './modAssignHelpers.js';
 import {indexCatalogMod, indexCatalogMods} from './modSearchIndex.js';
 import {serializeMod, serializeMods, type SerializedMod} from './serializeMod.js';
 
@@ -14,29 +15,6 @@ export type AssignServiceError = {
 };
 
 export type AssignServiceOk<T> = {ok: true} & T;
-
-export function otherModIdsForSameCreator(
-  current: {id: number; creatorDiscordId: string},
-  allMods: {id: number; creatorDiscordId: string}[],
-  alreadyAssignedModIds: Set<number>,
-): number[] {
-  return allMods
-    .filter(
-      (mod) =>
-        mod.id !== current.id &&
-        mod.creatorDiscordId === current.creatorDiscordId &&
-        !alreadyAssignedModIds.has(mod.id),
-    )
-    .map((mod) => mod.id);
-}
-
-export function postedByAfterUnassign(
-  postedByUserId: string | null | undefined,
-  unassignedUserId: string,
-): string | null {
-  if (!postedByUserId) return null;
-  return postedByUserId === unassignedUserId ? null : postedByUserId;
-}
 
 async function resolvePlayerUser(playerId: number): Promise<
   AssignServiceOk<{user: User}> | AssignServiceError
