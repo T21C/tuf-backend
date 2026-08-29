@@ -1,3 +1,5 @@
+import type {estypes} from '@elastic/elasticsearch';
+
 export const MOD_SEARCH_DEFAULT_LIMIT = 30;
 export const MOD_SEARCH_MAX_LIMIT = 100;
 export const MOD_SEARCH_MAX_OFFSET = 10_000;
@@ -80,7 +82,7 @@ export function buildModSearchQuery(options: ModSearchOptions): Record<string, u
   return {bool};
 }
 
-export function buildModSearchSort(sort: ModSort = 'name-asc'): Record<string, unknown>[] {
+export function buildModSearchSort(sort: ModSort = 'name-asc'): estypes.Sort {
   const byId = {id: {order: 'asc' as const}};
   const byNameAsc = {'name.lower': {order: 'asc' as const}};
   switch (sort) {
