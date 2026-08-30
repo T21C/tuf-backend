@@ -48,6 +48,16 @@ void test('parseModAssigneePatch rejects hidden, imageUrl, and creator fields', 
   assert.equal(ok.value.name, 'Tweaks');
   assert.equal(ok.value.description, 'hello');
   assert.equal('hidden' in ok.value, false);
+
+  const deprecated = parseModAssigneePatch({deprecatedAfter: ' v2.9.8 '});
+  assert.equal(deprecated.ok, true);
+  if (!deprecated.ok) return;
+  assert.equal(deprecated.value.deprecatedAfter, 'v2.9.8');
+
+  const cleared = parseModAssigneePatch({deprecatedAfter: ''});
+  assert.equal(cleared.ok, true);
+  if (!cleared.ok) return;
+  assert.equal(cleared.value.deprecatedAfter, null);
 });
 
 void test('parseModAssigneePatch accepts optional projectUrl and rejects javascript', () => {

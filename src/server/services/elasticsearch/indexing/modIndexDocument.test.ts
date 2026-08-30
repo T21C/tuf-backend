@@ -19,6 +19,7 @@ const assigned = {
   downloadUrl: 'https://github.com/PizzaLovers007/AdofaiTweaks/releases',
   imageUrl: null,
   projectUrl: 'https://gitlab.com/org/repo',
+  deprecatedAfter: 'v2.9.8',
   sourceUploadedAt: new Date('2026-01-01T00:00:00.000Z'),
   hidden: false,
   isPinned: false,
@@ -51,6 +52,7 @@ void test('buildModSearchText includes dump identity and assignee username', () 
   assert.equal(text.includes('https://gitlab.com/org/repo'), true);
   assert.equal(text.includes('qol'), true);
   assert.equal(text.includes('adofaitweaks'), true);
+  assert.equal(text.includes('v2.9.8'), true);
 });
 
 void test('buildModIndexDocument always stores hidden, searchText, and creatorSortKey', () => {
@@ -59,6 +61,7 @@ void test('buildModIndexDocument always stores hidden, searchText, and creatorSo
   assert.equal(doc.searchText.includes('alice'), true);
   assert.equal(doc.creatorSortKey, 'Ali');
   assert.equal(doc.assignees[0]?.username, 'alice');
+  assert.equal(doc.deprecatedAfter, 'v2.9.8');
 });
 
 void test('serializedModFromIndexSource drops searchText, creatorSortKey, and optional hidden', () => {

@@ -24,6 +24,7 @@ export type SerializedMod = {
   downloadUrl: string;
   imageUrl: string | null;
   projectUrl: string | null;
+  deprecatedAfter: string | null;
   sourceUploadedAt: Date;
   hidden?: boolean;
   isPinned: boolean;
@@ -63,6 +64,7 @@ export function serializeModBase(mod: Mod, options?: {includeHidden?: boolean}):
     downloadUrl: mod.downloadUrl,
     imageUrl: mod.imageUrl ?? null,
     projectUrl: mod.projectUrl ?? null,
+    deprecatedAfter: mod.deprecatedAfter ?? null,
     sourceUploadedAt: mod.sourceUploadedAt,
     isPinned: Boolean(mod.isPinned),
     likes: Number(mod.likes || 0),

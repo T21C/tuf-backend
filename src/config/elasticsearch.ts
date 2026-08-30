@@ -861,6 +861,7 @@ export const modMapping = {
       downloadUrl: { type: 'keyword' as const },
       imageUrl: { type: 'keyword' as const },
       projectUrl: { type: 'keyword' as const },
+      deprecatedAfter: { type: 'keyword' as const },
       sourceUploadedAt: { type: 'date' as const },
       hidden: { type: 'boolean' as const },
       slug: { type: 'keyword' as const },

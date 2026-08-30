@@ -96,6 +96,7 @@ export function toModCreateAttributes(row: MappedModSeed) {
     downloadUrl: row.downloadUrl,
     imageUrl: row.imageUrl,
     projectUrl: null,
+    deprecatedAfter: null,
     sourceUploadedAt: row.sourceUploadedAt,
     hidden: false,
     isPinned: false,
