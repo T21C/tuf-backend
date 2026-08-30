@@ -640,6 +640,65 @@ class CdnService {
         }
     }
 
+    async uploadModZip(
+        zipSource: Buffer | string,
+        filename: string,
+    ): Promise<{
+        success: boolean;
+        fileId: string;
+        url: string;
+    }> {
+        const sourceSizeBytes =
+            typeof zipSource === 'string'
+                ? (await fs.promises.stat(zipSource)).size
+                : zipSource.length;
+
+        try {
+            const formData = new FormData();
+            if (typeof zipSource === 'string') {
+                formData.append('file', fs.createReadStream(zipSource), {
+                    filename,
+                    contentType: 'application/zip',
+                    knownLength: sourceSizeBytes,
+                });
+            } else {
+                formData.append('file', zipSource, {
+                    filename,
+                    contentType: 'application/zip',
+                    knownLength: sourceSizeBytes,
+                });
+            }
+
+            const response = await this.client.post('/mod-zips', formData, {
+                headers: {
+                    ...formData.getHeaders(),
+                    'X-File-Type': 'MODZIP',
+                },
+                timeout: 5 * 60 * 1000,
+                maxBodyLength: Infinity,
+                maxContentLength: Infinity,
+            });
+
+            const fileId = response.data?.fileId;
+            const url = response.data?.url;
+            if (!fileId || typeof fileId !== 'string' || typeof url !== 'string') {
+                throw new CdnError('Invalid CDN mod zip response', 'UPLOAD_ERROR');
+            }
+            return {
+                success: true,
+                fileId,
+                url,
+            };
+        } catch (error) {
+            this.handleCdnError(
+                error,
+                'upload mod zip to CDN',
+                'Failed to upload mod zip',
+                'UPLOAD_ERROR',
+            );
+        }
+    }
+
     async checkFileExists(fileId: string): Promise<boolean> {
         try {
             const response = await this.client.head(`/${fileId}`);

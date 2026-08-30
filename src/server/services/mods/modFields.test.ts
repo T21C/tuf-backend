@@ -5,10 +5,12 @@ import {
   DESCRIPTION_MAX,
   NAME_MAX,
   isGithubHostedUrl,
+  parseGithubComUrl,
   parseGithubImageUrl,
   parseHttpUrl,
   parseModCreate,
   parseModPatch,
+  parseModReleaseBody,
 } from './modFields.js';
 
 void test('parseHttpUrl accepts http(s) and rejects dangerous schemes', () => {
@@ -60,6 +62,10 @@ void test('parseModCreate requires core fields and defaults hidden/sourceUploade
   assert.equal(created.value.imageUrl, null);
   assert.equal(created.value.projectUrl, null);
   assert.equal(created.value.deprecatedAfter, null);
+  assert.equal(
+    created.value.githubUrl,
+    'https://github.com/PizzaLovers007/AdofaiTweaks/releases',
+  );
 });
 
 void test('parseModCreate rejects oversized name and description', () => {
@@ -144,6 +150,76 @@ void test('parseModCreate and parseModPatch accept optional deprecatedAfter', ()
 
   const tooLong = parseModPatch({deprecatedAfter: 'x'.repeat(65)});
   assert.equal(tooLong.ok, false);
+});
+
+void test('parseGithubComUrl accepts github.com and www.github.com only', () => {
+  assert.equal(parseGithubComUrl('https://github.com/org/repo/releases').ok, true);
+  assert.equal(parseGithubComUrl('https://www.github.com/org/repo').ok, true);
+  const discord = parseGithubComUrl('https://cdn.discordapp.com/attachments/1/2/a.zip');
+  assert.equal(discord.ok, false);
+  const gist = parseGithubComUrl('https://gist.github.com/user/1');
+  assert.equal(gist.ok, false);
+});
+
+void test('parseModCreate rejects non-GitHub downloadUrl aliases', () => {
+  const discord = parseModCreate({
+    name: 'Mod',
+    creatorUsername: 'user',
+    creatorDiscordId: '12345',
+    downloadUrl: 'https://cdn.discordapp.com/attachments/1/2/a.zip',
+  });
+  assert.equal(discord.ok, false);
+});
+
+void test('parseModCreate zip and GitHub are exclusive', () => {
+  const both = parseModCreate(
+    {
+      name: 'Mod',
+      creatorUsername: 'user',
+      creatorDiscordId: '12345',
+      githubUrl: 'https://github.com/a/b',
+    },
+    {hasFile: true},
+  );
+  assert.equal(both.ok, false);
+
+  const zipOnly = parseModCreate(
+    {
+      name: 'Mod',
+      creatorUsername: 'user',
+      creatorDiscordId: '12345',
+      version: '1.0',
+    },
+    {hasFile: true},
+  );
+  assert.equal(zipOnly.ok, true);
+  if (zipOnly.ok) assert.equal(zipOnly.value.githubUrl, null);
+});
+
+void test('parseModReleaseBody requires zip or GitHub and rejects both', () => {
+  const missing = parseModReleaseBody({version: '1.0'});
+  assert.equal(missing.ok, false);
+
+  const github = parseModReleaseBody({
+    version: '1.0',
+    githubUrl: 'https://github.com/a/b/releases/tag/1.0',
+  });
+  assert.equal(github.ok, true);
+
+  const both = parseModReleaseBody(
+    {version: '1.0', githubUrl: 'https://github.com/a/b'},
+    {hasFile: true},
+  );
+  assert.equal(both.ok, false);
+
+  const zipOnly = parseModReleaseBody({version: '1.0'}, {hasFile: true});
+  assert.equal(zipOnly.ok, true);
+
+  const discord = parseModReleaseBody({
+    version: '1.0',
+    downloadUrl: 'https://cdn.discordapp.com/attachments/1/2/a.zip',
+  });
+  assert.equal(discord.ok, false);
 });
 
 void test('parseModPatch updates hidden and projectUrl but rejects imageUrl', () => {

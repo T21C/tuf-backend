@@ -230,6 +230,7 @@ export const MIME_TYPES = {
     'TAG_ICON': 'image/png',
     'MOD_ICON': 'image/png',
     'LEVELZIP': 'application/zip',
+    'MODZIP': 'application/zip',
     'EVIDENCE': 'image/png',
     'TOURNAMENT_PLACEMENT_ICON': 'image/png',
     'TOURNAMENT_PLACEMENT_CARD': 'image/png',

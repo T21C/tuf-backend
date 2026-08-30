@@ -1,8 +1,12 @@
 import type Mod from '@/models/misc/Mod.js';
 import type ModVersion from '@/models/misc/ModVersion.js';
 import ModAssignee from '@/models/misc/ModAssignee.js';
+import CdnFile from '@/models/cdn/CdnFile.js';
 import {loadUserSummariesByIds, type ModUserSummary} from './modUsers.js';
 import {loadTagsByModIds, type SerializedModTag} from './modTags.js';
+import {getFileIdFromCdnUrl, isCdnUrl} from '@/misc/utils/Utility.js';
+import {isGithubComUrl} from './modReleaseImportClassify.js';
+import {displayNameFromModZipMetadata} from './modZipValidate.js';
 import {listModVersions} from './modCatalog.js';
 
 export type SerializedModVersion = {
@@ -11,6 +15,8 @@ export type SerializedModVersion = {
   downloadUrl: string;
   notes: string | null;
   releasedAt: Date;
+  source: 'hosted' | 'github' | 'external';
+  originalFilename?: string | null;
 };
 
 export type SerializedMod = {
@@ -46,7 +52,39 @@ export function serializeModVersion(row: ModVersion): SerializedModVersion {
     downloadUrl: row.downloadUrl,
     notes: row.notes ?? null,
     releasedAt: row.releasedAt,
+    source: isCdnUrl(row.downloadUrl) ? 'hosted' : isGithubComUrl(row.downloadUrl) ? 'github' : 'external',
   };
+}
+
+async function attachHostedZipNames(versions: SerializedModVersion[]): Promise<void> {
+  const ids = [
+    ...new Set(
+      versions
+        .filter((row) => row.source === 'hosted')
+        .map((row) => getFileIdFromCdnUrl(row.downloadUrl))
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  if (!ids.length) return;
+  try {
+    const files = await CdnFile.findAll({
+      where: {id: ids},
+      attributes: ['id', 'metadata'],
+    });
+    const names = new Map<string, string>();
+    for (const file of files) {
+      const name = displayNameFromModZipMetadata(file.metadata);
+      if (name) names.set(file.id, name);
+    }
+    for (const row of versions) {
+      const id = getFileIdFromCdnUrl(row.downloadUrl);
+      if (!id) continue;
+      const name = names.get(id);
+      if (name) row.originalFilename = name;
+    }
+  } catch {
+    // Catalog payloads still work if CDN metadata is unavailable.
+  }
 }
 
 export function serializeModBase(mod: Mod, options?: {includeHidden?: boolean}): Omit<
@@ -113,6 +151,9 @@ export async function serializeMods(
         versionsByModId.set(modId, versions.map(serializeModVersion));
       }),
     );
+    const allVersions: SerializedModVersion[] = [];
+    for (const versions of versionsByModId.values()) allVersions.push(...versions);
+    await attachHostedZipNames(allVersions);
   }
 
   return mods.map((mod) => {

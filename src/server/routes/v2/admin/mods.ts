@@ -4,7 +4,8 @@ import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import {respondMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
 import Mod from '@/models/misc/Mod.js';
 import {multerMemoryCdnImage5Mb as upload} from '@/config/multerMemoryUploads.js';
-import {parseAssignAssigneesBody, parseMergeBody, parseModCreate, parseModPatch, parseModTagBody, parseModVersionBody, parseTagIds} from '@/server/services/mods/modFields.js';
+import {multerModZipSingle, unlinkModZipUpload} from '@/config/multerModZip.js';
+import {parseAssignAssigneesBody, parseMergeBody, parseModCreate, parseModPatch, parseModReleaseBody, parseModTagBody, parseTagIds} from '@/server/services/mods/modFields.js';
 import {serializeMod, serializeModDetail, serializeModVersion} from '@/server/services/mods/serializeMod.js';
 import {invalidatePublicModsCache} from '@/server/services/mods/modCache.js';
 import {deleteCatalogMod, indexCatalogMod} from '@/server/services/mods/modSearchIndex.js';
@@ -25,7 +26,16 @@ import {
 } from '@/server/services/mods/modIcon.js';
 import {respondWithCdnError} from '@/server/services/core/CdnService.js';
 import {parseFacetQueryString} from '@/misc/utils/search/facetQuery.js';
-import {createCatalogMod, applyModSlugChange, createModVersion, updateModVersion, deleteModVersion, syncLatestVersionFromPatch} from '@/server/services/mods/modCreate.js';
+import {createCatalogMod, applyModSlugChange} from '@/server/services/mods/modCreate.js';
+import {
+  createReleaseFromParsed,
+  deleteAllModReleaseZips,
+  deleteStoredModZip,
+  removeModRelease,
+  resolveReleaseDownloadUrl,
+  updateReleaseFromParsed,
+  uploadedReleaseFile,
+} from '@/server/services/mods/modRelease.js';
 import {allocateAvailableModSlug} from '@/server/services/mods/modCatalog.js';
 import {listModTags, replaceModTags} from '@/server/services/mods/modTags.js';
 import {mergeMods} from '@/server/services/mods/modMerge.js';
@@ -33,6 +43,18 @@ import ModTag from '@/models/misc/ModTag.js';
 import ModVersion from '@/models/misc/ModVersion.js';
 
 const router: Router = Router();
+
+function respondReleaseError(
+  res: Response,
+  error: unknown,
+  fallback: string,
+  logLabel: string,
+) {
+  const status = (error as Error & {status?: number}).status;
+  if (status === 400) return res.status(400).json({error: (error as Error).message});
+  if (error instanceof CdnError) return respondWithCdnError(res, error);
+  return respondMysqlClientError(res, error, fallback, {logLabel});
+}
 
 router.get(
   '/',
@@ -69,6 +91,7 @@ router.get(
 router.post(
   '/',
   Auth.superAdmin(),
+  multerModZipSingle,
   ApiDoc({
     operationId: 'adminCreateMod',
     summary: 'Create a catalog mod',
@@ -77,17 +100,31 @@ router.post(
     responses: {201: {description: 'Created'}},
   }),
   async (req: Request, res: Response) => {
+    const file = uploadedReleaseFile(req);
     try {
-      const parsed = parseModCreate(req.body);
+      const parsed = parseModCreate(req.body, {hasFile: Boolean(file)});
       if (!parsed.ok) return res.status(400).json({error: parsed.error});
-      const created = await createCatalogMod(parsed.value);
-      await indexCatalogMod(created.id);
-      await invalidatePublicModsCache();
-      return res.status(201).json(await serializeMod(created, {includeHidden: true, includeVersions: true}));
-    } catch (error) {
-      return respondMysqlClientError(res, error, 'Failed to create mod', {
-        logLabel: 'Create mod failed:',
-      });
+      let uploadedUrl: string | undefined;
+      try {
+        const resolved = await resolveReleaseDownloadUrl({
+          file,
+          githubUrl: parsed.value.githubUrl || undefined,
+        });
+        uploadedUrl = resolved.uploadedUrl;
+        const {githubUrl: _githubUrl, ...catalogFields} = parsed.value;
+        const created = await createCatalogMod({
+          ...catalogFields,
+          downloadUrl: resolved.downloadUrl,
+        });
+        await indexCatalogMod(created.id);
+        await invalidatePublicModsCache();
+        return res.status(201).json(await serializeMod(created, {includeHidden: true, includeVersions: true}));
+      } catch (error) {
+        if (uploadedUrl) await deleteStoredModZip(uploadedUrl);
+        return respondReleaseError(res, error, 'Failed to create mod', 'Create mod failed:');
+      }
+    } finally {
+      unlinkModZipUpload(req.file);
     }
   },
 );
@@ -219,6 +256,7 @@ router.get(
 router.post(
   '/:id([0-9]{1,20})/versions',
   Auth.superAdmin(),
+  multerModZipSingle,
   ApiDoc({
     operationId: 'adminCreateModVersion',
     summary: 'Add a release to a catalog mod',
@@ -227,19 +265,13 @@ router.post(
     responses: {201: {description: 'Created'}},
   }),
   async (req: Request, res: Response) => {
+    const file = uploadedReleaseFile(req);
     try {
-      const parsed = parseModVersionBody(req.body);
+      const parsed = parseModReleaseBody(req.body, {hasFile: Boolean(file)});
       if (!parsed.ok) return res.status(400).json({error: parsed.error});
       const mod = await Mod.findByPk(req.params.id);
       if (!mod) return res.status(404).json({error: 'Mod not found'});
-      const fields = parsed.value as {version: string; downloadUrl: string; notes: string | null; releasedAt: Date};
-      const created = await createModVersion({
-        modId: mod.id,
-        version: fields.version,
-        downloadUrl: fields.downloadUrl,
-        notes: fields.notes ?? null,
-        releasedAt: fields.releasedAt,
-      });
+      const created = await createReleaseFromParsed(mod.id, parsed.value, file);
       await indexCatalogMod(mod.id);
       await invalidatePublicModsCache();
       return res.status(201).json({
@@ -247,9 +279,9 @@ router.post(
         mod: await serializeModDetail(mod, {includeHidden: true}),
       });
     } catch (error) {
-      return respondMysqlClientError(res, error, 'Failed to create mod version', {
-        logLabel: 'Create mod version failed:',
-      });
+      return respondReleaseError(res, error, 'Failed to create mod version', 'Create mod version failed:');
+    } finally {
+      unlinkModZipUpload(req.file);
     }
   },
 );
@@ -257,6 +289,7 @@ router.post(
 router.patch(
   '/:id([0-9]{1,20})/versions/:versionId([0-9]{1,20})',
   Auth.superAdmin(),
+  multerModZipSingle,
   ApiDoc({
     operationId: 'adminUpdateModVersion',
     summary: 'Update a catalog mod release',
@@ -265,14 +298,15 @@ router.patch(
     responses: {200: {description: 'Updated'}},
   }),
   async (req: Request, res: Response) => {
+    const file = uploadedReleaseFile(req);
     try {
-      const parsed = parseModVersionBody(req.body, {partial: true});
+      const parsed = parseModReleaseBody(req.body, {partial: true, hasFile: Boolean(file)});
       if (!parsed.ok) return res.status(400).json({error: parsed.error});
       const versionRow = await ModVersion.findOne({
         where: {id: req.params.versionId, modId: req.params.id},
       });
       if (!versionRow) return res.status(404).json({error: 'Version not found'});
-      const updated = await updateModVersion(versionRow, parsed.value);
+      const updated = await updateReleaseFromParsed(versionRow, parsed.value, file);
       await indexCatalogMod(versionRow.modId);
       await invalidatePublicModsCache();
       const mod = await Mod.findByPk(versionRow.modId);
@@ -281,9 +315,9 @@ router.patch(
         mod: mod ? await serializeModDetail(mod, {includeHidden: true}) : null,
       });
     } catch (error) {
-      return respondMysqlClientError(res, error, 'Failed to update mod version', {
-        logLabel: 'Update mod version failed:',
-      });
+      return respondReleaseError(res, error, 'Failed to update mod version', 'Update mod version failed:');
+    } finally {
+      unlinkModZipUpload(req.file);
     }
   },
 );
@@ -304,7 +338,7 @@ router.delete(
         where: {id: req.params.versionId, modId: req.params.id},
       });
       if (!versionRow) return res.status(404).json({error: 'Version not found'});
-      await deleteModVersion(versionRow);
+      await removeModRelease(versionRow);
       await indexCatalogMod(Number(req.params.id));
       await invalidatePublicModsCache();
       const mod = await Mod.findByPk(req.params.id);
@@ -313,11 +347,7 @@ router.delete(
         mod: mod ? await serializeModDetail(mod, {includeHidden: true}) : null,
       });
     } catch (error) {
-      const status = (error as Error & {status?: number}).status;
-      if (status === 400) return res.status(400).json({error: (error as Error).message});
-      return respondMysqlClientError(res, error, 'Failed to delete mod version', {
-        logLabel: 'Delete mod version failed:',
-      });
+      return respondReleaseError(res, error, 'Failed to delete mod version', 'Delete mod version failed:');
     }
   },
 );
@@ -503,7 +533,7 @@ router.patch(
       if (!parsed.ok) return res.status(400).json({error: parsed.error});
       const mod = await Mod.findByPk(req.params.id);
       if (!mod) return res.status(404).json({error: 'Mod not found'});
-      const {slug, version, downloadUrl, sourceUploadedAt, ...rest} = parsed.value;
+      const {slug, version: _version, downloadUrl, sourceUploadedAt: _sourceUploadedAt, ...rest} = parsed.value;
       if (Object.keys(rest).length) await mod.update(rest);
       if (slug && slug !== mod.slug) {
         const nextSlug = await allocateAvailableModSlug(
@@ -516,9 +546,6 @@ router.patch(
           {suggested: slug, excludeModId: mod.id},
         );
         await applyModSlugChange(mod, nextSlug);
-      }
-      if (version !== undefined || downloadUrl !== undefined || sourceUploadedAt !== undefined) {
-        await syncLatestVersionFromPatch(mod, {version, downloadUrl, sourceUploadedAt});
       }
       await mod.reload();
       await indexCatalogMod(mod.id);
@@ -547,6 +574,7 @@ router.delete(
       const mod = await Mod.findByPk(req.params.id);
       if (!mod) return res.status(404).json({error: 'Mod not found'});
       const imageUrl = mod.imageUrl;
+      await deleteAllModReleaseZips(mod.id);
       await mod.destroy();
       await deleteCatalogMod(mod.id);
       await deleteStoredModIcon(imageUrl);

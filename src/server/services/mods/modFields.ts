@@ -1,3 +1,5 @@
+import {isGithubComUrl} from './modReleaseImportClassify.js';
+
 export const NAME_MAX = 512;
 export const USERNAME_MAX = 64;
 export const DISCORD_ID_MAX = 32;
@@ -72,6 +74,15 @@ export function parseOptionalHttpUrl(raw: unknown, label: string): ParseResult<s
   const trimmed = raw.trim();
   if (!trimmed) return {ok: true, value: null};
   return parseHttpUrl(trimmed, label);
+}
+
+export function parseGithubComUrl(raw: unknown, label = 'githubUrl'): ParseResult<string> {
+  const parsed = parseHttpUrl(raw, label);
+  if (!parsed.ok) return parsed;
+  if (!isGithubComUrl(parsed.value)) {
+    return {ok: false, error: `${label} must be a github.com URL`};
+  }
+  return parsed;
 }
 
 export function isGithubHostedUrl(url: string): boolean {
@@ -214,7 +225,14 @@ export function parseTagIds(raw: unknown): ParseResult<number[]> {
   return {ok: true, value: ids};
 }
 
-export function parseModCreate(body: unknown): ParseResult<ModCreateFields> {
+export type ParsedModCreate = Omit<ModCreateFields, 'downloadUrl'> & {
+  githubUrl: string | null;
+};
+
+export function parseModCreate(
+  body: unknown,
+  options?: {hasFile?: boolean},
+): ParseResult<ParsedModCreate> {
   const src = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
   if ('imageUrl' in src) return {ok: false, error: 'Cannot update this field'};
   const name = requiredText(src.name, 'name', NAME_MAX);
@@ -227,8 +245,18 @@ export function parseModCreate(body: unknown): ParseResult<ModCreateFields> {
   if (!version.ok) return version;
   const description = optionalText(src.description, DESCRIPTION_MAX);
   if (!description.ok) return description;
-  const downloadUrl = parseHttpUrl(src.downloadUrl, 'downloadUrl');
-  if (!downloadUrl.ok) return downloadUrl;
+  const hasFile = Boolean(options?.hasFile);
+  const githubRaw = src.githubUrl ?? src.downloadUrl;
+  const hasGithub = githubRaw !== undefined && githubRaw !== null && String(githubRaw).trim() !== '';
+  if (hasFile && hasGithub) {
+    return {ok: false, error: 'Provide either a zip or a GitHub URL'};
+  }
+  let githubUrl: string | null = null;
+  if (!hasFile) {
+    const parsedGithub = parseGithubComUrl(githubRaw, 'githubUrl');
+    if (!parsedGithub.ok) return parsedGithub;
+    githubUrl = parsedGithub.value;
+  }
   const projectUrl = parseOptionalHttpUrl(src.projectUrl, 'projectUrl');
   if (!projectUrl.ok) return projectUrl;
   const deprecatedAfter = optionalText(src.deprecatedAfter, VERSION_MAX);
@@ -250,7 +278,7 @@ export function parseModCreate(body: unknown): ParseResult<ModCreateFields> {
       creatorDiscordId: creatorDiscordId.value,
       version: version.value,
       description: description.value,
-      downloadUrl: downloadUrl.value,
+      githubUrl,
       imageUrl: null,
       projectUrl: projectUrl.value,
       deprecatedAfter: deprecatedAfter.value,
@@ -424,33 +452,42 @@ export function parseModAssigneePatch(body: unknown): ParseResult<ModAssigneePat
   return {ok: true, value};
 }
 
-export type ModVersionFields = {
+export type ModReleaseFields = {
   version: string;
-  downloadUrl: string;
   notes: string | null;
   releasedAt: Date;
+  githubUrl?: string;
 };
 
-export function parseModVersionBody(
+export function parseModReleaseBody(
   body: unknown,
-  options?: {partial?: boolean},
-): ParseResult<Partial<ModVersionFields> | ModVersionFields> {
+  options?: {partial?: boolean; hasFile?: boolean},
+): ParseResult<Partial<ModReleaseFields>> {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return {ok: false, error: 'Invalid body'};
   }
   const src = body as Record<string, unknown>;
   const partial = Boolean(options?.partial);
-  const value: Partial<ModVersionFields> = {};
+  const hasFile = Boolean(options?.hasFile);
+  const githubRaw = src.githubUrl ?? src.downloadUrl;
+  const hasGithub = githubRaw !== undefined && githubRaw !== null && String(githubRaw).trim() !== '';
+  if (hasFile && hasGithub) {
+    return {ok: false, error: 'Provide either a zip or a GitHub URL'};
+  }
+
+  const value: Partial<ModReleaseFields> = {};
 
   if (!partial || src.version !== undefined) {
     const version = parseVersionLabel(src.version, !partial);
     if (!version.ok) return version;
     value.version = version.value;
   }
-  if (!partial || src.downloadUrl !== undefined) {
-    const downloadUrl = parseHttpUrl(src.downloadUrl, 'downloadUrl');
-    if (!downloadUrl.ok) return downloadUrl;
-    value.downloadUrl = downloadUrl.value;
+  if (!hasFile && (!partial || hasGithub || src.githubUrl !== undefined || src.downloadUrl !== undefined)) {
+    if (!partial || hasGithub) {
+      const githubUrl = parseGithubComUrl(githubRaw, 'githubUrl');
+      if (!githubUrl.ok) return githubUrl;
+      value.githubUrl = githubUrl.value;
+    }
   }
   if (!partial || src.notes !== undefined) {
     const notes = optionalText(src.notes, DESCRIPTION_MAX);
@@ -463,10 +500,20 @@ export function parseModVersionBody(
     if (releasedAt.value) value.releasedAt = releasedAt.value;
   }
 
-  if (partial && Object.keys(value).length === 0) {
+  if (!partial && !hasFile && !value.githubUrl) {
+    return {ok: false, error: 'githubUrl is required'};
+  }
+  if (partial && !hasFile && Object.keys(value).length === 0) {
     return {ok: false, error: 'No fields to update'};
   }
   return {ok: true, value};
+}
+
+export function parseModVersionBody(
+  body: unknown,
+  options?: {partial?: boolean; hasFile?: boolean},
+): ParseResult<Partial<ModReleaseFields>> {
+  return parseModReleaseBody(body, options);
 }
 
 export function parseModTagBody(

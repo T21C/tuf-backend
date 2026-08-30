@@ -22,6 +22,7 @@ class CdnFile extends Model {
     declare id: string;
     declare type:
     | 'LEVELZIP'
+    | 'MODZIP'
     | 'GENERAL'
     | ImageFileType;
     declare filePath: string;
