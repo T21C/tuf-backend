@@ -100,8 +100,9 @@ export async function fetchHistoricalLeaderboardAtDate(options: {
   offset?: number;
   limit?: number;
   scoringVersion?: string;
-  /** When set, restrict to these player ids (following filter). Empty returns no rows. */
+  /** When set, restrict to or exclude these player ids (following filter). */
   playerIds?: number[];
+  playerIdsMode?: 'include' | 'exclude';
 }): Promise<HistoricalLeaderboardResult> {
   const scoringVersion = options.scoringVersion ?? DEFAULT_LEADERBOARD_RANK_SCORING_VERSION;
   const metric = options.metric === 'generalScore' ? 'generalScore' : 'rankedScore';
@@ -118,7 +119,8 @@ export async function fetchHistoricalLeaderboardAtDate(options: {
   const playerIds = Array.isArray(options.playerIds)
     ? options.playerIds.filter((id) => Number.isInteger(id) && id > 0)
     : undefined;
-  if (playerIds != null && playerIds.length === 0) {
+  const playerIdsMode = options.playerIdsMode === 'exclude' ? 'exclude' : 'include';
+  if (playerIds != null && playerIds.length === 0 && playerIdsMode === 'include') {
     return { count: 0, results: [], minDate: bounds.minDate, maxDate: bounds.maxDate };
   }
 
@@ -133,7 +135,12 @@ export async function fetchHistoricalLeaderboardAtDate(options: {
   const nameJoin = hasNameQuery
     ? `INNER JOIN players pl ON pl.id = e.playerId AND pl.name LIKE :namePattern`
     : '';
-  const playerIdClause = playerIds != null ? 'AND e.playerId IN (:playerIds)' : '';
+  const hasPlayerIds = playerIds != null && playerIds.length > 0;
+  const playerIdClause = hasPlayerIds
+    ? playerIdsMode === 'exclude'
+      ? 'AND e.playerId NOT IN (:playerIds)'
+      : 'AND e.playerId IN (:playerIds)'
+    : '';
 
   const baseFrom = `
     FROM player_leaderboard_rank_events e
@@ -161,7 +168,7 @@ export async function fetchHistoricalLeaderboardAtDate(options: {
   if (hasNameQuery) {
     replacements.namePattern = namePattern;
   }
-  if (playerIds != null) {
+  if (hasPlayerIds) {
     replacements.playerIds = playerIds;
   }
 

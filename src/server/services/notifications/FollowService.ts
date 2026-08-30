@@ -103,11 +103,21 @@ export function coercePublicFollows(value: unknown): boolean {
   return value !== false && value !== 0;
 }
 
-/** Leaderboard `following` query param: `true` or `1` (case-insensitive). */
-export function parseFollowingQueryParam(raw: unknown): boolean {
-  if (raw == null) return false;
+/** Leaderboard `following` query param: `show` | `hide` | `only` (`true`/`1` = only). */
+export type FollowingFilterMode = 'show' | 'hide' | 'only';
+
+export function parseFollowingFilterMode(raw: unknown): FollowingFilterMode {
+  if (raw == null) return 'show';
   const value = String(raw).trim().toLowerCase();
-  return value === 'true' || value === '1';
+  if (value === 'only' || value === 'true' || value === '1') return 'only';
+  if (value === 'hide') return 'hide';
+  return 'show';
+}
+
+/** True when the following param personalizes results (`only` or `hide`). */
+export function parseFollowingQueryParam(raw: unknown): boolean {
+  const mode = parseFollowingFilterMode(raw);
+  return mode === 'only' || mode === 'hide';
 }
 
 export async function listFollowedTargetIds(
@@ -131,21 +141,22 @@ export async function listFollowedTargetIds(
 export type FollowingLeaderboardFilter =
   | {active: false}
   | {active: true; unauthorized: true}
-  | {active: true; unauthorized: false; ids: number[]};
+  | {active: true; unauthorized: false; mode: 'only' | 'hide'; ids: number[]};
 
 export async function resolveFollowingLeaderboardFilter(
   raw: unknown,
   userId: string | undefined,
   targetType: UserFollowTargetType,
 ): Promise<FollowingLeaderboardFilter> {
-  if (!parseFollowingQueryParam(raw)) {
+  const mode = parseFollowingFilterMode(raw);
+  if (mode === 'show') {
     return {active: false};
   }
   if (!userId) {
     return {active: true, unauthorized: true};
   }
   const ids = await listFollowedTargetIds(userId, targetType);
-  return {active: true, unauthorized: false, ids};
+  return {active: true, unauthorized: false, mode, ids};
 }
 
 export interface FollowerListItem {
