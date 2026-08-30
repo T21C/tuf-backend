@@ -15,6 +15,7 @@ import {fileURLToPath} from 'node:url';
 import {getSequelizeForModelGroup} from '@/config/db.js';
 import Mod from '@/models/misc/Mod.js';
 import {mergeModSeedRows, toModCreateAttributes} from '@/server/services/mods/modSeed.js';
+import {createCatalogMod} from '@/server/services/mods/modCreate.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 
 function argValue(flag: string): string | undefined {
@@ -51,7 +52,9 @@ async function main() {
     throw new Error(`No usable mod rows in ${filePath}`);
   }
 
-  await Mod.bulkCreate(merged.map(toModCreateAttributes));
+  for (const row of merged) {
+    await createCatalogMod(toModCreateAttributes(row));
+  }
   logger.info(`seeded ${merged.length} mods from ${filePath} (${parsed.length} source rows)`);
   process.exit(0);
 }

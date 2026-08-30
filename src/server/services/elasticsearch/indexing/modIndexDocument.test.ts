@@ -10,6 +10,7 @@ import {
 
 const assigned = {
   id: 7,
+  slug: 'adofaitweaks',
   name: 'AdofaiTweaks',
   creatorUsername: 'crackthrough',
   creatorDiscordId: '543672901585469441',
@@ -20,6 +21,10 @@ const assigned = {
   projectUrl: 'https://gitlab.com/org/repo',
   sourceUploadedAt: new Date('2026-01-01T00:00:00.000Z'),
   hidden: false,
+  isPinned: false,
+  likes: 0,
+  downloadCount: 0,
+  tags: [{id: 1, name: 'qol', color: '#8d70ff', sortOrder: 0}],
   assignees: [{userId: 'u1', playerId: 9, name: 'Ali', username: 'alice'}],
   postedBy: {userId: 'u1', playerId: 9, name: 'Ali', username: 'alice'},
 };
@@ -44,6 +49,8 @@ void test('buildModSearchText includes dump identity and assignee username', () 
   assert.equal(text.includes('alice'), true);
   assert.equal(text.includes('Ali'), true);
   assert.equal(text.includes('https://gitlab.com/org/repo'), true);
+  assert.equal(text.includes('qol'), true);
+  assert.equal(text.includes('adofaitweaks'), true);
 });
 
 void test('buildModIndexDocument always stores hidden, searchText, and creatorSortKey', () => {

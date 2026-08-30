@@ -3,6 +3,7 @@ import UsefulLink from '@/models/misc/UsefulLink.js';
 import UsefulLinkLocale from '@/models/misc/UsefulLinkLocale.js';
 import UsefulLinkGroup from '@/models/misc/UsefulLinkGroup.js';
 import UsefulLinkGroupAssignment from '@/models/misc/UsefulLinkGroupAssignment.js';
+import UsefulLinkGroupLocale from '@/models/misc/UsefulLinkGroupLocale.js';
 import {
   serializeUsefulLink,
   compareSerializedLinkOrder,
@@ -12,11 +13,17 @@ import {DEFAULT_SITE_LANGUAGE} from '@/config/siteLanguages.js';
 
 export {serializeUsefulLink, compareSerializedLinkOrder, type UsefulLinkJson};
 
+export type UsefulLinkGroupLocaleJson = {
+  languageCode: string;
+  name: string;
+};
+
 export type UsefulLinkGroupJson = {
   id: number;
   name: string;
   sortOrder: number;
   linkIds: number[];
+  locales: UsefulLinkGroupLocaleJson[];
 };
 
 export type UsefulLinksCatalogJson = {
@@ -26,6 +33,12 @@ export type UsefulLinksCatalogJson = {
 
 export const LINK_LOCALES_INCLUDE: Includeable = {
   model: UsefulLinkLocale,
+  as: 'locales',
+  required: false,
+};
+
+export const GROUP_LOCALES_INCLUDE: Includeable = {
+  model: UsefulLinkGroupLocale,
   as: 'locales',
   required: false,
 };
@@ -40,15 +53,30 @@ export const GROUP_LIST_ORDER: Order = [
   ['id', 'ASC'],
 ];
 
+export function serializeGroupLocale(row: UsefulLinkGroupLocale): UsefulLinkGroupLocaleJson {
+  return {
+    languageCode: row.languageCode,
+    name: row.name,
+  };
+}
+
 export function serializeGroup(
   group: UsefulLinkGroup,
   linkIds: number[] = [],
 ): UsefulLinkGroupJson {
+  const locales = [...(group.locales ?? [])]
+    .map(serializeGroupLocale)
+    .sort((a, b) => {
+      if (a.languageCode === DEFAULT_SITE_LANGUAGE) return -1;
+      if (b.languageCode === DEFAULT_SITE_LANGUAGE) return 1;
+      return a.languageCode.localeCompare(b.languageCode);
+    });
   return {
     id: group.id,
     name: group.name,
     sortOrder: group.sortOrder,
     linkIds,
+    locales,
   };
 }
 
@@ -56,9 +84,34 @@ export async function listSerializedGroups(
   transaction?: Transaction,
 ): Promise<UsefulLinkGroup[]> {
   return UsefulLinkGroup.findAll({
+    include: [GROUP_LOCALES_INCLUDE],
     order: GROUP_LIST_ORDER,
     transaction,
   });
+}
+
+export async function loadSerializedGroup(
+  groupId: number,
+  transaction?: Transaction,
+): Promise<UsefulLinkGroupJson | null> {
+  const group = await UsefulLinkGroup.findByPk(groupId, {
+    include: [GROUP_LOCALES_INCLUDE],
+    transaction,
+  });
+  if (!group) return null;
+  const assignments = await UsefulLinkGroupAssignment.findAll({
+    where: {groupId},
+    attributes: ['linkId'],
+    order: [
+      ['sortOrder', 'ASC'],
+      ['id', 'ASC'],
+    ],
+    transaction,
+  });
+  return serializeGroup(
+    group,
+    assignments.map((row) => row.linkId),
+  );
 }
 
 export async function loadSerializedLink(
@@ -117,6 +170,33 @@ export async function listResourcesCatalog(
       .map((link) => serializeUsefulLink(link, groupIdsByLink.get(link.id) ?? []))
       .sort(compareSerializedLinkOrder),
   };
+}
+
+export async function upsertEnglishGroupLocale(
+  group: {id: number; name: string},
+  transaction?: Transaction,
+): Promise<void> {
+  const existing = await UsefulLinkGroupLocale.findOne({
+    where: {groupId: group.id, languageCode: DEFAULT_SITE_LANGUAGE},
+    transaction,
+  });
+  const fields = {
+    name: group.name,
+    updatedAt: new Date(),
+  };
+  if (existing) {
+    await existing.update(fields, {transaction});
+    return;
+  }
+  await UsefulLinkGroupLocale.create(
+    {
+      groupId: group.id,
+      languageCode: DEFAULT_SITE_LANGUAGE,
+      ...fields,
+      createdAt: new Date(),
+    },
+    {transaction},
+  );
 }
 
 export async function upsertEnglishLocale(

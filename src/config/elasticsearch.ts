@@ -863,11 +863,23 @@ export const modMapping = {
       projectUrl: { type: 'keyword' as const },
       sourceUploadedAt: { type: 'date' as const },
       hidden: { type: 'boolean' as const },
+      slug: { type: 'keyword' as const },
+      isPinned: { type: 'boolean' as const },
+      likes: { type: 'integer' as const },
+      downloadCount: { type: 'integer' as const },
       assignees: {
         type: 'nested' as const,
         ...modPersonMapping,
       },
       postedBy: modPersonMapping,
+      tags: {
+        type: 'nested' as const,
+        properties: {
+          id: { type: 'integer' as const },
+          name: { type: 'keyword' as const },
+          color: { type: 'keyword' as const },
+        },
+      },
       searchText: modTextField,
       creatorSortKey: {
         type: 'keyword' as const,
@@ -979,11 +991,12 @@ const creatorMappingHashPayload = {
  * History:
  *   1 — initial catalog index with denormalized assignees and searchText.
  *   2 — creatorSortKey for paginated creator sort.
+ *   3 — slug, pin, tags, likes, downloadCount; recency is latest release.
  */
 const modMappingHashPayload = {
   settings: modMapping.settings,
   mappings: modMapping.mappings,
-  indexerVersion: 2,
+  indexerVersion: 3,
 };
 
 // Store mapping hash files next to the `server/` package, not `process.cwd()`.

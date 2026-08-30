@@ -35,6 +35,9 @@ export function specNestedDocNameWithOptionalAliases(opts: {
   return nestedQuery(opts.rootNestedPath, boolShould(1, shouldClauses), ignore);
 }
 
+/** Charter / vfxer only — special thanks is display-only and must not match searches. */
+export const CONTRIBUTING_CREDIT_ROLES = ['charter', 'vfxer'] as const;
+
 /** Nested `levelCredits.creator` with name + optional `creatorAliases` (min_should 1). */
 export function specLevelCreditsCreatorInner(opts: {
   wildcardValue: string;
@@ -54,7 +57,26 @@ export function specLevelCreditsCreatorInner(opts: {
   return nestedQuery('levelCredits.creator', boolShould(1, shouldClauses));
 }
 
-/** `levelCredits` nested: creator name/aliases + optional role term (charter/vfxer). */
+/** Same nested document must be charter or vfxer (excludes specialThanks). */
+export function specContributingCreditRoles(): EsQuery {
+  return boolShould(
+    1,
+    CONTRIBUTING_CREDIT_ROLES.map((role) => termField('levelCredits.role', role, true)),
+  );
+}
+
+/** Profile / visibility: this creator charted or VFXed the level. */
+export function specLevelCreditsByCreatorId(creatorId: number | string): EsQuery {
+  return nestedQuery(
+    'levelCredits',
+    boolMust([
+      termField('levelCredits.creatorId', creatorId),
+      specContributingCreditRoles(),
+    ]),
+  );
+}
+
+/** `levelCredits` nested: creator name/aliases + charter/vfxer (or a specific contributing role). */
 export function specLevelCreditsByCreatorRole(opts: {
   wildcardValue: string;
   excludeAliases: boolean;
@@ -63,12 +85,15 @@ export function specLevelCreditsByCreatorRole(opts: {
   const mustParts: EsQuery[] = [specLevelCreditsCreatorInner(opts)];
   if (opts.role) {
     mustParts.push(termField('levelCredits.role', opts.role, true));
+  } else {
+    mustParts.push(specContributingCreditRoles());
   }
   return nestedQuery('levelCredits', boolMust(mustParts));
 }
 
 /**
- * `field === 'any'`: double-nested credits/creator; inner creator bool is `should` only (legacy shape).
+ * `field === 'any'`: double-nested credits/creator, restricted to charter/vfxer.
+ * Inner creator bool is `should` only (legacy shape).
  */
 export function specAnyLevelCreditsCreator(opts: { wildcardValue: string; excludeAliases: boolean }): EsQuery {
   const innerShould: EsQuery[] = [
@@ -84,7 +109,10 @@ export function specAnyLevelCreditsCreator(opts: { wildcardValue: string; exclud
   }
   return nestedQuery(
     'levelCredits',
-    nestedQuery('levelCredits.creator', boolShouldOnly(innerShould)),
+    boolMust([
+      nestedQuery('levelCredits.creator', boolShouldOnly(innerShould)),
+      specContributingCreditRoles(),
+    ]),
   );
 }
 

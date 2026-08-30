@@ -85,8 +85,15 @@ import UsefulLink from './misc/UsefulLink.js';
 import UsefulLinkLocale from './misc/UsefulLinkLocale.js';
 import UsefulLinkGroup from './misc/UsefulLinkGroup.js';
 import UsefulLinkGroupAssignment from './misc/UsefulLinkGroupAssignment.js';
+import UsefulLinkGroupLocale from './misc/UsefulLinkGroupLocale.js';
 import Mod from './misc/Mod.js';
 import ModAssignee from './misc/ModAssignee.js';
+import ModVersion from './misc/ModVersion.js';
+import ModTag from './misc/ModTag.js';
+import ModTagAssignment from './misc/ModTagAssignment.js';
+import ModLike from './misc/ModLike.js';
+import ModDownloadUnique from './misc/ModDownloadUnique.js';
+import ModSlugRedirect from './misc/ModSlugRedirect.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -178,8 +185,15 @@ export const db = {
     UsefulLinkLocale,
     UsefulLinkGroup,
     UsefulLinkGroupAssignment,
+    UsefulLinkGroupLocale,
     Mod,
     ModAssignee,
+    ModVersion,
+    ModTag,
+    ModTagAssignment,
+    ModLike,
+    ModDownloadUnique,
+    ModSlugRedirect,
   },
 };
 

@@ -4,11 +4,12 @@ import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import {requireCsrfForCookieAuth} from '@/server/middleware/csrf.js';
 import {respondMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
 import {multerMemoryCdnImage5Mb as upload} from '@/config/multerMemoryUploads.js';
-import {parseModAssigneePatch} from '@/server/services/mods/modFields.js';
+import {parseModAssigneePatch, parseTagIds} from '@/server/services/mods/modFields.js';
 import {serializeMod} from '@/server/services/mods/serializeMod.js';
 import {invalidatePublicModsCache} from '@/server/services/mods/modCache.js';
 import {indexCatalogMod} from '@/server/services/mods/modSearchIndex.js';
 import {listAssignedModsForUser, userCanEditMod} from '@/server/services/mods/modAssign.js';
+import {replaceModTags} from '@/server/services/mods/modTags.js';
 import {
   CdnError,
   clearModIcon,
@@ -61,6 +62,38 @@ router.get(
     } catch (error) {
       return respondMysqlClientError(res, error, 'Failed to load assigned mod', {
         logLabel: 'Developer get mod failed:',
+      });
+    }
+  },
+);
+
+router.put(
+  '/:id([0-9]{1,20})/tags',
+  Auth.user(),
+  requireCsrfForCookieAuth,
+  ApiDoc({
+    operationId: 'developerSetModTags',
+    summary: 'Replace tags on an assigned mod',
+    tags: ['Developers', 'Mods'],
+    security: ['bearerAuth'],
+    responses: {200: {description: 'Updated'}},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as {id: string}).id;
+      const parsed = parseTagIds(req.body?.tagIds);
+      if (!parsed.ok) return res.status(400).json({error: parsed.error});
+      const mod = await userCanEditMod(Number(req.params.id), userId);
+      if (!mod) return res.status(403).json({error: 'Not allowed to edit this mod'});
+      await replaceModTags(mod.id, parsed.value);
+      await indexCatalogMod(mod.id);
+      await invalidatePublicModsCache();
+      return res.json({mod: await serializeMod(mod, {includeHidden: true})});
+    } catch (error) {
+      const status = (error as Error & {status?: number}).status;
+      if (status === 400) return res.status(400).json({error: (error as Error).message});
+      return respondMysqlClientError(res, error, 'Failed to set assigned mod tags', {
+        logLabel: 'Developer set mod tags failed:',
       });
     }
   },

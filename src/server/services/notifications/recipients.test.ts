@@ -20,6 +20,15 @@ test('owner fallback uses charters when there is no owner', () => {
   assert.deepEqual(ids, [2]);
 });
 
+test('owner fallback ignores special thanks even when marked isOwner', () => {
+  const ids = selectCreatorIdsForNotification([
+    {creatorId: 1, isOwner: true, role: 'specialThanks'},
+    {creatorId: 2, isOwner: false, role: 'charter'},
+    {creatorId: 3, isOwner: false, role: 'vfxer'},
+  ]);
+  assert.deepEqual(ids, [2]);
+});
+
 test('charter and vfxer roles exclude special thanks and ignore isOwner', () => {
   const ids = selectCreatorIdsForNotification(
     [

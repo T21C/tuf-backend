@@ -5,9 +5,11 @@ import {getSequelizeForModelGroup} from '@/config/db.js';
 import UsefulLink from '@/models/misc/UsefulLink.js';
 import UsefulLinkGroup from '@/models/misc/UsefulLinkGroup.js';
 import UsefulLinkLocale from '@/models/misc/UsefulLinkLocale.js';
+import UsefulLinkGroupLocale from '@/models/misc/UsefulLinkGroupLocale.js';
 import {respondMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
 import {
   parseGroupAssignmentSnapshot,
+  parseGroupLocaleFields,
   parseGroupName,
   parseLocaleFields,
   parseSortOrders,
@@ -20,9 +22,11 @@ import {
   firstGroup,
   listResourcesCatalog,
   listSerializedGroups,
+  loadSerializedGroup,
   loadSerializedLink,
   replaceLinkGroups,
   serializeGroup,
+  upsertEnglishGroupLocale,
   upsertEnglishLocale,
 } from '@/server/services/usefulLinks/usefulLinkGroupService.js';
 import {invalidateAllPublicResourceCaches} from '@/server/services/usefulLinks/usefulLinkCache.js';
@@ -203,10 +207,11 @@ router.post(
         if (groupCount === 0) {
           await assignUngroupedLinksToGroup(created.id, transaction);
         }
+        await upsertEnglishGroupLocale(created, transaction);
         return created;
       });
       await invalidateAllPublicResourceCaches();
-      return res.status(201).json(serializeGroup(group));
+      return res.status(201).json(await loadSerializedGroup(group.id));
     } catch (error) {
       return respondMysqlClientError(res, error, 'Failed to create useful link group', {
         uniqueMessage: 'A group with this name already exists',
@@ -240,13 +245,137 @@ router.put(
           return res.status(400).json({error: 'A group with this name already exists'});
         }
       }
-      await group.update({name: parsed.value});
+      await sequelize.transaction(async (transaction) => {
+        await group.update({name: parsed.value}, {transaction});
+        await upsertEnglishGroupLocale(group, transaction);
+      });
       await invalidateAllPublicResourceCaches();
-      return res.json(serializeGroup(group));
+      return res.json(await loadSerializedGroup(group.id));
     } catch (error) {
       return respondMysqlClientError(res, error, 'Failed to update useful link group', {
         uniqueMessage: 'A group with this name already exists',
         logLabel: 'Update useful link group failed:',
+      });
+    }
+  },
+);
+
+router.put(
+  '/groups/:id([0-9]{1,20})/locales',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'adminUpsertUsefulLinkGroupLocale',
+    summary: 'Create or update a useful link group locale',
+    tags: ['Admin', 'Useful Links'],
+    security: ['bearerAuth'],
+    responses: {200: {description: 'Locale saved'}},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = parseGroupLocaleFields(req.body);
+      if (!parsed.ok) {
+        return res.status(400).json({error: parsed.error});
+      }
+      if (!isConfiguredSiteLanguage(parsed.value.languageCode)) {
+        return res.status(400).json({error: 'languageCode is not in the site language list'});
+      }
+      const group = await UsefulLinkGroup.findByPk(req.params.id);
+      if (!group) return res.status(404).json({error: 'Group not found'});
+
+      await sequelize.transaction(async (transaction) => {
+        if (parsed.value.languageCode === DEFAULT_SITE_LANGUAGE) {
+          if (parsed.value.name !== group.name) {
+            const existing = await UsefulLinkGroup.findOne({
+              where: {name: parsed.value.name},
+              transaction,
+            });
+            if (existing && existing.id !== group.id) {
+              throw Object.assign(new Error('A group with this name already exists'), {
+                status: 400,
+                clientMessage: 'A group with this name already exists',
+              });
+            }
+          }
+          await group.update({name: parsed.value.name}, {transaction});
+        }
+
+        const existingLocale = await UsefulLinkGroupLocale.findOne({
+          where: {
+            groupId: group.id,
+            languageCode: parsed.value.languageCode,
+          },
+          transaction,
+        });
+        const fields = {
+          name: parsed.value.name,
+          updatedAt: new Date(),
+        };
+        if (existingLocale) {
+          await existingLocale.update(fields, {transaction});
+        } else {
+          await UsefulLinkGroupLocale.create(
+            {
+              groupId: group.id,
+              languageCode: parsed.value.languageCode,
+              ...fields,
+              createdAt: new Date(),
+            },
+            {transaction},
+          );
+        }
+      });
+
+      await invalidateAllPublicResourceCaches();
+      return res.json(await loadSerializedGroup(group.id));
+    } catch (error) {
+      const status = (error as {status?: number}).status;
+      if (status === 400) {
+        return res.status(400).json({
+          error: (error as {clientMessage?: string}).clientMessage || 'Invalid request',
+        });
+      }
+      return respondMysqlClientError(res, error, 'Failed to save group locale', {
+        uniqueMessage: 'A group with this name already exists',
+        logLabel: 'Upsert useful link group locale failed:',
+      });
+    }
+  },
+);
+
+router.delete(
+  '/groups/:id([0-9]{1,20})/locales/:languageCode',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'adminDeleteUsefulLinkGroupLocale',
+    summary: 'Delete a useful link group locale',
+    tags: ['Admin', 'Useful Links'],
+    security: ['bearerAuth'],
+    responses: {200: {description: 'Locale deleted'}},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const languageCode = String(req.params.languageCode || '')
+        .trim()
+        .toLowerCase();
+      if (!languageCode) {
+        return res.status(400).json({error: 'languageCode is required'});
+      }
+      if (languageCode === DEFAULT_SITE_LANGUAGE) {
+        return res.status(400).json({error: 'English locale cannot be removed'});
+      }
+      const group = await UsefulLinkGroup.findByPk(req.params.id);
+      if (!group) return res.status(404).json({error: 'Group not found'});
+      const deleted = await UsefulLinkGroupLocale.destroy({
+        where: {groupId: group.id, languageCode},
+      });
+      if (!deleted) {
+        return res.status(404).json({error: 'Locale not found'});
+      }
+      await invalidateAllPublicResourceCaches();
+      return res.json(await loadSerializedGroup(group.id));
+    } catch (error) {
+      return respondMysqlClientError(res, error, 'Failed to delete group locale', {
+        logLabel: 'Delete useful link group locale failed:',
       });
     }
   },

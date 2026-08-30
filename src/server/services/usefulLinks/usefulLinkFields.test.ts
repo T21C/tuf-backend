@@ -5,7 +5,9 @@ import {
   TAG_GROUP_NAME_MAX,
   mergeOrderedIds,
   parseGroupAssignmentSnapshot,
+  parseGroupLocaleFields,
   parseLocaleFields,
+  GROUP_NAME_MAX,
   parseHttpUrl,
   parseOrderedIds,
   parseSortOrders,
@@ -119,6 +121,35 @@ void test('parseTagGroupName requires a trimmed non-empty name', () => {
   assert.equal(parseTagGroupName('  Guides  ').ok, true);
   const long = parseTagGroupName('x'.repeat(TAG_GROUP_NAME_MAX + 1));
   assert.equal(long.ok, false);
+});
+
+void test('parseGroupLocaleFields requires languageCode and a trimmed name', () => {
+  const missingCode = parseGroupLocaleFields({name: 'Guides'});
+  assert.equal(missingCode.ok, false);
+
+  const missingName = parseGroupLocaleFields({languageCode: 'kr'});
+  assert.equal(missingName.ok, false);
+
+  const blankName = parseGroupLocaleFields({languageCode: 'kr', name: '   '});
+  assert.equal(blankName.ok, false);
+
+  const ok = parseGroupLocaleFields({languageCode: ' KR ', name: '  가이드  '});
+  assert.equal(ok.ok, true);
+  if (!ok.ok) return;
+  assert.equal(ok.value.languageCode, 'kr');
+  assert.equal(ok.value.name, '가이드');
+
+  const oversized = parseGroupLocaleFields({
+    languageCode: 'en',
+    name: 'x'.repeat(GROUP_NAME_MAX + 1),
+  });
+  assert.equal(oversized.ok, false);
+
+  const longCode = parseGroupLocaleFields({
+    languageCode: 'toolongcode',
+    name: 'Guides',
+  });
+  assert.equal(longCode.ok, false);
 });
 
 void test('parseGroupAssignmentSnapshot keeps ordered unique link ids per group', () => {

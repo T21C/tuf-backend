@@ -1,7 +1,7 @@
 import { Op } from 'sequelize';
 import client, { creatorIndexName } from '@/config/elasticsearch.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { rangeOnField, termField } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
+import { applyIdsFilter, rangeOnField, termField } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 import { validCreatorVerificationStatuses } from '@/config/constants.js';
 import User from '@/models/auth/User.js';
 import { estypes } from '@elastic/elasticsearch';
@@ -28,6 +28,8 @@ export interface CreatorSearchOptions {
   limit?: number;
   /** Requires `chartsTotal > 0` (default leaderboard behavior when no query). */
   requireHasCharts?: boolean;
+  /** Restrict to these creator ids (following filter). Empty matches nothing. */
+  ids?: number[];
 }
 
 export interface CreatorSearchResult {
@@ -140,7 +142,9 @@ async function buildCreatorQuery(options: CreatorSearchOptions): Promise<any> {
     }
   }
 
-  if (options.requireHasCharts) {
+  applyIdsFilter(filter, options.ids);
+
+  if (options.requireHasCharts && options.ids == null) {
     filter.push({ range: { chartsTotal: { gt: 0 } } });
   }
 

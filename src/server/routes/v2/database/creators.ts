@@ -104,7 +104,7 @@ router.get(
           order = [
             [
               sequelize.literal(
-                '(SELECT COUNT(*) FROM level_credits WHERE level_credits.creatorId = Creator.id)',
+                '(SELECT COUNT(*) FROM level_credits WHERE level_credits.creatorId = Creator.id AND level_credits.role IN (\'charter\', \'vfxer\'))',
               ),
               'ASC',
             ],
@@ -114,7 +114,7 @@ router.get(
           order = [
             [
               sequelize.literal(
-                '(SELECT COUNT(*) FROM level_credits WHERE level_credits.creatorId = Creator.id)',
+                '(SELECT COUNT(*) FROM level_credits WHERE level_credits.creatorId = Creator.id AND level_credits.role IN (\'charter\', \'vfxer\'))',
               ),
               'DESC',
             ],

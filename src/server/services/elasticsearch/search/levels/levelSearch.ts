@@ -28,6 +28,7 @@ import {
   idsQuery,
 } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 import { buildFieldSearchQuery } from '@/server/services/elasticsearch/search/levels/levelFieldQuery.js';
+import { specLevelCreditsByCreatorId } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQuerySpecs.js';
 import { shouldUseRegularSearch, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/tools/scrollHelpers.js';
 import {
   getSeededRandomSortOptions,
@@ -174,25 +175,18 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
     // Distinct from `creatorId` below (which is bound to the logged-in user's
     // creator and tangled into delete/hidden-visibility rules) so this one is safe
     // to expose without leaking the visibility branches.
+    // Charter/vfxer only — special thanks is not a contribution for list/search.
     if (filters.byCreatorId) {
       const byCreatorIdValue = parseInt(filters.byCreatorId);
       if (!isNaN(byCreatorIdValue) && byCreatorIdValue > 0) {
-        must.push(
-          nestedQuery(
-            'levelCredits',
-            boolShouldOnly([termField('levelCredits.creatorId', byCreatorIdValue)]),
-          ),
-        );
+        must.push(specLevelCreditsByCreatorId(byCreatorIdValue));
         // The base `isDeleted/isHidden` rules above already hide non-public levels for
         // anonymous callers, so no additional visibility tweaks needed here.
       }
     }
 
     if (filters.creatorId && !isSuperAdmin) {
-      const creatorNested = nestedQuery(
-        'levelCredits',
-        boolShouldOnly([termField('levelCredits.creatorId', filters.creatorId)]),
-      );
+      const creatorNested = specLevelCreditsByCreatorId(filters.creatorId);
       if (filters.deletedFilter === 'show') {
         should.push(boolShould(1, [creatorNested, termField('isHidden', false)]));
       } else if (filters.deletedFilter === 'only') {

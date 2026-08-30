@@ -46,12 +46,28 @@ void test('parseModOffset and parseModLimit use numeric defaults without env', (
   assert.equal(parseModLimit('0'), 1);
   assert.equal(parseModLimit('500'), 100);
   assert.equal(parseModSort('date-desc'), 'date-desc');
-  assert.equal(parseModSort('nope'), 'name-asc');
+  assert.equal(parseModSort('nope'), 'date-desc');
 });
 
-void test('buildModSearchSort is query-only and does not use env', () => {
+void test('buildModSearchSort pins first then requested sort without env', () => {
   const sort = buildModSearchSort('creator-asc');
   const asJson = JSON.stringify(sort);
   assert.equal(asJson.includes('process.env'), false);
+  assert.equal(asJson.includes('isPinned'), true);
   assert.equal(asJson.includes('creatorSortKey'), true);
+  const newest = JSON.stringify(buildModSearchSort());
+  assert.equal(newest.includes('sourceUploadedAt'), true);
+});
+
+void test('buildModSearchQuery applies tag facet filters', () => {
+  const queried = buildModSearchQuery({
+    facetQueryV1: {
+      v: 1,
+      tags: {mode: 'simple', op: 'or', ids: [3, 5]},
+    },
+  });
+  const asJson = JSON.stringify(queried);
+  assert.equal(asJson.includes('tags.id'), true);
+  assert.equal(asJson.includes('hidden'), true);
+  assert.equal(asJson.includes('process.env'), false);
 });

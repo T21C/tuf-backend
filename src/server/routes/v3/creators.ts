@@ -57,6 +57,7 @@ import {
   handleFollowPut,
   profileFollowLimiter,
 } from '@/server/services/notifications/followHttp.js';
+import { resolveFollowingLeaderboardFilter } from '@/server/services/notifications/FollowService.js';
 import {
   clearBannerPresetForEntity,
   clearCustomBannerForEntity,
@@ -219,11 +220,12 @@ router.get(
 
 router.get(
   '/leaderboard',
+  Auth.addUserToRequest(),
   ApiDoc({
     operationId: 'v3GetCreatorLeaderboard',
     summary: 'Creator leaderboard (v3)',
     description:
-      'Elasticsearch-backed creator leaderboard. Supports sort, numeric range filters, verificationStatus filter (single value or array), text/`@username` query, curation count tokens (e.g. `C3>3`), and optional `facetQuery` JSON v1 (curationTypes only). Returns `maxFields` aggregations for UI filter ceilings.',
+      'Elasticsearch-backed creator leaderboard. Supports sort, numeric range filters, verificationStatus filter (single value or array), text/`@username` query, curation count tokens (e.g. `C3>3`), optional `facetQuery` JSON v1 (curationTypes only), and optional `following=true` (authenticated) to restrict to creators the viewer follows. Returns `maxFields` aggregations for UI filter ceilings.',
     tags: ['Database', 'Creators', 'v3'],
     query: {
       sortBy: { schema: { type: 'string' } },
@@ -233,11 +235,13 @@ router.get(
       limit: { schema: { type: 'string' } },
       filters: { schema: { type: 'string' } },
       facetQuery: { description: 'Facet filter JSON v1 (curationTypes only)', schema: { type: 'string' } },
+      following: { schema: { type: 'string' } },
       page: { schema: { type: 'string' } },
     },
     responses: {
       200: { description: 'Leaderboard results' },
       400: { schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
       ...standardErrorResponses500,
     },
   }),
@@ -266,6 +270,26 @@ router.get(
         facetResult.facetQueryV1,
       );
 
+      const followingFilter = await resolveFollowingLeaderboardFilter(
+        req.query.following,
+        req.user?.id,
+        'creator',
+      );
+      if (followingFilter.active && followingFilter.unauthorized) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      if (followingFilter.active && followingFilter.ids.length === 0) {
+        const maxFields = await getCreatorMaxFields();
+        return res.json({
+          count: 0,
+          results: [],
+          page,
+          offset: effectiveOffset,
+          limit: effectiveLimit,
+          maxFields,
+        });
+      }
+
       const options: CreatorSearchOptions = {
         rawQuery,
         sortBy,
@@ -275,6 +299,7 @@ router.get(
         limit: effectiveLimit,
         offset: effectiveOffset,
         requireHasCharts: !hasActiveQuery,
+        ids: followingFilter.active ? followingFilter.ids : undefined,
       };
 
       const [{ total, hits }, maxFields] = await Promise.all([
