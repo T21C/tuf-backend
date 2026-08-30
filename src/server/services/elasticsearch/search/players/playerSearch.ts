@@ -29,8 +29,10 @@ export interface PlayerSearchOptions {
   limit?: number;
   /** Requires `totalPasses > 0` (default leaderboard behavior when no query). */
   requireHasPasses?: boolean;
-  /** Restrict to these player ids (following filter). Empty matches nothing. */
+  /** Restrict to these player ids (following `only`). Empty matches nothing. */
   ids?: number[];
+  /** When `exclude`, omit these ids (following `hide`). */
+  idsMode?: 'include' | 'exclude';
 }
 
 export interface PlayerSearchResult {
@@ -224,9 +226,9 @@ function buildPlayerQuery(options: PlayerSearchOptions): any {
   }
 
   applyPlayerFlagFilter(filter, options);
-  applyIdsFilter(filter, options.ids);
+  applyIdsFilter(filter, options.ids, options.idsMode === 'exclude' ? 'exclude' : 'include');
 
-  if (options.requireHasPasses && options.ids == null) {
+  if (options.requireHasPasses && (options.ids == null || options.idsMode === 'exclude')) {
     filter.push({ range: { totalPasses: { gt: 0 } } });
   }
 

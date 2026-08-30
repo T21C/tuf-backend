@@ -16,6 +16,7 @@ export type ModCreateFields = {
   downloadUrl: string;
   imageUrl: string | null;
   projectUrl: string | null;
+  deprecatedAfter: string | null;
   sourceUploadedAt: Date;
   hidden: boolean;
   isPinned: boolean;
@@ -230,6 +231,8 @@ export function parseModCreate(body: unknown): ParseResult<ModCreateFields> {
   if (!downloadUrl.ok) return downloadUrl;
   const projectUrl = parseOptionalHttpUrl(src.projectUrl, 'projectUrl');
   if (!projectUrl.ok) return projectUrl;
+  const deprecatedAfter = optionalText(src.deprecatedAfter, VERSION_MAX);
+  if (!deprecatedAfter.ok) return deprecatedAfter;
   const sourceUploadedAt = parseSourceUploadedAt(src.sourceUploadedAt, true);
   if (!sourceUploadedAt.ok) return sourceUploadedAt;
   const hidden = parseHidden(src.hidden, false);
@@ -250,6 +253,7 @@ export function parseModCreate(body: unknown): ParseResult<ModCreateFields> {
       downloadUrl: downloadUrl.value,
       imageUrl: null,
       projectUrl: projectUrl.value,
+      deprecatedAfter: deprecatedAfter.value,
       sourceUploadedAt: sourceUploadedAt.value as Date,
       hidden: hidden.value,
       isPinned: isPinned.value,
@@ -301,6 +305,11 @@ export function parseModPatch(body: unknown): ParseResult<ModPatchFields> {
     if (!projectUrl.ok) return projectUrl;
     value.projectUrl = projectUrl.value;
   }
+  if (src.deprecatedAfter !== undefined) {
+    const deprecatedAfter = optionalText(src.deprecatedAfter, VERSION_MAX);
+    if (!deprecatedAfter.ok) return deprecatedAfter;
+    value.deprecatedAfter = deprecatedAfter.value;
+  }
   if (src.sourceUploadedAt !== undefined) {
     const sourceUploadedAt = parseSourceUploadedAt(src.sourceUploadedAt, false);
     if (!sourceUploadedAt.ok) return sourceUploadedAt;
@@ -340,7 +349,10 @@ const ASSIGNEE_FORBIDDEN_FIELDS = new Set([
   'sourceUploadedAt',
 ]);
 
-export type ModAssigneePatchFields = Pick<ModPatchFields, 'name' | 'description' | 'projectUrl'>;
+export type ModAssigneePatchFields = Pick<
+  ModPatchFields,
+  'name' | 'description' | 'projectUrl' | 'deprecatedAfter'
+>;
 
 export function parsePlayerId(raw: unknown): ParseResult<number> {
   if (typeof raw === 'number' && Number.isInteger(raw) && raw > 0) {
@@ -399,6 +411,11 @@ export function parseModAssigneePatch(body: unknown): ParseResult<ModAssigneePat
     const projectUrl = parseOptionalHttpUrl(src.projectUrl, 'projectUrl');
     if (!projectUrl.ok) return projectUrl;
     value.projectUrl = projectUrl.value;
+  }
+  if (src.deprecatedAfter !== undefined) {
+    const deprecatedAfter = optionalText(src.deprecatedAfter, VERSION_MAX);
+    if (!deprecatedAfter.ok) return deprecatedAfter;
+    value.deprecatedAfter = deprecatedAfter.value;
   }
 
   if (Object.keys(value).length === 0) {

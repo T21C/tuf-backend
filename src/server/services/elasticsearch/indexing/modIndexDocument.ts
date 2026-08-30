@@ -26,6 +26,7 @@ export type ModIndexDocument = {
   downloadUrl: string;
   imageUrl: string | null;
   projectUrl: string | null;
+  deprecatedAfter: string | null;
   sourceUploadedAt: string | Date;
   hidden: boolean;
   isPinned: boolean;
@@ -52,6 +53,7 @@ export function buildModSearchText(mod: {
   projectUrl?: string | null;
   downloadUrl?: string | null;
   version?: string | null;
+  deprecatedAfter?: string | null;
   tags?: Array<SerializedModTag | ModIndexTag | null> | null;
   assignees?: Array<ModUserSummary | ModIndexPerson | null> | null;
   postedBy?: ModUserSummary | ModIndexPerson | null;
@@ -70,6 +72,7 @@ export function buildModSearchText(mod: {
     mod.name,
     mod.slug,
     mod.version,
+    mod.deprecatedAfter,
     username,
     snowflake,
     dumpLabel,
@@ -115,6 +118,7 @@ export function buildModIndexDocument(mod: SerializedMod): ModIndexDocument {
     downloadUrl: mod.downloadUrl,
     imageUrl: mod.imageUrl ?? null,
     projectUrl: mod.projectUrl ?? null,
+    deprecatedAfter: mod.deprecatedAfter ?? null,
     sourceUploadedAt: mod.sourceUploadedAt,
     hidden: Boolean(mod.hidden),
     isPinned: Boolean(mod.isPinned),
@@ -167,6 +171,7 @@ export function serializedModFromIndexSource(
     description: (rest.description as string | null) ?? null,
     imageUrl: (rest.imageUrl as string | null) ?? null,
     projectUrl: (rest.projectUrl as string | null) ?? null,
+    deprecatedAfter: (rest.deprecatedAfter as string | null) ?? null,
     isPinned: Boolean(rest.isPinned),
     likes: Number(rest.likes || 0),
     downloadCount: Number(rest.downloadCount || 0),

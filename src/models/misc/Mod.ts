@@ -19,6 +19,7 @@ class Mod extends Model<InferAttributes<Mod>, InferCreationAttributes<Mod>> {
   declare downloadUrl: string;
   declare imageUrl: CreationOptional<string | null>;
   declare projectUrl: CreationOptional<string | null>;
+  declare deprecatedAfter: CreationOptional<string | null>;
   declare sourceUploadedAt: Date;
   declare hidden: CreationOptional<boolean>;
   declare postedByUserId: CreationOptional<string | null>;
@@ -67,6 +68,10 @@ Mod.init(
     },
     projectUrl: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    deprecatedAfter: {
+      type: DataTypes.STRING(64),
       allowNull: true,
     },
     sourceUploadedAt: {

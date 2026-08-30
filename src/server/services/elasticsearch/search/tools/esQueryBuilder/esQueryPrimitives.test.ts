@@ -19,3 +19,15 @@ void test('applyIdsFilter uses terms on id for a non-empty list', () => {
   applyIdsFilter(filter, [3, 7, 11]);
   assert.deepEqual(filter, [termsField('id', [3, 7, 11])]);
 });
+
+void test('applyIdsFilter exclude is a no-op for an empty id list', () => {
+  const filter: EsQuery[] = [];
+  applyIdsFilter(filter, [], 'exclude');
+  assert.deepEqual(filter, []);
+});
+
+void test('applyIdsFilter exclude wraps terms in must_not', () => {
+  const filter: EsQuery[] = [];
+  applyIdsFilter(filter, [3, 7], 'exclude');
+  assert.deepEqual(filter, [{ bool: { must_not: [termsField('id', [3, 7])] } }]);
+});

@@ -242,7 +242,7 @@ router.get(
       if (followingFilter.active && followingFilter.unauthorized) {
         return res.status(401).json({ error: 'Authentication required' });
       }
-      if (followingFilter.active && followingFilter.ids.length === 0) {
+      if (followingFilter.active && followingFilter.mode === 'only' && followingFilter.ids.length === 0) {
         const maxFields = await getPlayerMaxFields();
         return res.json({
           count: 0,
@@ -264,7 +264,8 @@ router.get(
         limit: effectiveLimit,
         offset: effectiveOffset,
         requireHasPasses: !rawQuery,
-        ids: followingFilter.active ? followingFilter.ids : undefined,
+        ids: followingFilter.active && followingFilter.ids.length > 0 ? followingFilter.ids : undefined,
+        idsMode: followingFilter.active && followingFilter.mode === 'hide' ? 'exclude' : undefined,
       };
 
       const [{ total, hits }, maxFields] = await Promise.all([
@@ -429,7 +430,7 @@ router.get(
       if (followingFilter.active && followingFilter.unauthorized) {
         return res.status(401).json({ error: 'Authentication required' });
       }
-      if (followingFilter.active && followingFilter.ids.length === 0) {
+      if (followingFilter.active && followingFilter.mode === 'only' && followingFilter.ids.length === 0) {
         const bounds = await fetchHistoricalLeaderboardBounds(scoringVersion);
         return res.json({
           count: 0,
@@ -453,7 +454,8 @@ router.get(
         offset: effectiveOffset,
         limit: effectiveLimit,
         scoringVersion,
-        playerIds: followingFilter.active ? followingFilter.ids : undefined,
+        playerIds: followingFilter.active && followingFilter.ids.length > 0 ? followingFilter.ids : undefined,
+        playerIdsMode: followingFilter.active && followingFilter.mode === 'hide' ? 'exclude' : undefined,
       });
 
       const results = await hydrateHistoricalLeaderboardPlayers(board.results);

@@ -100,10 +100,19 @@ export function matchNone(): EsQuery {
 
 /**
  * Restrict a filter clause to document `id` values.
- * Empty `ids` matches nothing; omitted `ids` leaves the filter unchanged.
+ * Empty include matches nothing; empty exclude is a no-op; omitted `ids` leaves the filter unchanged.
  */
-export function applyIdsFilter(filter: EsQuery[], ids: number[] | undefined): void {
+export function applyIdsFilter(
+  filter: EsQuery[],
+  ids: number[] | undefined,
+  mode: 'include' | 'exclude' = 'include',
+): void {
   if (ids == null) return;
+  if (mode === 'exclude') {
+    if (ids.length === 0) return;
+    filter.push(wrapMustNot(termsField('id', ids)));
+    return;
+  }
   if (ids.length === 0) {
     filter.push(matchNone());
     return;

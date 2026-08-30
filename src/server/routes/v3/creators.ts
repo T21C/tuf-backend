@@ -278,7 +278,7 @@ router.get(
       if (followingFilter.active && followingFilter.unauthorized) {
         return res.status(401).json({ error: 'Authentication required' });
       }
-      if (followingFilter.active && followingFilter.ids.length === 0) {
+      if (followingFilter.active && followingFilter.mode === 'only' && followingFilter.ids.length === 0) {
         const maxFields = await getCreatorMaxFields();
         return res.json({
           count: 0,
@@ -299,7 +299,8 @@ router.get(
         limit: effectiveLimit,
         offset: effectiveOffset,
         requireHasCharts: !hasActiveQuery,
-        ids: followingFilter.active ? followingFilter.ids : undefined,
+        ids: followingFilter.active && followingFilter.ids.length > 0 ? followingFilter.ids : undefined,
+        idsMode: followingFilter.active && followingFilter.mode === 'hide' ? 'exclude' : undefined,
       };
 
       const [{ total, hits }, maxFields] = await Promise.all([

@@ -59,6 +59,7 @@ void test('parseModCreate requires core fields and defaults hidden/sourceUploade
   assert.ok(created.value.sourceUploadedAt instanceof Date);
   assert.equal(created.value.imageUrl, null);
   assert.equal(created.value.projectUrl, null);
+  assert.equal(created.value.deprecatedAfter, null);
 });
 
 void test('parseModCreate rejects oversized name and description', () => {
@@ -122,6 +123,27 @@ void test('parseModCreate accepts optional projectUrl from any host', () => {
   assert.equal(created.ok, true);
   if (!created.ok) return;
   assert.equal(created.value.projectUrl, 'https://gitlab.com/org/repo');
+});
+
+void test('parseModCreate and parseModPatch accept optional deprecatedAfter', () => {
+  const created = parseModCreate({
+    name: 'Mod',
+    creatorUsername: 'user',
+    creatorDiscordId: '12345',
+    downloadUrl: 'https://github.com/a/b/releases',
+    deprecatedAfter: '  v2.9.8  ',
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  assert.equal(created.value.deprecatedAfter, 'v2.9.8');
+
+  const patched = parseModPatch({deprecatedAfter: ''});
+  assert.equal(patched.ok, true);
+  if (!patched.ok) return;
+  assert.equal(patched.value.deprecatedAfter, null);
+
+  const tooLong = parseModPatch({deprecatedAfter: 'x'.repeat(65)});
+  assert.equal(tooLong.ok, false);
 });
 
 void test('parseModPatch updates hidden and projectUrl but rejects imageUrl', () => {

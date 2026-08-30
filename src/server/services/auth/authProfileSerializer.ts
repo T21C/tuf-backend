@@ -10,6 +10,7 @@ import {
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
+import { getClientPreferences } from '@/server/services/auth/ClientPreferenceService.js';
 
 /**
  * Full auth profile payload used by GET /auth/profile/me and GET /auth/session.
@@ -33,6 +34,7 @@ export async function buildAuthProfileUser(userId: string) {
   });
 
   const player = await Player.findByPk(user.playerId);
+  const clientPreferences = await getClientPreferences(user.id);
 
   return {
     id: user.id,
@@ -67,6 +69,7 @@ export async function buildAuthProfileUser(userId: string) {
       name: p.provider,
       providerId: p.providerId,
     })),
+    clientPreferences,
   };
 }
 

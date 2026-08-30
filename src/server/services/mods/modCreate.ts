@@ -31,6 +31,7 @@ export async function createCatalogMod(fields: ModCreateFields): Promise<Mod> {
         downloadUrl: fields.downloadUrl,
         imageUrl: fields.imageUrl,
         projectUrl: fields.projectUrl,
+        deprecatedAfter: fields.deprecatedAfter,
         sourceUploadedAt: fields.sourceUploadedAt,
         hidden: fields.hidden,
         isPinned: fields.isPinned,

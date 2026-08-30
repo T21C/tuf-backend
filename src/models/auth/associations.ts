@@ -10,6 +10,7 @@ import Creator from '@/models/credits/Creator.js';
 import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 import UserTufStellarEntitlementSegment from '@/models/billing/UserTufStellarEntitlementSegment.js';
 import UserTufStellarAdminGrant from '@/models/billing/UserTufStellarAdminGrant.js';
+import UserClientPreferences from '@/models/auth/UserClientPreferences.js';
 
 export function initializeAuthAssociations() {
   // User <-> RefreshToken associations
@@ -135,6 +136,15 @@ export function initializeAuthAssociations() {
   UserTufStellarAdminGrant.belongsTo(User, {
     foreignKey: 'retractedByUserId',
     as: 'retractedBy',
+  });
+
+  User.hasOne(UserClientPreferences, {
+    foreignKey: 'userId',
+    as: 'clientPreferences',
+  });
+  UserClientPreferences.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
   });
 
 }

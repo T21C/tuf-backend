@@ -28,8 +28,10 @@ export interface CreatorSearchOptions {
   limit?: number;
   /** Requires `chartsTotal > 0` (default leaderboard behavior when no query). */
   requireHasCharts?: boolean;
-  /** Restrict to these creator ids (following filter). Empty matches nothing. */
+  /** Restrict to these creator ids (following `only`). Empty matches nothing. */
   ids?: number[];
+  /** When `exclude`, omit these ids (following `hide`). */
+  idsMode?: 'include' | 'exclude';
 }
 
 export interface CreatorSearchResult {
@@ -142,9 +144,9 @@ async function buildCreatorQuery(options: CreatorSearchOptions): Promise<any> {
     }
   }
 
-  applyIdsFilter(filter, options.ids);
+  applyIdsFilter(filter, options.ids, options.idsMode === 'exclude' ? 'exclude' : 'include');
 
-  if (options.requireHasCharts && options.ids == null) {
+  if (options.requireHasCharts && (options.ids == null || options.idsMode === 'exclude')) {
     filter.push({ range: { chartsTotal: { gt: 0 } } });
   }
 

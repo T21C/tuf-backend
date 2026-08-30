@@ -20,6 +20,11 @@ import {serializeModDetail} from '@/server/services/mods/serializeMod.js';
 import {recordUniqueModDownload} from '@/server/services/mods/modDownloads.js';
 import {setModLiked} from '@/server/services/mods/modLikes.js';
 import ModLike from '@/models/misc/ModLike.js';
+import {requireCsrfForCookieAuth} from '@/server/middleware/csrf.js';
+import {parseModReportBody, sendModReport} from '@/server/services/mods/modReport.js';
+import {logger} from '@/server/services/core/LoggerService.js';
+import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { permissionFlags } from '@/config/constants.js';
 
 const router: Router = Router();
 
@@ -175,6 +180,52 @@ router.put(
       return respondMysqlClientError(res, error, 'Failed to toggle like', {
         logLabel: 'Mod like failed:',
       });
+    }
+  },
+);
+
+router.post(
+  '/:slug/report',
+  Auth.user(),
+  requireCsrfForCookieAuth,
+  ApiDoc({
+    operationId: 'reportMod',
+    summary: 'Report a public catalog mod',
+    tags: ['Misc'],
+    security: ['bearerAuth'],
+    responses: {
+      200: {description: 'Report delivered'},
+      400: {description: 'Invalid body'},
+      503: {description: 'Webhook not configured'},
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({error: 'User not found'});
+      if (hasFlag(user, permissionFlags.SUBMISSIONS_PAUSED)) return res.status(403).json({error: 'User is banned from submitting'});
+      const mod = await resolvePublicMod(req, res);
+      if (!mod) return;
+      const parsed = parseModReportBody(req.body);
+      if (!parsed.ok) return res.status(400).json({error: parsed.error});
+      await sendModReport({
+        mod: {name: mod.name, slug: mod.slug, imageUrl: mod.imageUrl},
+        reporter: {
+          id: user.id,
+          name: user.nickname || user.username || user.id,
+          avatarUrl: user.avatarUrl,
+          playerId: user.playerId ?? null,
+        },
+        report: parsed.value,
+      });
+      return res.json({ok: true, delivered: true});
+    } catch (error: unknown) {
+      const status = (error as {status?: number})?.status || 500;
+      if (status === 503) {
+        return res.status(503).json({error: 'Report webhook is not configured', delivered: false});
+      }
+      logger.error('Error sending mod catalog report:', error);
+      return res.status(500).json({error: 'Failed to send report'});
     }
   },
 );

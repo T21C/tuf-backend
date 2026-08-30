@@ -33,6 +33,7 @@ import TeamMember from './credits/TeamMember.js';
 import PlayerStats from './players/PlayerStats.js';
 import PlayerLeaderboardRankEvent from './players/PlayerLeaderboardRankEvent.js';
 import UsernameChange from './auth/UsernameChange.js';
+import UserClientPreferences from './auth/UserClientPreferences.js';
 import ProfileActionLog from './auth/ProfileActionLog.js';
 import AnnouncementChannel from './announcements/AnnouncementChannel.js';
 import AnnouncementRole from './announcements/AnnouncementRole.js';
@@ -129,6 +130,7 @@ export const db = {
     PlayerStats,
     PlayerLeaderboardRankEvent,
     UsernameChange,
+    UserClientPreferences,
     ProfileActionLog,
     AnnouncementChannel,
     AnnouncementRole,
@@ -215,6 +217,7 @@ export {
   WebAuthnChallenge,
   RateLimit,
   ProfileActionLog,
+  UserClientPreferences,
   AuditLog,
   BillingEvent,
   UserTufStellarBilling,
