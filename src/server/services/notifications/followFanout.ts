@@ -2,7 +2,7 @@ import Pass from '@/models/passes/Pass.js';
 import Level from '@/models/levels/Level.js';
 import Player from '@/models/players/Player.js';
 import Difficulty from '@/models/levels/Difficulty.js';
-import LevelCredit from '@/models/levels/LevelCredit.js';
+import LevelCredit, {CreditRole} from '@/models/levels/LevelCredit.js';
 import Creator from '@/models/credits/Creator.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {notificationService} from '@/server/services/notifications/NotificationService.js';
@@ -64,16 +64,18 @@ async function fanoutLevel(levelId: number): Promise<void> {
       {
         model: LevelCredit,
         as: 'levelCredits',
-        attributes: ['creatorId', 'sortOrder'],
+        attributes: ['creatorId', 'sortOrder', 'role'],
         include: [{model: Creator, as: 'creator', attributes: ['id', 'name']}],
       },
     ],
   });
   if (!level || level.isHidden || level.isDeleted) return;
 
-  const credits = [...(level.levelCredits ?? [])].sort(
-    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
-  );
+  const credits = [...(level.levelCredits ?? [])]
+    .filter((credit) => credit.role === CreditRole.CHARTER || credit.role === CreditRole.VFXER)
+    .sort(
+      (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
+    );
   const creatorIds = [
     ...new Set(
       credits

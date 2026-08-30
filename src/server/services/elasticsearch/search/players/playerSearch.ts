@@ -1,6 +1,6 @@
 import client, { playerIndexName } from '@/config/elasticsearch.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { rangeOnField, termField } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
+import { applyIdsFilter, rangeOnField, termField } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 
 export type PlayerFlagField = 'isBanned' | 'isSubmissionsPaused' | 'isRatingBanned';
 export type PlayerFlagMode = 'show' | 'hide' | 'only';
@@ -29,6 +29,8 @@ export interface PlayerSearchOptions {
   limit?: number;
   /** Requires `totalPasses > 0` (default leaderboard behavior when no query). */
   requireHasPasses?: boolean;
+  /** Restrict to these player ids (following filter). Empty matches nothing. */
+  ids?: number[];
 }
 
 export interface PlayerSearchResult {
@@ -222,8 +224,9 @@ function buildPlayerQuery(options: PlayerSearchOptions): any {
   }
 
   applyPlayerFlagFilter(filter, options);
+  applyIdsFilter(filter, options.ids);
 
-  if (options.requireHasPasses) {
+  if (options.requireHasPasses && options.ids == null) {
     filter.push({ range: { totalPasses: { gt: 0 } } });
   }
 

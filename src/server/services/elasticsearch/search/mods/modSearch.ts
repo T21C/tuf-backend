@@ -35,6 +35,7 @@ export async function searchMods(options: ModSearchOptions = {}): Promise<ModSea
   const query = buildModSearchQuery({
     q: options.q?.trim() || undefined,
     includeHidden: options.includeHidden,
+    facetQueryV1: options.facetQueryV1,
   });
   const sort = buildModSearchSort(options.sort);
 

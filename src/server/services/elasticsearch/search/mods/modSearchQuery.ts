@@ -1,4 +1,8 @@
 import type {estypes} from '@elastic/elasticsearch';
+import {
+  buildFacetDomainClause,
+  type FacetQueryV1,
+} from '@/misc/utils/search/facetQuery.js';
 
 export const MOD_SEARCH_DEFAULT_LIMIT = 30;
 export const MOD_SEARCH_MAX_LIMIT = 100;
@@ -21,6 +25,7 @@ export type ModSearchOptions = {
   limit?: number;
   offset?: number;
   sort?: ModSort;
+  facetQueryV1?: FacetQueryV1 | null;
 };
 
 export function parseModSearchQ(raw: unknown): string | undefined {
@@ -45,7 +50,7 @@ export function parseModSort(raw: unknown): ModSort {
   if (typeof raw === 'string' && (MOD_SORT_VALUES as readonly string[]).includes(raw)) {
     return raw as ModSort;
   }
-  return 'name-asc';
+  return 'date-desc';
 }
 
 function escapeWildcard(value: string): string {
@@ -71,6 +76,10 @@ export function buildModSearchQuery(options: ModSearchOptions): Record<string, u
   if (!options.includeHidden) {
     filter.push({term: {hidden: false}});
   }
+  if (options.facetQueryV1?.tags) {
+    const tagClause = buildFacetDomainClause(options.facetQueryV1.tags, 'tags', 'tags.id');
+    if (tagClause) filter.push(tagClause);
+  }
   const should = options.q ? buildModTextShould(options.q) : [];
   const bool: Record<string, unknown> = {};
   if (should.length) {
@@ -82,22 +91,24 @@ export function buildModSearchQuery(options: ModSearchOptions): Record<string, u
   return {bool};
 }
 
-export function buildModSearchSort(sort: ModSort = 'name-asc'): estypes.Sort {
+const PIN_FIRST = {isPinned: {order: 'desc' as const}};
+
+export function buildModSearchSort(sort: ModSort = 'date-desc'): estypes.Sort {
   const byId = {id: {order: 'asc' as const}};
   const byNameAsc = {'name.lower': {order: 'asc' as const}};
   switch (sort) {
     case 'name-desc':
-      return [{'name.lower': {order: 'desc'}}, byId];
-    case 'date-desc':
-      return [{sourceUploadedAt: {order: 'desc', missing: '_last'}}, byNameAsc, byId];
+      return [PIN_FIRST, {'name.lower': {order: 'desc'}}, byId];
     case 'date-asc':
-      return [{sourceUploadedAt: {order: 'asc', missing: '_first'}}, byNameAsc, byId];
+      return [PIN_FIRST, {sourceUploadedAt: {order: 'asc', missing: '_first'}}, byNameAsc, byId];
     case 'creator-asc':
-      return [{creatorSortKey: {order: 'asc', missing: '_last'}}, byNameAsc, byId];
+      return [PIN_FIRST, {creatorSortKey: {order: 'asc', missing: '_last'}}, byNameAsc, byId];
     case 'creator-desc':
-      return [{creatorSortKey: {order: 'desc', missing: '_last'}}, byNameAsc, byId];
+      return [PIN_FIRST, {creatorSortKey: {order: 'desc', missing: '_last'}}, byNameAsc, byId];
     case 'name-asc':
+      return [PIN_FIRST, byNameAsc, byId];
+    case 'date-desc':
     default:
-      return [byNameAsc, byId];
+      return [PIN_FIRST, {sourceUploadedAt: {order: 'desc', missing: '_last'}}, byNameAsc, byId];
   }
 }

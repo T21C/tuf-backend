@@ -95,7 +95,10 @@ export function toModCreateAttributes(row: MappedModSeed) {
     description: row.description,
     downloadUrl: row.downloadUrl,
     imageUrl: row.imageUrl,
+    projectUrl: null,
     sourceUploadedAt: row.sourceUploadedAt,
     hidden: false,
+    isPinned: false,
+    slug: null as string | null,
   };
 }

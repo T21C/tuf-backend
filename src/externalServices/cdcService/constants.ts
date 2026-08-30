@@ -27,6 +27,10 @@ export const CDC_WATCHED_TABLES: readonly string[] = [
   'creator_aliases',
   'mods',
   'mod_assignees',
+  'mod_versions',
+  'mod_tags',
+  'mod_tag_assignments',
+  'mod_likes',
 ] as const;
 
 export const CDC_CHECKPOINT_REDIS_KEY = 'cdc:binlog_checkpoint';

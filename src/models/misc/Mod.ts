@@ -22,6 +22,10 @@ class Mod extends Model<InferAttributes<Mod>, InferCreationAttributes<Mod>> {
   declare sourceUploadedAt: Date;
   declare hidden: CreationOptional<boolean>;
   declare postedByUserId: CreationOptional<string | null>;
+  declare slug: string;
+  declare isPinned: CreationOptional<boolean>;
+  declare likes: CreationOptional<number>;
+  declare downloadCount: CreationOptional<number>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -78,6 +82,25 @@ Mod.init(
       type: DataTypes.UUID,
       allowNull: true,
     },
+    slug: {
+      type: DataTypes.STRING(80),
+      allowNull: false,
+    },
+    isPinned: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    likes: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    downloadCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -93,6 +116,8 @@ Mod.init(
     indexes: [
       {fields: ['hidden'], name: 'idx_mods_hidden'},
       {fields: ['postedByUserId'], name: 'idx_mods_posted_by_user_id'},
+      {unique: true, fields: ['slug'], name: 'mods_slug_unique'},
+      {fields: ['isPinned'], name: 'idx_mods_is_pinned'},
     ],
   },
 );

@@ -66,6 +66,32 @@ export function parseGroupName(raw: unknown): ParseResult<string> {
   return {ok: true, value: name};
 }
 
+export type UsefulLinkGroupLocaleFields = {
+  languageCode: string;
+  name: string;
+};
+
+export function parseGroupLocaleFields(
+  body: unknown,
+): ParseResult<UsefulLinkGroupLocaleFields> {
+  const src = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const languageCode =
+    typeof src.languageCode === 'string' ? src.languageCode.trim().toLowerCase() : '';
+  if (!languageCode) return {ok: false, error: 'languageCode is required'};
+  if (languageCode.length > 8) return {ok: false, error: 'languageCode is invalid'};
+
+  const name = parseGroupName(src.name);
+  if (!name.ok) return name;
+
+  return {
+    ok: true,
+    value: {
+      languageCode,
+      name: name.value,
+    },
+  };
+}
+
 export const parseTagGroupName = parseGroupName;
 
 export function parseGroupIds(raw: unknown): ParseResult<number[] | undefined> {

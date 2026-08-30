@@ -79,7 +79,7 @@ router.get(
       page: { schema: { type: 'integer' } },
       offset: { schema: { type: 'integer' } },
       limit: { schema: { type: 'integer' } },
-      byCreatorId: { description: 'Filter to levels credited to this creator id', schema: { type: 'string' } },
+      byCreatorId: { description: 'Filter to levels this creator charted or VFXed (excludes special thanks)', schema: { type: 'string' } },
       withLikeState: { description: 'Annotate each result with isLiked for the current user (requires auth)', schema: { type: 'boolean' } },
     },
     responses: { 200: { description: 'Paginated level list' }, ...standardErrorResponses500 },

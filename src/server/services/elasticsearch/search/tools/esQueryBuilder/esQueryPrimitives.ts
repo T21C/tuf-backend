@@ -97,3 +97,16 @@ export function maybeNot(isNot: boolean, q: EsQuery): EsQuery {
 export function matchNone(): EsQuery {
   return { bool: { must_not: [{ match_all: {} }] } };
 }
+
+/**
+ * Restrict a filter clause to document `id` values.
+ * Empty `ids` matches nothing; omitted `ids` leaves the filter unchanged.
+ */
+export function applyIdsFilter(filter: EsQuery[], ids: number[] | undefined): void {
+  if (ids == null) return;
+  if (ids.length === 0) {
+    filter.push(matchNone());
+    return;
+  }
+  filter.push(termsField('id', ids));
+}

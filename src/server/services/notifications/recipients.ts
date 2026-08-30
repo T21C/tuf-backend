@@ -1,7 +1,7 @@
 import type {Transaction} from 'sequelize';
 import {Op} from 'sequelize';
 import User from '@/models/auth/User.js';
-import LevelCredit, {CreditRole} from '@/models/levels/LevelCredit.js';
+import LevelCredit, {CreditRole, isContributingCreditRole} from '@/models/levels/LevelCredit.js';
 
 export const CHART_CLEARED_CREDIT_ROLES = [CreditRole.CHARTER, CreditRole.VFXER] as const;
 
@@ -38,10 +38,11 @@ export function selectCreatorIdsForNotification(
   const selected = wanted
     ? credits.filter((credit) => wanted.has((credit.role ?? '').toLowerCase()))
     : (() => {
-        const owners = credits.filter((credit) => credit.isOwner);
+        const contributing = credits.filter((credit) => isContributingCreditRole(credit.role));
+        const owners = contributing.filter((credit) => credit.isOwner);
         return owners.length
           ? owners
-          : credits.filter((credit) => credit.role?.toLowerCase() === CreditRole.CHARTER);
+          : contributing.filter((credit) => credit.role?.toLowerCase() === CreditRole.CHARTER);
       })();
 
   return [
@@ -50,8 +51,7 @@ export function selectCreatorIdsForNotification(
 }
 
 export function isCharterOrVfxerCredit(role?: string | null): boolean {
-  const normalized = (role ?? '').toLowerCase();
-  return normalized === CreditRole.CHARTER || normalized === CreditRole.VFXER;
+  return isContributingCreditRole(role);
 }
 
 async function creatorIdsForLevel(

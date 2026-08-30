@@ -18,6 +18,8 @@ export type ModCreateFields = {
   projectUrl: string | null;
   sourceUploadedAt: Date;
   hidden: boolean;
+  isPinned: boolean;
+  slug: string | null;
 };
 
 export type ModPatchFields = Partial<ModCreateFields>;
@@ -145,6 +147,72 @@ function parseHidden(raw: unknown, fallback: boolean): ParseResult<boolean> {
   return {ok: false, error: 'hidden must be a boolean'};
 }
 
+function parseBooleanField(raw: unknown, label: string, fallback: boolean): ParseResult<boolean> {
+  if (raw === undefined) return {ok: true, value: fallback};
+  if (typeof raw === 'boolean') return {ok: true, value: raw};
+  if (raw === 0 || raw === '0' || raw === 'false') return {ok: true, value: false};
+  if (raw === 1 || raw === '1' || raw === 'true') return {ok: true, value: true};
+  return {ok: false, error: `${label} must be a boolean`};
+}
+
+export function parseModSlug(raw: unknown, required: boolean): ParseResult<string | null> {
+  if (raw === undefined || raw === null || raw === '') {
+    if (required) return {ok: false, error: 'slug is required'};
+    return {ok: true, value: null};
+  }
+  if (typeof raw !== 'string') return {ok: false, error: 'slug is invalid'};
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed) {
+    if (required) return {ok: false, error: 'slug is required'};
+    return {ok: true, value: null};
+  }
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmed) || trimmed.length > 80) {
+    return {ok: false, error: 'slug must be lowercase letters, numbers, and hyphens'};
+  }
+  return {ok: true, value: trimmed};
+}
+
+export function parseVersionLabel(raw: unknown, required: boolean): ParseResult<string> {
+  if (raw === undefined || raw === null || raw === '') {
+    if (required) return {ok: false, error: 'version is required'};
+    return {ok: true, value: 'unspecified'};
+  }
+  if (typeof raw !== 'string') return {ok: false, error: 'version is invalid'};
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    if (required) return {ok: false, error: 'version is required'};
+    return {ok: true, value: 'unspecified'};
+  }
+  if (trimmed.length > VERSION_MAX) return {ok: false, error: 'version is too long'};
+  if (trimmed.includes('/') || trimmed.includes('\\')) {
+    return {ok: false, error: 'version must not contain slashes'};
+  }
+  return {ok: true, value: trimmed};
+}
+
+export function parseHexColor(raw: unknown, fallback = '#8d70ff'): ParseResult<string> {
+  if (raw === undefined || raw === null || raw === '') return {ok: true, value: fallback};
+  if (typeof raw !== 'string') return {ok: false, error: 'color is invalid'};
+  const trimmed = raw.trim();
+  if (!/^#[0-9A-Fa-f]{6}$/.test(trimmed)) return {ok: false, error: 'color must be a hex value'};
+  return {ok: true, value: trimmed.toLowerCase()};
+}
+
+export function parseTagIds(raw: unknown): ParseResult<number[]> {
+  if (!Array.isArray(raw)) return {ok: false, error: 'tagIds must be an array'};
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  for (const value of raw) {
+    const n = typeof value === 'number' ? value : Number(value);
+    if (!Number.isInteger(n) || n <= 0) return {ok: false, error: 'tagIds must be positive integers'};
+    if (!seen.has(n)) {
+      seen.add(n);
+      ids.push(n);
+    }
+  }
+  return {ok: true, value: ids};
+}
+
 export function parseModCreate(body: unknown): ParseResult<ModCreateFields> {
   const src = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
   if ('imageUrl' in src) return {ok: false, error: 'Cannot update this field'};
@@ -166,6 +234,10 @@ export function parseModCreate(body: unknown): ParseResult<ModCreateFields> {
   if (!sourceUploadedAt.ok) return sourceUploadedAt;
   const hidden = parseHidden(src.hidden, false);
   if (!hidden.ok) return hidden;
+  const isPinned = parseBooleanField(src.isPinned, 'isPinned', false);
+  if (!isPinned.ok) return isPinned;
+  const slug = parseModSlug(src.slug, false);
+  if (!slug.ok) return slug;
 
   return {
     ok: true,
@@ -180,6 +252,8 @@ export function parseModCreate(body: unknown): ParseResult<ModCreateFields> {
       projectUrl: projectUrl.value,
       sourceUploadedAt: sourceUploadedAt.value as Date,
       hidden: hidden.value,
+      isPinned: isPinned.value,
+      slug: slug.value,
     },
   };
 }
@@ -237,6 +311,16 @@ export function parseModPatch(body: unknown): ParseResult<ModPatchFields> {
     if (!hidden.ok) return hidden;
     value.hidden = hidden.value;
   }
+  if (src.isPinned !== undefined) {
+    const isPinned = parseBooleanField(src.isPinned, 'isPinned', false);
+    if (!isPinned.ok) return isPinned;
+    value.isPinned = isPinned.value;
+  }
+  if (src.slug !== undefined) {
+    const slug = parseModSlug(src.slug, false);
+    if (!slug.ok) return slug;
+    value.slug = slug.value;
+  }
 
   if (Object.keys(value).length === 0) {
     return {ok: false, error: 'No fields to update'};
@@ -249,12 +333,14 @@ const ASSIGNEE_FORBIDDEN_FIELDS = new Set([
   'creatorUsername',
   'creatorDiscordId',
   'imageUrl',
+  'isPinned',
+  'slug',
+  'version',
+  'downloadUrl',
+  'sourceUploadedAt',
 ]);
 
-export type ModAssigneePatchFields = Pick<
-  ModPatchFields,
-  'name' | 'version' | 'description' | 'downloadUrl' | 'projectUrl' | 'sourceUploadedAt'
->;
+export type ModAssigneePatchFields = Pick<ModPatchFields, 'name' | 'description' | 'projectUrl'>;
 
 export function parsePlayerId(raw: unknown): ParseResult<number> {
   if (typeof raw === 'number' && Number.isInteger(raw) && raw > 0) {
@@ -304,35 +390,106 @@ export function parseModAssigneePatch(body: unknown): ParseResult<ModAssigneePat
     if (!name.ok) return name;
     value.name = name.value;
   }
-  if (src.version !== undefined) {
-    const version = optionalText(src.version, VERSION_MAX);
-    if (!version.ok) return version;
-    value.version = version.value;
-  }
   if (src.description !== undefined) {
     const description = optionalText(src.description, DESCRIPTION_MAX);
     if (!description.ok) return description;
     value.description = description.value;
-  }
-  if (src.downloadUrl !== undefined) {
-    const downloadUrl = parseHttpUrl(src.downloadUrl, 'downloadUrl');
-    if (!downloadUrl.ok) return downloadUrl;
-    value.downloadUrl = downloadUrl.value;
   }
   if (src.projectUrl !== undefined) {
     const projectUrl = parseOptionalHttpUrl(src.projectUrl, 'projectUrl');
     if (!projectUrl.ok) return projectUrl;
     value.projectUrl = projectUrl.value;
   }
-  if (src.sourceUploadedAt !== undefined) {
-    const sourceUploadedAt = parseSourceUploadedAt(src.sourceUploadedAt, false);
-    if (!sourceUploadedAt.ok) return sourceUploadedAt;
-    if (sourceUploadedAt.value) value.sourceUploadedAt = sourceUploadedAt.value;
-  }
 
   if (Object.keys(value).length === 0) {
     return {ok: false, error: 'No fields to update'};
   }
   return {ok: true, value};
+}
+
+export type ModVersionFields = {
+  version: string;
+  downloadUrl: string;
+  notes: string | null;
+  releasedAt: Date;
+};
+
+export function parseModVersionBody(
+  body: unknown,
+  options?: {partial?: boolean},
+): ParseResult<Partial<ModVersionFields> | ModVersionFields> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return {ok: false, error: 'Invalid body'};
+  }
+  const src = body as Record<string, unknown>;
+  const partial = Boolean(options?.partial);
+  const value: Partial<ModVersionFields> = {};
+
+  if (!partial || src.version !== undefined) {
+    const version = parseVersionLabel(src.version, !partial);
+    if (!version.ok) return version;
+    value.version = version.value;
+  }
+  if (!partial || src.downloadUrl !== undefined) {
+    const downloadUrl = parseHttpUrl(src.downloadUrl, 'downloadUrl');
+    if (!downloadUrl.ok) return downloadUrl;
+    value.downloadUrl = downloadUrl.value;
+  }
+  if (!partial || src.notes !== undefined) {
+    const notes = optionalText(src.notes, DESCRIPTION_MAX);
+    if (!notes.ok) return notes;
+    value.notes = notes.value;
+  }
+  if (!partial || src.releasedAt !== undefined || src.sourceUploadedAt !== undefined) {
+    const releasedAt = parseSourceUploadedAt(src.releasedAt ?? src.sourceUploadedAt, !partial);
+    if (!releasedAt.ok) return releasedAt;
+    if (releasedAt.value) value.releasedAt = releasedAt.value;
+  }
+
+  if (partial && Object.keys(value).length === 0) {
+    return {ok: false, error: 'No fields to update'};
+  }
+  return {ok: true, value};
+}
+
+export function parseModTagBody(
+  body: unknown,
+  options?: {partial?: boolean},
+): ParseResult<{name?: string; color?: string; sortOrder?: number}> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return {ok: false, error: 'Invalid body'};
+  }
+  const src = body as Record<string, unknown>;
+  const partial = Boolean(options?.partial);
+  const value: {name?: string; color?: string; sortOrder?: number} = {};
+  if (!partial || src.name !== undefined) {
+    const name = requiredText(src.name, 'name', 64);
+    if (!name.ok) return name;
+    value.name = name.value;
+  }
+  if (!partial || src.color !== undefined) {
+    const color = parseHexColor(src.color);
+    if (!color.ok) return color;
+    value.color = color.value;
+  }
+  if (src.sortOrder !== undefined) {
+    const n = typeof src.sortOrder === 'number' ? src.sortOrder : Number(src.sortOrder);
+    if (!Number.isInteger(n)) return {ok: false, error: 'sortOrder must be an integer'};
+    value.sortOrder = n;
+  }
+  if (partial && Object.keys(value).length === 0) {
+    return {ok: false, error: 'No fields to update'};
+  }
+  return {ok: true, value};
+}
+
+export function parseMergeBody(body: unknown): ParseResult<{sourceModId: number}> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return {ok: false, error: 'Invalid body'};
+  }
+  const src = body as Record<string, unknown>;
+  const sourceModId = parsePlayerId(src.sourceModId);
+  if (!sourceModId.ok) return {ok: false, error: 'sourceModId is required'};
+  return {ok: true, value: {sourceModId: sourceModId.value}};
 }
 

@@ -8,7 +8,7 @@ import PlayerStats from '@/models/players/PlayerStats.js';
 import User from '@/models/auth/User.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import Creator from '@/models/credits/Creator.js';
-import LevelCredit from '@/models/levels/LevelCredit.js';
+import LevelCredit, {CreditRole} from '@/models/levels/LevelCredit.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import { logger } from '../core/LoggerService.js';
@@ -355,7 +355,7 @@ class RoleSyncService {
     try {
       // Find all levels the creator has credits for
       const credits = await LevelCredit.findAll({
-        where: { creatorId },
+        where: { creatorId, role: {[Op.in]: [CreditRole.CHARTER, CreditRole.VFXER]} },
         include: [{
           model: Level,
           as: 'level',
@@ -428,7 +428,7 @@ class RoleSyncService {
 
       // Find all levels the creators have credits for
       const credits = await LevelCredit.findAll({
-        where: { creatorId: creatorIds },
+        where: { creatorId: creatorIds, role: {[Op.in]: [CreditRole.CHARTER, CreditRole.VFXER]} },
         include: [{
           model: Level,
           as: 'level',

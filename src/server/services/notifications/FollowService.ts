@@ -103,6 +103,51 @@ export function coercePublicFollows(value: unknown): boolean {
   return value !== false && value !== 0;
 }
 
+/** Leaderboard `following` query param: `true` or `1` (case-insensitive). */
+export function parseFollowingQueryParam(raw: unknown): boolean {
+  if (raw == null) return false;
+  const value = String(raw).trim().toLowerCase();
+  return value === 'true' || value === '1';
+}
+
+export async function listFollowedTargetIds(
+  userId: string,
+  targetType: UserFollowTargetType,
+  transaction?: Transaction,
+): Promise<number[]> {
+  const rows = await UserFollow.findAll({
+    attributes: ['targetId'],
+    where: {userId, targetType},
+    transaction,
+  });
+  const ids: number[] = [];
+  for (const row of rows) {
+    const id = Number(row.targetId);
+    if (Number.isInteger(id) && id > 0) ids.push(id);
+  }
+  return ids;
+}
+
+export type FollowingLeaderboardFilter =
+  | {active: false}
+  | {active: true; unauthorized: true}
+  | {active: true; unauthorized: false; ids: number[]};
+
+export async function resolveFollowingLeaderboardFilter(
+  raw: unknown,
+  userId: string | undefined,
+  targetType: UserFollowTargetType,
+): Promise<FollowingLeaderboardFilter> {
+  if (!parseFollowingQueryParam(raw)) {
+    return {active: false};
+  }
+  if (!userId) {
+    return {active: true, unauthorized: true};
+  }
+  const ids = await listFollowedTargetIds(userId, targetType);
+  return {active: true, unauthorized: false, ids};
+}
+
 export interface FollowerListItem {
   userId: string;
   username: string;

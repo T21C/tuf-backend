@@ -842,7 +842,7 @@ export class PlayerStatsService {
       replacements.search = like;
       searchJoinSql = `
         LEFT JOIN teams tm ON tm.id = l.teamId
-        LEFT JOIN level_credits lc ON lc.levelId = l.id
+        LEFT JOIN level_credits lc ON lc.levelId = l.id AND lc.role IN ('charter', 'vfxer')
         LEFT JOIN creators cr ON cr.id = lc.creatorId
       `;
       filterClauses.push(`(

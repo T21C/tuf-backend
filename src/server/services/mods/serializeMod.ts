@@ -1,9 +1,21 @@
 import type Mod from '@/models/misc/Mod.js';
+import type ModVersion from '@/models/misc/ModVersion.js';
 import ModAssignee from '@/models/misc/ModAssignee.js';
 import {loadUserSummariesByIds, type ModUserSummary} from './modUsers.js';
+import {loadTagsByModIds, type SerializedModTag} from './modTags.js';
+import {listModVersions} from './modCatalog.js';
+
+export type SerializedModVersion = {
+  id: number;
+  version: string;
+  downloadUrl: string;
+  notes: string | null;
+  releasedAt: Date;
+};
 
 export type SerializedMod = {
   id: number;
+  slug: string;
   name: string;
   creatorUsername: string;
   creatorDiscordId: string;
@@ -14,13 +26,35 @@ export type SerializedMod = {
   projectUrl: string | null;
   sourceUploadedAt: Date;
   hidden?: boolean;
+  isPinned: boolean;
+  likes: number;
+  downloadCount: number;
+  tags: SerializedModTag[];
   assignees: ModUserSummary[];
   postedBy: ModUserSummary | null;
+  isLiked?: boolean;
+  versions?: SerializedModVersion[];
+  latestVersion?: SerializedModVersion | null;
+  selectedVersion?: SerializedModVersion | null;
 };
 
-export function serializeModBase(mod: Mod, options?: {includeHidden?: boolean}): Omit<SerializedMod, 'assignees' | 'postedBy'> {
-  const payload: Omit<SerializedMod, 'assignees' | 'postedBy'> = {
+export function serializeModVersion(row: ModVersion): SerializedModVersion {
+  return {
+    id: row.id,
+    version: row.version,
+    downloadUrl: row.downloadUrl,
+    notes: row.notes ?? null,
+    releasedAt: row.releasedAt,
+  };
+}
+
+export function serializeModBase(mod: Mod, options?: {includeHidden?: boolean}): Omit<
+  SerializedMod,
+  'assignees' | 'postedBy' | 'tags'
+> {
+  const payload: Omit<SerializedMod, 'assignees' | 'postedBy' | 'tags'> = {
     id: mod.id,
+    slug: mod.slug,
     name: mod.name,
     creatorUsername: mod.creatorUsername,
     creatorDiscordId: mod.creatorDiscordId,
@@ -30,6 +64,9 @@ export function serializeModBase(mod: Mod, options?: {includeHidden?: boolean}):
     imageUrl: mod.imageUrl ?? null,
     projectUrl: mod.projectUrl ?? null,
     sourceUploadedAt: mod.sourceUploadedAt,
+    isPinned: Boolean(mod.isPinned),
+    likes: Number(mod.likes || 0),
+    downloadCount: Number(mod.downloadCount || 0),
   };
   if (options?.includeHidden) payload.hidden = Boolean(mod.hidden);
   return payload;
@@ -37,7 +74,7 @@ export function serializeModBase(mod: Mod, options?: {includeHidden?: boolean}):
 
 export async function serializeMods(
   mods: Mod[],
-  options?: {includeHidden?: boolean},
+  options?: {includeHidden?: boolean; includeVersions?: boolean},
 ): Promise<SerializedMod[]> {
   if (!mods.length) return [];
 
@@ -45,16 +82,17 @@ export async function serializeMods(
   const rows = await ModAssignee.findAll({
     where: {modId: modIds},
     attributes: ['modId', 'userId'],
-    order: [
-      ['id', 'ASC'],
-    ],
+    order: [['id', 'ASC']],
   });
 
   const userIds = [
     ...rows.map((row) => row.userId),
     ...mods.map((mod) => mod.postedByUserId).filter((id): id is string => Boolean(id)),
   ];
-  const summaries = await loadUserSummariesByIds(userIds);
+  const [summaries, tagsByModId] = await Promise.all([
+    loadUserSummariesByIds(userIds),
+    loadTagsByModIds(modIds),
+  ]);
 
   const assigneesByModId = new Map<number, ModUserSummary[]>();
   for (const row of rows) {
@@ -65,14 +103,48 @@ export async function serializeMods(
     assigneesByModId.set(row.modId, list);
   }
 
-  return mods.map((mod) => ({
-    ...serializeModBase(mod, options),
-    assignees: assigneesByModId.get(mod.id) || [],
-    postedBy: mod.postedByUserId ? summaries.get(mod.postedByUserId) || null : null,
-  }));
+  const versionsByModId = new Map<number, SerializedModVersion[]>();
+  if (options?.includeVersions) {
+    await Promise.all(
+      modIds.map(async (modId) => {
+        const versions = await listModVersions(modId);
+        versionsByModId.set(modId, versions.map(serializeModVersion));
+      }),
+    );
+  }
+
+  return mods.map((mod) => {
+    const versions = versionsByModId.get(mod.id);
+    const payload: SerializedMod = {
+      ...serializeModBase(mod, options),
+      tags: tagsByModId.get(mod.id) || [],
+      assignees: assigneesByModId.get(mod.id) || [],
+      postedBy: mod.postedByUserId ? summaries.get(mod.postedByUserId) || null : null,
+    };
+    if (versions) {
+      payload.versions = versions;
+      payload.latestVersion = versions[0] || null;
+    }
+    return payload;
+  });
 }
 
-export async function serializeMod(mod: Mod, options?: {includeHidden?: boolean}): Promise<SerializedMod> {
+export async function serializeMod(
+  mod: Mod,
+  options?: {includeHidden?: boolean; includeVersions?: boolean},
+): Promise<SerializedMod> {
   const [serialized] = await serializeMods([mod], options);
+  return serialized;
+}
+
+export async function serializeModDetail(
+  mod: Mod,
+  options?: {includeHidden?: boolean; selectedVersion?: string | null},
+): Promise<SerializedMod> {
+  const serialized = await serializeMod(mod, {includeHidden: options?.includeHidden, includeVersions: true});
+  if (options?.selectedVersion) {
+    const selected = (serialized.versions || []).find((row) => row.version === options.selectedVersion) || null;
+    serialized.selectedVersion = selected;
+  }
   return serialized;
 }

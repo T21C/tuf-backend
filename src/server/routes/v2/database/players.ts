@@ -20,7 +20,7 @@ import Creator from '@/models/credits/Creator.js';
 import { PassSubmission } from '@/models/submissions/PassSubmission.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import Difficulty from '@/models/levels/Difficulty.js';
-import LevelCredit from '@/models/levels/LevelCredit.js';
+import LevelCredit, {CreditRole} from '@/models/levels/LevelCredit.js';
 import Level from '@/models/levels/Level.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
@@ -1513,7 +1513,7 @@ router.get(
     if (user.creatorId) {
       try {
         const credits = await LevelCredit.findAll({
-          where: { creatorId: user.creatorId },
+          where: { creatorId: user.creatorId, role: {[Op.in]: [CreditRole.CHARTER, CreditRole.VFXER]} },
           include: [{
             model: Level,
             as: 'level',

@@ -59,6 +59,10 @@ import {
   handleFollowPut,
   profileFollowLimiter,
 } from '@/server/services/notifications/followHttp.js';
+import {
+  parseFollowingQueryParam,
+  resolveFollowingLeaderboardFilter,
+} from '@/server/services/notifications/FollowService.js';
 
 /**
  * v3 players routes — Elasticsearch-backed.
@@ -180,11 +184,12 @@ router.get(
  */
 router.get(
   '/leaderboard',
+  Auth.addUserToRequest(),
   ApiDoc({
     operationId: 'v3GetLeaderboard',
     summary: 'Player leaderboard (v3)',
     description:
-      'Elasticsearch-backed leaderboard. Supports sort, numeric range filters, country filter, player moderation flag filter (`flagField` + `flagMode`), and text/Discord query (`pid:playerId`/`#discordId`/`@username`). Returns `maxFields` aggregations for UI filter ceilings.',
+      'Elasticsearch-backed leaderboard. Supports sort, numeric range filters, country filter, player moderation flag filter (`flagField` + `flagMode`), text/Discord query (`pid:playerId`/`#discordId`/`@username`), and optional `following=true` (authenticated) to restrict to players the viewer follows. Returns `maxFields` aggregations for UI filter ceilings.',
     tags: ['Database', 'Leaderboard', 'v3'],
     query: {
       sortBy: { schema: { type: 'string' } },
@@ -196,11 +201,13 @@ router.get(
       offset: { schema: { type: 'string' } },
       limit: { schema: { type: 'string' } },
       filters: { schema: { type: 'string' } },
+      following: { schema: { type: 'string' } },
       page: { schema: { type: 'string' } },
     },
     responses: {
       200: { description: 'Leaderboard results' },
       400: { schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
       ...standardErrorResponses500,
     },
   }),
@@ -227,6 +234,26 @@ router.get(
       const effectiveLimit = parseLimit(limit);
       const effectiveOffset = parseOffset(offset);
 
+      const followingFilter = await resolveFollowingLeaderboardFilter(
+        req.query.following,
+        req.user?.id,
+        'player',
+      );
+      if (followingFilter.active && followingFilter.unauthorized) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      if (followingFilter.active && followingFilter.ids.length === 0) {
+        const maxFields = await getPlayerMaxFields();
+        return res.json({
+          count: 0,
+          results: [],
+          page,
+          offset: effectiveOffset,
+          limit: effectiveLimit,
+          maxFields,
+        });
+      }
+
       const options: PlayerSearchOptions = {
         rawQuery,
         sortBy,
@@ -237,6 +264,7 @@ router.get(
         limit: effectiveLimit,
         offset: effectiveOffset,
         requireHasPasses: !rawQuery,
+        ids: followingFilter.active ? followingFilter.ids : undefined,
       };
 
       const [{ total, hits }, maxFields] = await Promise.all([
@@ -332,23 +360,25 @@ router.get(
  * Rank-only leaderboard reconstructed at a past UTC date from player_leaderboard_rank_events.
  *
  * Query params: date (YYYY-MM-DD), metric (rankedScore|generalScore), order (asc|desc),
- * query (player name), offset, limit, scoringVersion.
+ * query (player name), offset, limit, scoringVersion, following.
  */
 router.get(
   '/leaderboard-history',
   leaderboardHistoryLimiter.middleware,
+  Auth.addUserToRequest(),
   Cache({
     // Past days are immutable once snapshotted; short TTL still refreshes avatar/name hydration.
     ttl: 120,
     prefix: 'v3:players:leaderboard-history',
     varyByQuery: ['date', 'metric', 'order', 'query', 'offset', 'limit', 'scoringVersion'],
     tags: ['leaderboard-history'],
+    skipIf: (req) => parseFollowingQueryParam(req.query.following),
   }),
   ApiDoc({
     operationId: 'v3GetLeaderboardHistory',
     summary: 'Historical player leaderboard (v3)',
     description:
-      'Rank-only leaderboard as of end-of-day `date` (UTC), reconstructed by forward-filling `player_leaderboard_rank_events`. Hydrates current player names/avatars from Elasticsearch. Supports metric (rankedScore|generalScore), order, name query, and pagination. Newest selectable date is yesterday. Rate-limited per IP.',
+      'Rank-only leaderboard as of end-of-day `date` (UTC), reconstructed by forward-filling `player_leaderboard_rank_events`. Hydrates current player names/avatars from Elasticsearch. Supports metric (rankedScore|generalScore), order, name query, pagination, and optional `following=true` (authenticated) to restrict to players the viewer follows. Newest selectable date is yesterday. Rate-limited per IP.',
     tags: ['Database', 'Leaderboard', 'v3'],
     query: {
       date: { schema: { type: 'string' } },
@@ -358,10 +388,12 @@ router.get(
       offset: { schema: { type: 'string' } },
       limit: { schema: { type: 'string' } },
       scoringVersion: { schema: { type: 'string' } },
+      following: { schema: { type: 'string' } },
     },
     responses: {
       200: { description: 'Historical leaderboard results' },
       400: { schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
       429: { description: 'Rate limited' },
       ...standardErrorResponses500,
     },
@@ -389,6 +421,30 @@ router.get(
       const scoringVersion =
         String(req.query.scoringVersion ?? '').trim() || DEFAULT_LEADERBOARD_RANK_SCORING_VERSION;
 
+      const followingFilter = await resolveFollowingLeaderboardFilter(
+        req.query.following,
+        req.user?.id,
+        'player',
+      );
+      if (followingFilter.active && followingFilter.unauthorized) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      if (followingFilter.active && followingFilter.ids.length === 0) {
+        const bounds = await fetchHistoricalLeaderboardBounds(scoringVersion);
+        return res.json({
+          count: 0,
+          results: [],
+          offset: effectiveOffset,
+          limit: effectiveLimit,
+          minDate: bounds.minDate,
+          maxDate: bounds.maxDate,
+          date: dateRaw,
+          metric,
+          order,
+          scoringVersion,
+        });
+      }
+
       const board = await fetchHistoricalLeaderboardAtDate({
         date: dateRaw,
         metric,
@@ -397,6 +453,7 @@ router.get(
         offset: effectiveOffset,
         limit: effectiveLimit,
         scoringVersion,
+        playerIds: followingFilter.active ? followingFilter.ids : undefined,
       });
 
       const results = await hydrateHistoricalLeaderboardPlayers(board.results);

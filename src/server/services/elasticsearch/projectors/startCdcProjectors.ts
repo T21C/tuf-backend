@@ -16,6 +16,7 @@ import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import User from '@/models/auth/User.js';
 import { rematerializeCommunityTagsForLevel } from '@/server/services/data/communityTagVoteService.js';
 import { invalidatePublicModsCache } from '@/server/services/mods/modCache.js';
+import ModTagAssignment from '@/models/misc/ModTagAssignment.js';
 
 const CDC_PREFIX = 'cdc:';
 
@@ -490,6 +491,31 @@ export function startCdcProjectors(): void {
             if (modId != null) {
               await es.indexMod(modId);
               await invalidatePublicModsCache();
+            }
+            break;
+          }
+          case 'mod_versions':
+          case 'mod_likes':
+          case 'mod_tag_assignments': {
+            const modId = num(after?.modId ?? before?.modId);
+            if (modId != null) {
+              await es.indexMod(modId);
+              await invalidatePublicModsCache();
+            }
+            break;
+          }
+          case 'mod_tags': {
+            const tagId = rowId(before, after);
+            if (tagId != null) {
+              const assignments = await ModTagAssignment.findAll({
+                where: {tagId},
+                attributes: ['modId'],
+              });
+              const modIds = [...new Set(assignments.map((row) => row.modId))];
+              if (modIds.length) {
+                await es.reindexMods(modIds);
+                await invalidatePublicModsCache();
+              }
             }
             break;
           }

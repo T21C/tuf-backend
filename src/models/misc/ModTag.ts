@@ -6,27 +6,19 @@ import {
   CreationOptional,
 } from 'sequelize';
 import {getSequelizeForModelGroup} from '@/config/db.js';
-import type UsefulLink from './UsefulLink.js';
-import type UsefulLinkGroupAssignment from './UsefulLinkGroupAssignment.js';
-import type UsefulLinkGroupLocale from './UsefulLinkGroupLocale.js';
 
 const sequelize = getSequelizeForModelGroup('admin');
 
-class UsefulLinkGroup extends Model<
-  InferAttributes<UsefulLinkGroup>,
-  InferCreationAttributes<UsefulLinkGroup>
-> {
+class ModTag extends Model<InferAttributes<ModTag>, InferCreationAttributes<ModTag>> {
   declare id: CreationOptional<number>;
   declare name: string;
+  declare color: string;
   declare sortOrder: CreationOptional<number>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
-  declare links?: UsefulLink[];
-  declare linkAssignments?: UsefulLinkGroupAssignment[];
-  declare locales?: UsefulLinkGroupLocale[];
 }
 
-UsefulLinkGroup.init(
+ModTag.init(
   {
     id: {
       type: DataTypes.INTEGER,
@@ -38,19 +30,30 @@ UsefulLinkGroup.init(
       allowNull: false,
       unique: true,
     },
+    color: {
+      type: DataTypes.STRING(7),
+      allowNull: false,
+      defaultValue: '#8d70ff',
+    },
     sortOrder: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
     },
-    createdAt: DataTypes.DATE,
-    updatedAt: DataTypes.DATE,
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
   },
   {
     sequelize,
-    tableName: 'useful_link_groups',
-    indexes: [{fields: ['sortOrder'], name: 'idx_useful_link_groups_sort_order'}],
+    tableName: 'mod_tags',
+    indexes: [{fields: ['sortOrder'], name: 'idx_mod_tags_sort_order'}],
   },
 );
 
-export default UsefulLinkGroup;
+export default ModTag;

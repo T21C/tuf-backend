@@ -3,7 +3,12 @@ import test from 'node:test';
 
 import {CDC_WATCHED_TABLES} from './constants.js';
 
-void test('CDC watches mods and assignee tables', () => {
+void test('CDC watches mods catalog tables', () => {
   assert.equal(CDC_WATCHED_TABLES.includes('mods'), true);
   assert.equal(CDC_WATCHED_TABLES.includes('mod_assignees'), true);
+  assert.equal(CDC_WATCHED_TABLES.includes('mod_versions'), true);
+  assert.equal(CDC_WATCHED_TABLES.includes('mod_tags'), true);
+  assert.equal(CDC_WATCHED_TABLES.includes('mod_tag_assignments'), true);
+  assert.equal(CDC_WATCHED_TABLES.includes('mod_likes'), true);
+  assert.equal(CDC_WATCHED_TABLES.includes('mod_download_uniques'), false);
 });

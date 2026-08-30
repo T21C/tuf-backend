@@ -1,6 +1,6 @@
 import Creator from '@/models/credits/Creator.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
-import LevelCredit from '@/models/levels/LevelCredit.js';
+import LevelCredit, {CreditRole} from '@/models/levels/LevelCredit.js';
 import User from '@/models/auth/User.js';
 import UserTufStellarBilling from '@/models/billing/UserTufStellarBilling.js';
 import {
@@ -9,6 +9,7 @@ import {
 } from '@/server/services/elasticsearch/misc/creatorStatsQuery.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
+import { Op } from 'sequelize';
 
 const RECENT_LEVELS_LIMIT = 5;
 
@@ -94,7 +95,7 @@ export class CreatorStatsService {
         User.findOne({ where: { creatorId } }),
         runCreatorStatsQuery({ creatorIds: [creatorId] }),
         LevelCredit.findAll({
-          where: { creatorId },
+          where: { creatorId, role: {[Op.in]: [CreditRole.CHARTER, CreditRole.VFXER]} },
           attributes: ['levelId'],
           order: [['id', 'DESC']],
           limit: RECENT_LEVELS_LIMIT,

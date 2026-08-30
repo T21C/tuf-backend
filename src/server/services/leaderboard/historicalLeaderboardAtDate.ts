@@ -100,6 +100,8 @@ export async function fetchHistoricalLeaderboardAtDate(options: {
   offset?: number;
   limit?: number;
   scoringVersion?: string;
+  /** When set, restrict to these player ids (following filter). Empty returns no rows. */
+  playerIds?: number[];
 }): Promise<HistoricalLeaderboardResult> {
   const scoringVersion = options.scoringVersion ?? DEFAULT_LEADERBOARD_RANK_SCORING_VERSION;
   const metric = options.metric === 'generalScore' ? 'generalScore' : 'rankedScore';
@@ -113,6 +115,13 @@ export async function fetchHistoricalLeaderboardAtDate(options: {
     return { count: 0, results: [], minDate: null, maxDate: null };
   }
 
+  const playerIds = Array.isArray(options.playerIds)
+    ? options.playerIds.filter((id) => Number.isInteger(id) && id > 0)
+    : undefined;
+  if (playerIds != null && playerIds.length === 0) {
+    return { count: 0, results: [], minDate: bounds.minDate, maxDate: bounds.maxDate };
+  }
+
   let date = options.date;
   if (date < bounds.minDate) date = bounds.minDate;
   if (date > bounds.maxDate) date = bounds.maxDate;
@@ -124,6 +133,7 @@ export async function fetchHistoricalLeaderboardAtDate(options: {
   const nameJoin = hasNameQuery
     ? `INNER JOIN players pl ON pl.id = e.playerId AND pl.name LIKE :namePattern`
     : '';
+  const playerIdClause = playerIds != null ? 'AND e.playerId IN (:playerIds)' : '';
 
   const baseFrom = `
     FROM player_leaderboard_rank_events e
@@ -138,6 +148,7 @@ export async function fetchHistoricalLeaderboardAtDate(options: {
       AND e.scoringVersion = :scoringVersion
     ${nameJoin}
     WHERE e.${rankCol} != :offBoard
+    ${playerIdClause}
   `;
 
   const replacements: Record<string, unknown> = {
@@ -149,6 +160,9 @@ export async function fetchHistoricalLeaderboardAtDate(options: {
   };
   if (hasNameQuery) {
     replacements.namePattern = namePattern;
+  }
+  if (playerIds != null) {
+    replacements.playerIds = playerIds;
   }
 
   const countRows = (await sequelize.query(

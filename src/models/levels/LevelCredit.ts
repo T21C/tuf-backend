@@ -10,6 +10,14 @@ export enum CreditRole {
   SPECIAL_THANKS = 'specialThanks',
 }
 
+/** Roles that count as actual chart contribution (not special thanks). */
+export const CONTRIBUTING_CREDIT_ROLES = [CreditRole.CHARTER, CreditRole.VFXER] as const;
+
+export function isContributingCreditRole(role?: string | null): boolean {
+  const normalized = (role ?? '').toLowerCase();
+  return normalized === CreditRole.CHARTER || normalized === CreditRole.VFXER;
+}
+
 class LevelCredit extends Model {
   declare id: number;
   declare levelId: number;
