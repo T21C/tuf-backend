@@ -82,7 +82,6 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
 
         const { originalZip } = metadata;
 
-        // Check if file exists and get file stats
         let fileExists: boolean;
 
         try {
@@ -126,6 +125,36 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
         }
     }
 
+async function handleModZipRequest(res: Response, file: CdnFile) {
+    const metadata = (file.metadata || {}) as {
+        originalZip?: {path?: string; name?: string; originalFilename?: string};
+    };
+    const storagePath = metadata.originalZip?.path || file.filePath;
+    if (!storagePath) {
+        return res.status(404).json({error: 'Original zip not found in metadata'});
+    }
+    try {
+        const exists = await spacesStorage.fileExists(storagePath);
+        if (!exists) {
+            return res.status(404).json({error: 'Zip file not found'});
+        }
+        const url = await spacesStorage.getPresignedUrl(storagePath);
+        const filename = String(
+            metadata.originalZip?.originalFilename || metadata.originalZip?.name || 'mod.zip',
+        ).replace(/["\r\n]/g, '');
+        res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+        res.redirect(301, url);
+        return;
+    } catch (error) {
+        logger.error('Mod zip access error:', {
+            fileId: file.id,
+            path: storagePath,
+            error: error instanceof Error ? error.message : String(error),
+        });
+        return res.status(404).json({error: 'Zip file not found'});
+    }
+}
 
 // HEAD endpoint for checking file existence
 router.head('/:fileId', async (req: Request, res: Response) => {
@@ -140,7 +169,7 @@ router.head('/:fileId', async (req: Request, res: Response) => {
         const metadata = (file.metadata || {}) as any;
 
         // For LEVELZIP files, check if the file exists in storage using fallback logic
-        if (file.type === 'LEVELZIP') {
+        if (file.type === 'LEVELZIP' || file.type === 'MODZIP') {
             const originalZip = metadata?.originalZip;
 
             if (originalZip?.path) {
@@ -202,6 +231,9 @@ router.get('/:fileId', async (req: Request, res: Response) => {
 
         if (file.type === 'LEVELZIP') {
             return handleZipRequest(req, res, file);
+        }
+        if (file.type === 'MODZIP') {
+            return handleModZipRequest(res, file);
         }
 
         // Handle image types by proxying the original through this CORS-enabled service.
@@ -301,6 +333,8 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                     fileType,
                     timestamp: new Date().toISOString()
                 });
+            } else if (fileType === 'MODZIP') {
+                await spacesStorage.deleteFolder(`zips/mods/${fileId}`);
             }
             else {
                 if (IMAGE_TYPES[fileType as keyof typeof IMAGE_TYPES]) {

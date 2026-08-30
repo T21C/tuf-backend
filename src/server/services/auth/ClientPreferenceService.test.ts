@@ -44,6 +44,17 @@ test('merge keeps sticky true even if patch omits it', () => {
   assert.equal(merged[CLIENT_PREFERENCE_KEYS.SUBMISSION_MINIMAL_MOTION], true);
 });
 
+test('mods start guide cta sticky key is accepted', () => {
+  const patch = sanitizeClientPreferencePatch({
+    [CLIENT_PREFERENCE_KEYS.MODS_START_GUIDE_CTA_DISMISSED]: true,
+  });
+  assert.equal(patch[CLIENT_PREFERENCE_KEYS.MODS_START_GUIDE_CTA_DISMISSED], true);
+  const ignored = sanitizeClientPreferencePatch({
+    [CLIENT_PREFERENCE_KEYS.MODS_START_GUIDE_CTA_DISMISSED]: false,
+  });
+  assert.deepEqual(ignored, {});
+});
+
 test('tufhelperlite.neverShow is writable both ways', () => {
   const on = sanitizeClientPreferencePatch({
     [CLIENT_PREFERENCE_KEYS.TUFHELPERLITE_NEVER_SHOW]: true,
