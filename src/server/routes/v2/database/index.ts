@@ -9,6 +9,7 @@ import statisticsRoutes from './statistics.js';
 import creatorRoutes from './creators.js';
 import artistsRoutes from './artists.js';
 import songsRoutes from './songs.js';
+import tournamentsRoutes from './tournaments.js';
 
 export default function createDatabaseRouter(): Router {
   const router = Router();
@@ -24,6 +25,7 @@ export default function createDatabaseRouter(): Router {
   router.use('/creators', creatorRoutes);
   router.use('/artists', artistsRoutes);
   router.use('/songs', songsRoutes);
+  router.use('/tournaments', tournamentsRoutes);
 
   return router;
 }

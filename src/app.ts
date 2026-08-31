@@ -131,7 +131,7 @@ export async function startServer() {
     }
 
     // HTML meta tags middleware for specific routes BEFORE static files
-    app.get(['/passes/:id', '/levels/:id', '/profile/:id', '/packs/:id', '/rating/:id([0-9]+)'], htmlMetaMiddleware);
+    app.get(['/passes/:id', '/levels/:id', '/profile/:id', '/packs/:id', '/rating/:id([0-9]+)', '/tournaments/:id([0-9]+)'], htmlMetaMiddleware);
 
     // Handle static files and SPA routing
     const clientBuildPath =
