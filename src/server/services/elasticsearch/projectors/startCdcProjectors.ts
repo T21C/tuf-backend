@@ -5,7 +5,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { parseCdcFields, rowId } from './cdcRowParse.js';
-import { getLevelIdsByArtistId, getLevelIdsByPlayerId, getLevelIdsBySongId, getPassIdsByLevelId } from './cdcFanout.js';
+import { getLevelIdsByArtistId, getLevelIdsByPlayerId, getLevelIdsBySongId, getPassIdsByLevelId, getTournamentIdByPlacementId, getTournamentIdsByCreatorId, getTournamentIdsByLevelId, getTournamentIdsByPlayerId, getTournamentIdsBySeriesId } from './cdcFanout.js';
 import { cdcPassProjectorDebounce } from './cdcPassProjectorDebounce.js';
 import { cdcLevelCreditsProjectorDebounce } from './cdcLevelCreditsProjectorDebounce.js';
 import { CDC_PASSES_STREAM_BLOCK_MS } from '@/server/services/elasticsearch/misc/constants.js';
@@ -187,6 +187,14 @@ export function startCdcProjectors(): void {
                 await es.reindexPasses(passIds);
               }
             }
+            if (
+              op === 'u' &&
+              (String(before?.song ?? '') !== String(after?.song ?? '') ||
+                String(before?.artist ?? '') !== String(after?.artist ?? ''))
+            ) {
+              const tournamentIds = await getTournamentIdsByLevelId(id);
+              if (tournamentIds.length) await es.reindexTournaments(tournamentIds);
+            }
             break;
           }
           case 'passes': {
@@ -269,6 +277,10 @@ export function startCdcProjectors(): void {
                 }
               }
               if (levelIds.length) await es.reindexLevels(levelIds);
+            }
+            if (op === 'u' && String(before?.name ?? '') !== String(after?.name ?? '')) {
+              const tournamentIds = await getTournamentIdsByPlayerId(pid);
+              if (tournamentIds.length) await es.reindexTournaments(tournamentIds);
             }
             break;
           }
@@ -465,6 +477,8 @@ export function startCdcProjectors(): void {
               const afterName = after?.name != null ? String(after.name) : null;
               if (beforeName !== afterName) {
                 void es.reindexByCreatorId(cid);
+                const tournamentIds = await getTournamentIdsByCreatorId(cid);
+                if (tournamentIds.length) await es.reindexTournaments(tournamentIds);
               }
             }
             break;
@@ -517,6 +531,36 @@ export function startCdcProjectors(): void {
                 await invalidatePublicModsCache();
               }
             }
+            break;
+          }
+          case 'tournaments': {
+            const tournamentId = rowId(before, after);
+            if (tournamentId == null) return;
+            if (op === 'd') {
+              await es.deleteTournament(tournamentId);
+              return;
+            }
+            await es.indexTournament(tournamentId);
+            break;
+          }
+          case 'tournament_series': {
+            const seriesId = rowId(before, after);
+            if (seriesId == null) return;
+            const tournamentIds = await getTournamentIdsBySeriesId(seriesId);
+            if (tournamentIds.length) await es.reindexTournaments(tournamentIds);
+            break;
+          }
+          case 'tournament_tiers':
+          case 'tournament_placements': {
+            const tournamentId = num(after?.tournamentId ?? before?.tournamentId);
+            if (tournamentId != null) await es.indexTournament(tournamentId);
+            break;
+          }
+          case 'tournament_placement_credits': {
+            const placementId = num(after?.placementId ?? before?.placementId);
+            if (placementId == null) return;
+            const tournamentId = await getTournamentIdByPlacementId(placementId);
+            if (tournamentId != null) await es.indexTournament(tournamentId);
             break;
           }
           default:

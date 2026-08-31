@@ -19,11 +19,20 @@ import { getArtistDisplayName, getSongDisplayName } from '@/misc/utils/data/leve
 import { getPrimaryVideoLink } from '@/misc/utils/data/videoLinkParts.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
+import Tournament from '@/models/tournaments/Tournament.js';
 import {fetchFrontendJson} from '@/server/services/core/FrontendContentService.js';
 
 const SITE_NAME = 'The Universal Forums';
 const DEFAULT_DESCRIPTION =
   'A community specialized in custom levels & clears of A Dance of Fire and Ice.';
+
+const resolveHtmlMetaImage = (raw: string | null | undefined) => {
+  const value = String(raw ?? '').trim();
+  if (!value) return `${ownUrl}/images/logo.svg`;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith('//')) return `https:${value}`;
+  return `${ownUrl}${value.startsWith('/') ? value : `/${value}`}`;
+};
 
 /** Early credentialed session fetch — races SPA module load (HTML is served from the API origin). */
 const AUTH_SESSION_BOOT_SCRIPT = `
@@ -571,6 +580,55 @@ export const htmlMetaMiddleware = async (
       }
       else {
         metaTags = notFoundTags.replace('Not found', 'Pack not found');
+      }
+    }
+    else if (req.path.startsWith('/tournaments/')) {
+      const tournament = await Tournament.findByPk(id, {
+        attributes: ['id', 'shortName', 'fullName', 'aka', 'iconUrl', 'isHidden', 'status', 'notes'],
+      });
+      if (tournament) {
+        const name = tournament.fullName || tournament.shortName || 'Tournament';
+        const pageTitle = escapeHtml(name);
+        const rawNotes = typeof tournament.notes === 'string' ? tournament.notes.replace(/\s+/g, ' ').trim() : '';
+        const truncatedNotes = rawNotes.length > 200 ? `${rawNotes.slice(0, 197)}...` : rawNotes;
+        const pageDescription = escapeHtml(
+          truncatedNotes || `${name} on ${SITE_NAME}`,
+        );
+        const canonicalPath = `/tournaments/${tournament.id}`;
+        const pageUrl = `${clientUrlEnv}${canonicalPath}`;
+        const imageUrl = resolveHtmlMetaImage(tournament.iconUrl);
+        const robots =
+          tournament.isHidden || tournament.status === 'draft' ? 'noindex,follow' : 'index,follow';
+
+        metaTags = `
+          <title>${pageTitle} | ${SITE_NAME}</title>
+          <meta name="description" content="${pageDescription}" />
+          ${buildCanonicalTag(canonicalPath)}
+          <meta name="robots" content="${robots}" />
+          <meta property="og:site_name" content="${SITE_NAME}" />
+          <meta property="og:type" content="article" />
+          <meta property="og:title" content="${pageTitle}" />
+          <meta property="og:description" content="${pageDescription}" />
+          <meta property="og:image" content="${escapeHtml(imageUrl)}" />
+          <meta property="twitter:card" content="summary" />
+          <meta property="twitter:title" content="${pageTitle}" />
+          <meta property="twitter:description" content="${pageDescription}" />
+          <meta property="twitter:image" content="${escapeHtml(imageUrl)}" />
+          <meta name="theme-color" content="#090909" />
+          <meta property="og:url" content="${pageUrl}" />
+          ${buildJsonLdScripts([
+            {
+              '@context': 'https://schema.org',
+              '@type': 'CreativeWork',
+              name: pageTitle,
+              description: pageDescription,
+              url: pageUrl,
+              image: imageUrl,
+            },
+          ])}`;
+      }
+      else {
+        metaTags = notFoundTags.replace('Not found', 'Tournament not found');
       }
     }
     const html = await getBaseHtml(clientUrlEnv || '').then(html => html.replace(

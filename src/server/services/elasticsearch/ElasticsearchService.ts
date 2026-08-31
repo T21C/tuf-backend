@@ -4,6 +4,7 @@ import client, {
   playerIndexName,
   creatorIndexName,
   modIndexName,
+  tournamentIndexName,
   initializeElasticsearch,
   updateMappingHash
 } from '@/config/elasticsearch.js';
@@ -17,17 +18,20 @@ import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
 import Mod from '@/models/misc/Mod.js';
 import ModAssignee from '@/models/misc/ModAssignee.js';
+import Tournament from '@/models/tournaments/Tournament.js';
 import { searchLevels as runLevelSearch, searchLevelIds as runSearchLevelIds } from './search/levels/levelSearch.js';
 import { searchPasses as runPassSearch } from './search/passes/passSearch.js';
 import { searchPlayers as runPlayerSearch, PlayerSearchOptions, PlayerSearchResult } from './search/players/playerSearch.js';
 import { searchCreators as runCreatorSearch, hydrateCreatorUsers, CreatorSearchOptions, CreatorSearchResult } from './search/creators/creatorSearch.js';
 import { searchMods as runModSearch, type ModSearchOptions, type ModSearchResult } from './search/mods/modSearch.js';
+import { searchTournaments as runTournamentSearch, type TournamentSearchOptions, type TournamentSearchResult } from './search/tournaments/tournamentSearch.js';
 import { ARTIST_REINDEX_DEBOUNCE_MS, BATCH_SIZE, FULL_REINDEX_PAGE_SIZE, MAX_BATCH_SIZE } from './misc/constants.js';
 import { fetchLevelWithRelations, fetchLevelsForBulkIndex, clearEsIndexRelationCaches } from './fetching/levelFetch.js';
 import { fetchPassWithRelations, fetchPassesForBulkIndex, clearEsPassIndexRelationCaches, invalidateEsLevelCacheForLevelIds } from './fetching/passFetch.js';
 import { fetchPlayersForBulkIndex } from './fetching/playerFetch.js';
 import { fetchCreatorsForBulkIndex } from './fetching/creatorFetch.js';
 import { fetchModsForBulkIndex } from './fetching/modFetch.js';
+import { fetchTournamentsForBulkIndex } from './fetching/tournamentFetch.js';
 import { buildLevelIndexDocument } from './indexing/levelIndexDocument.js';
 import { buildPassIndexDocument } from './indexing/passIndexDocument.js';
 import { decodePuaDeep } from '@/misc/utils/data/searchHelpers.js';
@@ -61,14 +65,15 @@ class ElasticsearchService {
       logger.info('Starting ElasticsearchService initialization...');
 
       // Initialize Elasticsearch indices
-      const { reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods } = await initializeElasticsearch();
+      const { reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods, reindexedTournaments } = await initializeElasticsearch();
 
-      if (reindexedLevels || reindexedPasses || reindexedPlayers || reindexedCreators || reindexedMods) {
+      if (reindexedLevels || reindexedPasses || reindexedPlayers || reindexedCreators || reindexedMods || reindexedTournaments) {
         if (reindexedLevels) logger.info('Reindexing levels...');
         if (reindexedPasses) logger.info('Reindexing passes...');
         if (reindexedPlayers) logger.info('Reindexing players...');
         if (reindexedCreators) logger.info('Reindexing creators...');
         if (reindexedMods) logger.info('Reindexing mods...');
+        if (reindexedTournaments) logger.info('Reindexing tournaments...');
         const start = Date.now();
         if (reindexedLevels) {
           await this.reindexLevels();
@@ -85,9 +90,12 @@ class ElasticsearchService {
         if (reindexedMods) {
           await this.reindexAllMods();
         }
+        if (reindexedTournaments) {
+          await this.reindexAllTournaments();
+        }
         const end = Date.now();
         logger.info(`Data reindexing completed successfully in ${Math.round((end - start)/100)/10}s`);
-        await updateMappingHash({ reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods });
+        await updateMappingHash({ reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods, reindexedTournaments });
       }
 
       this.isInitialized = true;
@@ -931,6 +939,119 @@ class ElasticsearchService {
 
   public async searchMods(options: ModSearchOptions): Promise<ModSearchResult> {
     return runModSearch(options);
+  }
+
+  public async indexTournament(tournamentId: number): Promise<void> {
+    if (!Number.isFinite(tournamentId) || tournamentId <= 0) {
+      logger.warn(`indexTournament skipped: invalid id ${tournamentId}`);
+      return;
+    }
+    try {
+      const docs = await fetchTournamentsForBulkIndex([tournamentId]);
+      const prepared = docs[0];
+      if (!prepared) {
+        logger.warn(`indexTournament: tournament ${tournamentId} not found in DB — removing from index if present`);
+        await this.deleteTournament(tournamentId).catch(() => {});
+        return;
+      }
+      await client.index({
+        index: tournamentIndexName,
+        id: prepared.id.toString(),
+        document: prepared.document,
+        refresh: true,
+      });
+    } catch (error) {
+      logger.error(`Error indexing tournament ${tournamentId}:`, error);
+      throw error;
+    }
+  }
+
+  public async reindexTournaments(tournamentIds: number[]): Promise<void> {
+    if (!tournamentIds || tournamentIds.length === 0) return;
+    try {
+      const uniqueIds = [...new Set(tournamentIds)].filter((id) => Number.isFinite(id) && id > 0);
+      if (uniqueIds.length === 0) return;
+
+      let processedCount = 0;
+      for (let i = 0; i < uniqueIds.length; i += MAX_BATCH_SIZE) {
+        const chunk = uniqueIds.slice(i, i + MAX_BATCH_SIZE);
+        const docs = await fetchTournamentsForBulkIndex(chunk);
+        if (docs.length === 0) continue;
+
+        for (let j = 0; j < docs.length; j += BATCH_SIZE) {
+          const batch = docs.slice(j, j + BATCH_SIZE);
+          const operations = batch.flatMap((doc) => [
+            { index: { _index: tournamentIndexName, _id: doc.id.toString() } },
+            doc.document,
+          ]);
+          if (operations.length > 0) {
+            await client.bulk({ operations, refresh: false });
+          }
+        }
+        processedCount += docs.length;
+      }
+      logger.debug(`Reindexed ${processedCount} tournaments (requested ${uniqueIds.length})`);
+    } catch (error) {
+      logger.error('Error reindexing tournaments:', error);
+      throw error;
+    }
+  }
+
+  public async deleteTournament(tournamentId: number): Promise<void> {
+    try {
+      await client.delete({
+        index: tournamentIndexName,
+        id: tournamentId.toString(),
+      });
+    } catch (error: unknown) {
+      const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
+      if (status === 404) return;
+      logger.error(`Error deleting tournament ${tournamentId} from index:`, error);
+      throw error;
+    }
+  }
+
+  public async reindexAllTournaments(): Promise<void> {
+    try {
+      let processedCount = 0;
+      let afterId = 0;
+      while (true) {
+        const idRows = await Tournament.findAll({
+          where: { id: { [Op.gt]: afterId } },
+          attributes: ['id'],
+          order: [['id', 'ASC']],
+          limit: FULL_REINDEX_PAGE_SIZE,
+          raw: true,
+        });
+        const idList = idRows.map((r: { id: number }) => r.id);
+        if (idList.length === 0) break;
+
+        const docs = await fetchTournamentsForBulkIndex(idList);
+        for (let j = 0; j < docs.length; j += BATCH_SIZE) {
+          const batch = docs.slice(j, j + BATCH_SIZE);
+          const operations = batch.flatMap((doc) => [
+            { index: { _index: tournamentIndexName, _id: doc.id.toString() } },
+            doc.document,
+          ]);
+          if (operations.length > 0) {
+            await client.bulk({ operations, refresh: false });
+          }
+        }
+        processedCount += docs.length;
+        logger.debug(`Reindexed ${processedCount} tournaments...`);
+
+        afterId = idList[idList.length - 1];
+        if (idList.length < FULL_REINDEX_PAGE_SIZE) break;
+      }
+      logger.info(`Tournament reindexing complete. Total indexed: ${processedCount}`);
+    } catch (error) {
+      logger.error('Error reindexing all tournaments:', error);
+      throw error;
+    }
+  }
+
+  public async searchTournaments(options: TournamentSearchOptions): Promise<TournamentSearchResult> {
+    return runTournamentSearch(options);
   }
 }
 
