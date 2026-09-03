@@ -28,7 +28,10 @@ import { createRateLimiter } from '@/server/decorators/rateLimiter.js';
 import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
 import { DEFAULT_LEADERBOARD_RANK_SCORING_VERSION, RANK_HISTORY_MAX_POINTS } from '@/config/leaderboardRankHistory.js';
-import { buildRankHistorySeries } from '@/server/services/leaderboard/rankHistorySeries.js';
+import {
+  buildRankHistorySeries,
+  getPeakRankedScoreRank,
+} from '@/server/services/leaderboard/rankHistorySeries.js';
 import {
   fetchHistoricalLeaderboardAtDate,
   fetchHistoricalLeaderboardBounds,
@@ -639,25 +642,27 @@ router.get(
       const doc = await elasticsearchService.getPlayerDocumentById(id);
       if (!doc) return res.status(404).json({ error: 'Player not found' });
 
-      const [ranks, enriched, funFacts, playerRow, presentation, follow] = await Promise.all([
-        getPlayerRanks(doc),
-        playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
-        computePlayerFunFacts(id, {
-          includeHidden: includeHiddenInFunFacts,
-          reportHiddenPassCount: isOwnProfile,
-        }),
-        Player.findByPk(id, {
-          attributes: [
-            'placementCardLayout',
-            'placementDisplayMode',
-            'hiddenPlacementIds',
-            'placementOrderIds',
-            'showFollowerCount',
-          ],
-        }),
-        assemblePresentationForPlayer(id),
-        followFieldsForProfile('player', id, user?.id),
-      ]);
+      const [ranks, enriched, funFacts, playerRow, presentation, follow, highestRankedScore] =
+        await Promise.all([
+          getPlayerRanks(doc),
+          playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
+          computePlayerFunFacts(id, {
+            includeHidden: includeHiddenInFunFacts,
+            reportHiddenPassCount: isOwnProfile,
+          }),
+          Player.findByPk(id, {
+            attributes: [
+              'placementCardLayout',
+              'placementDisplayMode',
+              'hiddenPlacementIds',
+              'placementOrderIds',
+              'showFollowerCount',
+            ],
+          }),
+          assemblePresentationForPlayer(id),
+          followFieldsForProfile('player', id, user?.id),
+          getPeakRankedScoreRank({ playerId: id }),
+        ]);
 
       const placementService = PlacementUtilizationService.getInstance();
       const [tournamentPlacements, equippedAvatarFrame, placementEntitlements, placementDisplayNodes] =
@@ -743,6 +748,7 @@ router.get(
         ...ranks,
         ...plainEnriched,
         funFacts,
+        highestRankedScore,
         aliases,
         tournamentPlacements,
         equippedAvatarFrame,

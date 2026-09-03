@@ -61,6 +61,7 @@ export interface PublicPlacementDto {
   effectiveRowMode: PlacementRowMode;
   displayName: string;
   withdrew: boolean;
+  disqualified: boolean;
   isPending: boolean;
   teamKey: string | null;
   teamName: string | null;
@@ -295,6 +296,7 @@ function toPlacementDto(
     effectiveRowMode,
     displayName: placement.displayName,
     withdrew: placement.withdrew,
+    disqualified: placement.disqualified,
     isPending: placement.isPending,
     teamKey: placement.teamKey,
     teamName: placement.teamName,
@@ -522,6 +524,7 @@ export class PlacementUtilizationService {
       where: {
         levelId,
         withdrew: false,
+        disqualified: false,
         isPending: false,
       },
       include: [
@@ -600,6 +603,7 @@ export class PlacementUtilizationService {
 
     const placementWhere: Record<string, unknown> = {
       withdrew: false,
+      disqualified: false,
     };
     if (!filters.includePending) {
       placementWhere.isPending = false;

@@ -94,7 +94,7 @@ void test('serializePublicPlacement includes level diffId', () => {
   assert.equal(dto.level?.diffId, 8);
 });
 
-void test('serializePublicTournamentDetail includes pending and withdrew placements and canEdit', () => {
+void test('serializePublicTournamentDetail includes pending, withdrew, and disqualified placements', () => {
   const dto = serializePublicTournamentDetail(
     {
       id: 9,
@@ -104,17 +104,29 @@ void test('serializePublicTournamentDetail includes pending and withdrew placeme
       placements: [
         {id: 1, displayName: 'Pending player', isPending: true, withdrew: false, positionInTier: 1},
         {id: 2, displayName: 'Withdrew player', isPending: false, withdrew: true, positionInTier: 2},
+        {
+          id: 3,
+          displayName: 'Disqualified player',
+          isPending: false,
+          withdrew: false,
+          disqualified: true,
+          positionInTier: 3,
+        },
       ],
     },
     {canEdit: true},
   );
   assert.ok(dto);
   assert.equal(dto.canEdit, true);
-  assert.equal(dto.placements.length, 2);
+  assert.equal(dto.placements.length, 3);
   const pending = dto.placements[0];
   const withdrew = dto.placements[1];
+  const disqualified = dto.placements[2];
   assert.ok(pending);
   assert.ok(withdrew);
+  assert.ok(disqualified);
   assert.equal(pending.isPending, true);
   assert.equal(withdrew.withdrew, true);
+  assert.equal(disqualified.disqualified, true);
+  assert.equal(disqualified.withdrew, false);
 });

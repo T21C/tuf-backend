@@ -334,7 +334,7 @@ export class TournamentCsvImportService {
           const positionCounters = new Map<string, number>();
 
           for (const pair of row.placements) {
-            const {code, withdrew} = parsePrizeCode(pair.prize);
+            const {code, withdrew, disqualified} = parsePrizeCode(pair.prize);
             if (!code) {
               report.placementsSkipped += 1;
               continue;
@@ -380,6 +380,7 @@ export class TournamentCsvImportService {
                 playerId: linkedId,
                 creatorId: null,
                 withdrew,
+                disqualified,
                 isPending: false,
                 positionInTier: pos,
               },

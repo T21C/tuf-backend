@@ -1110,10 +1110,12 @@ router.put(
       for (const row of placements) {
         let code = String(row.tierCode || row.code || '').trim().toUpperCase();
         let withdrew = Boolean(row.withdrew);
+        let disqualified = Boolean(row.disqualified);
         if (row.prize) {
           const parsed = parsePrizeCode(row.prize);
           code = parsed.code;
           withdrew = withdrew || parsed.withdrew;
+          disqualified = disqualified || parsed.disqualified;
         }
         if (!code) continue;
 
@@ -1164,6 +1166,7 @@ router.put(
           playerId,
           creatorId,
           withdrew,
+          disqualified,
           isPending: Boolean(row.isPending) || displayName === '?',
           teamKey: row.teamKey ?? null,
           teamName: row.teamName ?? null,
@@ -1388,6 +1391,7 @@ router.patch(
         'playerId',
         'creatorId',
         'withdrew',
+        'disqualified',
         'isPending',
         'teamKey',
         'teamName',

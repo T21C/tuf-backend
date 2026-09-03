@@ -194,6 +194,7 @@ export function serializePublicPlacement(
     player: serializeNamedRef(row.player),
     creator: serializeNamedRef(row.creator),
     withdrew: Boolean(row.withdrew),
+    disqualified: Boolean(row.disqualified),
     isPending: Boolean(row.isPending),
     teamKey: (row.teamKey as string | null) ?? null,
     teamName: (row.teamName as string | null) ?? null,

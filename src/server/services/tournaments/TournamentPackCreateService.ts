@@ -293,6 +293,7 @@ export class TournamentPackCreateService {
             playerId: null,
             creatorId: null,
             withdrew: false,
+            disqualified: false,
             isPending: false,
             rowMode: 'level',
             levelId: row.levelId,
