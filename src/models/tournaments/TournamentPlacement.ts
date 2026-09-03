@@ -13,6 +13,7 @@ export interface TournamentPlacementAttributes {
   playerId: number | null;
   creatorId: number | null;
   withdrew: boolean;
+  disqualified: boolean;
   isPending: boolean;
   teamKey: string | null;
   teamName: string | null;
@@ -30,6 +31,7 @@ type TournamentPlacementCreationAttributes = Optional<
   | 'playerId'
   | 'creatorId'
   | 'withdrew'
+  | 'disqualified'
   | 'isPending'
   | 'teamKey'
   | 'teamName'
@@ -52,6 +54,7 @@ class TournamentPlacement
   declare playerId: number | null;
   declare creatorId: number | null;
   declare withdrew: boolean;
+  declare disqualified: boolean;
   declare isPending: boolean;
   declare teamKey: string | null;
   declare teamName: string | null;
@@ -91,6 +94,11 @@ TournamentPlacement.init(
       allowNull: true,
     },
     withdrew: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    disqualified: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,

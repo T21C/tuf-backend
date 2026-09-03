@@ -1,13 +1,46 @@
 import { Op } from 'sequelize';
-import { RANK_HISTORY_MAX_POINTS } from '@/config/leaderboardRankHistory.js';
+import {
+  DEFAULT_LEADERBOARD_RANK_SCORING_VERSION,
+  RANK_HISTORY_MAX_POINTS,
+} from '@/config/leaderboardRankHistory.js';
 import PlayerLeaderboardRankEvent from '@/models/players/PlayerLeaderboardRankEvent.js';
 import { iterateUtcDateOnlyRange } from '@/server/services/leaderboard/leaderboardRankSnapshotUtils.js';
+import { pickPeakRankHold, type PeakRankHold } from '@/server/services/leaderboard/peakRankHold.js';
 
 export type RankHistoryPoint = {
   date: string;
   rankedScoreRank: number | null;
   generalScoreRank: number | null;
 };
+
+export type PeakRankedScore = PeakRankHold;
+
+/**
+ * All-time best ranked-score rank (lowest positive number) and the last UTC day
+ * of the most recent hold at that rank (the day before the next rank-change event).
+ * Ignores off-leaderboard (`-1`) and other non-positive ranks when choosing the peak.
+ */
+export async function getPeakRankedScoreRank(options: {
+  playerId: number;
+  scoringVersion?: string;
+}): Promise<PeakRankedScore | null> {
+  const scoringVersion =
+    String(options.scoringVersion ?? '').trim() || DEFAULT_LEADERBOARD_RANK_SCORING_VERSION;
+  const rows = await PlayerLeaderboardRankEvent.findAll({
+    where: {
+      playerId: options.playerId,
+      scoringVersion,
+    },
+    order: [['effectiveDay', 'ASC']],
+    attributes: ['rankedScoreRank', 'effectiveDay'],
+  });
+  return pickPeakRankHold(
+    rows.map((row) => ({
+      rankedScoreRank: row.get('rankedScoreRank'),
+      effectiveDay: row.get('effectiveDay'),
+    })),
+  );
+}
 
 /**
  * Forward-filled daily series for Recharts. `null` before the first stored event in range.

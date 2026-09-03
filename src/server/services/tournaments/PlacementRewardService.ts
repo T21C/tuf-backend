@@ -15,7 +15,7 @@ function rewardMatchesPlacement(
   tournament: Tournament,
 ): boolean {
   if (reward.requireFinalResults && !tournament.isResultsFinal) return false;
-  if (reward.requireNotWithdrew && placement.withdrew) return false;
+  if (reward.requireNotWithdrew && (placement.withdrew || placement.disqualified)) return false;
   if (placement.isPending) return false;
 
   if (reward.tournamentId != null && reward.tournamentId !== tournament.id) return false;

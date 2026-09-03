@@ -363,10 +363,14 @@ export function inferTierFromCode(rawCode: string): TierTemplateEntry {
   };
 }
 
-/** Parse prize codes like `1st`, `RO8WD`, `4WD`, `R2WD` → base code + withdrew flag. */
-export function parsePrizeCode(raw: string): {code: string; withdrew: boolean} {
+/** Parse prize codes like `1st`, `RO8WD`, `4WD`, `R2WD`, `RO8DQ` → base code + flags. */
+export function parsePrizeCode(raw: string): {
+  code: string;
+  withdrew: boolean;
+  disqualified: boolean;
+} {
   let prize = String(raw || '').trim();
-  if (!prize) return {code: '', withdrew: false};
+  if (!prize) return {code: '', withdrew: false, disqualified: false};
 
   // Display forms: 1st, 2nd, 3rd, 4th
   const ordinalSuffix = /^(\d+)(?:st|nd|rd|th)$/i.exec(prize);
@@ -375,10 +379,15 @@ export function parsePrizeCode(raw: string): {code: string; withdrew: boolean} {
   }
 
   let withdrew = false;
+  let disqualified = false;
+  if (/DQ$/i.test(prize)) {
+    disqualified = true;
+    prize = prize.replace(/DQ$/i, '');
+  }
   if (/WD$/i.test(prize)) {
     withdrew = true;
     prize = prize.replace(/WD$/i, '');
   }
 
-  return {code: prize.toUpperCase(), withdrew};
+  return {code: prize.toUpperCase(), withdrew, disqualified};
 }

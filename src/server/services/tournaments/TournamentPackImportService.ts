@@ -178,6 +178,7 @@ export class TournamentPackImportService {
           playerId: null,
           creatorId: null,
           withdrew: false,
+          disqualified: false,
           isPending: false,
           rowMode: 'level',
           levelId: planned.levelId,
