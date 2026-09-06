@@ -25,10 +25,11 @@ import LevelSubmissionTeamRequest from '@/models/submissions/LevelSubmissionTeam
 import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import User from '@/models/auth/User.js';
-import { Op, fn, col } from 'sequelize';
+import { Op, fn, col, literal } from 'sequelize';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import {TeamAlias} from '@/models/credits/TeamAlias.js';
+import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import LevelSubmissionSongRequest from '@/models/submissions/LevelSubmissionSongRequest.js';
 import LevelSubmissionArtistRequest from '@/models/submissions/LevelSubmissionArtistRequest.js';
 import LevelSubmissionEvidence from '@/models/submissions/LevelSubmissionEvidence.js';
@@ -36,13 +37,13 @@ import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import SongCredit from '@/models/songs/SongCredit.js';
 import {
-  resolveOrCreateTeamByName,
+  createTeam,
   TeamMutationError,
 } from '@/server/services/teams/teamMutations.js';
 import {
-  replaceTeamAliases,
-  validateTeamAliasList,
-} from '@/server/services/teams/teamAliases.js';
+  replaceCreatorAliasesForCreator,
+  validateCreatorAliasListForSelf,
+} from '@/server/services/creators/creatorSelfAliases.js';
 import submissionSongArtistRoutes from './submissions-song-artist.js';
 import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { SubmissionJobService } from '@/server/services/submissions/SubmissionJobService.js';
@@ -1587,84 +1588,125 @@ router.post(
       return res.status(404).json({ error: 'Submission not found' });
     }
 
+    const trimmedName = String(name).trim();
+    const submissionId = parseInt(id, 10);
+    const requestId = parseInt(creditRequestId, 10);
+    if (!Number.isFinite(requestId)) {
+      await safeTransactionRollback(transaction, logger);
+      return res.status(400).json({ error: 'Name, role, and credit request ID are required' });
+    }
+
+    const lowerEq = literal(`LOWER(name) = LOWER(${sequelize.escape(trimmedName)})`);
+
     if (role === 'team') {
-      // Create or find team without checking isNewRequest
+      const teamRequest = submission.teamRequestData;
+      if (!teamRequest) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(400).json({ error: 'Team request not found for this submission' });
+      }
+      if (Number(teamRequest.id) !== requestId) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(400).json({ error: 'Credit request ID does not match the team request' });
+      }
+
+      const existingTeam = await Team.findOne({
+        where: { [Op.and]: lowerEq },
+        transaction,
+      });
+      const existingTeamAlias = await TeamAlias.findOne({
+        where: { [Op.and]: lowerEq },
+        transaction,
+      });
+      if (existingTeam || existingTeamAlias) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(409).json({
+          error: 'A team with this name already exists. Assign them instead.',
+        });
+      }
+
       let team;
       try {
-        team = await resolveOrCreateTeamByName(name.trim(), transaction);
+        team = await createTeam(
+          {
+            name: trimmedName,
+            aliases: Array.isArray(aliases) ? aliases : [],
+          },
+          transaction,
+        );
       } catch (error) {
         if (error instanceof TeamMutationError) {
           await safeTransactionRollback(transaction, logger);
-          return res.status(error.status).json({ error: error.message });
+          const isNameTaken = /already exists/i.test(error.message);
+          return res.status(isNameTaken ? 409 : error.status).json({ error: error.message });
         }
         throw error;
       }
 
-      // Create team aliases if provided
-      if (aliases && Array.isArray(aliases) && aliases.length > 0) {
-        const aliasResult = await validateTeamAliasList(
-          sequelize,
-          team.id,
-          team.name,
-          aliases,
-          transaction,
-        );
-        if (!aliasResult.ok) {
-          await safeTransactionRollback(transaction, logger);
-          return res.status(400).json({ error: aliasResult.error });
-        }
-        // Merge with existing aliases (preserve prior; add validated new names)
-        const existing = await TeamAlias.findAll({
-          where: { teamId: team.id },
-          attributes: ['name'],
-          transaction,
-        });
-        const merged = [...new Set([
-          ...existing.map(a => a.name),
-          ...aliasResult.names,
-        ])];
-        const mergedResult = await validateTeamAliasList(
-          sequelize,
-          team.id,
-          team.name,
-          merged,
-          transaction,
-        );
-        if (!mergedResult.ok) {
-          await safeTransactionRollback(transaction, logger);
-          return res.status(400).json({ error: mergedResult.error });
-        }
-        await replaceTeamAliases(team.id, mergedResult.names, transaction);
-      }
-
-      // Update team request
       await LevelSubmissionTeamRequest.update({
         teamId: team.id,
         teamName: team.name,
         isNewRequest: false
       }, {
-        where: { submissionId: parseInt(id) },
+        where: { id: teamRequest.id, submissionId },
         transaction
       });
     } else {
-      // Create or find creator without checking isNewRequest
-      const [creator] = await Creator.findOrCreate({
-        where: { name: name.trim() },
-        defaults: {
-          verificationStatus: 'pending'
-        },
-        transaction
-      });
+      const creatorRoles: string[] = [CreditRole.CHARTER, CreditRole.VFXER, CreditRole.SPECIAL_THANKS];
+      if (!creatorRoles.includes(role)) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(400).json({ error: 'Invalid role' });
+      }
 
-      // Update the existing credit request
+      const creatorRequest = submission.creatorRequests?.find(
+        (request) => Number(request.id) === requestId
+      );
+      if (!creatorRequest) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(400).json({ error: 'Credit request not found for this submission' });
+      }
+
+      const existingCreator = await Creator.findOne({
+        where: { [Op.and]: lowerEq },
+        transaction,
+      });
+      const existingCreatorAlias = await CreatorAlias.findOne({
+        where: { [Op.and]: lowerEq },
+        transaction,
+      });
+      if (existingCreator || existingCreatorAlias) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(409).json({
+          error: 'A creator with this name already exists. Assign them instead.',
+        });
+      }
+
+      const creator = await Creator.create({
+        name: trimmedName,
+        verificationStatus: 'pending',
+      }, { transaction });
+
+      if (aliases && Array.isArray(aliases) && aliases.length > 0) {
+        const aliasResult = await validateCreatorAliasListForSelf(
+          sequelize,
+          creator.id,
+          creator.name,
+          aliases,
+        );
+        if (!aliasResult.ok) {
+          await safeTransactionRollback(transaction, logger);
+          return res.status(400).json({ error: aliasResult.error });
+        }
+        await replaceCreatorAliasesForCreator(creator.id, aliasResult.names, transaction);
+      }
+
       await LevelSubmissionCreatorRequest.update({
         creatorId: creator.id,
         creatorName: creator.name,
         isNewRequest: false
       }, {
         where: {
-          id: creditRequestId,
-          submissionId: parseInt(id)
+          id: requestId,
+          submissionId
         },
         transaction
       });
