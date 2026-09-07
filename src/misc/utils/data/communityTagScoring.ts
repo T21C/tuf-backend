@@ -36,6 +36,28 @@ export function voteWeightForClearer(
   return isClearer ? knobs.clearerWeight : knobs.defaultWeight;
 }
 
+export type CommunityTagVoteWeightOpts = {
+  chartCleared: boolean;
+  scoringMode: 'wilson' | 'skillset';
+  isClearer: boolean;
+  topPlayOk: boolean;
+};
+
+/**
+ * Stored vote weight: clearer (10), effective non-clearer Wilson (1), or 0
+ * while the vote is not yet allowed to affect scores (uncleared chart,
+ * skillset without a personal clear, unmet top-play gate).
+ */
+export function communityTagVoteWeight(
+  opts: CommunityTagVoteWeightOpts,
+  knobs: CommunityTagWeightKnobs,
+): number {
+  if (!opts.chartCleared) return 0;
+  if (!opts.topPlayOk) return 0;
+  if (opts.scoringMode === 'skillset' && !opts.isClearer) return 0;
+  return voteWeightForClearer(opts.isClearer, knobs);
+}
+
 export function shouldKeepCommunityAssignment(opts: {
   assigned: boolean;
   pinned: boolean;

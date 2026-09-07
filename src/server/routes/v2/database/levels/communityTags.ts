@@ -23,13 +23,14 @@ import {
   userHasClearerPass,
 } from '@/server/services/data/communityTagVoteService.js';
 import { getCommunityTagConfig } from '@/config/app.config.js';
-import { voteWeightForClearer, wilsonLowerBound } from '@/misc/utils/data/communityTagScoring.js';
+import { communityTagVoteWeight, wilsonLowerBound } from '@/misc/utils/data/communityTagScoring.js';
 import {
+  communityTagVoteHardBlockReason,
+  communityTagVoteInactiveReason,
   isTopPlayRequirementSatisfied,
   normalizeVoteAction,
   resolveCommunityTagSettings,
   tagAllowedForDifficulty,
-  type CommunityTagVoteBlockReason,
 } from '@/misc/utils/data/communityTagEligibility.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
@@ -74,25 +75,6 @@ async function loadLevelWithDifficulty(levelId: number, transaction?: Transactio
   }) as Promise<(Level & { difficulty?: Difficulty | null }) | null>;
 }
 
-function voteBlockReason(opts: {
-  user: Request['user'];
-  isBanned: boolean;
-  chartCleared: boolean;
-  levelDeleted: boolean;
-  bandOk: boolean;
-  topPlayOk: boolean;
-  scoringMode: 'wilson' | 'skillset';
-  isClearer: boolean;
-}): CommunityTagVoteBlockReason {
-  if (opts.levelDeleted) return 'deleted';
-  if (!opts.chartCleared) return 'uncleared';
-  if (!opts.user) return 'login';
-  if (opts.isBanned) return 'banned';
-  if (!opts.bandOk) return 'band';
-  if (!opts.topPlayOk) return 'topPlay';
-  if (opts.scoringMode === 'skillset' && !opts.isClearer) return 'mustClear';
-  return null;
-}
 
 async function loadCommunityTagVoteState(levelId: number, user: Request['user']) {
   const envKnobs = getCommunityTagConfig();
@@ -140,7 +122,7 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
     const list = votesByTag.get(vote.tagId) ?? [];
     list.push(vote);
     votesByTag.set(vote.tagId, list);
-    if (user?.id && vote.userId === user.id) {
+    if (user?.id && String(vote.userId).toLowerCase() === String(user.id).toLowerCase()) {
       userVoteByTag.set(vote.tagId, { weight: vote.weight, direction: vote.direction });
     }
   }
@@ -157,7 +139,8 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
       let downWeight = 0;
       let voteCount = 0;
       for (const vote of votesByTag.get(tag.id) ?? []) {
-        if (settings.scoringMode === 'skillset' && !clearerUserIds.has(String(vote.userId))) {
+        if (!(vote.weight > 0)) continue;
+        if (settings.scoringMode === 'skillset' && !clearerUserIds.has(String(vote.userId).toLowerCase())) {
           continue;
         }
         voteCount += 1;
@@ -166,16 +149,21 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
       }
       const totalWeight = upWeight + downWeight;
       const userVote = userVoteByTag.get(tag.id) ?? null;
-      const blockReason = voteBlockReason({
-        user,
+      const tagTopPlayOk = settings.requireTopPlay ? topPlayOk : true;
+      const hardBlock = communityTagVoteHardBlockReason({
+        hasUser: Boolean(user),
         isBanned,
-        chartCleared,
         levelDeleted: Boolean(level?.isDeleted),
         bandOk: true,
-        topPlayOk: settings.requireTopPlay ? topPlayOk : true,
-        scoringMode: settings.scoringMode,
-        isClearer,
       });
+      const inactiveReason = hardBlock
+        ? null
+        : communityTagVoteInactiveReason({
+            chartCleared,
+            topPlayOk: tagTopPlayOk,
+            scoringMode: settings.scoringMode,
+            isClearer,
+          });
 
       return {
         ...serializeLevelTag(tag),
@@ -191,8 +179,9 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
         voteCount,
         upWeight,
         downWeight,
-        canVote: blockReason == null,
-        voteBlockReason: blockReason,
+        canVote: hardBlock == null,
+        voteBlockReason: hardBlock,
+        voteInactiveReason: inactiveReason,
       };
     })
     .filter((row): row is NonNullable<typeof row> => row != null);
@@ -291,13 +280,6 @@ router.put(
       }
 
       const uniqueClears = await countUniqueClears(levelId, transaction);
-      if (uniqueClears < 1) {
-        await safeTransactionRollback(transaction);
-        return res.status(403).json({
-          error: 'Community tags only work on cleared charts',
-          reason: 'uncleared',
-        });
-      }
 
       const tag = await LevelTag.findByPk(tagId, {
         include: [TAG_GROUP_INCLUDE],
@@ -320,29 +302,17 @@ router.put(
       }
 
       const isClearer = await userHasClearerPass(req.user.playerId, levelId, transaction);
-      if (settings.requireTopPlay && !isClearer) {
+      let topPlayOk = true;
+      if (settings.requireTopPlay) {
         const [pguDifficulties, liveTopDiff] = await Promise.all([
           loadPguDifficulties(),
           loadPlayerTopPguDifficulty(req.user.playerId, transaction),
         ]);
-        if (!isTopPlayRequirementSatisfied({
+        topPlayOk = isTopPlayRequirementSatisfied({
           levelDiff: level.difficulty,
           topDiff: liveTopDiff,
           pguDifficulties,
-          hasClearOfThisLevel: false,
-        })) {
-          await safeTransactionRollback(transaction);
-          return res.status(403).json({
-            error: 'Your top play is not high enough to vote on this chart',
-            reason: 'topPlay',
-          });
-        }
-      }
-      if (settings.scoringMode === 'skillset' && !isClearer) {
-        await safeTransactionRollback(transaction);
-        return res.status(403).json({
-          error: 'You must clear this chart to vote on this tag',
-          reason: 'mustClear',
+          hasClearOfThisLevel: isClearer,
         });
       }
 
@@ -359,8 +329,13 @@ router.put(
         await existing.destroy({ transaction });
       } else {
         const direction = action === 'downvote' ? -1 : 1;
-        const weight = voteWeightForClearer(
-          settings.scoringMode === 'skillset' ? true : isClearer,
+        const weight = communityTagVoteWeight(
+          {
+            chartCleared: uniqueClears > 0,
+            scoringMode: settings.scoringMode,
+            isClearer,
+            topPlayOk,
+          },
           envKnobs,
         );
         if (existing) {

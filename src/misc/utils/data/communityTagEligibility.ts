@@ -17,6 +17,9 @@ export type CommunityTagVoteBlockReason =
   | 'band'
   | null;
 
+export type CommunityTagVoteHardBlockReason = 'login' | 'banned' | 'deleted' | 'band' | null;
+export type CommunityTagVoteInactiveReason = 'uncleared' | 'topPlay' | 'mustClear' | null;
+
 export type DifficultyLike = {
   id?: number;
   name?: string | null;
@@ -239,6 +242,36 @@ export function isTopPlayRequirementSatisfied(opts: {
 }): boolean {
   if (opts.hasClearOfThisLevel) return true;
   return canVoteByTopPlay(opts.levelDiff, opts.topDiff, opts.pguDifficulties);
+}
+
+/** Blocks that still forbid writing a vote (login, ban, deleted, band). */
+export function communityTagVoteHardBlockReason(opts: {
+  hasUser: boolean;
+  isBanned: boolean;
+  levelDeleted: boolean;
+  bandOk: boolean;
+}): CommunityTagVoteHardBlockReason {
+  if (opts.levelDeleted) return 'deleted';
+  if (!opts.hasUser) return 'login';
+  if (opts.isBanned) return 'banned';
+  if (!opts.bandOk) return 'band';
+  return null;
+}
+
+/**
+ * Why a stored vote has weight 0. Callers may still accept the vote.
+ * `topPlayOk` should already be true when the tag does not require top play.
+ */
+export function communityTagVoteInactiveReason(opts: {
+  chartCleared: boolean;
+  topPlayOk: boolean;
+  scoringMode: CommunityTagScoringMode;
+  isClearer: boolean;
+}): CommunityTagVoteInactiveReason {
+  if (!opts.chartCleared) return 'uncleared';
+  if (!opts.topPlayOk) return 'topPlay';
+  if (opts.scoringMode === 'skillset' && !opts.isClearer) return 'mustClear';
+  return null;
 }
 
 export function normalizeVoteAction(action: string | undefined): 'upvote' | 'downvote' | 'unvote' | null {

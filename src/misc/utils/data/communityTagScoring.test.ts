@@ -4,12 +4,15 @@ import {
   selectLevelCardDisplayTags,
   shouldDestroyCommunityAssignment,
   shouldKeepCommunityAssignment,
+  communityTagVoteWeight,
   voteWeightForClearer,
   wilsonLowerBound,
   wilsonScore,
 } from './communityTagScoring.js';
 import {
   canVoteByTopPlay,
+  communityTagVoteHardBlockReason,
+  communityTagVoteInactiveReason,
   isTopPlayRequirementSatisfied,
   maxVotableSortOrder,
   normalizeVoteAction,
@@ -50,6 +53,165 @@ test('clearer weight is 10x default', () => {
   const weights = { clearerWeight: 10, defaultWeight: 1 };
   assert.equal(voteWeightForClearer(true, weights), 10);
   assert.equal(voteWeightForClearer(false, weights), 1);
+});
+
+const voteWeights = { clearerWeight: 10, defaultWeight: 1 };
+
+test('communityTagVoteWeight is 0 on uncleared charts', () => {
+  assert.equal(
+    communityTagVoteWeight(
+      { chartCleared: false, scoringMode: 'wilson', isClearer: false, topPlayOk: true },
+      voteWeights,
+    ),
+    0,
+  );
+  assert.equal(
+    communityTagVoteWeight(
+      { chartCleared: false, scoringMode: 'wilson', isClearer: true, topPlayOk: true },
+      voteWeights,
+    ),
+    0,
+  );
+});
+
+test('communityTagVoteWeight is 0 for skillset without a personal clear', () => {
+  assert.equal(
+    communityTagVoteWeight(
+      { chartCleared: true, scoringMode: 'skillset', isClearer: false, topPlayOk: true },
+      voteWeights,
+    ),
+    0,
+  );
+  assert.equal(
+    communityTagVoteWeight(
+      { chartCleared: true, scoringMode: 'skillset', isClearer: true, topPlayOk: true },
+      voteWeights,
+    ),
+    10,
+  );
+});
+
+test('communityTagVoteWeight is 0 when top play is not satisfied', () => {
+  assert.equal(
+    communityTagVoteWeight(
+      { chartCleared: true, scoringMode: 'wilson', isClearer: false, topPlayOk: false },
+      voteWeights,
+    ),
+    0,
+  );
+  assert.equal(
+    communityTagVoteWeight(
+      { chartCleared: true, scoringMode: 'wilson', isClearer: true, topPlayOk: true },
+      voteWeights,
+    ),
+    10,
+  );
+});
+
+test('communityTagVoteWeight uses default weight for effective non-clearer Wilson votes', () => {
+  assert.equal(
+    communityTagVoteWeight(
+      { chartCleared: true, scoringMode: 'wilson', isClearer: false, topPlayOk: true },
+      voteWeights,
+    ),
+    1,
+  );
+});
+
+test('hard vote blocks stay login banned deleted band', () => {
+  assert.equal(
+    communityTagVoteHardBlockReason({
+      hasUser: true,
+      isBanned: false,
+      levelDeleted: true,
+      bandOk: true,
+    }),
+    'deleted',
+  );
+  assert.equal(
+    communityTagVoteHardBlockReason({
+      hasUser: false,
+      isBanned: false,
+      levelDeleted: false,
+      bandOk: true,
+    }),
+    'login',
+  );
+  assert.equal(
+    communityTagVoteHardBlockReason({
+      hasUser: true,
+      isBanned: true,
+      levelDeleted: false,
+      bandOk: true,
+    }),
+    'banned',
+  );
+  assert.equal(
+    communityTagVoteHardBlockReason({
+      hasUser: true,
+      isBanned: false,
+      levelDeleted: false,
+      bandOk: false,
+    }),
+    'band',
+  );
+  assert.equal(
+    communityTagVoteHardBlockReason({
+      hasUser: true,
+      isBanned: false,
+      levelDeleted: false,
+      bandOk: true,
+    }),
+    null,
+  );
+});
+
+test('inactive vote reasons cover uncleared skillset and topPlay', () => {
+  assert.equal(
+    communityTagVoteInactiveReason({
+      chartCleared: false,
+      topPlayOk: true,
+      scoringMode: 'wilson',
+      isClearer: false,
+    }),
+    'uncleared',
+  );
+  assert.equal(
+    communityTagVoteInactiveReason({
+      chartCleared: true,
+      topPlayOk: false,
+      scoringMode: 'wilson',
+      isClearer: false,
+    }),
+    'topPlay',
+  );
+  assert.equal(
+    communityTagVoteInactiveReason({
+      chartCleared: true,
+      topPlayOk: true,
+      scoringMode: 'skillset',
+      isClearer: false,
+    }),
+    'mustClear',
+  );
+  assert.equal(
+    communityTagVoteInactiveReason({
+      chartCleared: true,
+      topPlayOk: true,
+      scoringMode: 'wilson',
+      isClearer: false,
+    }),
+    null,
+  );
+  assert.equal(
+    communityTagVoteInactiveReason({
+      chartCleared: true,
+      topPlayOk: true,
+      scoringMode: 'skillset',
+      isClearer: true,
+    }),
+    null,
+  );
 });
 
 test('hysteresis keeps an assigned tag between on and off', () => {
