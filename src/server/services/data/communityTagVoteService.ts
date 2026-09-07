@@ -11,12 +11,13 @@ import Player from '@/models/players/Player.js';
 import User from '@/models/auth/User.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {
+  communityTagVoteWeight,
   shouldDestroyCommunityAssignment,
   shouldKeepCommunityAssignment,
-  voteWeightForClearer,
   wilsonLowerBound,
 } from '@/misc/utils/data/communityTagScoring.js';
 import {
+  isTopPlayRequirementSatisfied,
   resolveCommunityTagSettings,
   tagAllowedForDifficulty,
   type DifficultyLike,
@@ -109,6 +110,14 @@ export async function countUniqueClears(
   return Number(rows[0]?.uniqueCnt ?? 0);
 }
 
+function asUserId(id: unknown): string {
+  return String(id ?? '').toLowerCase();
+}
+
+function asTagId(id: unknown): number {
+  return Number(id);
+}
+
 export async function uniqueClearerUserIds(
   levelId: number,
   transaction?: Transaction,
@@ -121,7 +130,26 @@ export async function uniqueClearerUserIds(
      WHERE p.levelId = :levelId AND p.isDeleted = 0 AND p.isHidden = 0`,
     { replacements: { levelId }, type: QueryTypes.SELECT, transaction },
   );
-  return new Set(rows.map((row) => row.userId));
+  return new Set(rows.map((row) => asUserId(row.userId)));
+}
+
+export async function uniqueClearerPlayerIds(
+  levelId: number,
+  transaction?: Transaction,
+): Promise<Set<number>> {
+  const rows = await sequelize.query<{ playerId: number | string }>(
+    `SELECT DISTINCT p.playerId AS playerId
+     FROM passes AS p
+     INNER JOIN players AS pl ON p.playerId = pl.id AND pl.isBanned = 0
+     WHERE p.levelId = :levelId AND p.isDeleted = 0 AND p.isHidden = 0`,
+    { replacements: { levelId }, type: QueryTypes.SELECT, transaction },
+  );
+  const ids = new Set<number>();
+  for (const row of rows) {
+    const id = Number(row.playerId);
+    if (Number.isFinite(id)) ids.add(id);
+  }
+  return ids;
 }
 
 async function loadLevelDifficulty(
@@ -193,16 +221,23 @@ export async function rematerializeCommunityTagsForLevel(
 
   const votesByTag = new Map<number, LevelTagVote[]>();
   for (const vote of votes) {
-    const list = votesByTag.get(vote.tagId) ?? [];
+    const tagId = asTagId(vote.tagId);
+    if (!Number.isFinite(tagId)) continue;
+    const list = votesByTag.get(tagId) ?? [];
     list.push(vote);
-    votesByTag.set(vote.tagId, list);
+    votesByTag.set(tagId, list);
   }
-  const assignmentByTag = new Map(assignments.map((a) => [a.tagId, a]));
+  const assignmentByTag = new Map<number, LevelTagAssignment>();
+  for (const assignment of assignments) {
+    const tagId = asTagId(assignment.tagId);
+    if (!Number.isFinite(tagId)) continue;
+    assignmentByTag.set(tagId, assignment);
+  }
 
   for (const tag of communityTags) {
     const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
     const settings = resolveCommunityTagSettings(tag, group, envKnobs);
-    const assignment = assignmentByTag.get(tag.id) ?? null;
+    const assignment = assignmentByTag.get(asTagId(tag.id)) ?? null;
     const pinned = Boolean(assignment?.pinned);
     const assigned = assignment != null;
     const bandOk = tagAllowedForDifficulty(settings.allowedBands, difficulty);
@@ -211,9 +246,10 @@ export async function rematerializeCommunityTagsForLevel(
     let upWeight = 0;
     let downWeight = 0;
     if (chartCleared && bandOk) {
-      const tagVotes = votesByTag.get(tag.id) ?? [];
+      const tagVotes = votesByTag.get(asTagId(tag.id)) ?? [];
       for (const vote of tagVotes) {
-        if (settings.scoringMode === 'skillset' && !clearerUserIds.has(vote.userId)) {
+        if (!(vote.weight > 0)) continue;
+        if (settings.scoringMode === 'skillset' && !clearerUserIds.has(asUserId(vote.userId))) {
           continue;
         }
         if (vote.direction < 0) downWeight += vote.weight;
@@ -315,48 +351,140 @@ export async function pinCommunityAssignmentsForTag(
   );
 }
 
-export async function syncClearerVoteWeightsForPlayerLevel(
-  playerId: number,
+async function loadPguDifficulties(transaction?: Transaction) {
+  return Difficulty.findAll({
+    where: { type: 'PGU' },
+    attributes: ['id', 'name', 'type', 'sortOrder'],
+    order: [['sortOrder', 'ASC']],
+    transaction,
+  });
+}
+
+/**
+ * Per-tag 0 / default / clearer weights for every vote on a level, then rematerialize.
+ * Used after pass create/delete/hide so first-clears also promote other voters' inert Wilson votes.
+ */
+export async function syncVoteWeightsForLevel(
   levelId: number,
   transaction?: Transaction,
 ): Promise<void> {
-  const user = await User.findOne({
-    where: { playerId },
-    attributes: ['id', 'playerId'],
+  const votes = await LevelTagVote.findAll({
+    where: { levelId },
+    attributes: ['id', 'userId', 'tagId', 'weight'],
     transaction,
   });
-  if (!user) {
+  if (votes.length === 0) {
     await rematerializeCommunityTagsForLevel(levelId, undefined, transaction);
     return;
   }
 
-  const knobs = getCommunityTagConfig();
-  const isClearer = await userHasClearerPass(playerId, levelId, transaction);
-  const weight = voteWeightForClearer(isClearer, knobs);
+  const envKnobs = getCommunityTagConfig();
+  const tagIds = [...new Set(votes.map((vote) => vote.tagId))];
+  const userIds = [...new Set(votes.map((vote) => vote.userId))];
 
-  await LevelTagVote.update(
-    { weight },
-    { where: { userId: user.id, levelId }, transaction },
-  );
+  const [communityTags, uniqueClears, difficulty, clearerPlayerIds, users] = await Promise.all([
+    LevelTag.findAll({
+      where: { id: { [Op.in]: tagIds } },
+      include: [TAG_GROUP_INCLUDE],
+      transaction,
+    }),
+    countUniqueClears(levelId, transaction),
+    loadLevelDifficulty(levelId, transaction),
+    uniqueClearerPlayerIds(levelId, transaction),
+    User.findAll({
+      where: { id: { [Op.in]: userIds } },
+      attributes: ['id', 'playerId'],
+      transaction,
+    }),
+  ]);
+
+  const tagById = new Map(communityTags.map((tag) => [asTagId(tag.id), tag]));
+  const userById = new Map(users.map((user) => [asUserId(user.id), user]));
+  const chartCleared = uniqueClears > 0;
+
+  const needsTopPlayLookup = communityTags.some((tag) => {
+    const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
+    return resolveCommunityTagSettings(tag, group, envKnobs).requireTopPlay;
+  });
+
+  const topPlayOkByUserId = new Map<string, boolean>();
+  if (needsTopPlayLookup) {
+    const pguDifficulties = await loadPguDifficulties(transaction);
+    const playerIds = [
+      ...new Set(
+        users
+          .map((user) => user.playerId)
+          .filter((playerId): playerId is number => playerId != null && Number.isFinite(playerId)),
+      ),
+    ];
+    const topDiffByPlayerId = new Map<number, DifficultyLike | null>();
+    await Promise.all(
+      playerIds.map(async (playerId) => {
+        topDiffByPlayerId.set(playerId, await loadPlayerTopPguDifficulty(playerId, transaction));
+      }),
+    );
+    for (const user of users) {
+      const userId = asUserId(user.id);
+      const isClearer = user.playerId != null && clearerPlayerIds.has(Number(user.playerId));
+      topPlayOkByUserId.set(
+        userId,
+        isTopPlayRequirementSatisfied({
+          levelDiff: difficulty,
+          topDiff: user.playerId != null ? (topDiffByPlayerId.get(user.playerId) ?? null) : null,
+          pguDifficulties,
+          hasClearOfThisLevel: isClearer,
+        }),
+      );
+    }
+  }
+
+  for (const vote of votes) {
+    const tag = tagById.get(asTagId(vote.tagId));
+    if (!tag || !tag.isCommunity) continue;
+    const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
+    const settings = resolveCommunityTagSettings(tag, group, envKnobs);
+    const userId = asUserId(vote.userId);
+    const user = userById.get(userId);
+    const isClearer = user?.playerId != null && clearerPlayerIds.has(Number(user.playerId));
+    const topPlayOk = settings.requireTopPlay ? (topPlayOkByUserId.get(userId) ?? false) : true;
+    const weight = communityTagVoteWeight(
+      {
+        chartCleared,
+        scoringMode: settings.scoringMode,
+        isClearer,
+        topPlayOk,
+      },
+      envKnobs,
+    );
+    if (Number(vote.weight) !== weight) {
+      await vote.update({ weight }, { transaction });
+    }
+  }
 
   await rematerializeCommunityTagsForLevel(levelId, undefined, transaction);
+}
+
+export async function syncClearerVoteWeightsForPlayerLevel(
+  _playerId: number,
+  levelId: number,
+  transaction?: Transaction,
+): Promise<void> {
+  await syncVoteWeightsForLevel(levelId, transaction);
 }
 
 export async function syncClearerVoteWeightsForPairs(
   pairs: Array<{ playerId: number; levelId: number }>,
 ): Promise<void> {
-  const seen = new Set<string>();
+  const levelIds = new Set<number>();
   for (const pair of pairs) {
-    if (!Number.isFinite(pair.playerId) || !Number.isFinite(pair.levelId)) continue;
-    const key = `${pair.playerId}:${pair.levelId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (Number.isFinite(pair.levelId)) levelIds.add(pair.levelId);
+  }
+  for (const levelId of levelIds) {
     try {
-      await syncClearerVoteWeightsForPlayerLevel(pair.playerId, pair.levelId);
+      await syncVoteWeightsForLevel(levelId);
     } catch (error) {
       logger.error('Failed to sync community tag vote weights', {
-        playerId: pair.playerId,
-        levelId: pair.levelId,
+        levelId,
         error: error instanceof Error ? error.message : String(error),
       });
     }

@@ -55,6 +55,7 @@ import { resolveLevelCreatedAtFromVideoLink } from '@/misc/utils/data/levelCreat
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { broadcastRatingUpsert } from '@/server/services/ratings/ratingListService.js';
+import { syncVoteWeightsForLevel } from '@/server/services/data/communityTagVoteService.js';
 import type { SubmissionQueuePayload } from './submissionJobTypes.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -726,6 +727,18 @@ async function processPassApprove(
     );
     await transaction.commit();
     transaction = undefined;
+
+    if (levelId) {
+      try {
+        await syncVoteWeightsForLevel(levelId);
+      } catch (tagWeightError) {
+        logger.warn('Failed to sync community tag vote weights after pass approve', {
+          passId: newPass.id,
+          levelId,
+          error: tagWeightError instanceof Error ? tagWeightError.message : String(tagWeightError),
+        });
+      }
+    }
 
     await onStep('index');
     try {
