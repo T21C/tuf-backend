@@ -1,10 +1,12 @@
 import { discordOAuthProvider } from './discord.js';
 import { googleOAuthProvider } from './google.js';
+import { youtubeOAuthProvider } from './youtube.js';
 import type { OAuthProviderAdapter } from './types.js';
 
 const adapters: Record<string, OAuthProviderAdapter> = {
   discord: discordOAuthProvider,
   google: googleOAuthProvider,
+  youtube: youtubeOAuthProvider,
 };
 
 export function getOAuthProviderAdapter(id: unknown): OAuthProviderAdapter | null {

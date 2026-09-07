@@ -21,9 +21,10 @@ void test('discord authorize URL uses a query-free redirect_uri and includes sta
   assert.equal(url.searchParams.has('reauth'), false);
 });
 
-void test('oauth provider registry returns discord and google and rejects unknown ids', () => {
+void test('oauth provider registry returns discord, google, and youtube and rejects unknown ids', () => {
   assert.equal(getOAuthProviderAdapter('discord')?.id, 'discord');
   assert.equal(getOAuthProviderAdapter('google')?.id, 'google');
+  assert.equal(getOAuthProviderAdapter('youtube')?.id, 'youtube');
   assert.equal(getOAuthProviderAdapter(''), null);
   assert.equal(getOAuthProviderAdapter(undefined), null);
 });

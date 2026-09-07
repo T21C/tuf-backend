@@ -2,7 +2,12 @@ import {Request, Response} from 'express';
 import OAuthService from '@/server/services/accounts/OAuthService.js';
 import {OAuthProvider} from '@/models/index.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { ownUrl, isTufStellarFeatureEnabled } from '@/config/app.config.js';
+import {
+  isTufStellarFeatureEnabled,
+  isYoutubeChannelLinkingEnabled,
+  ownUrl,
+  youtubeChannelLinkingDisabledPayload,
+} from '@/config/app.config.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
@@ -25,8 +30,15 @@ import { getOAuthProviderAdapter } from '@/server/services/accounts/oauthProvide
 import { oauthCallbackRedirectUri } from '@/server/services/accounts/oauthProviders/redirectUri.js';
 import {
   isOAuthEmailRequiredError,
+  isOAuthLinkOnlyBlocked,
+  isOAuthYoutubeApiDisabledError,
+  isOAuthYoutubeChannelRequiredError,
   type OAuthMode,
 } from '@/server/services/accounts/oauthProviders/types.js';
+import {
+  youtubeChannelService,
+  YoutubeChannelError,
+} from '@/server/services/accounts/YouTubeChannelService.js';
 
 interface ProfileResponse {
   user: {
@@ -62,6 +74,17 @@ async function initiateOAuth(
   const adapter = getOAuthProviderAdapter(req.params.provider);
   if (!adapter) {
     return res.status(400).json({error: 'Unsupported provider'});
+  }
+
+  if (adapter.id === 'youtube' && !isYoutubeChannelLinkingEnabled()) {
+    return res.status(503).json(youtubeChannelLinkingDisabledPayload());
+  }
+
+  if (isOAuthLinkOnlyBlocked(adapter, mode)) {
+    return res.status(400).json({
+      error: 'This provider cannot be used to sign in',
+      code: 'OAUTH_LINK_ONLY',
+    });
   }
 
   if (mode !== 'login' && !req.user) {
@@ -159,6 +182,21 @@ export const OAuthController = {
         return res.status(400).json({error: 'Unsupported provider', mode});
       }
 
+      if (isOAuthLinkOnlyBlocked(adapter, pending.mode)) {
+        return res.status(400).json({
+          error: 'This provider cannot be used to sign in',
+          code: 'OAUTH_LINK_ONLY',
+          mode,
+        });
+      }
+
+      if (adapter.id === 'youtube' && !isYoutubeChannelLinkingEnabled()) {
+        return res.status(503).json({
+          ...youtubeChannelLinkingDisabledPayload(),
+          mode,
+        });
+      }
+
       let profile;
       try {
         profile = await adapter.exchangeCode({
@@ -168,6 +206,20 @@ export const OAuthController = {
       } catch (error) {
         if (isOAuthEmailRequiredError(error)) {
           return res.status(400).json({
+            message: error.message,
+            code: error.code,
+            mode,
+          });
+        }
+        if (isOAuthYoutubeChannelRequiredError(error)) {
+          return res.status(400).json({
+            message: error.message,
+            code: error.code,
+            mode,
+          });
+        }
+        if (isOAuthYoutubeApiDisabledError(error)) {
+          return res.status(503).json({
             message: error.message,
             code: error.code,
             mode,
@@ -208,15 +260,30 @@ export const OAuthController = {
 
       if (pending.mode === 'linking') {
         try {
-          await OAuthService.linkProvider(req.user!.id, {
-            id: profile.id,
-            provider: profile.provider,
-            username: profile.username,
-            email: profile.email || undefined,
-          });
+          if (adapter.linkOnly && adapter.id === 'youtube') {
+            await youtubeChannelService.link(req.user!.id, {
+              channelId: profile.id,
+              title: profile.nickname || profile.username,
+              handle: profile.handle ?? null,
+            });
+          } else {
+            await OAuthService.linkProvider(req.user!.id, {
+              id: profile.id,
+              provider: profile.provider,
+              username: profile.username,
+              email: profile.email || undefined,
+            });
+          }
           await CacheInvalidation.invalidateUser(req.user!.id);
           return res.json({success: true, mode});
         } catch (error: unknown) {
+          if (error instanceof YoutubeChannelError) {
+            return res.status(error.status).json({
+              error: error.message,
+              code: error.code,
+              mode,
+            });
+          }
           const err = error as {message?: string; response?: {status?: number}};
           if (
             (err.message && err.message.includes('ERR_BAD_REQUEST')) ||

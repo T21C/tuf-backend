@@ -10,6 +10,7 @@ export interface VideoDetails {
   image: string | undefined;
   embed: string | null;
   downloadLink: string | null;
+  channelId?: string | null;
 }
 
 interface BilibiliData {
@@ -133,6 +134,7 @@ async function getBilibiliVideoDetails(
       image: imageUrl,
       embed: getBilibiliEmbedUrl(data),
       downloadLink: null,
+      channelId: null,
     };
   } catch (error) {
     logger.debug(`Error fetching Bilibili video details for link ${url}:`, error);
@@ -180,6 +182,7 @@ async function getYouTubeVideoDetails(
         data.items[0].snippet.thumbnails?.default?.url,
       embed: getYouTubeEmbedUrl(url),
       downloadLink: (await getDriveFromYt(url, data))?.drive || null,
+      channelId: data.items[0].snippet.channelId || null,
     };
   } catch (error) {
     logger.error(`Error fetching YouTube video details for link ${url}:`, error);

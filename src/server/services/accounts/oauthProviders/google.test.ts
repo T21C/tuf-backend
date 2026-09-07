@@ -25,9 +25,10 @@ void test('google username is the sanitized email local-part', () => {
   assert.equal(usernameFromGoogleEmail('Ada.Lovelace@gmail.com'), 'ada.lovelace');
 });
 
-void test('oauth provider registry includes discord and google', () => {
+void test('oauth provider registry includes discord, google, and youtube', () => {
   assert.equal(getOAuthProviderAdapter('discord')?.id, 'discord');
   assert.equal(getOAuthProviderAdapter('google')?.id, 'google');
+  assert.equal(getOAuthProviderAdapter('youtube')?.id, 'youtube');
   assert.equal(getOAuthProviderAdapter('github'), null);
   assert.equal(getOAuthProviderAdapter(''), null);
   assert.equal(getOAuthProviderAdapter(undefined), null);

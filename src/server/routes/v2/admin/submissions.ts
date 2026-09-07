@@ -49,6 +49,7 @@ import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { SubmissionJobService } from '@/server/services/submissions/SubmissionJobService.js';
 import type { SubmissionAction, SubmissionKind } from '@/server/services/submissions/submissionJobTypes.js';
 import { optionalReasonFromBody } from '@/server/routes/v2/misc/form/shared/sanitize.js';
+import { youtubeChannelService } from '@/server/services/accounts/YouTubeChannelService.js';
 
 const router: Router = Router();
 
@@ -83,6 +84,51 @@ function passSubmissionLabel(row: { title?: string | null; passer?: string | nul
 }
 
 const SUBMISSION_LOCKED_ERROR = 'Submission is locked';
+
+async function attachYoutubeIdsToPassRows(
+  rows: Array<Record<string, unknown>>,
+): Promise<void> {
+  const submitterIds = rows
+    .map((row) => (row.passSubmitter as {id?: string} | undefined)?.id)
+    .filter((id): id is string => Boolean(id));
+  const playerIds = rows
+    .map((row) => {
+      const assigned = row.assignedPlayer as {id?: number} | undefined;
+      const raw = assigned?.id ?? row.assignedPlayerId;
+      const id = typeof raw === 'number' ? raw : Number(raw);
+      return id;
+    })
+    .filter((id) => Number.isFinite(id) && id > 0);
+  const [byUser, byPlayer] = await Promise.all([
+    youtubeChannelService.listIdsByUserIds(submitterIds),
+    youtubeChannelService.listIdsByPlayerIds(playerIds),
+  ]);
+  for (const row of rows) {
+    const submitter = row.passSubmitter as {id?: string; youtubeChannelIds?: string[]} | undefined;
+    if (submitter?.id) {
+      submitter.youtubeChannelIds = byUser.get(submitter.id) ?? [];
+    }
+    const assigned = row.assignedPlayer as {id?: number; youtubeChannelIds?: string[]} | undefined;
+    if (assigned?.id != null) {
+      assigned.youtubeChannelIds = byPlayer.get(assigned.id) ?? [];
+    }
+  }
+}
+
+async function attachYoutubeIdsToLevelRows(
+  rows: Array<Record<string, unknown>>,
+): Promise<void> {
+  const submitterIds = rows
+    .map((row) => (row.levelSubmitter as {id?: string} | undefined)?.id)
+    .filter((id): id is string => Boolean(id));
+  const byUser = await youtubeChannelService.listIdsByUserIds(submitterIds);
+  for (const row of rows) {
+    const submitter = row.levelSubmitter as {id?: string; youtubeChannelIds?: string[]} | undefined;
+    if (submitter?.id) {
+      submitter.youtubeChannelIds = byUser.get(submitter.id) ?? [];
+    }
+  }
+}
 
 function parseIsLockedBody(body: unknown): boolean | null {
   if (!body || typeof body !== 'object') return null;
@@ -514,6 +560,8 @@ router.get(
       return submissionData;
     });
 
+    await attachYoutubeIdsToLevelRows(submissionsWithStats as Array<Record<string, unknown>>);
+
     return res.json(submissionsWithStats);
   } catch (error) {
     logger.error('Error fetching pending level submissions:', error);
@@ -618,6 +666,8 @@ router.get(
         }
         return submissionData;
       });
+
+      await attachYoutubeIdsToPassRows(submissionsWithStats as Array<Record<string, unknown>>);
 
       return res.json(submissionsWithStats);
     } catch (error) {
@@ -1111,9 +1161,12 @@ router.put(
 
       await transaction.commit();
 
+      const passJson = submission.get({plain: true}) as Record<string, unknown>;
+      await attachYoutubeIdsToPassRows([passJson]);
+
       return res.json({
         message: 'Pass submission updated successfully',
-        submission,
+        submission: passJson,
       });
     } catch (error) {
       await safeTransactionRollback(transaction, logger);
@@ -1151,38 +1204,7 @@ router.put(
       transaction = await sequelize.transaction();
       const {playerId} = req.body;
       const submission = await PassSubmission.findByPk(parseInt(req.params.id), {
-        include: [
-          {
-            model: Player,
-            as: 'assignedPlayer',
-          },
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-              {
-                model: LevelCredit,
-                as: 'levelCredits',
-                include: [{
-                  model: Creator,
-                  as: 'creator',
-                }],
-              },
-            ],
-          },
-          {
-            model: PassSubmissionJudgements,
-            as: 'judgements',
-          },
-          {
-            model: PassSubmissionFlags,
-            as: 'flags',
-          },
-        ],
+        include: [...PASS_SUBMISSION_ADMIN_PUT_INCLUDES],
         transaction,
       });
 
@@ -1193,40 +1215,8 @@ router.put(
 
       await submission.update({assignedPlayerId: playerId}, {transaction});
 
-      // Reload the submission to get the fresh player data
       await submission.reload({
-        include: [
-          {
-            model: Player,
-            as: 'assignedPlayer',
-          },
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-              {
-                model: LevelCredit,
-                as: 'levelCredits',
-                include: [{
-                  model: Creator,
-                  as: 'creator',
-                }],
-              },
-            ],
-          },
-          {
-            model: PassSubmissionJudgements,
-            as: 'judgements',
-          },
-          {
-            model: PassSubmissionFlags,
-            as: 'flags',
-          },
-        ],
+        include: [...PASS_SUBMISSION_ADMIN_PUT_INCLUDES],
         transaction,
       });
 
@@ -1241,9 +1231,12 @@ router.put(
 
       await transaction.commit();
 
+      const assignedJson = submission.get({plain: true}) as Record<string, unknown>;
+      await attachYoutubeIdsToPassRows([assignedJson]);
+
       return res.json({
         message: 'Player assigned successfully',
-        submission,
+        submission: assignedJson,
       });
     } catch (error) {
       await safeTransactionRollback(transaction, logger);
