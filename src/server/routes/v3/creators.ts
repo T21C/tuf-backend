@@ -58,6 +58,7 @@ import {
   profileFollowLimiter,
 } from '@/server/services/notifications/followHttp.js';
 import { resolveFollowingLeaderboardFilter } from '@/server/services/notifications/FollowService.js';
+import { youtubeChannelService } from '@/server/services/accounts/YouTubeChannelService.js';
 import {
   clearBannerPresetForEntity,
   clearCustomBannerForEntity,
@@ -86,7 +87,7 @@ function parseHeaderSurfaceLayerId(req: Request): string | null {
 }
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import User from '@/models/auth/User.js';
-import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
+import { isTufStellarFeatureEnabled, isYoutubeChannelLinkingEnabled } from '@/config/app.config.js';
 import {
   BioCanvasProfileError,
   parseBioCanvasBlockId,
@@ -1141,6 +1142,17 @@ router.get(
           : {}),
       };
 
+      const creatorUserId =
+        typeof (responseDoc as {user?: {id?: unknown}}).user?.id === 'string'
+          ? (responseDoc as {user: {id: string}}).user.id
+          : typeof enriched?.user?.id === 'string'
+            ? enriched.user.id
+            : null;
+      const youtubeChannels =
+        isYoutubeChannelLinkingEnabled() && creatorUserId
+          ? await youtubeChannelService.listPublic(creatorUserId)
+          : [];
+
       return res.json({
         ...(responseDoc as Record<string, unknown>),
         ...presentationPatch,
@@ -1155,6 +1167,7 @@ router.get(
         isFollowing: follow.isFollowing,
         followerCount: follow.followerCount,
         showFollowerCount: coerceShowFollowerCount(creatorRow?.showFollowerCount),
+        youtubeChannels,
         ...(isOwnProfile ? {placementEntitlements, placementDisplayNodes} : {}),
       });
 

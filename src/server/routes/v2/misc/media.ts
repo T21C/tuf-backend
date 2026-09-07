@@ -313,20 +313,20 @@ let lockAcquiredBy: string | null = null;
 async function acquireBrowserCreationLock(): Promise<void> {
   const caller = new Error().stack?.split('\n')[2]?.trim() || 'unknown';
   if (browserCreationLock) {
-    logger.debug(`[Lock] Waiting for browser creation lock to be released. Current holder: ${lockAcquiredBy}`);
+    //logger.debug(`[Lock] Waiting for browser creation lock to be released. Current holder: ${lockAcquiredBy}`);
     await browserCreationLock;
   }
   browserCreationLock = new Promise(resolve => {
     browserCreationLockResolve = resolve;
     lockAcquiredBy = caller;
-    logger.debug(`[Lock] Browser creation lock acquired by: ${lockAcquiredBy}`);
+    //logger.debug(`[Lock] Browser creation lock acquired by: ${lockAcquiredBy}`);
   });
 }
 
 // Function to release browser creation lock
 function releaseBrowserCreationLock(): void {
   if (browserCreationLockResolve) {
-    logger.debug(`[Lock] Browser creation lock released by: ${lockAcquiredBy}`);
+    //logger.debug(`[Lock] Browser creation lock released by: ${lockAcquiredBy}`);
     browserCreationLockResolve();
     browserCreationLock = null;
     browserCreationLockResolve = null;

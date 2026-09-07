@@ -14,7 +14,7 @@ const BORDER = '#e5e7eb';
 /**
  * Footer variants:
  * - 'ignore': plain one-time codes where no action is needed if unrequested.
- * - 'security': the standard security footer ("Wasn't this you? Change your password immediately.").
+ * - 'security': the standard security footer ("This wasn't you? Change your password immediately.").
  * - 'security-reset': same wording, but links to the password reset page — used
  *   when the password itself may have been taken over and no longer works.
  */
@@ -65,15 +65,15 @@ function notYouCopy(kind: NotYouKind): { html: string; text: string } {
     case 'security': {
       const url = settingsUrl();
       return {
-        html: `<p style="margin: 0; color: ${MUTED}; font-size: 13px; line-height: 1.5;">Wasn't this you? <a href="${escapeHtml(url)}" style="color: ${PRIMARY}; font-weight: 700;">Change your password immediately.</a></p>`,
-        text: `Wasn't this you? Change your password immediately: ${url}`,
+        html: `<p style="margin: 0; color: ${MUTED}; font-size: 13px; line-height: 1.5;">This wasn't you? <a href="${escapeHtml(url)}" style="color: ${PRIMARY}; font-weight: 700;">Change your password immediately.</a></p>`,
+        text: `This wasn't you? Change your password immediately: ${url}`,
       };
     }
     case 'security-reset': {
       const url = forgotPasswordUrl();
       return {
-        html: `<p style="margin: 0; color: ${MUTED}; font-size: 13px; line-height: 1.5;">Wasn't this you? <a href="${escapeHtml(url)}" style="color: ${PRIMARY}; font-weight: 700;">Change your password immediately.</a></p>`,
-        text: `Wasn't this you? Change your password immediately: ${url}`,
+        html: `<p style="margin: 0; color: ${MUTED}; font-size: 13px; line-height: 1.5;">This wasn't you? <a href="${escapeHtml(url)}" style="color: ${PRIMARY}; font-weight: 700;">Change your password immediately.</a></p>`,
+        text: `This wasn't you? Change your password immediately: ${url}`,
       };
     }
     default:

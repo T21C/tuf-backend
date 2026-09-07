@@ -46,6 +46,27 @@ export function isTufStellarFeatureEnabled(): boolean {
   return parseEnvBool(process.env.TUF_STELLAR_ENABLED, false);
 }
 
+export const YOUTUBE_CHANNEL_LINKING_DISABLED = 'YOUTUBE_CHANNEL_LINKING_DISABLED';
+
+/**
+ * YouTube channel OAuth linking (`youtube.readonly`). Off by default while the
+ * sensitive-scope verification is pending. Set `YOUTUBE_CHANNEL_LINKING_ENABLED=true`
+ * to expose settings, profile buttons, and link/unlink routes.
+ */
+export function isYoutubeChannelLinkingEnabled(): boolean {
+  return parseEnvBool(process.env.YOUTUBE_CHANNEL_LINKING_ENABLED, false);
+}
+
+export function youtubeChannelLinkingDisabledPayload(): {
+  error: string;
+  code: typeof YOUTUBE_CHANNEL_LINKING_DISABLED;
+} {
+  return {
+    error: 'YouTube channel linking is temporarily unavailable',
+    code: YOUTUBE_CHANNEL_LINKING_DISABLED,
+  };
+}
+
 /** Master kill switch for Web Push. Requires VAPID keys as well. */
 export function isPushNotificationsEnabled(): boolean {
   return parseEnvBool(process.env.PUSH_NOTIFICATIONS_ENABLED, false);

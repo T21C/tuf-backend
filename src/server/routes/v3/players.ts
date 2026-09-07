@@ -26,7 +26,7 @@ import PlayerAlias from '@/models/players/PlayerAlias.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { createRateLimiter } from '@/server/decorators/rateLimiter.js';
 import { normalizeTufStellarIconVariant } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
-import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
+import { isTufStellarFeatureEnabled, isYoutubeChannelLinkingEnabled } from '@/config/app.config.js';
 import { DEFAULT_LEADERBOARD_RANK_SCORING_VERSION, RANK_HISTORY_MAX_POINTS } from '@/config/leaderboardRankHistory.js';
 import {
   buildRankHistorySeries,
@@ -66,6 +66,7 @@ import {
   parseFollowingQueryParam,
   resolveFollowingLeaderboardFilter,
 } from '@/server/services/notifications/FollowService.js';
+import { youtubeChannelService } from '@/server/services/accounts/YouTubeChannelService.js';
 
 /**
  * v3 players routes — Elasticsearch-backed.
@@ -742,6 +743,15 @@ router.get(
         aliases = rows.map((a) => ({id: a.id, name: a.name}));
       }
 
+      const profileUserId =
+        typeof (doc as {user?: {id?: unknown}}).user?.id === 'string'
+          ? (doc as {user: {id: string}}).user.id
+          : null;
+      const youtubeChannels =
+        isYoutubeChannelLinkingEnabled() && profileUserId
+          ? await youtubeChannelService.listPublic(profileUserId)
+          : [];
+
       return res.json({
         ...doc,
         ...presentationPatch,
@@ -755,6 +765,7 @@ router.get(
         isFollowing: follow.isFollowing,
         followerCount: follow.followerCount,
         showFollowerCount: coerceShowFollowerCount(playerRow?.showFollowerCount),
+        youtubeChannels,
         ...(isOwnProfile ? {placementEntitlements, placementDisplayNodes} : {}),
       });
 

@@ -9,8 +9,9 @@ import {
   reconcileExpiredTufStellarAccess,
 } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
-import { isTufStellarFeatureEnabled } from '@/config/app.config.js';
+import { isTufStellarFeatureEnabled, isYoutubeChannelLinkingEnabled } from '@/config/app.config.js';
 import { getClientPreferences } from '@/server/services/auth/ClientPreferenceService.js';
+import { youtubeChannelService } from '@/server/services/accounts/YouTubeChannelService.js';
 
 /**
  * Full auth profile payload used by GET /auth/profile/me and GET /auth/session.
@@ -27,6 +28,7 @@ export async function buildAuthProfileUser(userId: string) {
 
   const billing = await loadUserTufStellarBilling(user.id);
   const stellarOn = isTufStellarFeatureEnabled();
+  const youtubeLinkingOn = isYoutubeChannelLinkingEnabled();
 
   const providers = await OAuthProvider.findAll({
     where: { userId: user.id },
@@ -35,6 +37,9 @@ export async function buildAuthProfileUser(userId: string) {
 
   const player = await Player.findByPk(user.playerId);
   const clientPreferences = await getClientPreferences(user.id);
+  const youtubeChannels = youtubeLinkingOn
+    ? await youtubeChannelService.listPublic(user.id)
+    : [];
 
   return {
     id: user.id,
@@ -51,6 +56,7 @@ export async function buildAuthProfileUser(userId: string) {
       ? (billing?.tufStellarSubscriptionExpiresAt ?? null)
       : null,
     tufStellarEnabled: stellarOn,
+    youtubeChannelLinkingEnabled: youtubeLinkingOn,
     isRater: hasFlag(user, permissionFlags.RATER),
     isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
     isRatingBanned: hasFlag(user, permissionFlags.RATING_BANNED),
@@ -69,6 +75,7 @@ export async function buildAuthProfileUser(userId: string) {
       name: p.provider,
       providerId: p.providerId,
     })),
+    youtubeChannels,
     clientPreferences,
   };
 }
