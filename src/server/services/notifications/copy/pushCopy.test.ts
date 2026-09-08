@@ -35,3 +35,16 @@ test('chart.cleared interpolates player and level', () => {
   assert.match(body, /Storm/);
   assert.match(body, /Camellia/);
 });
+
+test('chart.rated interpolates song, artist, and difficulty', () => {
+  const {title, body} = renderPushCopy('en', 'chart.rated', {
+    song: 'Storm',
+    artist: 'Camellia',
+    difficultyName: 'U1',
+    levelId: 12,
+  });
+  assert.equal(title, 'Chart rated');
+  assert.match(body, /Storm/);
+  assert.match(body, /Camellia/);
+  assert.match(body, /U1/);
+});

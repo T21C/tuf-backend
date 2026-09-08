@@ -37,7 +37,6 @@ export function voteWeightForClearer(
 }
 
 export type CommunityTagVoteWeightOpts = {
-  chartCleared: boolean;
   scoringMode: 'wilson' | 'skillset';
   isClearer: boolean;
   topPlayOk: boolean;
@@ -45,14 +44,13 @@ export type CommunityTagVoteWeightOpts = {
 
 /**
  * Stored vote weight: clearer (10), effective non-clearer Wilson (1), or 0
- * while the vote is not yet allowed to affect scores (uncleared chart,
- * skillset without a personal clear, unmet top-play gate).
+ * while the vote is not yet allowed to affect scores (skillset without a
+ * personal clear, unmet top-play gate).
  */
 export function communityTagVoteWeight(
   opts: CommunityTagVoteWeightOpts,
   knobs: CommunityTagWeightKnobs,
 ): number {
-  if (!opts.chartCleared) return 0;
   if (!opts.topPlayOk) return 0;
   if (opts.scoringMode === 'skillset' && !opts.isClearer) return 0;
   return voteWeightForClearer(opts.isClearer, knobs);
@@ -72,12 +70,11 @@ export function shouldKeepCommunityAssignment(opts: {
 /** Whether rematerialize may delete an existing unpinned community assignment. */
 export function shouldDestroyCommunityAssignment(opts: {
   preserveAssignments: boolean;
-  chartCleared: boolean;
   bandOk: boolean;
   keep: boolean;
 }): boolean {
   if (opts.preserveAssignments) return false;
-  if (!opts.chartCleared || !opts.bandOk) return true;
+  if (!opts.bandOk) return true;
   return !opts.keep;
 }
 

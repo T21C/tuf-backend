@@ -122,6 +122,7 @@ router.get(
             categories: {type: 'array', items: {type: 'object'}},
             pushEnabled: {type: 'boolean'},
             pushAvailable: {type: 'boolean'},
+            hideOwnActivity: {type: 'boolean'},
           },
         },
       },
@@ -148,11 +149,11 @@ router.put(
     operationId: 'putNotificationPreferences',
     summary: 'Update a notification preference',
     description:
-      'Upsert in-app preference for one registry type or one category, or set account-wide pushEnabled. Locked channels cannot be changed.',
+      'Upsert in-app preference for one registry type or one category, or set account-wide pushEnabled / hideOwnActivity. Locked channels cannot be changed.',
     tags: ['Notifications'],
     security: ['bearerAuth'],
     requestBody: {
-      description: 'Type or category id and inApp flag, or pushEnabled',
+      description: 'Type or category id and inApp flag, or pushEnabled / hideOwnActivity',
       schema: {
         type: 'object',
         properties: {
@@ -160,6 +161,7 @@ router.put(
           category: {type: 'string'},
           inApp: {type: 'boolean'},
           pushEnabled: {type: 'boolean'},
+          hideOwnActivity: {type: 'boolean'},
         },
       },
     },
@@ -185,6 +187,10 @@ router.put(
       if (!userId) return res.status(401).json({error: 'User not authenticated'});
       if (typeof req.body?.pushEnabled === 'boolean' && typeof req.body?.inApp !== 'boolean') {
         const state = await notificationService.setPushEnabled(userId, req.body.pushEnabled);
+        return res.json(state);
+      }
+      if (typeof req.body?.hideOwnActivity === 'boolean' && typeof req.body?.inApp !== 'boolean') {
+        const state = await notificationService.setHideOwnActivity(userId, req.body.hideOwnActivity);
         return res.json(state);
       }
       if (typeof req.body?.inApp !== 'boolean') {

@@ -18,3 +18,18 @@ test('chart.cleared is opt-in for in-app by default', () => {
     '/passes/9',
   );
 });
+
+test('chart.rated is in-app by default and links to the level', () => {
+  const definition = getNotificationTypeDefinition(NOTIFICATION_TYPES.ChartRated);
+  assert.equal(definition.defaults.inApp, true);
+  assert.equal(definition.category, 'chart');
+  assert.equal(
+    definition.href({
+      levelId: 12,
+      song: 'Storm',
+      artist: 'Camellia',
+      difficultyName: 'U1',
+    }),
+    '/levels/12',
+  );
+});

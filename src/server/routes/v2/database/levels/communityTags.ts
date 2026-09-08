@@ -111,7 +111,6 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
     levelDiff: difficulty,
     topDiff: liveTopDiff,
     pguDifficulties,
-    hasClearOfThisLevel: isClearer,
   });
 
   const assignmentByTag = new Map(assignments.map((a) => [a.tagId, a]));
@@ -159,7 +158,6 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
       const inactiveReason = hardBlock
         ? null
         : communityTagVoteInactiveReason({
-            chartCleared,
             topPlayOk: tagTopPlayOk,
             scoringMode: settings.scoringMode,
             isClearer,
@@ -279,8 +277,6 @@ router.put(
         return res.status(403).json({ error: 'Cannot vote on deleted level', reason: 'deleted' });
       }
 
-      const uniqueClears = await countUniqueClears(levelId, transaction);
-
       const tag = await LevelTag.findByPk(tagId, {
         include: [TAG_GROUP_INCLUDE],
         transaction,
@@ -312,7 +308,6 @@ router.put(
           levelDiff: level.difficulty,
           topDiff: liveTopDiff,
           pguDifficulties,
-          hasClearOfThisLevel: isClearer,
         });
       }
 
@@ -331,7 +326,6 @@ router.put(
         const direction = action === 'downvote' ? -1 : 1;
         const weight = communityTagVoteWeight(
           {
-            chartCleared: uniqueClears > 0,
             scoringMode: settings.scoringMode,
             isClearer,
             topPlayOk,

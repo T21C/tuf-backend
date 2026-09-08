@@ -19,7 +19,9 @@ import {
   parseAllowedBands,
   parseCommunityTagKnobFields,
   parseScoringMode,
+  parseQRange,
   pguBandFromDifficultyName,
+  qRangeToPguFloorName,
   resolveCommunityTagSettings,
   tagAllowedForDifficulty,
 } from './communityTagEligibility.js';
@@ -57,34 +59,34 @@ test('clearer weight is 10x default', () => {
 
 const voteWeights = { clearerWeight: 10, defaultWeight: 1 };
 
-test('communityTagVoteWeight is 0 on uncleared charts', () => {
+test('communityTagVoteWeight counts Wilson votes without a chart clear', () => {
   assert.equal(
     communityTagVoteWeight(
-      { chartCleared: false, scoringMode: 'wilson', isClearer: false, topPlayOk: true },
+      { scoringMode: 'wilson', isClearer: false, topPlayOk: true },
       voteWeights,
     ),
-    0,
+    1,
   );
   assert.equal(
     communityTagVoteWeight(
-      { chartCleared: false, scoringMode: 'wilson', isClearer: true, topPlayOk: true },
+      { scoringMode: 'wilson', isClearer: true, topPlayOk: true },
       voteWeights,
     ),
-    0,
+    10,
   );
 });
 
 test('communityTagVoteWeight is 0 for skillset without a personal clear', () => {
   assert.equal(
     communityTagVoteWeight(
-      { chartCleared: true, scoringMode: 'skillset', isClearer: false, topPlayOk: true },
+      { scoringMode: 'skillset', isClearer: false, topPlayOk: true },
       voteWeights,
     ),
     0,
   );
   assert.equal(
     communityTagVoteWeight(
-      { chartCleared: true, scoringMode: 'skillset', isClearer: true, topPlayOk: true },
+      { scoringMode: 'skillset', isClearer: true, topPlayOk: true },
       voteWeights,
     ),
     10,
@@ -94,14 +96,14 @@ test('communityTagVoteWeight is 0 for skillset without a personal clear', () => 
 test('communityTagVoteWeight is 0 when top play is not satisfied', () => {
   assert.equal(
     communityTagVoteWeight(
-      { chartCleared: true, scoringMode: 'wilson', isClearer: false, topPlayOk: false },
+      { scoringMode: 'wilson', isClearer: false, topPlayOk: false },
       voteWeights,
     ),
     0,
   );
   assert.equal(
     communityTagVoteWeight(
-      { chartCleared: true, scoringMode: 'wilson', isClearer: true, topPlayOk: true },
+      { scoringMode: 'wilson', isClearer: true, topPlayOk: true },
       voteWeights,
     ),
     10,
@@ -111,7 +113,7 @@ test('communityTagVoteWeight is 0 when top play is not satisfied', () => {
 test('communityTagVoteWeight uses default weight for effective non-clearer Wilson votes', () => {
   assert.equal(
     communityTagVoteWeight(
-      { chartCleared: true, scoringMode: 'wilson', isClearer: false, topPlayOk: true },
+      { scoringMode: 'wilson', isClearer: false, topPlayOk: true },
       voteWeights,
     ),
     1,
@@ -166,19 +168,9 @@ test('hard vote blocks stay login banned deleted band', () => {
   );
 });
 
-test('inactive vote reasons cover uncleared skillset and topPlay', () => {
+test('inactive vote reasons cover skillset and topPlay', () => {
   assert.equal(
     communityTagVoteInactiveReason({
-      chartCleared: false,
-      topPlayOk: true,
-      scoringMode: 'wilson',
-      isClearer: false,
-    }),
-    'uncleared',
-  );
-  assert.equal(
-    communityTagVoteInactiveReason({
-      chartCleared: true,
       topPlayOk: false,
       scoringMode: 'wilson',
       isClearer: false,
@@ -187,7 +179,6 @@ test('inactive vote reasons cover uncleared skillset and topPlay', () => {
   );
   assert.equal(
     communityTagVoteInactiveReason({
-      chartCleared: true,
       topPlayOk: true,
       scoringMode: 'skillset',
       isClearer: false,
@@ -196,7 +187,6 @@ test('inactive vote reasons cover uncleared skillset and topPlay', () => {
   );
   assert.equal(
     communityTagVoteInactiveReason({
-      chartCleared: true,
       topPlayOk: true,
       scoringMode: 'wilson',
       isClearer: false,
@@ -205,7 +195,6 @@ test('inactive vote reasons cover uncleared skillset and topPlay', () => {
   );
   assert.equal(
     communityTagVoteInactiveReason({
-      chartCleared: true,
       topPlayOk: true,
       scoringMode: 'skillset',
       isClearer: true,
@@ -245,7 +234,6 @@ test('shouldDestroyCommunityAssignment honors preserveAssignments', () => {
   assert.equal(
     shouldDestroyCommunityAssignment({
       preserveAssignments: true,
-      chartCleared: true,
       bandOk: true,
       keep: false,
     }),
@@ -254,7 +242,6 @@ test('shouldDestroyCommunityAssignment honors preserveAssignments', () => {
   assert.equal(
     shouldDestroyCommunityAssignment({
       preserveAssignments: true,
-      chartCleared: false,
       bandOk: false,
       keep: false,
     }),
@@ -263,7 +250,6 @@ test('shouldDestroyCommunityAssignment honors preserveAssignments', () => {
   assert.equal(
     shouldDestroyCommunityAssignment({
       preserveAssignments: false,
-      chartCleared: true,
       bandOk: true,
       keep: false,
     }),
@@ -272,29 +258,18 @@ test('shouldDestroyCommunityAssignment honors preserveAssignments', () => {
   assert.equal(
     shouldDestroyCommunityAssignment({
       preserveAssignments: false,
-      chartCleared: false,
-      bandOk: true,
-      keep: true,
-    }),
-    true,
-  );
-  assert.equal(
-    shouldDestroyCommunityAssignment({
-      preserveAssignments: false,
-      chartCleared: true,
-      bandOk: false,
-      keep: true,
-    }),
-    true,
-  );
-  assert.equal(
-    shouldDestroyCommunityAssignment({
-      preserveAssignments: false,
-      chartCleared: true,
       bandOk: true,
       keep: true,
     }),
     false,
+  );
+  assert.equal(
+    shouldDestroyCommunityAssignment({
+      preserveAssignments: false,
+      bandOk: false,
+      keep: true,
+    }),
+    true,
   );
 });
 
@@ -383,7 +358,49 @@ test('G15 top play can vote on G16 and below, not U1', () => {
   );
 });
 
-test('a clear of this level satisfies top-play even with no cached topDiff', () => {
+test('parseQRange maps GQ, UQ, and Q0-4 onto PGU buckets', () => {
+  assert.deepEqual(parseQRange('GQ1'), { letter: 'G', tier: 1 });
+  assert.deepEqual(parseQRange('UQ1'), { letter: 'U', tier: 1 });
+  assert.deepEqual(parseQRange('Q1'), { letter: 'U', tier: 1 });
+  assert.equal(qRangeToPguFloorName('GQ1'), 'G5');
+  assert.equal(qRangeToPguFloorName('UQ1'), 'U5');
+  assert.equal(qRangeToPguFloorName('Q1'), 'U5');
+  assert.equal(qRangeToPguFloorName('GQ0'), 'G1');
+  assert.equal(qRangeToPguFloorName('Qq'), null);
+  assert.equal(qRangeToPguFloorName('Grandmaster'), null);
+});
+
+test('Q-range top-play uses the mapped PGU floor and +1 rule', () => {
+  const pgu = [
+    { id: 1, name: 'G1', type: 'PGU', sortOrder: 21 },
+    { id: 4, name: 'G4', type: 'PGU', sortOrder: 24 },
+    { id: 5, name: 'G5', type: 'PGU', sortOrder: 25 },
+    { id: 6, name: 'G6', type: 'PGU', sortOrder: 26 },
+    { id: 7, name: 'G7', type: 'PGU', sortOrder: 27 },
+    { id: 21, name: 'U1', type: 'PGU', sortOrder: 41 },
+    { id: 25, name: 'U5', type: 'PGU', sortOrder: 45 },
+    { id: 26, name: 'U6', type: 'PGU', sortOrder: 46 },
+    { id: 27, name: 'U7', type: 'PGU', sortOrder: 47 },
+  ];
+  const gq1 = { name: 'GQ1', type: 'SPECIAL', sortOrder: 99 };
+  const uq1 = { name: 'UQ1', type: 'SPECIAL', sortOrder: 99 };
+  const q1 = { name: 'Q1', type: 'SPECIAL', sortOrder: 99 };
+  const g1 = pgu[0];
+  const g4 = pgu[1];
+  const g6 = pgu[3];
+  const u1 = pgu[5];
+  const u6 = pgu[7];
+
+  assert.equal(canVoteByTopPlay(gq1, g6, pgu), true);
+  assert.equal(canVoteByTopPlay(gq1, g4, pgu), true);
+  assert.equal(canVoteByTopPlay(gq1, g1, pgu), false);
+  assert.equal(canVoteByTopPlay(uq1, u6, pgu), true);
+  assert.equal(canVoteByTopPlay(uq1, g6, pgu), false);
+  assert.equal(canVoteByTopPlay(q1, u6, pgu), true);
+  assert.equal(canVoteByTopPlay(gq1, u1, pgu), true);
+});
+
+test('top-play is not satisfied by a personal clear without a high enough topDiff', () => {
   const pgu = [
     { id: 15, name: 'G15', type: 'PGU', sortOrder: 35 },
     { id: 16, name: 'G16', type: 'PGU', sortOrder: 36 },
@@ -394,25 +411,14 @@ test('a clear of this level satisfies top-play even with no cached topDiff', () 
       levelDiff: pgu[0],
       topDiff: null,
       pguDifficulties: pgu,
-      hasClearOfThisLevel: true,
     }),
-    true,
+    false,
   );
   assert.equal(
     isTopPlayRequirementSatisfied({
       levelDiff: { name: 'Grandmaster', type: 'SPECIAL', sortOrder: 99 },
       topDiff: null,
       pguDifficulties: pgu,
-      hasClearOfThisLevel: true,
-    }),
-    true,
-  );
-  assert.equal(
-    isTopPlayRequirementSatisfied({
-      levelDiff: pgu[0],
-      topDiff: null,
-      pguDifficulties: pgu,
-      hasClearOfThisLevel: false,
     }),
     false,
   );
@@ -421,7 +427,18 @@ test('a clear of this level satisfies top-play even with no cached topDiff', () 
       levelDiff: pgu[1],
       topDiff: pgu[0],
       pguDifficulties: pgu,
-      hasClearOfThisLevel: false,
+    }),
+    true,
+  );
+  assert.equal(
+    isTopPlayRequirementSatisfied({
+      levelDiff: { name: 'GQ1', type: 'SPECIAL', sortOrder: 99 },
+      topDiff: { id: 6, name: 'G6', type: 'PGU', sortOrder: 26 },
+      pguDifficulties: [
+        { id: 5, name: 'G5', type: 'PGU', sortOrder: 25 },
+        { id: 6, name: 'G6', type: 'PGU', sortOrder: 26 },
+        { id: 7, name: 'G7', type: 'PGU', sortOrder: 27 },
+      ],
     }),
     true,
   );

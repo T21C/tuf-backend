@@ -11,14 +11,19 @@ export type CommunityTagVoteBlockReason =
   | 'login'
   | 'banned'
   | 'deleted'
-  | 'uncleared'
   | 'topPlay'
   | 'mustClear'
   | 'band'
   | null;
 
 export type CommunityTagVoteHardBlockReason = 'login' | 'banned' | 'deleted' | 'band' | null;
-export type CommunityTagVoteInactiveReason = 'uncleared' | 'topPlay' | 'mustClear' | null;
+export type CommunityTagVoteInactiveReason = 'topPlay' | 'mustClear' | null;
+
+export type QRangeLetter = 'G' | 'U';
+export type ParsedQRange = {
+  letter: QRangeLetter;
+  tier: number;
+};
 
 export type DifficultyLike = {
   id?: number;
@@ -215,32 +220,72 @@ export function maxVotableSortOrder(
   return nextByOrder?.sortOrder ?? topDiff.sortOrder;
 }
 
-export function canVoteByTopPlay(
+/** Inverse of client pguNumberToQTier: GQ1 / UQ1 / Q1 → tier 1 (four PGU ranks per bucket). */
+export function parseQRange(name: string | null | undefined): ParsedQRange | null {
+  const n = String(name || '').trim().toUpperCase();
+  if (!n) return null;
+  const gq = n.match(/^GQ([0-4])$/);
+  if (gq) return { letter: 'G', tier: Number(gq[1]) };
+  const uq = n.match(/^UQ([0-4])$/);
+  if (uq) return { letter: 'U', tier: Number(uq[1]) };
+  const q = n.match(/^Q([0-4])$/);
+  if (q) return { letter: 'U', tier: Number(q[1]) };
+  return null;
+}
+
+/** Floor of the mapped PGU bucket: GQ1 → G5, UQ1 / Q1 → U5. */
+export function qRangeToPguFloorName(name: string | null | undefined): string | null {
+  const parsed = parseQRange(name);
+  if (!parsed) return null;
+  return `${parsed.letter}${parsed.tier * 4 + 1}`;
+}
+
+function pguDifficultyByName(
+  pguDifficulties: DifficultyLike[],
+  name: string,
+): DifficultyLike | null {
+  const target = name.toUpperCase();
+  return (
+    pguDifficulties.find(
+      (d) => d.type === 'PGU' && String(d.name || '').trim().toUpperCase() === target,
+    ) ?? null
+  );
+}
+
+function canVoteByPguSortOrder(
   levelDiff: DifficultyLike | null | undefined,
   topDiff: DifficultyLike | null | undefined,
   pguDifficulties: DifficultyLike[],
 ): boolean {
-  const type = String(levelDiff?.type || '').toUpperCase();
-  if (type === 'SPECIAL' || type === 'LEGACY') {
-    return Boolean(topDiff && topDiff.type === 'PGU' && topDiff.sortOrder != null);
-  }
   const max = maxVotableSortOrder(topDiff, pguDifficulties);
   if (max == null || levelDiff?.sortOrder == null) return false;
   return levelDiff.sortOrder <= max;
 }
 
-/**
- * Top-play + 1, or a live clear of this chart.
- * A clear of this level satisfies the requirement even when cached /me
- * player_stats.topDiff is missing or stale.
- */
+export function canVoteByTopPlay(
+  levelDiff: DifficultyLike | null | undefined,
+  topDiff: DifficultyLike | null | undefined,
+  pguDifficulties: DifficultyLike[],
+): boolean {
+  const floorName = qRangeToPguFloorName(levelDiff?.name);
+  if (floorName) {
+    const mapped = pguDifficultyByName(pguDifficulties, floorName);
+    if (!mapped) return false;
+    return canVoteByPguSortOrder(mapped, topDiff, pguDifficulties);
+  }
+  const type = String(levelDiff?.type || '').toUpperCase();
+  if (type === 'SPECIAL' || type === 'LEGACY') {
+    return Boolean(topDiff && topDiff.type === 'PGU' && topDiff.sortOrder != null);
+  }
+  return canVoteByPguSortOrder(levelDiff, topDiff, pguDifficulties);
+}
+
+/** Top-play + 1 against the chart (or its mapped PGU floor for Q ranges). */
 export function isTopPlayRequirementSatisfied(opts: {
   levelDiff: DifficultyLike | null | undefined;
   topDiff: DifficultyLike | null | undefined;
   pguDifficulties: DifficultyLike[];
-  hasClearOfThisLevel: boolean;
 }): boolean {
-  if (opts.hasClearOfThisLevel) return true;
   return canVoteByTopPlay(opts.levelDiff, opts.topDiff, opts.pguDifficulties);
 }
 
@@ -263,12 +308,10 @@ export function communityTagVoteHardBlockReason(opts: {
  * `topPlayOk` should already be true when the tag does not require top play.
  */
 export function communityTagVoteInactiveReason(opts: {
-  chartCleared: boolean;
   topPlayOk: boolean;
   scoringMode: CommunityTagScoringMode;
   isClearer: boolean;
 }): CommunityTagVoteInactiveReason {
-  if (!opts.chartCleared) return 'uncleared';
   if (!opts.topPlayOk) return 'topPlay';
   if (opts.scoringMode === 'skillset' && !opts.isClearer) return 'mustClear';
   return null;
