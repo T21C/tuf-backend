@@ -203,7 +203,6 @@ export async function rematerializeCommunityTagsForLevel(
   if (communityTags.length === 0) return;
 
   const ids = communityTags.map((t) => t.id);
-  const uniqueClears = await countUniqueClears(levelId, transaction);
   const difficulty = await loadLevelDifficulty(levelId, transaction);
   const clearerUserIds = await uniqueClearerUserIds(levelId, transaction);
 
@@ -241,11 +240,10 @@ export async function rematerializeCommunityTagsForLevel(
     const pinned = Boolean(assignment?.pinned);
     const assigned = assignment != null;
     const bandOk = tagAllowedForDifficulty(settings.allowedBands, difficulty);
-    const chartCleared = uniqueClears > 0;
 
     let upWeight = 0;
     let downWeight = 0;
-    if (chartCleared && bandOk) {
+    if (bandOk) {
       const tagVotes = votesByTag.get(asTagId(tag.id)) ?? [];
       for (const vote of tagVotes) {
         if (!(vote.weight > 0)) continue;
@@ -268,7 +266,6 @@ export async function rematerializeCommunityTagsForLevel(
 
     const destroy = shouldDestroyCommunityAssignment({
       preserveAssignments,
-      chartCleared,
       bandOk,
       keep: shouldKeepCommunityAssignment({
         assigned,
@@ -283,7 +280,7 @@ export async function rematerializeCommunityTagsForLevel(
         if (assignment.score !== score) {
           await assignment.update({ score }, { transaction });
         }
-      } else if (chartCleared && bandOk) {
+      } else if (bandOk) {
         const keepNew = shouldKeepCommunityAssignment({
           assigned: false,
           pinned: false,
@@ -362,7 +359,7 @@ async function loadPguDifficulties(transaction?: Transaction) {
 
 /**
  * Per-tag 0 / default / clearer weights for every vote on a level, then rematerialize.
- * Used after pass create/delete/hide so first-clears also promote other voters' inert Wilson votes.
+ * Used after pass create/delete/hide so skillset and top-play eligibility stay in sync.
  */
 export async function syncVoteWeightsForLevel(
   levelId: number,
@@ -382,13 +379,12 @@ export async function syncVoteWeightsForLevel(
   const tagIds = [...new Set(votes.map((vote) => vote.tagId))];
   const userIds = [...new Set(votes.map((vote) => vote.userId))];
 
-  const [communityTags, uniqueClears, difficulty, clearerPlayerIds, users] = await Promise.all([
+  const [communityTags, difficulty, clearerPlayerIds, users] = await Promise.all([
     LevelTag.findAll({
       where: { id: { [Op.in]: tagIds } },
       include: [TAG_GROUP_INCLUDE],
       transaction,
     }),
-    countUniqueClears(levelId, transaction),
     loadLevelDifficulty(levelId, transaction),
     uniqueClearerPlayerIds(levelId, transaction),
     User.findAll({
@@ -400,7 +396,6 @@ export async function syncVoteWeightsForLevel(
 
   const tagById = new Map(communityTags.map((tag) => [asTagId(tag.id), tag]));
   const userById = new Map(users.map((user) => [asUserId(user.id), user]));
-  const chartCleared = uniqueClears > 0;
 
   const needsTopPlayLookup = communityTags.some((tag) => {
     const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
@@ -425,14 +420,12 @@ export async function syncVoteWeightsForLevel(
     );
     for (const user of users) {
       const userId = asUserId(user.id);
-      const isClearer = user.playerId != null && clearerPlayerIds.has(Number(user.playerId));
       topPlayOkByUserId.set(
         userId,
         isTopPlayRequirementSatisfied({
           levelDiff: difficulty,
           topDiff: user.playerId != null ? (topDiffByPlayerId.get(user.playerId) ?? null) : null,
           pguDifficulties,
-          hasClearOfThisLevel: isClearer,
         }),
       );
     }
@@ -449,7 +442,6 @@ export async function syncVoteWeightsForLevel(
     const topPlayOk = settings.requireTopPlay ? (topPlayOkByUserId.get(userId) ?? false) : true;
     const weight = communityTagVoteWeight(
       {
-        chartCleared,
         scoringMode: settings.scoringMode,
         isClearer,
         topPlayOk,

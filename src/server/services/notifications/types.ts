@@ -14,6 +14,7 @@ export const NOTIFICATION_TYPES = {
   ChartRestored: 'chart.restored',
   ChartVisibilityChanged: 'chart.visibility.changed',
   ChartModified: 'chart.modified',
+  ChartRated: 'chart.rated',
   ChartCurated: 'chart.curated',
   ChartCurationRemoved: 'chart.curation.removed',
   ChartWeeklySelected: 'chart.weekly.selected',
@@ -68,6 +69,12 @@ export const chartVisibilityPayloadSchema = chartSnapshotPayloadSchema.extend({
 
 export type ChartVisibilityPayload = z.infer<typeof chartVisibilityPayloadSchema>;
 
+export const chartRatedPayloadSchema = chartSnapshotPayloadSchema.extend({
+  difficultyName: z.string().nullable().optional(),
+});
+
+export type ChartRatedPayload = z.infer<typeof chartRatedPayloadSchema>;
+
 export const chartWeeklyPayloadSchema = chartSnapshotPayloadSchema.extend({
   weekStart: z.string(),
 });
@@ -109,6 +116,7 @@ export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.ChartRestored]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartVisibilityChanged]: ChartVisibilityPayload;
   [NOTIFICATION_TYPES.ChartModified]: ChartSnapshotPayload;
+  [NOTIFICATION_TYPES.ChartRated]: ChartRatedPayload;
   [NOTIFICATION_TYPES.ChartCurated]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartCurationRemoved]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartWeeklySelected]: ChartWeeklyPayload;
@@ -249,6 +257,12 @@ const notificationTypeRegistry: {
     NOTIFICATION_TYPES.ChartModified,
     'chart',
     chartSnapshotPayloadSchema,
+    levelHref,
+  ),
+  [NOTIFICATION_TYPES.ChartRated]: def(
+    NOTIFICATION_TYPES.ChartRated,
+    'chart',
+    chartRatedPayloadSchema,
     levelHref,
   ),
   [NOTIFICATION_TYPES.ChartCurated]: def(

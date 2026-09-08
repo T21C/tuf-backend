@@ -13,6 +13,7 @@ import {
   resolveRecipientUserIds,
   type NotificationRecipients,
 } from './recipients.js';
+import {shouldHideOwnActivityNotification} from './hideOwnActivity.js';
 import {
   channelEnabled,
   getNotificationTypeDefinition,
@@ -76,6 +77,7 @@ export interface PreferenceState {
   categories: EffectiveCategoryPreference[];
   pushEnabled: boolean;
   pushAvailable: boolean;
+  hideOwnActivity: boolean;
 }
 
 function toIso(value: Date | string | null | undefined): string | null {
@@ -109,10 +111,22 @@ class NotificationService {
   async notify<K extends NotificationType>(args: NotifyArgs<K>): Promise<void> {
     const definition = getNotificationTypeDefinition(args.type);
     const payload = definition.payload.parse(args.payload);
-    const skipActor = args.skipActor !== false;
-    const userIds = (await resolveRecipientUserIds(args.recipients, args.transaction)).filter(
-      (userId) => !skipActor || !args.actorId || userId !== args.actorId,
-    );
+    let userIds = await resolveRecipientUserIds(args.recipients, args.transaction);
+    if (args.actorId && userIds.includes(args.actorId)) {
+      const actorSettings = await NotificationUserSettings.findByPk(args.actorId, {
+        attributes: ['hideOwnActivity'],
+        transaction: args.transaction,
+      });
+      if (
+        shouldHideOwnActivityNotification({
+          actorId: args.actorId,
+          userId: args.actorId,
+          hideOwnActivity: actorSettings?.hideOwnActivity,
+        })
+      ) {
+        userIds = userIds.filter((userId) => userId !== args.actorId);
+      }
+    }
     if (!userIds.length) return;
 
     const [prefs, categoryPrefs] = await Promise.all([
@@ -270,6 +284,7 @@ class NotificationService {
     const byType = new Map(typeRows.map((row) => [row.type, row]));
     const byCategory = new Map(categoryRows.map((row) => [row.category, row]));
     const pushEnabled = Boolean(settings?.pushEnabled);
+    const hideOwnActivity = Boolean(settings?.hideOwnActivity);
     const pushAvailable = isPushAvailable();
 
     const categories: EffectiveCategoryPreference[] = listNotificationCategories().map(
@@ -298,16 +313,29 @@ class NotificationService {
       };
     });
 
-    return {preferences, categories, pushEnabled, pushAvailable};
+    return {preferences, categories, pushEnabled, pushAvailable, hideOwnActivity};
   }
 
-  async setPushEnabled(userId: string, pushEnabled: boolean): Promise<PreferenceState> {
+  async upsertAccountSettings(
+    userId: string,
+    patch: {pushEnabled?: boolean; hideOwnActivity?: boolean},
+  ): Promise<PreferenceState> {
+    const existing = await NotificationUserSettings.findByPk(userId);
     await NotificationUserSettings.upsert({
       userId,
-      pushEnabled,
+      pushEnabled: patch.pushEnabled ?? existing?.pushEnabled ?? false,
+      hideOwnActivity: patch.hideOwnActivity ?? existing?.hideOwnActivity ?? false,
       updatedAt: new Date(),
     });
     return this.getPreferenceState(userId);
+  }
+
+  async setPushEnabled(userId: string, pushEnabled: boolean): Promise<PreferenceState> {
+    return this.upsertAccountSettings(userId, {pushEnabled});
+  }
+
+  async setHideOwnActivity(userId: string, hideOwnActivity: boolean): Promise<PreferenceState> {
+    return this.upsertAccountSettings(userId, {hideOwnActivity});
   }
 
   async upsertInAppPreference(

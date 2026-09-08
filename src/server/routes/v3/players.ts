@@ -54,7 +54,12 @@ import {PlacementUtilizationService} from '@/server/services/tournaments/Placeme
 import {
   assemblePresentationForPlayer,
   getPresentationSyncForUser,
+  ProfileCustomizationError,
 } from '@/server/services/profileCustomization/ProfileCustomizationService.js';
+import {
+  getProfileModulesApiPayload,
+  saveProfileModulesForEntity,
+} from '@/server/services/profileCustomization/profileModulesService.js';
 import {
   coerceShowFollowerCount,
   followFieldsForProfile,
@@ -643,7 +648,7 @@ router.get(
       const doc = await elasticsearchService.getPlayerDocumentById(id);
       if (!doc) return res.status(404).json({ error: 'Player not found' });
 
-      const [ranks, enriched, funFacts, playerRow, presentation, follow, highestRankedScore] =
+      const [ranks, enriched, funFacts, playerRow, presentation, follow, highestRankedScore, profileModulesPayload] =
         await Promise.all([
           getPlayerRanks(doc),
           playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
@@ -663,6 +668,7 @@ router.get(
           assemblePresentationForPlayer(id),
           followFieldsForProfile('player', id, user?.id),
           getPeakRankedScoreRank({ playerId: id }),
+          getProfileModulesApiPayload('player', id),
         ]);
 
       const placementService = PlacementUtilizationService.getInstance();
@@ -766,6 +772,7 @@ router.get(
         followerCount: follow.followerCount,
         showFollowerCount: coerceShowFollowerCount(playerRow?.showFollowerCount),
         youtubeChannels,
+        ...profileModulesPayload,
         ...(isOwnProfile ? {placementEntitlements, placementDisplayNodes} : {}),
       });
 
@@ -925,6 +932,61 @@ router.patch(
       logger.error('[v3 PATCH /players/me/bio] failure', error);
       return res.status(500).json({
         error: 'Failed to update player bio',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.patch(
+  '/me/profile-modules',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'v3PatchPlayerMeProfileModules',
+    summary: 'Update my player profile module layout (v3)',
+    description:
+      'Requires an authenticated user with `playerId` set. Saves the ordered module list. Slot cap is 5, or 12 with TUFStellar.',
+    tags: ['Database', 'Players', 'v3'],
+    security: ['bearerAuth'],
+    requestBody: {
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {
+          version: {type: 'integer'},
+          modules: {type: 'array'},
+        },
+        required: ['modules'],
+      },
+    },
+    responses: {
+      200: {description: 'Updated profile modules'},
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({error: 'Unauthorized'});
+      if (!user.playerId) {
+        return res.status(400).json({error: 'No player profile linked to this account'});
+      }
+
+      const result = await saveProfileModulesForEntity({
+        entityKind: 'player',
+        entityId: user.playerId,
+        userId: user.id,
+        raw: req.body,
+      });
+      await CacheInvalidation.invalidateUser(user.id);
+      return res.json(result);
+    } catch (error) {
+      if (error instanceof ProfileCustomizationError) {
+        return res.status(error.status).json({error: error.message});
+      }
+      logger.error('[v3 PATCH /players/me/profile-modules] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update profile modules',
         details: error instanceof Error ? error.message : String(error),
       });
     }

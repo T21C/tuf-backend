@@ -12,6 +12,7 @@ import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStel
 import { isTufStellarFeatureEnabled, isYoutubeChannelLinkingEnabled } from '@/config/app.config.js';
 import { getClientPreferences } from '@/server/services/auth/ClientPreferenceService.js';
 import { youtubeChannelService } from '@/server/services/accounts/YouTubeChannelService.js';
+import { profileModulesAuthCaps } from '@/misc/utils/profileModules/catalog.js';
 
 /**
  * Full auth profile payload used by GET /auth/profile/me and GET /auth/session.
@@ -57,6 +58,7 @@ export async function buildAuthProfileUser(userId: string) {
       : null,
     tufStellarEnabled: stellarOn,
     youtubeChannelLinkingEnabled: youtubeLinkingOn,
+    ...profileModulesAuthCaps(),
     isRater: hasFlag(user, permissionFlags.RATER),
     isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
     isRatingBanned: hasFlag(user, permissionFlags.RATING_BANNED),

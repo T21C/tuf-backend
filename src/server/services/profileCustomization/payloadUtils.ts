@@ -110,6 +110,8 @@ export function assemblePresentationFromPieces(
       case 'stellar_icon':
         out.tufStellarIconVariant = normalizeTufStellarIconVariant(p.tufStellarIconVariant);
         break;
+      case 'profile_modules':
+        break;
       default:
         break;
     }
@@ -180,6 +182,7 @@ export function buildPresentationSyncMap(
     header_surface: 'missing',
     bio: 'missing',
     stellar_icon: 'missing',
+    profile_modules: 'missing',
   };
   for (const piece of pieces) {
     map[piece.unit] = isPieceLinked(piece) ? 'linked' : 'independent';

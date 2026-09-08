@@ -301,6 +301,39 @@ export function toPlainText(doc: BioCanvasDocument | null): string | null {
   return joined.length > 2000 ? joined.slice(0, 2000) : joined;
 }
 
+/** Text / link / social only — used when TUFStellar is inactive. Skips embed, image, featuredLevels. */
+export const LAPSED_PLAIN_BIO_TYPES = new Set<string>(['text', 'link', 'social']);
+
+export function toLapsedPlainBio(doc: BioCanvasDocument | null): string | null {
+  if (!doc?.blocks?.length) return null;
+  const parts: string[] = [];
+  for (const block of doc.blocks) {
+    if (!LAPSED_PLAIN_BIO_TYPES.has(block.type)) continue;
+    const descriptor = getBlockDescriptor(block.type);
+    if (!descriptor) continue;
+    const text = descriptor.toPlainText(block.data as never);
+    if (text?.trim()) parts.push(text.trim());
+  }
+  if (!parts.length) return null;
+  const joined = parts.join('\n\n');
+  return joined.length > 2000 ? joined.slice(0, 2000) : joined;
+}
+
+export function canvasHasBlocks(canvas: {blocks?: unknown} | null | undefined): boolean {
+  return Array.isArray(canvas?.blocks) && canvas?.blocks?.length > 0;
+}
+
+export function getDisplayBioText(profile: {
+  bio?: unknown;
+  bioCanvas?: BioCanvasDocument | null;
+} | null | undefined): string | null {
+  if (canvasHasBlocks(profile?.bioCanvas ?? null)) {
+    return toLapsedPlainBio(profile?.bioCanvas ?? null);
+  }
+  const bio = typeof profile?.bio === 'string' ? profile.bio.trim() : '';
+  return bio.length ? bio : null;
+}
+
 export function getImageBlockIds(doc: BioCanvasDocument | null): string[] {
   if (!doc?.blocks?.length) return [];
   return doc.blocks.filter((b) => b.type === 'image').map((b) => b.id);

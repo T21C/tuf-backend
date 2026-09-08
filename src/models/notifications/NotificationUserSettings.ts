@@ -7,12 +7,13 @@ const sequelize = getSequelizeForModelGroup('notifications');
 export interface NotificationUserSettingsAttributes {
   userId: string;
   pushEnabled: boolean;
+  hideOwnActivity: boolean;
   updatedAt: Date;
 }
 
 type NotificationUserSettingsCreationAttributes = Optional<
   NotificationUserSettingsAttributes,
-  'pushEnabled' | 'updatedAt'
+  'pushEnabled' | 'hideOwnActivity' | 'updatedAt'
 >;
 
 class NotificationUserSettings
@@ -21,6 +22,7 @@ class NotificationUserSettings
 {
   declare userId: string;
   declare pushEnabled: boolean;
+  declare hideOwnActivity: boolean;
   declare updatedAt: Date;
 
   declare user?: User;
@@ -37,6 +39,11 @@ NotificationUserSettings.init(
       onDelete: 'CASCADE',
     },
     pushEnabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    hideOwnActivity: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,

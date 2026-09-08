@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import { initializeAssociations } from '@/models/associations.js';
 import LevelTagVote from '@/models/levels/LevelTagVote.js';
 import elasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
-import { rematerializeCommunityTagsForLevel } from '@/server/services/data/communityTagVoteService.js';
+import { syncVoteWeightsForLevel } from '@/server/services/data/communityTagVoteService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 
 dotenv.config();
@@ -26,7 +26,7 @@ async function rematerializeAll(): Promise<void> {
   for (let i = 0; i < levelIds.length; i += chunkSize) {
     const chunk = levelIds.slice(i, i + chunkSize);
     for (const levelId of chunk) {
-      await rematerializeCommunityTagsForLevel(levelId);
+      await syncVoteWeightsForLevel(levelId);
     }
     await elasticsearch.reindexLevels(chunk);
     logger.info(`Rematerialized ${Math.min(i + chunkSize, levelIds.length)}/${levelIds.length}`);
@@ -34,7 +34,7 @@ async function rematerializeAll(): Promise<void> {
 }
 
 async function rematerializeOne(levelId: number): Promise<void> {
-  await rematerializeCommunityTagsForLevel(levelId);
+  await syncVoteWeightsForLevel(levelId);
   await elasticsearch.reindexLevels([levelId]);
 }
 

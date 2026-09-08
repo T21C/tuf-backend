@@ -62,6 +62,35 @@ export async function notifyChartVisibilityChanged(args: {
   });
 }
 
+export async function notifyChartRated(args: {
+  level: {id: number; song?: string | null; artist?: string | null};
+  difficultyName?: string | null;
+  ratingId?: number | null;
+  actorId?: string | null;
+  transaction?: Transaction;
+}): Promise<void> {
+  const snapshot = chartSnapshot(args.level);
+  if (!Number.isFinite(snapshot.levelId) || snapshot.levelId <= 0) return;
+
+  const ratingId =
+    typeof args.ratingId === 'number' && Number.isFinite(args.ratingId) && args.ratingId > 0
+      ? args.ratingId
+      : null;
+
+  await notificationService.notify({
+    type: NOTIFICATION_TYPES.ChartRated,
+    payload: {
+      ...snapshot,
+      difficultyName: args.difficultyName ?? null,
+    },
+    recipients: {levelId: snapshot.levelId},
+    actorId: args.actorId ?? null,
+    dedupKey: `chart-rated:${snapshot.levelId}:${ratingId ?? 'none'}`,
+    entity: {type: 'level', id: String(snapshot.levelId)},
+    transaction: args.transaction,
+  });
+}
+
 export async function notifyChartWeeklySelected(args: {
   level: {id: number; song?: string | null; artist?: string | null};
   weekStart: string;

@@ -53,6 +53,7 @@ import {
 import { createUserRateLimiter } from '@/server/middleware/userRateLimit.js';
 import {
   notifyChartOwners,
+  notifyChartRated,
   notifyChartVisibilityChanged,
 } from '@/server/services/notifications/chartOwnerNotify.js';
 import { NOTIFICATION_TYPES } from '@/server/services/notifications/types.js';
@@ -228,7 +229,7 @@ const handleRatingChanges = async (
   level: Level,
   req: Request,
   transaction: Transaction,
-) => {
+): Promise<{settledRatingId: number | null}> => {
   if (
     typeof req.body.toRate === 'boolean' &&
     req.body.toRate !== level.toRate
@@ -260,26 +261,29 @@ const handleRatingChanges = async (
           {transaction},
         );
       }
-    } else {
-      const existingRating = await Rating.findOne({
-        where: {
-          levelId: level.id,
-          confirmedAt: null,
-        },
-        transaction,
-      });
+      return {settledRatingId: null};
+    }
 
-      if (existingRating) {
-        await existingRating.update(
-          {
-            confirmedAt: new Date(),
-            requesterFR: req.body.rerateNum || level.rerateNum || existingRating.requesterFR,
-          },
-          {transaction},
-        );
-      }
+    const existingRating = await Rating.findOne({
+      where: {
+        levelId: level.id,
+        confirmedAt: null,
+      },
+      transaction,
+    });
+
+    if (existingRating) {
+      await existingRating.update(
+        {
+          confirmedAt: new Date(),
+          requesterFR: req.body.rerateNum || level.rerateNum || existingRating.requesterFR,
+        },
+        {transaction},
+      );
+      return {settledRatingId: Number(existingRating.id)};
     }
   }
+  return {settledRatingId: null};
 };
 
 const handleLowDiffFlag = async (
@@ -710,7 +714,7 @@ router.put(
     let previousBaseScore = level.previousBaseScore || 0;
 
     // Handle rating-related changes
-    await handleRatingChanges(level, req, transaction);
+    const {settledRatingId} = await handleRatingChanges(level, req, transaction);
     await handleLowDiffFlag(level, req, transaction);
 
     if (
@@ -908,6 +912,20 @@ router.put(
         typeof req.body.toRate === 'boolean' && req.body.toRate !== level.toRate
           ? req.body.toRate
           : null;
+      if (toRateTransition === false) {
+        const difficultyName = updatedLevel.difficulty?.name?.trim() || null;
+        await notifyChartRated({
+          level: {
+            id: levelId,
+            song: updatedLevel.song ?? level.song,
+            artist: updatedLevel.artist ?? level.artist,
+          },
+          difficultyName,
+          ratingId: settledRatingId,
+          actorId: req.user?.id ?? null,
+          transaction,
+        });
+      }
       await syncAnnouncementQueueAfterLevelSave({
         oldLevel,
         newLevel: updatedLevel,

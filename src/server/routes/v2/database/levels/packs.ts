@@ -483,6 +483,7 @@ router.get(
       packs: packs.map(pack => ({
         ...pack.toJSON(),
         id: pack.linkCode,
+        packId: pack.id,
         isFavorited: favoritedPacks.some(favorite => favorite.packId === pack.id),
         packItems: pack.packItems?.filter(item => item.referencedLevel !== null).slice(0, 3),
         totalLevelCount: pack.packItems?.length
@@ -772,6 +773,7 @@ router.get(
 
     return res.json({
       ...packData,
+      packId: packData.id,
       id: packData.linkCode,
     });
 
