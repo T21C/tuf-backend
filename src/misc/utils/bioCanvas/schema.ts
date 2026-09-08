@@ -320,7 +320,7 @@ export function toLapsedPlainBio(doc: BioCanvasDocument | null): string | null {
 }
 
 export function canvasHasBlocks(canvas: {blocks?: unknown} | null | undefined): boolean {
-  return Array.isArray(canvas?.blocks) && canvas.blocks.length > 0;
+  return Array.isArray(canvas?.blocks) && canvas?.blocks?.length > 0;
 }
 
 export function getDisplayBioText(profile: {
