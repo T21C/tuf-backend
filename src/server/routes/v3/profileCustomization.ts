@@ -97,6 +97,9 @@ router.post(
 
       const unit = parseUnit(String(req.params.unit ?? ''));
       if (!unit) return res.status(400).json({ error: 'Invalid unit' });
+      if (unit === 'profile_modules') {
+        return res.status(400).json({ error: 'This customization unit cannot be linked' });
+      }
 
       const body = req.body as { source?: unknown };
       const source = body.source === 'creator' ? 'creator' : body.source === 'player' ? 'player' : null;
@@ -155,6 +158,9 @@ router.post(
 
       const unit = parseUnit(String(req.params.unit ?? ''));
       if (!unit) return res.status(400).json({ error: 'Invalid unit' });
+      if (unit === 'profile_modules') {
+        return res.status(400).json({ error: 'This customization unit cannot be linked' });
+      }
 
       const { playerPiece, creatorPiece } = await unlinkUnit({
         userId: ctx.userId,

@@ -8,6 +8,7 @@ export const PROFILE_CUSTOMIZATION_UNITS = [
   'header_surface',
   'bio',
   'stellar_icon',
+  'profile_modules',
 ] as const;
 
 export type ProfileCustomizationUnit = (typeof PROFILE_CUSTOMIZATION_UNITS)[number];

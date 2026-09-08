@@ -39,6 +39,7 @@ import {
   youtubeChannelService,
   YoutubeChannelError,
 } from '@/server/services/accounts/YouTubeChannelService.js';
+import { profileModulesAuthCaps } from '@/misc/utils/profileModules/catalog.js';
 
 interface ProfileResponse {
   user: {
@@ -49,6 +50,9 @@ interface ProfileResponse {
     avatarUrl: string | null;
     tufStellarSubscriptionExpiresAt: Date | null;
     tufStellarEnabled: boolean;
+    profileModulesFreeCap: number;
+    profileModulesStellarCap: number;
+    profileModulesMaxFavoriteItems: number;
     isRater: boolean;
     isSuperAdmin: boolean;
     isEmailVerified: boolean;
@@ -366,6 +370,7 @@ export const OAuthController = {
           avatarUrl,
           tufStellarSubscriptionExpiresAt: stellarOn ? (billingRow?.tufStellarSubscriptionExpiresAt ?? null) : null,
           tufStellarEnabled: stellarOn,
+          ...profileModulesAuthCaps(),
           isRater: hasFlag(userRow, permissionFlags.RATER),
           isSuperAdmin: hasFlag(userRow, permissionFlags.SUPER_ADMIN),
           isEmailVerified: hasFlag(userRow, permissionFlags.EMAIL_VERIFIED),

@@ -49,7 +49,12 @@ import {PlacementUtilizationService} from '@/server/services/tournaments/Placeme
 import {
   assemblePresentationForCreator,
   getPresentationSyncForUser,
+  ProfileCustomizationError,
 } from '@/server/services/profileCustomization/ProfileCustomizationService.js';
+import {
+  getProfileModulesApiPayload,
+  saveProfileModulesForEntity,
+} from '@/server/services/profileCustomization/profileModulesService.js';
 import {
   coerceShowFollowerCount,
   followFieldsForProfile,
@@ -561,6 +566,62 @@ router.patch(
 );
 
 router.patch(
+  '/me/profile-modules',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorMeProfileModules',
+    summary: 'Update my creator profile module layout (v3)',
+    description:
+      'Requires an authenticated user with `creatorId` set. Saves the ordered module list. Slot cap is 5, or 12 with TUFStellar.',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    requestBody: {
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {
+          version: {type: 'integer'},
+          modules: {type: 'array'},
+        },
+        required: ['modules'],
+      },
+    },
+    responses: {
+      200: {description: 'Updated profile modules'},
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({error: 'Unauthorized'});
+      const id = user.creatorId;
+      if (!id) {
+        return res.status(400).json({error: 'No creator profile linked to this account'});
+      }
+
+      const result = await saveProfileModulesForEntity({
+        entityKind: 'creator',
+        entityId: id,
+        userId: user.id,
+        raw: req.body,
+      });
+      await invalidateLinkedUserForCreator(id);
+      return res.json(result);
+    } catch (error) {
+      if (error instanceof ProfileCustomizationError) {
+        return res.status(error.status).json({error: error.message});
+      }
+      logger.error('[v3 PATCH /creators/me/profile-modules] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update profile modules',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.patch(
   '/me/show-follower-count',
   Auth.user(),
   ApiDoc({
@@ -967,7 +1028,7 @@ router.get(
 
       const isOwnProfile = Boolean(req.user?.creatorId && req.user.creatorId === id);
 
-      const [doc, enriched, funFacts, curationTypeCounts, creatorRow, presentation, follow] = await Promise.all([
+      const [doc, enriched, funFacts, curationTypeCounts, creatorRow, presentation, follow, profileModulesPayload] = await Promise.all([
         elasticsearchService.getCreatorDocumentById(id),
         creatorStatsService.getEnrichedCreator(id),
         computeCreatorFunFacts(id),
@@ -986,6 +1047,7 @@ router.get(
         }),
         assemblePresentationForCreator(id),
         followFieldsForProfile('creator', id, req.user?.id),
+        getProfileModulesApiPayload('creator', id),
       ]);
 
       const placementService = PlacementUtilizationService.getInstance();
@@ -1168,6 +1230,7 @@ router.get(
         followerCount: follow.followerCount,
         showFollowerCount: coerceShowFollowerCount(creatorRow?.showFollowerCount),
         youtubeChannels,
+        ...profileModulesPayload,
         ...(isOwnProfile ? {placementEntitlements, placementDisplayNodes} : {}),
       });
 
