@@ -206,7 +206,7 @@ export const queryParserConfigs = {
     isPassSearch: true
   },
   pack: {
-    allowedFields: ['name', 'owner', 'levelId', 'viewMode', 'pinned'],
+    allowedFields: ['id', 'name', 'owner', 'levelId', 'viewMode', 'pinned'],
     numericFields: ['levelId']
   },
   song: {

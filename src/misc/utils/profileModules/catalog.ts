@@ -54,6 +54,17 @@ export function stockModuleTypesForKind(kind: ProfileEntityKind): readonly strin
   return kind === 'player' ? PLAYER_STOCK_MODULE_TYPES : CREATOR_STOCK_MODULE_TYPES;
 }
 
+export const PLAYER_REQUIRED_MODULE_TYPES = ['scores'] as const;
+export const CREATOR_REQUIRED_MODULE_TYPES = ['charts'] as const;
+
+export function requiredModuleTypesForKind(kind: ProfileEntityKind): readonly string[] {
+  return kind === 'player' ? PLAYER_REQUIRED_MODULE_TYPES : CREATOR_REQUIRED_MODULE_TYPES;
+}
+
+export function isRequiredModuleType(kind: ProfileEntityKind, type: string): boolean {
+  return (requiredModuleTypesForKind(kind) as readonly string[]).includes(type);
+}
+
 export function isModuleTypeForKind(kind: ProfileEntityKind, type: string): boolean {
   return kind === 'player' ? PLAYER_TYPE_SET.has(type) : CREATOR_TYPE_SET.has(type);
 }

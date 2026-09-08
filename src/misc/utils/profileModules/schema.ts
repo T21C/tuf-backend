@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import {
   MAX_FAVORITE_ITEMS,
   MAX_PROFILE_MODULE_ID_LENGTH,
@@ -6,6 +5,7 @@ import {
   FAVORITE_ITEM_KINDS,
   isModuleTypeForKind,
   isSingletonModuleType,
+  requiredModuleTypesForKind,
   stockModuleId,
   stockModuleTypesForKind,
   type FavoriteItemKind,
@@ -19,10 +19,25 @@ export class ProfileModulesError extends Error {
   }
 }
 
+const PACK_LINK_CODE_RE = /^[A-Za-z0-9]{1,32}$/;
+
 export type FavoriteItem = {
   kind: FavoriteItemKind;
-  id: number;
+  /** Packs store the public link code; other kinds store a numeric id. */
+  id: number | string;
 };
+
+export function parseFavoriteItemId(kind: FavoriteItemKind, raw: unknown): number | string | null {
+  if (kind === 'pack') {
+    if (typeof raw !== 'string') return null;
+    const code = raw.trim();
+    if (!PACK_LINK_CODE_RE.test(code)) return null;
+    return code;
+  }
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return id;
+}
 
 export type ProfileModuleInstance = {
   id: string;
@@ -56,38 +71,50 @@ function parseModuleId(raw: unknown): string | null {
   return null;
 }
 
-const favoriteItemSchema = z.object({
-  kind: z.enum(FAVORITE_ITEM_KINDS),
-  id: z.number().int().positive(),
-});
-
-function parseFavoriteItems(raw: unknown): FavoriteItem[] {
+function parseFavoriteItems(raw: unknown, strict: boolean): FavoriteItem[] {
   if (raw == null) return [];
   if (!Array.isArray(raw)) {
-    throw new ProfileModulesError('favorite config.items must be an array');
+    if (strict) {
+      throw new ProfileModulesError('favorite config.items must be an array');
+    }
+    return [];
   }
   if (raw.length > MAX_FAVORITE_ITEMS) {
-    throw new ProfileModulesError(`Favorite can have at most ${MAX_FAVORITE_ITEMS} items`);
+    if (strict) {
+      throw new ProfileModulesError(`Favorite can have at most ${MAX_FAVORITE_ITEMS} items`);
+    }
+    raw = raw.slice(0, MAX_FAVORITE_ITEMS);
   }
   const seen = new Set<string>();
   const items: FavoriteItem[] = [];
-  for (const row of raw) {
-    const parsed = favoriteItemSchema.safeParse(row);
-    if (!parsed.success) {
-      throw new ProfileModulesError('Invalid favorite item');
+  for (const row of raw as unknown[]) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      if (strict) throw new ProfileModulesError('Invalid favorite item');
+      continue;
     }
-    const key = `${parsed.data.kind}:${parsed.data.id}`;
+    const rec = row as Record<string, unknown>;
+    const kind = rec.kind;
+    if (typeof kind !== 'string' || !FAVORITE_ITEM_KINDS.includes(kind as FavoriteItemKind)) {
+      if (strict) throw new ProfileModulesError('Invalid favorite item');
+      continue;
+    }
+    const id = parseFavoriteItemId(kind as FavoriteItemKind, rec.id);
+    if (id == null) {
+      if (strict) throw new ProfileModulesError('Invalid favorite item');
+      continue;
+    }
+    const key = `${kind}:${id}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    items.push(parsed.data);
+    items.push({kind: kind as FavoriteItemKind, id});
   }
   return items;
 }
 
-function parseModuleConfig(type: string, raw: unknown): Record<string, unknown> {
+function parseModuleConfig(type: string, raw: unknown, strict = true): Record<string, unknown> {
   const data = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   if (type === 'favorite') {
-    return { items: parseFavoriteItems(data.items) };
+    return { items: parseFavoriteItems(data.items, strict) };
   }
   return {};
 }
@@ -103,12 +130,35 @@ export function createStockLayout(kind: ProfileEntityKind): ProfileModulesDocume
   };
 }
 
+function ensureRequiredModules(
+  document: ProfileModulesDocument,
+  kind: ProfileEntityKind,
+): ProfileModulesDocument {
+  const modules = [...document.modules];
+  const have = new Set(modules.map((mod) => mod.type));
+  for (const type of requiredModuleTypesForKind(kind)) {
+    if (have.has(type)) continue;
+    modules.push({
+      id: stockModuleId(type),
+      type,
+      config: {},
+    });
+  }
+  return {version: PROFILE_MODULE_VERSION, modules};
+}
+
 export function resolveLayout(
   document: ProfileModulesDocument | null | undefined,
   kind: ProfileEntityKind,
 ): ProfileModuleInstance[] {
   if (!document) return createStockLayout(kind).modules;
-  return document.modules;
+  return ensureRequiredModules(
+    {
+      version: PROFILE_MODULE_VERSION,
+      modules: document.modules.filter((mod) => isModuleTypeForKind(kind, mod.type)),
+    },
+    kind,
+  ).modules;
 }
 
 export function previousModuleCount(
@@ -116,7 +166,13 @@ export function previousModuleCount(
   kind: ProfileEntityKind,
 ): number {
   if (!stored) return createStockLayout(kind).modules.length;
-  return stored.modules.length;
+  return ensureRequiredModules(
+    {
+      version: PROFILE_MODULE_VERSION,
+      modules: stored.modules.filter((mod) => isModuleTypeForKind(kind, mod.type)),
+    },
+    kind,
+  ).modules.length;
 }
 
 export function assertModuleCountAllowed(opts: {
@@ -189,7 +245,7 @@ export function parseProfileModulesDocument(
     });
   }
 
-  return { version: PROFILE_MODULE_VERSION, modules };
+  return ensureRequiredModules({version: PROFILE_MODULE_VERSION, modules}, kind);
 }
 
 export function readStoredProfileModules(raw: unknown): ProfileModulesDocument | null {
@@ -210,7 +266,7 @@ export function readStoredProfileModules(raw: unknown): ProfileModulesDocument |
       const rec = row as ProfileModuleInstance;
       let config: Record<string, unknown> = {};
       try {
-        config = parseModuleConfig(rec.type, rec.config);
+        config = parseModuleConfig(rec.type, rec.config, false);
       } catch {
         config = rec.type === 'favorite' ? { items: [] } : {};
       }
@@ -228,10 +284,12 @@ export function collectFavoriteItems(document: ProfileModulesDocument | null): F
     if (!Array.isArray(raw)) continue;
     for (const row of raw) {
       if (!row || typeof row !== 'object') continue;
-      const kind = (row as FavoriteItem).kind;
-      const id = Number((row as FavoriteItem).id);
-      if (!FAVORITE_ITEM_KINDS.includes(kind) || !Number.isInteger(id) || id <= 0) continue;
-      items.push({ kind, id });
+      const rec = row as FavoriteItem;
+      const kind = rec.kind;
+      if (!FAVORITE_ITEM_KINDS.includes(kind)) continue;
+      const id = parseFavoriteItemId(kind, rec.id);
+      if (id == null) continue;
+      items.push({kind, id});
     }
   }
   return items;

@@ -138,7 +138,7 @@ function getThumbnailPathForEntity(entityId: number, entityType: 'player' | 'pas
   return path.join(THUMBNAILS_CACHE_DIR, `${entityType}_${entityId}_${size}.png`);
 }
 
-// Helper function to resolve pack ID from parameter (supports both numerical ID and linkCode)
+// Public pack identifier is linkCode (not the private numeric id).
 async function resolvePackId(param: string): Promise<number | null> {
   if (/^[A-Za-z0-9]+$/.test(param)) {
     const pack = await LevelPack.findOne({
@@ -148,12 +148,6 @@ async function resolvePackId(param: string): Promise<number | null> {
     if (pack) {
       return pack.id;
     }
-  }
-
-  // Try as numeric ID
-  const numericId = parseInt(param);
-  if (!isNaN(numericId)) {
-    return numericId;
   }
 
   return null;
