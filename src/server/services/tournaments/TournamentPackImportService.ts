@@ -26,9 +26,7 @@ async function resolvePackByRef(packRef: string): Promise<LevelPack | null> {
   const ref = packRef.trim();
   if (!ref) return null;
   return LevelPack.findOne({
-    where: {
-      [Op.or]: [{linkCode: ref}, {id: Number.isFinite(Number(ref)) ? Number(ref) : -1}],
-    },
+    where: {linkCode: ref},
   });
 }
 

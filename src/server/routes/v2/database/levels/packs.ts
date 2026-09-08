@@ -141,7 +141,7 @@ const buildItemTree = (items: any[], parentId = 0): any[] => {
   });
 };
 
-// Helper function to resolve pack ID from parameter (supports both numerical ID and linkCode)
+// Public pack identifier is linkCode (not the private numeric id).
 const resolvePackId = async (param: string, transaction?: any): Promise<number | null> => {
   if (/^[A-Za-z0-9]+$/.test(param)) {
     const pack = await LevelPack.findOne({
@@ -157,6 +157,26 @@ const resolvePackId = async (param: string, transaction?: any): Promise<number |
   return null;
 };
 
+
+function packPublicIdSearchValue(value: string): string | null {
+  const raw = value.startsWith('#') ? value.slice(1) : value;
+  if (!/^[A-Za-z0-9]{1,32}$/.test(raw)) return null;
+  return raw;
+}
+
+function packNameWhere(value: string, exact: boolean, isNot: boolean) {
+  if (exact) {
+    return { name: isNot ? { [Op.ne]: value } : value };
+  }
+  return { name: isNot ? { [Op.notLike]: `%${value}%` } : { [Op.like]: `%${value}%` } };
+}
+
+function packLinkCodeWhere(code: string, exact: boolean, isNot: boolean) {
+  if (exact) {
+    return { linkCode: isNot ? { [Op.ne]: code } : code };
+  }
+  return { linkCode: isNot ? { [Op.notLike]: `%${code}%` } : { [Op.like]: `%${code}%` } };
+}
 
 // Helper function to gather pack IDs based on search criteria
 const gatherPackIdsFromSearch = async (searchGroups: SearchGroup[]): Promise<Set<number>> => {
@@ -175,11 +195,25 @@ const gatherPackIdsFromSearch = async (searchGroups: SearchGroup[]): Promise<Set
       const { field, value, exact, isNot } = term;
       let packIds: number[] = [];
 
-      if (field === 'any' || field === 'name') {
-        // Pack name search
-        const whereCondition = exact
-          ? { name: isNot ? { [Op.ne]: value } : value }
-          : { name: isNot ? { [Op.notLike]: `%${value}%` } : { [Op.like]: `%${value}%` } };
+      if (field === 'id') {
+        const code = packPublicIdSearchValue(value);
+        if (code) {
+          const packs = await LevelPack.findAll({
+            where: packLinkCodeWhere(code, exact, isNot),
+            attributes: ['id']
+          });
+          packIds = packs.map(pack => pack.id);
+        }
+      } else if (field === 'any' || field === 'name') {
+        const nameWhere = packNameWhere(value, exact, isNot);
+        const code = field === 'any' ? packPublicIdSearchValue(value) : null;
+        let whereCondition: Record<string, unknown> = nameWhere;
+        if (code) {
+          const codeWhere = packLinkCodeWhere(code, exact, isNot);
+          whereCondition = isNot
+            ? { [Op.and]: [nameWhere, codeWhere] }
+            : { [Op.or]: [nameWhere, codeWhere] };
+        }
 
         const packs = await LevelPack.findAll({
           where: whereCondition,
@@ -483,7 +517,6 @@ router.get(
       packs: packs.map(pack => ({
         ...pack.toJSON(),
         id: pack.linkCode,
-        packId: pack.id,
         isFavorited: favoritedPacks.some(favorite => favorite.packId === pack.id),
         packItems: pack.packItems?.filter(item => item.referencedLevel !== null).slice(0, 3),
         totalLevelCount: pack.packItems?.length
@@ -773,7 +806,6 @@ router.get(
 
     return res.json({
       ...packData,
-      packId: packData.id,
       id: packData.linkCode,
     });
 

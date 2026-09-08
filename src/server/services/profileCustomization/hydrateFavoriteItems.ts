@@ -17,7 +17,7 @@ import {
 
 export type HydratedFavoriteItem = {
   kind: FavoriteItemKind;
-  id: number;
+  id: number | string;
   pass?: Record<string, unknown>;
   level?: Record<string, unknown>;
   pack?: Record<string, unknown>;
@@ -33,7 +33,23 @@ function plain(row: {get?: (opts: {plain: boolean}) => unknown} | Record<string,
 }
 
 function idsOfKind(items: FavoriteItem[], kind: FavoriteItemKind): number[] {
-  return [...new Set(items.filter((item) => item.kind === kind).map((item) => item.id))];
+  return [
+    ...new Set(
+      items
+        .filter((item) => item.kind === kind && typeof item.id === 'number')
+        .map((item) => item.id as number),
+    ),
+  ];
+}
+
+function packLinkCodesOf(items: FavoriteItem[]): string[] {
+  return [
+    ...new Set(
+      items
+        .filter((item) => item.kind === 'pack' && typeof item.id === 'string')
+        .map((item) => item.id as string),
+    ),
+  ];
 }
 
 export async function hydrateFavoriteItems(items: FavoriteItem[]): Promise<HydratedFavoriteItem[]> {
@@ -41,7 +57,7 @@ export async function hydrateFavoriteItems(items: FavoriteItem[]): Promise<Hydra
 
   const passIds = idsOfKind(items, 'pass');
   const levelIds = idsOfKind(items, 'level');
-  const packIds = idsOfKind(items, 'pack');
+  const packCodes = packLinkCodesOf(items);
   const playerIds = idsOfKind(items, 'player');
 
   const [passes, levels, packs, players] = await Promise.all([
@@ -100,11 +116,10 @@ export async function hydrateFavoriteItems(items: FavoriteItem[]): Promise<Hydra
           include: [{model: Difficulty, as: 'difficulty', required: false}],
         })
       : Promise.resolve([]),
-    packIds.length
+    packCodes.length
       ? LevelPack.findAll({
-          where: {id: {[Op.in]: packIds}},
+          where: {linkCode: {[Op.in]: packCodes}},
           attributes: [
-            'id',
             'ownerId',
             'name',
             'iconUrl',
@@ -112,6 +127,7 @@ export async function hydrateFavoriteItems(items: FavoriteItem[]): Promise<Hydra
             'isPinned',
             'favoritesCount',
             'levelCount',
+            'linkCode',
           ],
           include: [
             {
@@ -158,15 +174,15 @@ export async function hydrateFavoriteItems(items: FavoriteItem[]): Promise<Hydra
     levelById.set(Number(data.id), data);
   }
 
-  const packById = new Map<number, Record<string, unknown>>();
+  const packByLinkCode = new Map<string, Record<string, unknown>>();
   for (const row of packs) {
     const data = plain(row);
     if (!data || isFavoritePackHidden(data as never)) continue;
-    packById.set(Number(data.id), {
+    const linkCode = typeof data.linkCode === 'string' ? data.linkCode : '';
+    if (!linkCode) continue;
+    packByLinkCode.set(linkCode, {
       ...data,
-      // Public pack payloads use linkCode as `id` (see GET /packs).
-      id: data.linkCode ?? data.id,
-      packId: data.id,
+      id: linkCode,
       totalLevelCount: data.levelCount ?? 0,
       packItems: Array.isArray(data.packItems) ? data.packItems : [],
     });
@@ -195,18 +211,22 @@ export async function hydrateFavoriteItems(items: FavoriteItem[]): Promise<Hydra
   const out: HydratedFavoriteItem[] = [];
   for (const item of items) {
     if (item.kind === 'pass') {
+      if (typeof item.id !== 'number') continue;
       const pass = passById.get(item.id);
       if (!pass) continue;
       out.push({kind: 'pass', id: item.id, pass});
     } else if (item.kind === 'level') {
+      if (typeof item.id !== 'number') continue;
       const level = levelById.get(item.id);
       if (!level) continue;
       out.push({kind: 'level', id: item.id, level});
     } else if (item.kind === 'pack') {
-      const pack = packById.get(item.id);
+      if (typeof item.id !== 'string') continue;
+      const pack = packByLinkCode.get(item.id);
       if (!pack) continue;
       out.push({kind: 'pack', id: item.id, pack});
     } else {
+      if (typeof item.id !== 'number') continue;
       const player = playerById.get(item.id);
       if (!player) continue;
       out.push({kind: 'player', id: item.id, player});

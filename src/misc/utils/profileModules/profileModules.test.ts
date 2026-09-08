@@ -23,6 +23,10 @@ test('stock player layout has six modules and creator has four', () => {
   assert.equal(createStockLayout('player').modules.length, 6);
   assert.equal(createStockLayout('creator').modules.length, 4);
   assert.equal(createStockLayout('player').modules[0].type, 'bio');
+  assert.deepEqual(
+    createStockLayout('creator').modules.map((mod) => mod.type),
+    ['bio', 'tournaments', 'difficulty', 'charts'],
+  );
   assert.ok(createStockLayout('player').modules.every((m) => m.type !== 'favorite'));
 });
 
@@ -93,6 +97,7 @@ test('parse favorite items and cap', () => {
             items: [
               {kind: 'level', id: 1},
               {kind: 'pass', id: 2},
+              {kind: 'pack', id: 'Ab12Cd34'},
               {kind: 'level', id: 1},
             ],
           },
@@ -104,6 +109,7 @@ test('parse favorite items and cap', () => {
   assert.deepEqual(parsed.modules[0].config.items, [
     {kind: 'level', id: 1},
     {kind: 'pass', id: 2},
+    {kind: 'pack', id: 'Ab12Cd34'},
   ]);
 
   const tooMany = Array.from({length: MAX_FAVORITE_ITEMS + 1}, (_, i) => ({
@@ -118,6 +124,47 @@ test('parse favorite items and cap', () => {
       ),
     ProfileModulesError,
   );
+});
+
+test('pack favorites require a link code, not the private numeric id', () => {
+  assert.throws(
+    () =>
+      parseProfileModulesDocument(
+        {
+          version: 1,
+          modules: [
+            {
+              id: 'fav-1',
+              type: 'favorite',
+              config: {items: [{kind: 'pack', id: 9}]},
+            },
+          ],
+        },
+        'player',
+      ),
+    ProfileModulesError,
+  );
+
+  const stored = readStoredProfileModules({
+    version: 1,
+    modules: [
+      {
+        id: 'fav-1',
+        type: 'favorite',
+        config: {
+          items: [
+            {kind: 'pack', id: 9},
+            {kind: 'pack', id: 'Ab12Cd34'},
+            {kind: 'level', id: 3},
+          ],
+        },
+      },
+    ],
+  });
+  assert.deepEqual(stored?.modules[0].config.items, [
+    {kind: 'pack', id: 'Ab12Cd34'},
+    {kind: 'level', id: 3},
+  ]);
 });
 
 test('cap allows keeping an over-cap layout but not growing it', () => {
@@ -145,7 +192,39 @@ test('previousModuleCount uses stock length when nothing is stored', () => {
   assert.equal(previousModuleCount(null, 'creator'), 4);
   assert.equal(
     previousModuleCount({version: 1, modules: [{id: 'x', type: 'bio', config: {}}]}, 'player'),
-    1,
+    2,
+  );
+});
+
+test('scores and charts are required and restored when missing', () => {
+  const player = parseProfileModulesDocument(
+    {version: 1, modules: [{id: 'stock-bio', type: 'bio', config: {}}]},
+    'player',
+  );
+  assert.ok(player.modules.some((mod) => mod.type === 'scores'));
+  assert.equal(player.modules.filter((mod) => mod.type === 'scores').length, 1);
+
+  const creator = parseProfileModulesDocument(
+    {version: 1, modules: [{id: 'stock-bio', type: 'bio', config: {}}]},
+    'creator',
+  );
+  assert.ok(creator.modules.some((mod) => mod.type === 'charts'));
+
+  const layout = resolveLayout(
+    {version: 1, modules: [{id: 'stock-bio', type: 'bio', config: {}}]},
+    'player',
+  );
+  assert.ok(layout.some((mod) => mod.type === 'scores'));
+
+  const emptyPlayer = parseProfileModulesDocument({version: 1, modules: []}, 'player');
+  assert.deepEqual(
+    emptyPlayer.modules.map((mod) => mod.type),
+    ['scores'],
+  );
+  const emptyCreator = parseProfileModulesDocument({version: 1, modules: []}, 'creator');
+  assert.deepEqual(
+    emptyCreator.modules.map((mod) => mod.type),
+    ['charts'],
   );
 });
 
