@@ -110,7 +110,7 @@ const ratingLevelSearchIncludes = [
     model: LevelCredit,
     as: 'levelCredits',
     required: false,
-    attributes: ['id', 'role'],
+    attributes: ['id', 'role', 'sortOrder'],
     include: [
       {
         model: Creator,

@@ -40,6 +40,7 @@ import {
 } from '@/misc/utils/data/curationOrdering.js';
 import { parseFacetQueryString } from '@/misc/utils/search/facetQuery.js';
 import { annotateLevelsWithLikeState } from '@/misc/utils/data/levelLikeState.js';
+import { sortLevelCredits } from '@/misc/utils/Utility.js';
 import {
   isRandomSortParam,
   resolveSearchSeed,
@@ -408,6 +409,7 @@ router.get(
     // LevelCredit query with nested Creator and CreatorAlias
     const levelCreditsPromise = LevelCredit.findAll({
       where: { levelId: levelId },
+      order: [['sortOrder', 'ASC'], ['id', 'ASC']],
     }).then(async (credits) => {
       if (credits.length === 0) return [];
       const creatorIds = credits.map(c => c.creatorId).filter(Boolean);
@@ -521,7 +523,7 @@ router.get(
       ...level.toJSON(),
       difficulty,
       aliases,
-      levelCredits,
+      levelCredits: sortLevelCredits(levelCredits),
       teamObject,
       curations: sortedCurations.map((c) => serializeCurationJson(c)),
       curation: themeCuration ? serializeCurationJson(themeCuration) : null,

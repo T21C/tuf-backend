@@ -369,6 +369,7 @@ export const levelMapping = {
           levelId: { type: 'long' as const },
           creatorId: { type: 'integer' as const },
           isOwner: { type: 'boolean' as const },
+          sortOrder: { type: 'integer' as const },
           role: {
             type: 'text' as const,
             fields: {

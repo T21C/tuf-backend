@@ -26,7 +26,7 @@ import Team from '@/models/credits/Team.js';
 import LevelSubmissionCreatorRequest from '@/models/submissions/LevelSubmissionCreatorRequest.js';
 import LevelSubmissionTeamRequest from '@/models/submissions/LevelSubmissionTeamRequest.js';
 import Creator from '@/models/credits/Creator.js';
-import LevelCredit from '@/models/levels/LevelCredit.js';
+import LevelCredit, {nextLevelCreditSortOrder} from '@/models/levels/LevelCredit.js';
 import User from '@/models/auth/User.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
@@ -368,7 +368,13 @@ async function processLevelApprove(
         });
         if (!existingCredit) {
           await LevelCredit.create(
-            { levelId: newLevel.id, creatorId: request.creatorId, role: request.role, isOwner },
+            {
+              levelId: newLevel.id,
+              creatorId: request.creatorId,
+              role: request.role,
+              isOwner,
+              sortOrder: await nextLevelCreditSortOrder(newLevel.id, transaction),
+            },
             { transaction },
           );
         }
@@ -384,7 +390,12 @@ async function processLevelApprove(
         });
         if (!existingCredit) {
           await LevelCredit.create(
-            { levelId: newLevel.id, creatorId: creator.id, role: request.role },
+            {
+              levelId: newLevel.id,
+              creatorId: creator.id,
+              role: request.role,
+              sortOrder: await nextLevelCreditSortOrder(newLevel.id, transaction),
+            },
             { transaction },
           );
         }

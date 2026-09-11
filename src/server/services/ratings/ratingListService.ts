@@ -291,7 +291,7 @@ export async function hydrateRatingListRows(
         {
           association: 'levelCredits',
           required: false,
-          attributes: ['role'],
+              attributes: ['role', 'sortOrder', 'id'],
           include: [{ association: 'creator', attributes: ['id', 'name'], required: false }],
         },
         {

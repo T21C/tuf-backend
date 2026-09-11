@@ -1,4 +1,5 @@
 import Level from '@/models/levels/Level.js';
+import LevelCredit from '@/models/levels/LevelCredit.js';
 import Pass from '@/models/passes/Pass.js';
 import SongCredit from '@/models/songs/SongCredit.js';
 import Tournament from '@/models/tournaments/Tournament.js';
@@ -34,6 +35,16 @@ export async function getLevelIdsByArtistId(artistId: number): Promise<number[]>
     raw: true,
   });
   return (levels as { id: number }[]).map((l) => l.id);
+}
+
+export async function getLevelIdsByCreatorId(creatorId: number): Promise<number[]> {
+  const rows = await LevelCredit.findAll({
+    where: { creatorId },
+    attributes: ['levelId'],
+    group: ['levelId'],
+    raw: true,
+  });
+  return uniquePositiveIds((rows as { levelId: number }[]).map((r) => r.levelId));
 }
 
 export async function getLevelIdsByPlayerId(playerId: number): Promise<number[]> {

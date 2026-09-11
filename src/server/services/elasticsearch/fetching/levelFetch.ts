@@ -159,6 +159,7 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
     LevelCredit.findAll({
       where: { levelId: { [Op.in]: ids } },
       attributes: [
+        'id',
         'levelId',
         'creatorId',
         'role',
@@ -168,6 +169,7 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
       order: [
         ['levelId', 'ASC'],
         ['sortOrder', 'ASC'],
+        ['id', 'ASC'],
       ],
       include: [
         {

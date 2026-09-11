@@ -31,7 +31,7 @@ export const LEVEL_INCLUDES: Includeable[] = [
   {
     model: LevelCredit,
     as: 'levelCredits',
-    attributes: ['role'],
+    attributes: ['id', 'role', 'sortOrder', 'isOwner', 'creatorId'],
     include: [
       {
         model: Creator,

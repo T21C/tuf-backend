@@ -4,8 +4,7 @@ import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/index.js';
 import Creator from '@/models/credits/Creator.js';
 import Level from '@/models/levels/Level.js';
-import LevelCredit from '@/models/levels/LevelCredit.js';
-import {CreditRole} from '@/models/levels/LevelCredit.js';
+import LevelCredit, {CreditRole, nextLevelCreditSortOrder} from '@/models/levels/LevelCredit.js';
 import sequelize from '@/config/db.js';
 import User from '@/models/auth/User.js';
 import {
@@ -15,8 +14,10 @@ import {Router, Request, Response} from 'express';
 import LevelSubmissionCreatorRequest from '@/models/submissions/LevelSubmissionCreatorRequest.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { Cache } from '@/server/middleware/cache.js';
+import { CREATORS_ALL_CACHE_TAG, creatorCacheTag } from '@/server/services/creators/creatorCache.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
-import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import { safeTransactionRollback, sortLevelCredits } from '@/misc/utils/Utility.js';
 import { remapFollowTargets } from '@/server/services/notifications/FollowService.js';
 import { mapMysqlClientError } from '@/misc/utils/db/mysqlClientError.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
@@ -207,6 +208,10 @@ router.get(
     params: { creatorId: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Creator' }, ...standardErrorResponses404500 },
   }),
+  Cache({
+    ttl: 300,
+    tags: (req) => [creatorCacheTag(Number(req.params.creatorId)), CREATORS_ALL_CACHE_TAG],
+  }),
   async (req: Request, res: Response) => {
   try {
     const {creatorId} = req.params;
@@ -340,7 +345,18 @@ router.get(
               aliases: level.teamObject.aliases || []
             }
           : null,
-        currentCreators: level.levelCredits?.map((credit: {
+        currentCreators: (() => {
+          const sorted = sortLevelCredits(level.levelCredits ?? [])
+            .filter((credit: { creator?: { id: number } | null }) => credit.creator);
+          const byRole = [CreditRole.CHARTER, CreditRole.VFXER, CreditRole.SPECIAL_THANKS]
+            .flatMap((role) => sorted.filter((credit: { role: CreditRole }) => credit.role === role));
+          const leftover = sorted.filter(
+            (credit: { role: CreditRole }) =>
+              credit.role !== CreditRole.CHARTER &&
+              credit.role !== CreditRole.VFXER &&
+              credit.role !== CreditRole.SPECIAL_THANKS,
+          );
+          return [...byRole, ...leftover].map((credit: {
           creator: {
             id: number;
             name: string;
@@ -348,14 +364,17 @@ router.get(
           };
           role: CreditRole;
           isOwner: boolean;
-        }) => ({
+          sortOrder?: number;
+        }, index: number) => ({
           id: credit.creator.id,
           name: credit.creator.name,
           role: credit.role,
           isOwner: credit.isOwner,
+          sortOrder: index,
           aliases: credit.creator.creatorAliases?.map((alias: { name: string }) => alias.name) || [],
           levelCount: levelCountMap.get(credit.creator.id) || 0,
-        })) || [],
+        }));
+        })(),
       }));
 
       return res.json({
@@ -440,11 +459,11 @@ router.put(
   ApiDoc({
     operationId: 'putLevelCreators',
     summary: 'Update level creators',
-    description: 'Replace creators for a level. Body: creators[{ id, role, isOwner }]. Super admin.',
+    description: 'Replace creators for a level. Body: creators[{ id, role, isOwner }] in display order (array index is stored as sortOrder). Super admin.',
     tags: ['Database', 'Creators'],
     security: ['bearerAuth'],
     params: { levelId: { schema: { type: 'string' } } },
-    requestBody: { description: 'creators', schema: { type: 'object', properties: { creators: { type: 'array', items: { type: 'object', properties: { id: { type: 'number' }, role: { type: 'string' }, isOwner: { type: 'boolean' } } } } } }, required: true },
+    requestBody: { description: 'creators in display order', schema: { type: 'object', properties: { creators: { type: 'array', items: { type: 'object', properties: { id: { type: 'number' }, role: { type: 'string' }, isOwner: { type: 'boolean' }, sortOrder: { type: 'integer' } } } } } }, required: true },
     responses: { 200: { description: 'Level creators updated' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
@@ -467,13 +486,22 @@ router.put(
         transaction,
       });
 
-      // Add new credits
+      // Add new credits. Array order is the source of truth; always re-rank 0..n-1
+      // so tied/missing client sortOrder values cannot collapse to a single rank.
       if (creators && creators.length > 0) {
+        const ordered = [...creators].sort((a: {sortOrder?: number}, b: {sortOrder?: number}) => {
+          const ao = Number(a?.sortOrder);
+          const bo = Number(b?.sortOrder);
+          const aOk = Number.isFinite(ao);
+          const bOk = Number.isFinite(bo);
+          if (aOk && bOk && ao !== bo) return ao - bo;
+          return 0;
+        });
         await LevelCredit.bulkCreate(
-          creators.map((c: {id: number; role: CreditRole; isOwner: boolean}, index: number) => ({
+          ordered.map((c: {id: number; role: CreditRole; isOwner: boolean}, index: number) => ({
             levelId,
             creatorId: c.id,
-            isOwner: c.isOwner,
+            isOwner: Boolean(c.isOwner),
             role: c.role,
             sortOrder: index,
           })),
@@ -561,13 +589,25 @@ router.post(
         transaction,
       });
 
-      // Transfer credits to target creator
+      // Transfer credits to target creator without collapsing sortOrder to the column default.
       for (const credit of sourceCredits) {
-        await LevelCredit.upsert(
+        const existing = await LevelCredit.findOne({
+          where: {levelId: credit.levelId, creatorId: targetId, role: credit.role},
+          transaction,
+        });
+        if (existing) {
+          if (credit.isOwner && !existing.isOwner) {
+            await existing.update({isOwner: true}, {transaction});
+          }
+          continue;
+        }
+        await LevelCredit.create(
           {
             levelId: credit.levelId,
             creatorId: targetId,
             role: credit.role,
+            isOwner: credit.isOwner,
+            sortOrder: credit.sortOrder,
           },
           {transaction},
         );
@@ -794,6 +834,8 @@ router.post(
                 levelId: credit.levelId,
                 creatorId: targetCreator.id,
                 role: role,
+                isOwner: credit.isOwner,
+                sortOrder: await nextLevelCreditSortOrder(credit.levelId, transaction),
               },
               {
                 transaction,

@@ -90,8 +90,8 @@ function parseHeaderSurfaceLayerId(req: Request): string | null {
   }
   return layerId;
 }
-import { CacheInvalidation } from '@/server/middleware/cache.js';
-import User from '@/models/auth/User.js';
+import { Cache } from '@/server/middleware/cache.js';
+import { CREATORS_ALL_CACHE_TAG, creatorCacheTag, invalidateCreatorsCache } from '@/server/services/creators/creatorCache.js';
 import { isTufStellarFeatureEnabled, isYoutubeChannelLinkingEnabled } from '@/config/app.config.js';
 import {
   BioCanvasProfileError,
@@ -983,6 +983,10 @@ router.get(
       ...standardErrorResponses404500,
     },
   }),
+  Cache({
+    ttl: 300,
+    tags: (req) => [creatorCacheTag(Number(req.params.id)), CREATORS_ALL_CACHE_TAG],
+  }),
   async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id, 10);
@@ -1446,10 +1450,7 @@ function resolveOwnCreatorRouteId(
 }
 
 async function invalidateLinkedUserForCreator(creatorId: number): Promise<void> {
-  const row = await User.findOne({ where: { creatorId }, attributes: ['id'] });
-  if (row?.id) {
-    await CacheInvalidation.invalidateUser(row.id);
-  }
+  await invalidateCreatorsCache([creatorId]);
 }
 
 router.patch(

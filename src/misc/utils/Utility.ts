@@ -176,6 +176,33 @@ export function formatCredits(credits: string[] | undefined): string {
     : credits.join(', ');
 }
 
+export type CreditOrderable = {
+  sortOrder?: number | null;
+  id?: number | null;
+};
+
+export function compareLevelCreditOrder(a: CreditOrderable, b: CreditOrderable): number {
+  const ao = Number(a?.sortOrder);
+  const bo = Number(b?.sortOrder);
+  const aOk = Number.isFinite(ao);
+  const bOk = Number.isFinite(bo);
+  if (aOk && bOk && ao !== bo) return ao - bo;
+  if (aOk !== bOk) return aOk ? -1 : 1;
+  return 0;
+}
+
+export function sortLevelCredits<T extends CreditOrderable>(
+  credits: T[] | null | undefined,
+): T[] {
+  if (!Array.isArray(credits)) return [];
+  return credits
+    .map((credit, index) => ({credit, index}))
+    .sort((a, b) => {
+      const byOrder = compareLevelCreditOrder(a.credit, b.credit);
+      return byOrder !== 0 ? byOrder : a.index - b.index;
+    })
+    .map(({credit}) => credit);
+}
 
 export const formatCreatorDisplay = (level: ILevel) => {
   // If team exists, it takes priority
@@ -185,14 +212,16 @@ export const formatCreatorDisplay = (level: ILevel) => {
     return level.team;
   }
 
+  const sortedCredits = sortLevelCredits(level.levelCredits);
   // If no credits, fall back to creator field
-  if (!level.levelCredits || level.levelCredits.length === 0) {
+  if (sortedCredits.length === 0) {
     return 'No credits';
   }
 
-  // Group credits by role
-  const creditsByRole = level.levelCredits.reduce((acc: Record<string, string[]>, credit: LevelCredit) => {
-    const role = credit.role.toLowerCase();
+  // Group credits by role, preserving sortOrder within each role
+  const creditsByRole = sortedCredits.reduce((acc: Record<string, string[]>, credit: LevelCredit) => {
+    const role = String(credit.role ?? '').toLowerCase();
+    if (!role) return acc;
     if (!acc[role]) {
       acc[role] = [];
     }

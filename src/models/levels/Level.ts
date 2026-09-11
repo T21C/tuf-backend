@@ -303,25 +303,43 @@ Level.init(
     charter: {
       type: DataTypes.VIRTUAL,
       get() {
-        return this.levelCredits?.filter(credit => credit.role === 'charter').map(credit => credit.creator?.name).join(', ');
+        return this.levelCredits
+          ?.slice()
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.id - b.id)
+          .filter(credit => credit.role === 'charter')
+          .map(credit => credit.creator?.name)
+          .join(', ');
       },
     },
     charters: {
       type: DataTypes.VIRTUAL,
       get() {
-        return this.levelCredits?.filter(credit => credit.role === 'charter').map(credit => credit.creator?.name);
+        return this.levelCredits
+          ?.slice()
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.id - b.id)
+          .filter(credit => credit.role === 'charter')
+          .map(credit => credit.creator?.name);
       },
     },
     vfxer: {
       type: DataTypes.VIRTUAL,
       get() {
-        return this.levelCredits?.filter(credit => credit.role === 'vfxer').map(credit => credit.creator?.name).join(', ');
+        return this.levelCredits
+          ?.slice()
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.id - b.id)
+          .filter(credit => credit.role === 'vfxer')
+          .map(credit => credit.creator?.name)
+          .join(', ');
       },
     },
     vfxers: {
       type: DataTypes.VIRTUAL,
       get() {
-        return this.levelCredits?.filter(credit => credit.role === 'vfxer').map(credit => credit.creator?.name);
+        return this.levelCredits
+          ?.slice()
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.id - b.id)
+          .filter(credit => credit.role === 'vfxer')
+          .map(credit => credit.creator?.name);
       },
     },
     team: {

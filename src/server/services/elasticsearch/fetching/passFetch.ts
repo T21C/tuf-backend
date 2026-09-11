@@ -59,10 +59,11 @@ async function cacheLevelsForPassIndex(levelIds: number[]): Promise<void> {
 
   const levelCredits = await LevelCredit.findAll({
     where: { levelId: { [Op.in]: levelIds } },
-    attributes: ['levelId', 'creatorId', 'role', 'isOwner', 'sortOrder'],
+    attributes: ['id', 'levelId', 'creatorId', 'role', 'isOwner', 'sortOrder'],
     order: [
       ['levelId', 'ASC'],
       ['sortOrder', 'ASC'],
+      ['id', 'ASC'],
     ],
     include: [
       {

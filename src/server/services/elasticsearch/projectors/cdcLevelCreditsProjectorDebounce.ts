@@ -1,5 +1,6 @@
 import { logger } from '@/server/services/core/LoggerService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { invalidateCreatorReferenceCaches, invalidateCreatorsCache } from '@/server/services/creators/creatorCache.js';
 import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CDC_LEVEL_CREDITS_COALESCE_MS } from '@/server/services/elasticsearch/misc/constants.js';
@@ -97,6 +98,10 @@ class CdcLevelCreditsProjectorDebounce {
               const tags = ['levels:all', ...levelIds.map((id) => `level:${id}`)];
               await CacheInvalidation.invalidateTags(tags);
               await invalidatePackLevelsCachesForLevelIds(levelIds);
+              await invalidateCreatorReferenceCaches();
+            }
+            if (creatorIds.length > 0) {
+              await invalidateCreatorsCache(creatorIds);
             }
 
             logger.debug(
