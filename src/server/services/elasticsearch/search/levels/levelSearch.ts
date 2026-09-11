@@ -1,6 +1,7 @@
 import client, { levelIndexName } from '@/config/elasticsearch.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { convertFromPUA, decodePuaTextOrNull } from '@/misc/utils/data/searchHelpers.js';
+import { sortLevelCredits } from '@/misc/utils/Utility.js';
 import type { FacetQueryV1 } from '@/misc/utils/search/facetQuery.js';
 import { buildFacetDomainClause, combineFacetClauses } from '@/misc/utils/search/facetQuery.js';
 import {
@@ -561,17 +562,19 @@ export function convertLevelSearchHit(source: Record<string, any>, diffs: Diffic
         alias: convertFromPUA(alias.alias as string)
       })) || []
     })),
-    levelCredits: source.levelCredits?.map((credit: Record<string, any>) => ({
-      ...credit,
-      creator: credit.creator ? {
-        ...credit.creator,
-        name: convertFromPUA(credit.creator.name as string),
-        creatorAliases: credit.creator.creatorAliases?.map((alias: Record<string, any>) => ({
-          ...alias,
-          name: convertFromPUA(alias.name as string)
+    levelCredits: source.levelCredits
+      ? sortLevelCredits(source.levelCredits).map((credit: Record<string, any>) => ({
+          ...credit,
+          creator: credit.creator ? {
+            ...credit.creator,
+            name: convertFromPUA(credit.creator.name as string),
+            creatorAliases: credit.creator.creatorAliases?.map((alias: Record<string, any>) => ({
+              ...alias,
+              name: convertFromPUA(alias.name as string)
+            }))
+          } : null
         }))
-      } : null
-    })),
+      : source.levelCredits,
     teamObject: source.teamObject ? {
       ...source.teamObject,
       name: convertFromPUA(source.teamObject.name as string),

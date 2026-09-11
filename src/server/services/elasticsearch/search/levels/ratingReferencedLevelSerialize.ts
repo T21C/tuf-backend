@@ -1,3 +1,5 @@
+import { sortLevelCredits } from '@/misc/utils/Utility.js';
+
 /**
  * Display-only level payload for the admin rating list cards.
  * Alias trees are omitted — search is server-side via ES.
@@ -22,11 +24,13 @@ export function pruneLevelForRatingList(
 
   const lcRaw = level.levelCredits as unknown[] | undefined;
   const levelCredits = Array.isArray(lcRaw)
-    ? lcRaw.map((cr) => {
+    ? sortLevelCredits(lcRaw as { sortOrder?: number | null; id?: number | null }[]).map((cr) => {
         const row = cr as Record<string, unknown>;
         const c = row?.creator as Record<string, unknown> | null | undefined;
         return {
           role: row.role,
+          sortOrder: row.sortOrder,
+          ...(row.id != null ? { id: row.id } : {}),
           creator: c
             ? {
                 id: c.id,

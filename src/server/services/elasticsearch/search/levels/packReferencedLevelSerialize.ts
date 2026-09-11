@@ -1,3 +1,5 @@
+import { sortLevelCredits } from '@/misc/utils/Utility.js';
+
 function normalizeFileId(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -58,11 +60,13 @@ export function pruneMysqlReferencedLevelForPack(
 
   const lcRaw = level.levelCredits as unknown[] | undefined;
   const levelCredits = Array.isArray(lcRaw)
-    ? lcRaw.map((cr) => {
+    ? sortLevelCredits(lcRaw as { sortOrder?: number | null; id?: number | null }[]).map((cr) => {
         const row = cr as Record<string, unknown>;
         const c = row?.creator as Record<string, unknown> | null | undefined;
         return {
           role: row.role,
+          sortOrder: row.sortOrder,
+          ...(row.id != null ? { id: row.id } : {}),
           creator: c ? { name: c.name != null ? String(c.name) : '' } : null,
         };
       })

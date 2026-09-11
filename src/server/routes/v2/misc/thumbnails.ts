@@ -298,7 +298,7 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
               ]},
               {model: Difficulty, as: 'difficulty'},
               {model: LevelCredit, as: 'levelCredits',
-                attributes: ['role'],
+                attributes: ['role', 'sortOrder', 'id'],
                 include: [
                   {model: Creator, as: 'creator',
                     attributes: ['name'],

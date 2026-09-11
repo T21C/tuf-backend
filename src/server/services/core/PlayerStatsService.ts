@@ -597,7 +597,7 @@ export class PlayerStatsService {
             {
               model: LevelCredit,
               as: 'levelCredits',
-              attributes: ['role'],
+              attributes: ['role', 'sortOrder', 'id'],
               include: [{
                 model: Creator,
                 as: 'creator',
@@ -1044,7 +1044,7 @@ impact_calc AS (
             {
               model: LevelCredit,
               as: 'levelCredits',
-              attributes: ['role'],
+              attributes: ['role', 'sortOrder', 'id'],
               required: false,
               include: [
                 {

@@ -1,4 +1,4 @@
-import {Model, DataTypes} from 'sequelize';
+import {Model, DataTypes, Transaction} from 'sequelize';
 import Level from './Level.js';
 import Creator from '@/models/credits/Creator.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
@@ -16,6 +16,18 @@ export const CONTRIBUTING_CREDIT_ROLES = [CreditRole.CHARTER, CreditRole.VFXER] 
 export function isContributingCreditRole(role?: string | null): boolean {
   const normalized = (role ?? '').toLowerCase();
   return normalized === CreditRole.CHARTER || normalized === CreditRole.VFXER;
+}
+
+export async function nextLevelCreditSortOrder(
+  levelId: number,
+  transaction?: Transaction,
+): Promise<number> {
+  const max = await LevelCredit.max('sortOrder', {
+    where: {levelId},
+    transaction,
+  });
+  const n = typeof max === 'number' ? max : Number(max);
+  return (Number.isFinite(n) ? n : -1) + 1;
 }
 
 class LevelCredit extends Model {

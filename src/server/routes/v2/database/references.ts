@@ -12,6 +12,7 @@ import LevelCredit from '@/models/levels/LevelCredit.js';
 import Creator from '@/models/credits/Creator.js';
 import Team from '@/models/credits/Team.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
+import { sortLevelCredits } from '@/misc/utils/Utility.js';
 
 interface ILevelWithReference extends Level {
   reference?: {
@@ -85,10 +86,14 @@ router.get(
     // Transform the data into a more usable format
     const formattedReferences = difficulties.map(diff => ({
       difficulty: diff,
-      levels: (diff.referenceLevels as ILevelWithReference[]).map(level => ({
-        ...level.toJSON(),
-        type: level.reference?.type || '' // Get the type from the reference, default to empty string
-      })),
+      levels: (diff.referenceLevels as ILevelWithReference[]).map(level => {
+        const json = level.toJSON();
+        return {
+          ...json,
+          levelCredits: sortLevelCredits(json.levelCredits),
+          type: level.reference?.type || '' // Get the type from the reference, default to empty string
+        };
+      }),
     }));
 
     return res.json(formattedReferences);
@@ -154,10 +159,14 @@ router.get(
 
     const formattedReference = {
       difficulty,
-      levels: (difficulty.referenceLevels as ILevelWithReference[]).map(level => ({
-        ...level.toJSON(),
-        type: level.reference?.type || ''
-      })),
+      levels: (difficulty.referenceLevels as ILevelWithReference[]).map(level => {
+        const json = level.toJSON();
+        return {
+          ...json,
+          levelCredits: sortLevelCredits(json.levelCredits),
+          type: level.reference?.type || ''
+        };
+      }),
     };
 
     return res.json(formattedReference);

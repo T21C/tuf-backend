@@ -3,6 +3,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { Op } from 'sequelize';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { convertFromPUA } from '@/misc/utils/data/searchHelpers.js';
+import { sortLevelCredits } from '@/misc/utils/Utility.js';
 import { parseSearchQueryWithPUA } from '@/server/services/elasticsearch/search/tools/parseSearch.js';
 import {
   boolMust,
@@ -359,6 +360,9 @@ function convertPassSearchHit(source: Record<string, any>): any {
             : alias.originalValue,
         alias: convertFromPUA(alias.alias as string),
       })),
+      levelCredits: source.level.levelCredits
+        ? sortLevelCredits(source.level.levelCredits)
+        : source.level.levelCredits,
     } : null
   };
 }

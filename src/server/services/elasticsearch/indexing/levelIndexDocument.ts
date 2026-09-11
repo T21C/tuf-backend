@@ -4,7 +4,7 @@ import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import { convertToPUA } from '@/misc/utils/data/searchHelpers.js';
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
-import { formatCreatorDisplay } from '@/misc/utils/Utility.js';
+import { formatCreatorDisplay, sortLevelCredits } from '@/misc/utils/Utility.js';
 import {
   pickThemeCuration,
   sortCurationsByTypeOrder,
@@ -79,11 +79,12 @@ export function buildLevelIndexDocument(level: Level): any {
   });
 
   const team = pua(teamObject?.name);
+  const sortedLevelCredits = sortLevelCredits(arr<any>(l.levelCredits));
   const creator = pua(
     formatCreatorDisplay({
       ...l,
       team,
-      levelCredits: arr(l.levelCredits),
+      levelCredits: sortedLevelCredits,
     } as any),
   );
 
@@ -148,7 +149,7 @@ export function buildLevelIndexDocument(level: Level): any {
       };
     }),
     creator,
-    levelCredits: arr<any>(l.levelCredits).map((credit) => {
+    levelCredits: sortedLevelCredits.map((credit) => {
       const row = plainRow(credit as object) as any;
       const c = row?.creator;
       return {

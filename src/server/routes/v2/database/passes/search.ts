@@ -12,7 +12,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
 import { User } from '@/models/index.js';
 import { searchPasses } from './index.js';
-import { ensureString } from '@/misc/utils/Utility.js';
+import { ensureString, sortLevelCredits } from '@/misc/utils/Utility.js';
 import { hasFlag, wherePermission } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import Creator from '@/models/credits/Creator.js';
@@ -111,6 +111,7 @@ router.get(
             }),
             level.id ? LevelCredit.findAll({
               where: { levelId: level.id },
+              order: [['sortOrder', 'ASC'], ['id', 'ASC']],
             }).then(async (credits) => {
               if (credits.length === 0) return [];
 
@@ -139,7 +140,7 @@ router.get(
           return {
             ...level.toJSON(),
             difficulty,
-            levelCredits,
+            levelCredits: sortLevelCredits(levelCredits),
             teamObject: team
           };
         }),

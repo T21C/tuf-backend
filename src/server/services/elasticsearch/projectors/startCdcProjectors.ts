@@ -5,7 +5,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { parseCdcFields, rowId } from './cdcRowParse.js';
-import { getLevelIdsByArtistId, getLevelIdsByPlayerId, getLevelIdsBySongId, getPassIdsByLevelId, getTournamentIdByPlacementId, getTournamentIdsByCreatorId, getTournamentIdsByLevelId, getTournamentIdsByPlayerId, getTournamentIdsBySeriesId } from './cdcFanout.js';
+import { getLevelIdsByArtistId, getLevelIdsByCreatorId, getLevelIdsByPlayerId, getLevelIdsBySongId, getPassIdsByLevelId, getTournamentIdByPlacementId, getTournamentIdsByCreatorId, getTournamentIdsByLevelId, getTournamentIdsByPlayerId, getTournamentIdsBySeriesId } from './cdcFanout.js';
 import { cdcPassProjectorDebounce } from './cdcPassProjectorDebounce.js';
 import { cdcLevelCreditsProjectorDebounce } from './cdcLevelCreditsProjectorDebounce.js';
 import { CDC_PASSES_STREAM_BLOCK_MS } from '@/server/services/elasticsearch/misc/constants.js';
@@ -16,6 +16,10 @@ import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import User from '@/models/auth/User.js';
 import { rematerializeCommunityTagsForLevel } from '@/server/services/data/communityTagVoteService.js';
 import { invalidatePublicModsCache } from '@/server/services/mods/modCache.js';
+import {
+  invalidateCreatorReferenceCaches,
+  invalidateCreatorsCache,
+} from '@/server/services/creators/creatorCache.js';
 import ModTagAssignment from '@/models/misc/ModTagAssignment.js';
 
 const CDC_PREFIX = 'cdc:';
@@ -59,6 +63,39 @@ async function invalidateLevels(levelIds: number[]): Promise<void> {
   const tags = ['levels:all', ...levelIds.map((id) => `level:${id}`)];
   await CacheInvalidation.invalidateTags(tags);
   await invalidatePackLevelsCachesForLevelIds(levelIds);
+}
+
+function cdcField(value: unknown): string {
+  return value == null ? '' : String(value);
+}
+
+/** Creator fields copied into cached level / reference payloads. */
+function creatorCdcAffectsEmbeddedLevelDocs(
+  op: CdcOp,
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown> | null,
+): boolean {
+  if (op === 'd') return true;
+  if (op !== 'u') return false;
+  return (
+    cdcField(before?.name) !== cdcField(after?.name) ||
+    cdcField(before?.verificationStatus) !== cdcField(after?.verificationStatus) ||
+    cdcField(before?.userId) !== cdcField(after?.userId)
+  );
+}
+
+async function fanoutCreatorEmbeddedCaches(
+  creatorId: number,
+  opts: {reindexLevels: boolean},
+): Promise<void> {
+  const lids = await getLevelIdsByCreatorId(creatorId);
+  if (opts.reindexLevels && lids.length) {
+    await ElasticsearchService.getInstance().reindexLevels(lids);
+  }
+  if (lids.length) {
+    await invalidateLevels(lids);
+  }
+  await invalidateCreatorReferenceCaches();
 }
 
 function num(v: unknown): number | null {
@@ -302,7 +339,10 @@ export function startCdcProjectors(): void {
             const cids = new Set<number>();
             if (prevC != null) cids.add(prevC);
             if (nextC != null) cids.add(nextC);
-            if (cids.size > 0) await es.reindexCreators([...cids]);
+            if (cids.size > 0) {
+              await es.reindexCreators([...cids]);
+              await invalidateCreatorsCache([...cids]);
+            }
 
             const userId = String(after?.id ?? before?.id ?? '');
             const nickChanged =
@@ -468,24 +508,28 @@ export function startCdcProjectors(): void {
             if (cid == null) return;
             if (op === 'd') {
               await es.deleteCreatorDocumentById(cid);
+              await invalidateCreatorsCache([cid]);
+              await fanoutCreatorEmbeddedCaches(cid, { reindexLevels: true });
               return;
             }
             await es.indexCreator(cid);
-            // Level index embeds credited creator display names; refresh when it changes.
-            if (op === 'u') {
-              const beforeName = before?.name != null ? String(before.name) : null;
-              const afterName = after?.name != null ? String(after.name) : null;
-              if (beforeName !== afterName) {
-                void es.reindexByCreatorId(cid);
-                const tournamentIds = await getTournamentIdsByCreatorId(cid);
-                if (tournamentIds.length) await es.reindexTournaments(tournamentIds);
-              }
+            await invalidateCreatorsCache([cid]);
+            // Level / reference HTTP caches embed credited creator name, aliases, verification, userId.
+            if (creatorCdcAffectsEmbeddedLevelDocs(op, before, after)) {
+              await fanoutCreatorEmbeddedCaches(cid, { reindexLevels: true });
+            }
+            if (op === 'u' && cdcField(before?.name) !== cdcField(after?.name)) {
+              const tournamentIds = await getTournamentIdsByCreatorId(cid);
+              if (tournamentIds.length) await es.reindexTournaments(tournamentIds);
             }
             break;
           }
           case 'creator_aliases': {
             const cid = num(after?.creatorId ?? before?.creatorId);
-            if (cid != null) await es.indexCreator(cid);
+            if (cid == null) return;
+            await es.indexCreator(cid);
+            await invalidateCreatorsCache([cid]);
+            await fanoutCreatorEmbeddedCaches(cid, { reindexLevels: true });
             break;
           }
           case 'mods': {
