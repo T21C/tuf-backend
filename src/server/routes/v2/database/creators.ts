@@ -53,6 +53,18 @@ interface LevelCountResult {
   count: string;
 }
 
+type AuditLevelCredit = {
+  sortOrder?: number | null;
+  id?: number | null;
+  role?: string;
+  isOwner?: boolean;
+  creator?: {
+    id: number;
+    name: string;
+    creatorAliases?: {name: string}[];
+  } | null;
+};
+
 // Get all creators with their aliases and level counts
 router.get(
   '/',
@@ -346,34 +358,27 @@ router.get(
             }
           : null,
         currentCreators: (() => {
-          const sorted = sortLevelCredits(level.levelCredits ?? [])
-            .filter((credit: { creator?: { id: number } | null }) => credit.creator);
-          const byRole = [CreditRole.CHARTER, CreditRole.VFXER, CreditRole.SPECIAL_THANKS]
-            .flatMap((role) => sorted.filter((credit: { role: CreditRole }) => credit.role === role));
+          const sorted = sortLevelCredits((level.levelCredits ?? []) as AuditLevelCredit[])
+            .filter((credit): credit is AuditLevelCredit & {creator: NonNullable<AuditLevelCredit['creator']>} =>
+              Boolean(credit.creator),
+            );
+          const roleOrder = [CreditRole.CHARTER, CreditRole.VFXER, CreditRole.SPECIAL_THANKS];
+          const byRole = roleOrder.flatMap((role) => sorted.filter((credit) => credit.role === role));
           const leftover = sorted.filter(
-            (credit: { role: CreditRole }) =>
+            (credit) =>
               credit.role !== CreditRole.CHARTER &&
               credit.role !== CreditRole.VFXER &&
               credit.role !== CreditRole.SPECIAL_THANKS,
           );
-          return [...byRole, ...leftover].map((credit: {
-          creator: {
-            id: number;
-            name: string;
-            creatorAliases?: { name: string }[]
-          };
-          role: CreditRole;
-          isOwner: boolean;
-          sortOrder?: number;
-        }, index: number) => ({
-          id: credit.creator.id,
-          name: credit.creator.name,
-          role: credit.role,
-          isOwner: credit.isOwner,
-          sortOrder: index,
-          aliases: credit.creator.creatorAliases?.map((alias: { name: string }) => alias.name) || [],
-          levelCount: levelCountMap.get(credit.creator.id) || 0,
-        }));
+          return [...byRole, ...leftover].map((credit, index) => ({
+            id: credit.creator.id,
+            name: credit.creator.name,
+            role: credit.role,
+            isOwner: credit.isOwner,
+            sortOrder: index,
+            aliases: credit.creator.creatorAliases?.map((alias) => alias.name) || [],
+            levelCount: levelCountMap.get(credit.creator.id) || 0,
+          }));
         })(),
       }));
 
