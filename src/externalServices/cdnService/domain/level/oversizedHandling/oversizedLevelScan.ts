@@ -24,7 +24,7 @@ function pathLikeForLog(p: PathLike): string {
  * Stream-scan a huge .adofai JSON5 document without loading it into V8 heap.
  *
  * Extracts:
- *  - `tilecount`: number of finite items in `angleData` (or `pathData` length).
+ *  - `tilecount`: in-game count (`angleData`/`pathData` length minus midspins).
  *  - `midspinCount`: number of 999° items in `angleData` (or `!` chars in `pathData`).
  *  - `settings`: `bpm`, `offset`, `songFilename`, `song`, `artist`, `author`.
  *

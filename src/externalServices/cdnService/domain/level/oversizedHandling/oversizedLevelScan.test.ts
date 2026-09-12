@@ -32,9 +32,9 @@ function chart(opts?: {
   return opts?.bom ? `\uFEFF${body}` : body;
 }
 
-void test('counts finite angleData numbers including midspins', () => {
+void test('counts finite angleData numbers excluding midspins from tilecount', () => {
   const r = scanJson5LevelText(chart());
-  assert.equal(r.tilecount, 10);
+  assert.equal(r.tilecount, 1);
   assert.equal(r.midspinCount, 9);
   assert.equal(r.settings.bpm, 128);
   assert.equal(r.settings.offset, 12);
@@ -44,9 +44,9 @@ void test('counts finite angleData numbers including midspins', () => {
   assert.equal(r.settings.author, 'Author');
 });
 
-void test('counts decimals and does not drop 999 midspins', () => {
+void test('counts decimals and subtracts 999 midspins from tilecount', () => {
   const r = scanJson5LevelText(chart({angles: '[0, 999, 157.5, -180, 999]'}));
-  assert.equal(r.tilecount, 5);
+  assert.equal(r.tilecount, 3);
   assert.equal(r.midspinCount, 2);
 });
 
@@ -64,7 +64,7 @@ void test('JSON5: comments, trailing commas, single quotes, unquoted keys', () =
     },
   }`;
   const r = scanJson5LevelText(text);
-  assert.equal(r.tilecount, 3);
+  assert.equal(r.tilecount, 2);
   assert.equal(r.midspinCount, 1);
   assert.equal(r.settings.bpm, 100);
   assert.equal(r.settings.songFilename, 'a.ogg');
@@ -72,7 +72,7 @@ void test('JSON5: comments, trailing commas, single quotes, unquoted keys', () =
 
 void test('BOM is ignored', () => {
   const r = scanJson5LevelText(chart({bom: true}));
-  assert.equal(r.tilecount, 10);
+  assert.equal(r.tilecount, 1);
   assert.equal(r.settings.bpm, 128);
 });
 
@@ -82,7 +82,7 @@ void test('vertical tab in a later EditorComment does not zero tilecount', () =>
     { "floor": 0, "eventType": "EditorComment", "comment": "hello\u000b\u000bworld" }
   ]`;
   const r = scanJson5LevelText(chart({extra}));
-  assert.equal(r.tilecount, 10);
+  assert.equal(r.tilecount, 1);
   assert.equal(r.settings.bpm, 128);
   assert.equal(r.settings.song, 'Title');
 });
@@ -91,13 +91,13 @@ void test('stops before trailing garbage after settings', () => {
   const extra = `,
   "actions": THIS IS NOT JSON {{{{ \u0000`;
   const r = scanJson5LevelText(chart({extra}));
-  assert.equal(r.tilecount, 10);
+  assert.equal(r.tilecount, 1);
   assert.equal(r.settings.author, 'Author');
 });
 
 void test('still correct when fed one byte at a time', () => {
   const r = scanJson5LevelText(chart({extra: ',\n  "actions": NOT JSON'}), 1);
-  assert.equal(r.tilecount, 10);
+  assert.equal(r.tilecount, 1);
   assert.equal(r.settings.bpm, 128);
 });
 
@@ -118,7 +118,7 @@ void test('pathData string length is used when angleData is absent', () => {
     "settings": { "bpm": 100, "offset": 0, "songFilename": "", "song": "", "artist": "", "author": "" }
   }`;
   const r = scanJson5LevelText(text);
-  assert.equal(r.tilecount, 4);
+  assert.equal(r.tilecount, 3);
   assert.equal(r.midspinCount, 1);
   assert.equal(r.settings.bpm, 100);
 });
@@ -143,7 +143,7 @@ void test('scanOversizedLevelFile reads from disk and stops after settings', asy
       }),
     );
     const r = await scanOversizedLevelFile(file);
-    assert.equal(r.tilecount, 10);
+    assert.equal(r.tilecount, 1);
     assert.equal(r.midspinCount, 9);
     assert.equal(r.settings.songFilename, 'track.ogg');
   } finally {

@@ -11,10 +11,11 @@ export const SAFE_TO_PARSE_VERSION = 4;
  * - New fields are added to analysis
  * - Field types or meanings change
  * - Calculation logic for any analysis field changes
+ * - Persisted `tilecount` formula changes (v8: excludes midspins)
  *
  * This invalidates ONLY the analysis cache, not tilecount/settings.
  */
-export const ANALYSIS_FORMAT_VERSION = 7;
+export const ANALYSIS_FORMAT_VERSION = 8;
 
 /**
  * Analysis object keys that must be present on a fully populated cache entry
@@ -53,6 +54,7 @@ export interface AnalysisCacheData {
 
 export interface LevelCacheData {
     _metadataSignature?: string;
+    /** In-game tilecount: path length minus midspins (999°). */
     tilecount?: number;
     settings?: any;
     analysis?: AnalysisCacheData;

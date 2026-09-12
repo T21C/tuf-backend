@@ -83,6 +83,7 @@ class Level
   declare songObject?: Song;
   declare songCredits?: SongCredit[];
   declare bpm: number | null;
+  /** In-game tilecount: path length minus midspins. */
   declare tilecount: number | null;
   declare autoTileCount: number | null;
   declare midspinCount: number | null;

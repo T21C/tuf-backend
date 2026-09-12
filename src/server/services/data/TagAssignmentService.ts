@@ -243,7 +243,7 @@ class TagAssignmentService {
             tagsToAssign.push({ tagName: dlcTagsMap.containsDLC, groupName: groupNameMap.dlc });
         }
 
-        // Auto Tile tag: count excludes midspins (subtracted separately from tilecount),
+        // Auto Tile tag: autoTileCount excludes midspins (tilecount already excludes them too),
         // so also honor autoTile for ranges that only cover 999° tiles.
         if (
             analysis?.autoTile === true
