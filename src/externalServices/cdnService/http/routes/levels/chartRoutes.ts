@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { logger } from '@/server/services/core/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { levelCacheService } from '@/externalServices/cdnService/services/levelCacheService.js';
-import { parseChartStatsFromCache } from '@/misc/utils/data/chartCacheParse.js';
+import { parseChartStatsFromCache, EMPTY_LEVEL_CHART_STATS } from '@/misc/utils/data/chartCacheParse.js';
 import { Op } from 'sequelize';
 import { buildPublicLevelzipCdnMetadata } from './shared/routeUtils.js';
 
@@ -51,7 +51,7 @@ router.get('/:fileId/chart-stats', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'File not found' });
         }
         if (file.type !== 'LEVELZIP') {
-            return res.json({ bpm: null, tilecount: null, levelLengthInMs: null, autoTileCount: null });
+            return res.json({ ...EMPTY_LEVEL_CHART_STATS });
         }
         const stats = parseChartStatsFromCache(file.cacheData ?? null);
         return res.json(stats);
@@ -73,14 +73,7 @@ router.post('/:fileId/chart-cache/refresh', async (req: Request, res: Response) 
             return res.status(404).json({ error: 'File not found' });
         }
         if (file.type !== 'LEVELZIP') {
-            return res.json({ bpm: null, tilecount: null, levelLengthInMs: null, autoTileCount: null });
-        }
-        const metadata = file.metadata as {
-            targetLevelOversized?: boolean;
-        };
-        if (metadata?.targetLevelOversized) {
-            const stats = parseChartStatsFromCache(file.cacheData ?? null);
-            return res.json(stats);
+            return res.json({ ...EMPTY_LEVEL_CHART_STATS });
         }
         await levelCacheService.clearCache(file);
         await file.reload();

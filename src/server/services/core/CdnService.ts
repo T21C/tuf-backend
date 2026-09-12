@@ -7,6 +7,7 @@ import { logger } from './LoggerService.js';
 import { jobProgressService } from './JobProgressService.js';
 import { ImageFileType } from '@/models/cdn/CdnFile.js';
 import Level from '@/models/levels/Level.js';
+import { EMPTY_LEVEL_CHART_STATS, type LevelChartStats } from '@/misc/utils/data/chartCacheParse.js';
 const CDN_BASE_URL = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 
 const IGNORED_ERROR_CODES = [
@@ -1015,18 +1016,13 @@ class CdnService {
     /**
      * Read denormalized BPM / tilecount / length from CDN `cacheData` (microservice; no direct `CdnFile` access on main server).
      */
-    async getLevelChartStats(fileId: string): Promise<{
-        bpm: number | null;
-        tilecount: number | null;
-        levelLengthInMs: number | null;
-        autoTileCount: number | null;
-    }> {
+    async getLevelChartStats(fileId: string): Promise<LevelChartStats> {
         try {
             const response = await this.client.get(`/levels/${fileId}/chart-stats`);
             return response.data;
         } catch (error) {
             if (error instanceof AxiosError && error.response?.status === 404) {
-                return { bpm: null, tilecount: null, levelLengthInMs: null, autoTileCount: null };
+                return { ...EMPTY_LEVEL_CHART_STATS };
             }
             this.handleCdnError(
                 error,
@@ -1040,12 +1036,7 @@ class CdnService {
     /**
      * Clear and rebuild level zip cache on CDN, then return chart stats (same DB row the API would read).
      */
-    async refreshLevelChartCacheAndGetStats(fileId: string): Promise<{
-        bpm: number | null;
-        tilecount: number | null;
-        levelLengthInMs: number | null;
-        autoTileCount: number | null;
-    }> {
+    async refreshLevelChartCacheAndGetStats(fileId: string): Promise<LevelChartStats> {
         try {
             const response = await this.client.post(`/levels/${fileId}/chart-cache/refresh`);
             return response.data;

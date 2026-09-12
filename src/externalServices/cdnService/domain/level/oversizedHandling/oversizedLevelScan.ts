@@ -25,6 +25,7 @@ function pathLikeForLog(p: PathLike): string {
  *
  * Extracts:
  *  - `tilecount`: number of finite items in `angleData` (or `pathData` length).
+ *  - `midspinCount`: number of 999° items in `angleData` (or `!` chars in `pathData`).
  *  - `settings`: `bpm`, `offset`, `songFilename`, `song`, `artist`, `author`.
  *
  * JSON5 (comments, trailing commas, single quotes, unquoted keys, control chars in
@@ -77,7 +78,7 @@ export async function scanOversizedLevelFile(localAdoPath: PathLike): Promise<Ov
     });
     return scanner.tilecount || Object.keys(scanner.settings).length
       ? scanner.result()
-      : {tilecount: 0, settings: {}};
+      : {tilecount: 0, midspinCount: 0, settings: {}};
   }
 
   return scanner.result();

@@ -27,7 +27,10 @@ import {
   downloadSteamWorkshopItemToZipBuffer,
   parseSteamWorkshopPublishedFileId,
 } from '@/misc/utils/data/steamWorkshopLevelZip.js';
-import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
+import {
+  applyLevelChartStatsFromCdn,
+  rebuildCdnCacheAndApplyLevelChartStats,
+} from '@/misc/utils/data/levelChartStatsSync.js';
 import { tagAssignmentService } from '@/server/services/data/TagAssignmentService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { checkLevelOwnership } from '@/server/domain/levels/levelOwnership.js';
@@ -557,6 +560,66 @@ export async function handlePostLevelSelectLevel(req: Request, res: Response): P
   }
 }
 
+export async function handlePostLevelReparseChart(req: Request, res: Response): Promise<void> {
+  let transaction: any;
+
+  try {
+    transaction = await sequelize.transaction();
+    const levelId = parseInt(req.params.id, 10);
+
+    const level = await Level.findByPk(levelId, { transaction });
+    if (!level) {
+      throw { error: 'Level not found', code: 404 };
+    }
+
+    const { canEdit, errorMessage } = await checkLevelOwnership(levelId, req.user, transaction);
+
+    if (!canEdit) {
+      throw { error: errorMessage, code: 403 };
+    }
+
+    const fileId = level.fileId ?? null;
+    if (!fileId) {
+      throw { error: 'File ID is required', code: 400 };
+    }
+    if (!level.dlLink || !isCdnUrl(level.dlLink)) {
+      throw { error: 'Level is not CDN-managed', code: 400 };
+    }
+
+    await transaction.commit();
+
+    const chartStats = await rebuildCdnCacheAndApplyLevelChartStats(levelId);
+    if (!chartStats) {
+      throw { error: 'Failed to reparse chart', code: 500 };
+    }
+
+    try {
+      const tagResult = await tagAssignmentService.refreshAutoTags(levelId);
+      if (tagResult.assignedTags.length > 0 || tagResult.removedTags.length > 0) {
+        logger.debug('Auto tags refreshed after chart reparse', {
+          levelId,
+          assignedTags: tagResult.assignedTags,
+          removedTags: tagResult.removedTags,
+        });
+        await elasticsearchService.reindexLevels([levelId]);
+      }
+    } catch (tagError) {
+      logger.warn('Failed to refresh auto tags after chart reparse:', {
+        levelId,
+        error: tagError instanceof Error ? tagError.message : String(tagError),
+      });
+    }
+
+    res.json({
+      success: true,
+      ...chartStats,
+    });
+  } catch (error: any) {
+    await safeTransactionRollback(transaction);
+    sendLevelZipHandlerError(res, error, 'Failed to reparse chart');
+  }
+}
+
 export async function handleDeleteLevelZipUpload(req: Request, res: Response): Promise<void> {
   let transaction: any;
 
@@ -600,6 +663,7 @@ export async function handleDeleteLevelZipUpload(req: Request, res: Response): P
         tilecount: null,
         levelLengthInMs: null,
         autoTileCount: null,
+        midspinCount: null,
       },
       {
         where: { id: levelId },

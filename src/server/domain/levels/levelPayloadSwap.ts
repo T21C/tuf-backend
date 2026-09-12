@@ -33,6 +33,7 @@ export const LEVEL_PAYLOAD_SWAP_FIELDS = [
   'bpm',
   'tilecount',
   'autoTileCount',
+  'midspinCount',
   'levelLengthInMs',
   'xaccCurveMeta',
 ] as const;

@@ -113,6 +113,7 @@ export const levelMapping = {
       bpm: { type: 'float' as const },
       tilecount: { type: 'integer' as const },
       autoTileCount: { type: 'integer' as const },
+      midspinCount: { type: 'integer' as const },
       levelLengthInMs: { type: 'float' as const },
       song: {
         type: 'text' as const,
