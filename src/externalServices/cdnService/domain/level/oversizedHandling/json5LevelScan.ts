@@ -2,6 +2,7 @@ import JSON5 from 'json5';
 
 export type OversizedLevelBasics = {
   tilecount: number;
+  midspinCount: number;
   settings: {
     bpm?: unknown;
     offset?: unknown;
@@ -128,13 +129,15 @@ function extractSettingsLoose(raw: string, settings: OversizedLevelBasics['setti
 /**
  * Streaming JSON5 walker for oversized `.adofai` files.
  *
- * Counts finite numbers in top-level `angleData` (or `pathData` length) and reads
- * `settings` without materializing the rest of the document. Stops as soon as both
- * a tile source and `settings` are complete so later illegal JSON (control chars in
- * comments, huge decorations, trailing garbage) is never parsed.
+ * Counts finite numbers in top-level `angleData` (or `pathData` length), 999°
+ * midspins (or `!` in `pathData`), and reads `settings` without materializing the
+ * rest of the document. Stops as soon as both a tile source and `settings` are
+ * complete so later illegal JSON (control chars in comments, huge decorations,
+ * trailing garbage) is never parsed.
  */
 export class Json5LevelScanner {
   tilecount = 0;
+  midspinCount = 0;
   settings: OversizedLevelBasics['settings'] = {};
   done = false;
   seenAngleData = false;
@@ -158,6 +161,7 @@ export class Json5LevelScanner {
   private token = '';
   private stringBuf = '';
   private pathLen = 0;
+  private pathMidspinCount = 0;
 
   private skipDepth = 0;
   private skipAfterPrimitive: Phase = 'afterValue';
@@ -167,7 +171,7 @@ export class Json5LevelScanner {
   private settingsDepth = 0;
 
   result(): OversizedLevelBasics {
-    return {tilecount: this.tilecount, settings: this.settings};
+    return {tilecount: this.tilecount, midspinCount: this.midspinCount, settings: this.settings};
   }
 
   feed(chunk: string, eof: boolean): void {
@@ -318,6 +322,7 @@ export class Json5LevelScanner {
   private emitStringChar(ch: string): void {
     if (this.phase === 'pathString') {
       this.pathLen += ch.length;
+      if (ch === '!') this.pathMidspinCount++;
       return;
     }
     if (this.phase === 'rootKey' || this.skipAfterPrimitive === 'rootColon') {
@@ -335,6 +340,7 @@ export class Json5LevelScanner {
     if (this.phase === 'pathString') {
       if (!this.seenAngleData) {
         this.tilecount = this.pathLen;
+        this.midspinCount = this.pathMidspinCount;
       }
       this.seenPathData = true;
       this.phase = 'afterValue';
@@ -363,6 +369,7 @@ export class Json5LevelScanner {
     const n = Number(token);
     if (this.phase === 'angleItems' && this.angleNested === 0 && Number.isFinite(n)) {
       this.tilecount++;
+      if (n === 999) this.midspinCount++;
     }
     if (this.phase === 'skip' && this.skipDepth === 0) {
       this.phase = this.skipAfterPrimitive;
@@ -420,6 +427,7 @@ export class Json5LevelScanner {
       this.phase = 'angleItems';
       this.angleNested = 0;
       this.tilecount = 0;
+      this.midspinCount = 0;
       return 1;
     }
     if (key === 'pathData' && (c === '"' || c === "'")) {
@@ -427,6 +435,7 @@ export class Json5LevelScanner {
       this.inString = true;
       this.stringQuote = c;
       this.pathLen = 0;
+      this.pathMidspinCount = 0;
       this.escaped = false;
       return 1;
     }

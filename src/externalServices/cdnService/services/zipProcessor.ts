@@ -648,7 +648,10 @@ async function processArchiveFileInWorkspace(
                             offset: basics.settings.offset,
                             songFilename: basics.settings.songFilename
                         },
-                        analysis: levelLengthInMs !== null ? { levelLengthInMs } : {},
+                        analysis: {
+                            midspinCount: basics.midspinCount,
+                            ...(levelLengthInMs !== null ? { levelLengthInMs } : {}),
+                        },
                         transformOptions: { eventTypes: [], filterTypes: [], advancedFilterTypes: [] }
                     };
 

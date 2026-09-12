@@ -100,7 +100,7 @@ async function rebuildLegacySongWhenSuffixChanges(
   return getSongDisplayName({ songObject: song, suffix: suffix ?? null });
 }
 
-const CHART_STATS_FIELDS = ['bpm', 'tilecount', 'levelLengthInMs', 'autoTileCount'] as const;
+const CHART_STATS_FIELDS = ['bpm', 'tilecount', 'levelLengthInMs', 'autoTileCount', 'midspinCount'] as const;
 type ChartStatKey = (typeof CHART_STATS_FIELDS)[number];
 
 function parseChartStatPayload(body: Record<string, unknown>): {
@@ -115,7 +115,7 @@ function parseChartStatPayload(body: Record<string, unknown>): {
       ok: false,
       code: 400,
       error:
-        'Request must include at least one of: bpm, tilecount, levelLengthInMs, autoTileCount',
+        'Request must include at least one of: bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount',
     };
   }
 
@@ -1537,12 +1537,12 @@ router.patch(
     operationId: 'patchLevelChartStats',
     summary: 'Update level chart stats (non-CDN)',
     description:
-      'Super admin only. Sets bpm, tilecount, levelLengthInMs, and/or autoTileCount for levels whose download is not CDN-managed. CDN levels must use chart sync from the uploaded file.',
+      'Super admin only. Sets bpm, tilecount, levelLengthInMs, autoTileCount, and/or midspinCount for levels whose download is not CDN-managed. CDN levels must use chart sync from the uploaded file.',
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
     requestBody: {
-      description: 'At least one of bpm, tilecount, levelLengthInMs, autoTileCount (null clears)',
+      description: 'At least one of bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount (null clears)',
       schema: {
         type: 'object',
         properties: {
@@ -1550,6 +1550,7 @@ router.patch(
           tilecount: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
           levelLengthInMs: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
           autoTileCount: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
+          midspinCount: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
         },
       },
       required: true,
@@ -1590,7 +1591,7 @@ router.patch(
       );
 
       const updated = await Level.findByPk(levelId, {
-        attributes: ['id', 'bpm', 'tilecount', 'levelLengthInMs', 'autoTileCount'],
+        attributes: ['id', 'bpm', 'tilecount', 'levelLengthInMs', 'autoTileCount', 'midspinCount'],
       });
 
       await elasticsearchService.indexLevel(levelId);

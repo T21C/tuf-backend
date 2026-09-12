@@ -243,8 +243,12 @@ class TagAssignmentService {
             tagsToAssign.push({ tagName: dlcTagsMap.containsDLC, groupName: groupNameMap.dlc });
         }
 
-        // Auto Tile tag (derive from the counter; the boolean flag is unreliable)
-        if (typeof analysis?.autoTileCount === 'number' && analysis.autoTileCount > 0) {
+        // Auto Tile tag: count excludes midspins (subtracted separately from tilecount),
+        // so also honor autoTile for ranges that only cover 999° tiles.
+        if (
+            analysis?.autoTile === true
+            || (typeof analysis?.autoTileCount === 'number' && analysis.autoTileCount > 0)
+        ) {
             tagsToAssign.push({ tagName: miscTagsMap.autoTile, groupName: groupNameMap.misc });
         }
 

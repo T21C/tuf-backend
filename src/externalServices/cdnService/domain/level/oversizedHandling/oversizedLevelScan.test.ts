@@ -35,6 +35,7 @@ function chart(opts?: {
 void test('counts finite angleData numbers including midspins', () => {
   const r = scanJson5LevelText(chart());
   assert.equal(r.tilecount, 10);
+  assert.equal(r.midspinCount, 9);
   assert.equal(r.settings.bpm, 128);
   assert.equal(r.settings.offset, 12);
   assert.equal(r.settings.songFilename, 'track.ogg');
@@ -46,6 +47,7 @@ void test('counts finite angleData numbers including midspins', () => {
 void test('counts decimals and does not drop 999 midspins', () => {
   const r = scanJson5LevelText(chart({angles: '[0, 999, 157.5, -180, 999]'}));
   assert.equal(r.tilecount, 5);
+  assert.equal(r.midspinCount, 2);
 });
 
 void test('JSON5: comments, trailing commas, single quotes, unquoted keys', () => {
@@ -63,6 +65,7 @@ void test('JSON5: comments, trailing commas, single quotes, unquoted keys', () =
   }`;
   const r = scanJson5LevelText(text);
   assert.equal(r.tilecount, 3);
+  assert.equal(r.midspinCount, 1);
   assert.equal(r.settings.bpm, 100);
   assert.equal(r.settings.songFilename, 'a.ogg');
 });
@@ -105,6 +108,7 @@ void test('settings can appear before angleData', () => {
   }`;
   const r = scanJson5LevelText(text);
   assert.equal(r.tilecount, 3);
+  assert.equal(r.midspinCount, 0);
   assert.equal(r.settings.bpm, 90);
 });
 
@@ -115,12 +119,14 @@ void test('pathData string length is used when angleData is absent', () => {
   }`;
   const r = scanJson5LevelText(text);
   assert.equal(r.tilecount, 4);
+  assert.equal(r.midspinCount, 1);
   assert.equal(r.settings.bpm, 100);
 });
 
 void test('empty angleData is a valid zero tile source', () => {
   const r = scanJson5LevelText(chart({angles: '[]'}));
   assert.equal(r.tilecount, 0);
+  assert.equal(r.midspinCount, 0);
   assert.equal(r.settings.bpm, 128);
 });
 
@@ -138,6 +144,7 @@ void test('scanOversizedLevelFile reads from disk and stops after settings', asy
     );
     const r = await scanOversizedLevelFile(file);
     assert.equal(r.tilecount, 10);
+    assert.equal(r.midspinCount, 9);
     assert.equal(r.settings.songFilename, 'track.ogg');
   } finally {
     fs.rmSync(dir, {recursive: true, force: true});

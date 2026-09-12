@@ -14,7 +14,7 @@ export const SAFE_TO_PARSE_VERSION = 4;
  *
  * This invalidates ONLY the analysis cache, not tilecount/settings.
  */
-export const ANALYSIS_FORMAT_VERSION = 6;
+export const ANALYSIS_FORMAT_VERSION = 7;
 
 /**
  * Analysis object keys that must be present on a fully populated cache entry
@@ -25,6 +25,7 @@ export const REQUIRED_ANALYSIS_KEYS = [
     'dlcEvents',
     'autoTile',
     'autoTileCount',
+    'midspinCount',
     'canDecorationsKill',
     'isJudgementLimited',
     'levelLengthInMs',
@@ -40,6 +41,7 @@ export interface AnalysisCacheData {
     dlcEvents?: string[];
     autoTile?: boolean;
     autoTileCount?: number;
+    midspinCount?: number;
     canDecorationsKill?: boolean;
     isJudgementLimited?: boolean;
     levelLengthInMs?: number;

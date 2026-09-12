@@ -1,6 +1,6 @@
 /**
  * Rebuild `cdn_files.cacheData` for each level's zip (like a fresh parse), then sync
- * `levels.bpm`, `tilecount`, `levelLengthInMs`, and `autoTileCount` from cache (`refresh` + DB + ES).
+ * `levels.bpm`, `tilecount`, `levelLengthInMs`, `autoTileCount`, and `midspinCount` from cache (`refresh` + DB + ES).
  *
  * Use after parsing changes, target-level fixes, or when denormalized stats drift.
  *
@@ -21,47 +21,13 @@ import Level from '@/models/levels/Level.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { isCdnUrl } from '@/misc/utils/Utility.js';
-import { applyLevelChartStatsFromCdn, invalidateLevelCaches } from '@/misc/utils/data/levelChartStatsSync.js';
-import cdnService from '@/server/services/core/CdnService.js';
-import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import { rebuildCdnCacheAndApplyLevelChartStats } from '@/misc/utils/data/levelChartStatsSync.js';
 import { initializeAssociations } from '@/models/associations.js';
 
 initializeAssociations()
 
-const elasticsearchService = ElasticsearchService.getInstance();
-
 const levelsSequelize = getSequelizeForModelGroup('levels');
 const cdnSequelize = getSequelizeForModelGroup('cdn');
-
-/** CDN refresh + DB/ES sync; falls back to `applyLevelChartStatsFromCdn` if refresh fails. */
-async function rebuildCdnCacheAndApplyLevelChartStats(levelId: number): Promise<void> {
-  const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink', 'fileId'] });
-  if (!level) {
-    return;
-  }
-
-  if (!level.dlLink || !isCdnUrl(level.dlLink)) {
-    await applyLevelChartStatsFromCdn(levelId);
-    return;
-  }
-
-  const fileId = level.fileId ?? null;
-  if (!fileId) {
-    await applyLevelChartStatsFromCdn(levelId);
-    return;
-  }
-
-  try {
-    const { bpm, tilecount, levelLengthInMs, autoTileCount } =
-      await cdnService.refreshLevelChartCacheAndGetStats(fileId);
-    await Level.update({ bpm, tilecount, levelLengthInMs, autoTileCount }, { where: { id: levelId } });
-    await elasticsearchService.indexLevel(levelId);
-    // Always clear Redis directly; do not rely on CDC (no binlog row event when values are unchanged).
-    await invalidateLevelCaches(levelId);
-  } catch {
-    await applyLevelChartStatsFromCdn(levelId);
-  }
-}
 
 async function mapWithConcurrency<T>(
   items: readonly T[],
@@ -181,7 +147,7 @@ const program = new Command();
 
 program
   .name('sync-level-chart-stats-from-cdn')
-  .description('Rebuild CDN level zip cache and sync bpm/tilecount/levelLengthInMs/autoTileCount on level rows')
+  .description('Rebuild CDN level zip cache and sync bpm/tilecount/levelLengthInMs/autoTileCount/midspinCount on level rows')
   .option('-d, --dry-run', 'List levels that would be processed', false)
   .option('--level-id <id>', 'Single level id', (v) => parseInt(v, 10))
   .option('-l, --limit <n>', 'Max number of CDN-linked levels to process', (v) => parseInt(v, 10))

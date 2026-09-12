@@ -5,6 +5,7 @@ import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchS
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { EMPTY_LEVEL_CHART_STATS, type LevelChartStats } from './chartCacheParse.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
@@ -36,7 +37,7 @@ export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void
   const fileId = level.fileId ?? null;
   if (!level.dlLink || !isCdnUrl(level.dlLink) || !fileId) {
     await Level.update(
-      { bpm: null, tilecount: null, levelLengthInMs: null, autoTileCount: null },
+      { bpm: null, tilecount: null, levelLengthInMs: null, autoTileCount: null, midspinCount: null },
       { where: { id: levelId }, hooks: false },
     );
     await elasticsearchService.indexLevel(levelId);
@@ -44,11 +45,51 @@ export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void
     return;
   }
 
-  const { bpm, tilecount, levelLengthInMs, autoTileCount } = await cdnService.getLevelChartStats(fileId);
+  const { bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount } = await cdnService.getLevelChartStats(fileId);
   await Level.update(
-    { bpm, tilecount, levelLengthInMs, autoTileCount },
+    { bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount },
     { where: { id: levelId }, hooks: false },
   );
   await elasticsearchService.indexLevel(levelId);
   await invalidateLevelCaches(levelId);
+}
+
+/**
+ * Rebuild CDN zip analysis cache, then copy denormalized chart fields onto the level row and reindex ES.
+ * Falls back to reading the existing cache if refresh fails.
+ */
+export async function rebuildCdnCacheAndApplyLevelChartStats(levelId: number): Promise<LevelChartStats | null> {
+  const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink', 'fileId'] });
+  if (!level) {
+    return null;
+  }
+
+  if (!level.dlLink || !isCdnUrl(level.dlLink)) {
+    await applyLevelChartStatsFromCdn(levelId);
+    return { ...EMPTY_LEVEL_CHART_STATS };
+  }
+
+  const fileId = level.fileId ?? null;
+  if (!fileId) {
+    await applyLevelChartStatsFromCdn(levelId);
+    return { ...EMPTY_LEVEL_CHART_STATS };
+  }
+
+  try {
+    const { bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount } =
+      await cdnService.refreshLevelChartCacheAndGetStats(fileId);
+    await Level.update(
+      { bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount },
+      { where: { id: levelId }, hooks: false },
+    );
+    await elasticsearchService.indexLevel(levelId);
+    await invalidateLevelCaches(levelId);
+    return { bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount };
+  } catch (error) {
+    logger.warn(`CDN chart cache refresh failed for level ${levelId}; falling back to existing cache`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    await applyLevelChartStatsFromCdn(levelId);
+    return null;
+  }
 }

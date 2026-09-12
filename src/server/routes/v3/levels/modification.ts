@@ -11,6 +11,7 @@ import {
   handlePostLevelZipUpload,
   handlePostLevelZipUploadFromUrl,
   handlePostLevelSelectLevel,
+  handlePostLevelReparseChart,
   handleDeleteLevelZipUpload,
 } from '@/server/domain/levels/levelZipUploadHandlers.js';
 
@@ -117,6 +118,28 @@ router.post(
   }),
   (req: Request, res: Response) => {
     void handlePostLevelSelectLevel(req, res);
+  },
+);
+
+router.post(
+  '/:id([0-9]{1,20})/reparse-chart',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'v3PostLevelReparseChart',
+    summary: 'Reparse chart cache',
+    description:
+      'Clear and rebuild the CDN chart cache for the current target file, then sync denormalized stats and auto tags. Creator or super admin. Does not change the target file.',
+    tags: ['Database', 'Levels', 'v3'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: {
+      200: { description: 'Chart reparsed' },
+      400: { schema: errorResponseSchema },
+      ...standardErrorResponses403404500,
+    },
+  }),
+  (req: Request, res: Response) => {
+    void handlePostLevelReparseChart(req, res);
   },
 );
 

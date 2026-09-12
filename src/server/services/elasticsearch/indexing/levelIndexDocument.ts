@@ -102,12 +102,17 @@ export function buildLevelIndexDocument(level: Level): any {
     typeof l.autoTileCount === 'number' && Number.isFinite(l.autoTileCount)
       ? Math.floor(l.autoTileCount)
       : null;
+  const midspinCount =
+    typeof l.midspinCount === 'number' && Number.isFinite(l.midspinCount)
+      ? Math.floor(l.midspinCount)
+      : null;
 
   const {
     bpm: _bpmCol,
     tilecount: _tileCol,
     levelLengthInMs: _levelLengthCol,
     autoTileCount: _autoTileCountCol,
+    midspinCount: _midspinCountCol,
     ...levelRest
   } = l as any;
 
@@ -117,6 +122,7 @@ export function buildLevelIndexDocument(level: Level): any {
     tilecount,
     levelLengthInMs,
     autoTileCount,
+    midspinCount,
     song: pua(legacySongForIndex),
     artist: pua(l.artist),
     songId: l.songId || null,

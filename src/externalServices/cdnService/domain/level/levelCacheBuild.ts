@@ -22,6 +22,7 @@ export function buildFullAnalysis(parsedLevelData: LevelDict, protectedEventType
         dlcEvents: analysisUtils.getDLCEvents(parsedLevelData),
         autoTile: analysisUtils.hasAutoTiles(parsedLevelData),
         autoTileCount: analysisUtils.getAutoTileCount(parsedLevelData),
+        midspinCount: analysisUtils.getMidspinCount(parsedLevelData),
         canDecorationsKill: analysisUtils.canDecorationsKill(parsedLevelData),
         isJudgementLimited: analysisUtils.isJudgementLimited(parsedLevelData),
         levelLengthInMs: analysisUtils.getLevelLengthInMs(parsedLevelData),

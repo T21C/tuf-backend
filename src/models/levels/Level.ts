@@ -85,6 +85,7 @@ class Level
   declare bpm: number | null;
   declare tilecount: number | null;
   declare autoTileCount: number | null;
+  declare midspinCount: number | null;
   declare levelLengthInMs: number | null;
   /** Per-level xacc curve configuration + pins (null = site defaults). */
   declare xaccCurveMeta: unknown | null;
@@ -241,6 +242,11 @@ Level.init(
       defaultValue: null,
     },
     autoTileCount: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+    },
+    midspinCount: {
       type: DataTypes.INTEGER,
       allowNull: true,
       defaultValue: null,
