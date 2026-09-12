@@ -5,6 +5,7 @@
 
 export type LevelChartStats = {
   bpm: number | null;
+  /** In-game tilecount: path length minus midspins. */
   tilecount: number | null;
   levelLengthInMs: number | null;
   autoTileCount: number | null;

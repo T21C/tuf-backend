@@ -297,7 +297,8 @@ export async function analyzeLevelPackArchive(
             }
 
             const tilecountOverLimit =
-                scanned !== null && scanned.tilecount > MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE;
+                scanned !== null &&
+                scanned.tilecount + scanned.midspinCount > MAX_LEVEL_TILECOUNT_FOR_FULL_PARSE;
             const skipLevelDict = tooLargeToParse || tilecountOverLimit;
 
             if (skipLevelDict) {

@@ -1,6 +1,7 @@
 import JSON5 from 'json5';
 
 export type OversizedLevelBasics = {
+  /** In-game tilecount: path length minus midspins (999°). */
   tilecount: number;
   midspinCount: number;
   settings: {
@@ -129,11 +130,11 @@ function extractSettingsLoose(raw: string, settings: OversizedLevelBasics['setti
 /**
  * Streaming JSON5 walker for oversized `.adofai` files.
  *
- * Counts finite numbers in top-level `angleData` (or `pathData` length), 999°
- * midspins (or `!` in `pathData`), and reads `settings` without materializing the
- * rest of the document. Stops as soon as both a tile source and `settings` are
- * complete so later illegal JSON (control chars in comments, huge decorations,
- * trailing garbage) is never parsed.
+ * Internally counts finite `angleData` numbers (or `pathData` length) and 999° /
+ * `!` midspins, then `result().tilecount` is that length minus midspins.
+ * Reads `settings` without materializing the rest of the document. Stops as soon
+ * as both a tile source and `settings` are complete so later illegal JSON
+ * (control chars in comments, huge decorations, trailing garbage) is never parsed.
  */
 export class Json5LevelScanner {
   tilecount = 0;
@@ -171,7 +172,11 @@ export class Json5LevelScanner {
   private settingsDepth = 0;
 
   result(): OversizedLevelBasics {
-    return {tilecount: this.tilecount, midspinCount: this.midspinCount, settings: this.settings};
+    return {
+      tilecount: Math.max(this.tilecount - this.midspinCount, 0),
+      midspinCount: this.midspinCount,
+      settings: this.settings,
+    };
   }
 
   feed(chunk: string, eof: boolean): void {

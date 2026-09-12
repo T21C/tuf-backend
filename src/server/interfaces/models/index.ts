@@ -101,7 +101,7 @@ export interface ILevel extends IBaseModel {
   suffix?: string | null;
   /** Chart BPM from CDN cache (denormalized). */
   bpm?: number | null;
-  /** Tile count from CDN cache (denormalized). */
+  /** In-game tilecount from CDN cache: path length minus midspins (denormalized). */
   tilecount?: number | null;
   /** Auto tile count from CDN cache `analysis.autoTileCount` (denormalized). */
   autoTileCount?: number | null;
