@@ -30,6 +30,9 @@ export function buildPassIndexDocument(pass: Pass): any {
 
   return {
     ...p,
+    adofaiVersion: Number(p.adofaiVersion) || 2,
+    isXPerfectMode: !!p.isXPerfectMode,
+    passMetaFlags: Number(p.passMetaFlags) || 0,
     vidTitle: puaOrNull(p.vidTitle),
     videoLink: puaOrNull(p.videoLink),
     player: p.player
@@ -56,6 +59,13 @@ export function buildPassIndexDocument(pass: Pass): any {
               alias: pua((row as any).alias),
             };
           }),
+        }
+      : null,
+    judgements: p.judgements
+      ? {
+          ...plainRow(p.judgements as object),
+          perfectMinus: Number((p.judgements as {perfectMinus?: unknown}).perfectMinus) || 0,
+          perfectPlus: Number((p.judgements as {perfectPlus?: unknown}).perfectPlus) || 0,
         }
       : null,
   };

@@ -1,16 +1,8 @@
-import { IJudgements } from './CalcAcc.js';
+import { IJudgements, JUDGEMENT_KEYS, emptyJudgements } from './CalcAcc.js';
 
 export const MAX_JUDGEMENT_VALUE = 2147483647;
 
-const JUDGEMENT_KEYS: Array<keyof IJudgements> = [
-  'earlyDouble',
-  'earlySingle',
-  'ePerfect',
-  'perfect',
-  'lPerfect',
-  'lateSingle',
-  'lateDouble',
-];
+export { JUDGEMENT_KEYS };
 
 export function sanitizeJudgementInt(
   input: unknown,
@@ -26,11 +18,9 @@ export function sanitizeJudgements(
   max: number = MAX_JUDGEMENT_VALUE,
 ): IJudgements {
   const obj = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
-
-  const out: Partial<IJudgements> = {};
+  const out = emptyJudgements();
   for (const key of JUDGEMENT_KEYS) {
     out[key] = sanitizeJudgementInt(obj[key], max);
   }
-  return out as IJudgements;
+  return out;
 }
-

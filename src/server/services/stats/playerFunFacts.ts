@@ -53,7 +53,9 @@ export async function computePlayerFunFacts(
       earlyDouble: 0,
       earlySingle: 0,
       ePerfect: 0,
+      perfectMinus: 0,
       perfect: 0,
+      perfectPlus: 0,
       lPerfect: 0,
       lateSingle: 0,
       lateDouble: 0,
@@ -126,12 +128,14 @@ export async function computePlayerFunFacts(
       COALESCE(SUM(j.earlyDouble), 0) AS earlyDouble,
       COALESCE(SUM(j.earlySingle), 0) AS earlySingle,
       COALESCE(SUM(j.ePerfect), 0) AS ePerfect,
+      COALESCE(SUM(j.perfectMinus), 0) AS perfectMinus,
       COALESCE(SUM(j.perfect), 0) AS perfect,
+      COALESCE(SUM(j.perfectPlus), 0) AS perfectPlus,
       COALESCE(SUM(j.lPerfect), 0) AS lPerfect,
       COALESCE(SUM(j.lateSingle), 0) AS lateSingle,
       COALESCE(SUM(j.lateDouble), 0) AS lateDouble,
       COALESCE(SUM(
-        j.earlyDouble + j.earlySingle + j.ePerfect + j.perfect + j.lPerfect + j.lateSingle + j.lateDouble
+        j.earlyDouble + j.earlySingle + j.ePerfect + IFNULL(j.perfectMinus, 0) + j.perfect + IFNULL(j.perfectPlus, 0) + j.lPerfect + j.lateSingle + j.lateDouble
       ), 0) AS totalTilesHit,
       COALESCE(SUM(IFNULL(l.tilecount, 0)), 0) AS totalTilecountCleared,
       COALESCE(SUM(
@@ -306,12 +310,14 @@ export async function computePlayerFunFacts(
   const totalTilesHit = Number(m.totalTilesHit) || 0;
   const earlyDouble = Number(m.earlyDouble) || 0;
   const earlySingle = Number(m.earlySingle) || 0;
+  const perfectMinus = Number(m.perfectMinus) || 0;
   const perfect = Number(m.perfect) || 0;
+  const perfectPlus = Number(m.perfectPlus) || 0;
   const lateSingle = Number(m.lateSingle) || 0;
   const lateDouble = Number(m.lateDouble) || 0;
   const ratios = deriveJudgementRatios({
     totalTilesHit,
-    perfect,
+    perfect: perfect + perfectMinus + perfectPlus,
     earlyDouble,
     earlySingle,
     lateSingle,
@@ -395,7 +401,9 @@ export async function computePlayerFunFacts(
       earlyDouble,
       earlySingle,
       ePerfect: Number(m.ePerfect) || 0,
+      perfectMinus,
       perfect,
+      perfectPlus,
       lPerfect: Number(m.lPerfect) || 0,
       lateSingle,
       lateDouble,

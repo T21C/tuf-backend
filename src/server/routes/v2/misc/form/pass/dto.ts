@@ -9,6 +9,8 @@ import {
   MYSQL_INT_MAX,
   MAX_PASS_KEY_COUNT,
 } from '@/misc/utils/pass/keyCount.js';
+import { resolveSubmitAdofaiVersion } from '@/misc/utils/pass/passEraApply.js';
+import type { AdofaiVersion } from '@/misc/utils/pass/adofaiVersion.js';
 
 export interface PassFormSanitised {
   levelId: number;
@@ -26,6 +28,8 @@ export interface PassFormSanitised {
   isNoHoldTap: boolean;
   is16K: boolean;
   isAdofaiV2: boolean;
+  adofaiVersion: AdofaiVersion;
+  isXPerfectMode: boolean;
   judgements: ReturnType<typeof sanitizeJudgements>;
 }
 
@@ -102,7 +106,9 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
   const { is12K, is16K } = deriveKeyFlags(keyCount);
 
   const isNoHoldTap = asBool(body.isNoHoldTap);
-  const isAdofaiV2 = asBool(body.isAdofaiV2);
+  const adofaiVersion = resolveSubmitAdofaiVersion(body);
+  const isAdofaiV2 = adofaiVersion === 1;
+  const isXPerfectMode = asBool(body.isXPerfectMode);
   const passerRequest = asBool(body.passerRequest);
   const expectedDifficulty = optionalSanitizedText(body, 'expectedDifficulty');
 
@@ -129,6 +135,8 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
     isNoHoldTap,
     is16K,
     isAdofaiV2,
+    adofaiVersion,
+    isXPerfectMode,
     judgements,
   };
 }

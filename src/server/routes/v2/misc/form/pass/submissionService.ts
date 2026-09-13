@@ -31,6 +31,7 @@ import { formError } from '../shared/errors.js';
 import { assertPassKeyCountForDifficulty, MAX_PASS_KEY_COUNT } from '@/misc/utils/pass/keyCount.js';
 import { parseAndSanitizePassForm, type PassFormSanitised } from './dto.js';
 import { applyResolvedVideoLinkToPayload } from '../shared/videoUrl.js';
+import { preparePassJudgementsForPersist } from '@/misc/utils/pass/passEraApply.js';
 
 export interface CreatePassSubmissionInput {
   req: Request;
@@ -71,10 +72,17 @@ export async function createPassSubmission(
         { field: 'keyCount' },
       );
     }
-    await assertNoDuplicatePassSubmission(sanitized, transaction);
-    await assertNoDuplicatePass(sanitized, transaction);
+    const prepared = preparePassJudgementsForPersist({
+      judgements: sanitized.judgements,
+      adofaiVersion: sanitized.adofaiVersion,
+      isXPerfectMode: sanitized.isXPerfectMode,
+      passMetaFlags: 0,
+      midspinCount: (level as { midspinCount?: unknown }).midspinCount,
+    });
+    await assertNoDuplicatePassSubmission(sanitized, prepared, transaction);
+    await assertNoDuplicatePass(sanitized, prepared, transaction);
 
-    const { score, accuracy } = computeScoreAndAccuracy(sanitized, level);
+    const { score, accuracy } = computeScoreAndAccuracy(sanitized, prepared.judgements, level);
     if (!Number.isFinite(score) || !Number.isFinite(accuracy)) {
       throw formError.bad('Computed score/accuracy is not a finite number', {
         details: { score, accuracy, levelId: sanitized.levelId },
@@ -105,7 +113,7 @@ export async function createPassSubmission(
 
     await PassSubmissionJudgements.create(
       {
-        ...sanitized.judgements,
+        ...prepared.judgements,
         passSubmissionId: submission.id,
       },
       { transaction },
@@ -117,7 +125,10 @@ export async function createPassSubmission(
         is12K: sanitized.is12K,
         isNoHoldTap: sanitized.isNoHoldTap,
         is16K: sanitized.is16K,
-        isAdofaiV2: sanitized.isAdofaiV2,
+        isAdofaiV2: prepared.isAdofaiV2,
+        adofaiVersion: sanitized.adofaiVersion,
+        isXPerfectMode: prepared.isXPerfectMode,
+        passMetaFlags: prepared.passMetaFlagsDb,
       },
       { transaction },
     );
@@ -168,7 +179,7 @@ export async function createPassSubmission(
     transaction = undefined;
 
     try {
-      await passSubmissionHook(passObj, sanitized.judgements);
+      await passSubmissionHook(passObj, prepared.judgements);
     } catch (hookError) {
       logger.warn('passSubmissionHook failed:', hookError);
     }
@@ -212,6 +223,7 @@ async function loadLevelOr404(levelId: number, transaction: Transaction): Promis
 
 async function assertNoDuplicatePassSubmission(
   sanitized: PassFormSanitised,
+  prepared: ReturnType<typeof preparePassJudgementsForPersist>,
   transaction: Transaction,
 ): Promise<void> {
   const existingSubmission = await PassSubmission.findOne({
@@ -232,7 +244,7 @@ async function assertNoDuplicatePassSubmission(
   const existingJudgements = await PassSubmissionJudgements.findOne({
     where: {
       passSubmissionId: existingSubmission.id,
-      ...sanitized.judgements,
+      ...prepared.judgements,
     },
     transaction,
   });
@@ -242,7 +254,9 @@ async function assertNoDuplicatePassSubmission(
       is12K: sanitized.is12K,
       isNoHoldTap: sanitized.isNoHoldTap,
       is16K: sanitized.is16K,
-      isAdofaiV2: sanitized.isAdofaiV2,
+      isAdofaiV2: prepared.isAdofaiV2,
+      adofaiVersion: sanitized.adofaiVersion,
+      isXPerfectMode: prepared.isXPerfectMode,
     },
     transaction,
   });
@@ -259,10 +273,11 @@ async function assertNoDuplicatePassSubmission(
 
 async function assertNoDuplicatePass(
   sanitized: PassFormSanitised,
+  prepared: ReturnType<typeof preparePassJudgementsForPersist>,
   transaction: Transaction,
 ): Promise<void> {
   const existingJudgement = await Judgement.findOne({
-    where: { ...sanitized.judgements },
+    where: { ...prepared.judgements },
     transaction,
   });
   if (!existingJudgement) return;
@@ -276,7 +291,9 @@ async function assertNoDuplicatePass(
       is12K: sanitized.is12K,
       isNoHoldTap: sanitized.isNoHoldTap,
       is16K: sanitized.is16K,
-      isAdofaiV2: sanitized.isAdofaiV2,
+      isAdofaiV2: prepared.isAdofaiV2,
+      adofaiVersion: sanitized.adofaiVersion,
+      isXPerfectMode: prepared.isXPerfectMode,
     },
     transaction,
   });
@@ -297,13 +314,14 @@ async function assertNoDuplicatePass(
 
 function computeScoreAndAccuracy(
   sanitized: PassFormSanitised,
+  judgements: PassFormSanitised['judgements'],
   level: Level,
 ): { score: number; accuracy: number } {
   try {
     const { scoreV2, accuracy } = computePassScoreV2(
       {
         speed: sanitized.speed,
-        judgements: sanitized.judgements,
+        judgements,
         isNoHoldTap: sanitized.isNoHoldTap,
       },
       level,
@@ -313,7 +331,7 @@ function computeScoreAndAccuracy(
     if (err instanceof PassScoreCalculationError) {
       throw formError.bad(err.message, {
         details: {
-          judgements: sanitized.judgements,
+          judgements,
           speed: sanitized.speed,
           levelId: sanitized.levelId,
         },

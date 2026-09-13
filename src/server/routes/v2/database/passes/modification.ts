@@ -12,12 +12,14 @@ import sequelize from '@/config/db.js';
 import { updateWorldsFirstFlags, updateWorldsFirstPPStatus } from './index.js';
 import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
 import { optionalReasonFromBody } from '@/server/routes/v2/misc/form/shared/sanitize.js';
-import { IJudgements } from '@/misc/utils/pass/CalcAcc.js';
+import { IJudgements, unwrapJudgements } from '@/misc/utils/pass/CalcAcc.js';
 import {
   computePassScoreV2,
   PassScoreCalculationError,
 } from '@/misc/utils/pass/scoreService.js';
 import { sanitizeJudgements } from '@/misc/utils/pass/SanitizeJudgements.js';
+import { parseAdofaiVersion } from '@/misc/utils/pass/adofaiVersion.js';
+import { preparePassJudgementsForPersist } from '@/misc/utils/pass/passEraApply.js';
 import { deriveKeyFlags, normalizeKeyCount } from '@/misc/utils/pass/keyCount.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { User } from '@/models/index.js';
@@ -46,7 +48,7 @@ router.put(
   ApiDoc({
     operationId: 'updatePass',
     summary: 'Update pass',
-    description: 'Update a pass by ID (super admin). Body: levelId, vidUploadTime, speed, feelingRating, vidTitle, videoLink, is12K, is16K, isNoHoldTap, accuracy, scoreV2, isDeleted, judgements, playerId, isAnnounced, isDuplicate, isAdofaiV2. Recalculates accuracy/score when judgements provided.',
+    description: 'Update a pass by ID (super admin). Body: levelId, vidUploadTime, speed, feelingRating, vidTitle, videoLink, is12K, is16K, isNoHoldTap, accuracy, scoreV2, isDeleted, judgements, playerId, isAnnounced, isDuplicate, isAdofaiV2, adofaiVersion, isXPerfectMode. Recalculates accuracy/score when judgements or era/X-Perfect fields provided.',
     tags: ['Passes'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
@@ -78,6 +80,8 @@ router.put(
         isAnnounced,
         isDuplicate,
         isAdofaiV2,
+        adofaiVersion,
+        isXPerfectMode,
       } = req.body;
 
 
@@ -163,22 +167,41 @@ router.put(
         }
       }
 
-      // Update judgements if provided
-      
-      if (judgements) {
-        const updatedJudgements: IJudgements = sanitizeJudgements(judgements);
-        logger.debug('updatedJudgements', updatedJudgements);
+      const resolvedAdofaiVersion =
+        adofaiVersion !== undefined
+          ? parseAdofaiVersion(adofaiVersion)
+          : isAdofaiV2 !== undefined
+            ? (isAdofaiV2 ? 1 : parseAdofaiVersion(pass.adofaiVersion) === 1 ? 2 : parseAdofaiVersion(pass.adofaiVersion))
+            : parseAdofaiVersion(pass.adofaiVersion);
+      const resolvedXPerfectMode =
+        isXPerfectMode !== undefined ? !!isXPerfectMode : !!pass.isXPerfectMode;
+      const shouldRecalcJudgements =
+        !!judgements ||
+        adofaiVersion !== undefined ||
+        isXPerfectMode !== undefined ||
+        isAdofaiV2 !== undefined;
+
+      if (shouldRecalcJudgements) {
+        const rawJudgements: IJudgements = judgements
+          ? sanitizeJudgements(judgements)
+          : unwrapJudgements(pass.judgements);
+        const levelData = newLevel || pass.level;
+        const prepared = preparePassJudgementsForPersist({
+          judgements: rawJudgements,
+          adofaiVersion: resolvedAdofaiVersion,
+          isXPerfectMode: resolvedXPerfectMode,
+          passMetaFlags: pass.passMetaFlags,
+          midspinCount: (levelData as { midspinCount?: unknown } | null)?.midspinCount,
+        });
+        logger.debug('updatedJudgements', prepared.judgements);
 
         await Judgement.update(
-          { ...updatedJudgements },
+          { ...prepared.judgements },
           {
             where: { id: parseInt(id) },
             transaction,
           },
         );
-
-
-        const levelData = newLevel || pass.level;
 
         if (!levelData || !levelData.difficulty) {
           await safeTransactionRollback(transaction);
@@ -194,7 +217,7 @@ router.put(
             computePassScoreV2(
               {
                 speed: speed || pass.speed || 1.0,
-                judgements: updatedJudgements,
+                judgements: prepared.judgements,
                 isNoHoldTap:
                   isNoHoldTap !== undefined
                     ? isNoHoldTap
@@ -210,7 +233,6 @@ router.put(
           throw err;
         }
 
-        // Update pass with all fields including isDuplicate
         await pass.update(
           {
             levelId: levelId || pass.levelId,
@@ -247,12 +269,14 @@ router.put(
             playerId: playerId || pass.playerId,
             isAnnounced: isAnnounced !== undefined ? isAnnounced : pass.isAnnounced,
             isDuplicate: isDuplicate !== undefined ? isDuplicate : pass.isDuplicate,
-            isAdofaiV2: isAdofaiV2 !== undefined ? isAdofaiV2 : pass.isAdofaiV2,
+            isAdofaiV2: prepared.isAdofaiV2,
+            adofaiVersion: resolvedAdofaiVersion,
+            isXPerfectMode: prepared.isXPerfectMode,
+            passMetaFlags: prepared.passMetaFlagsDb,
           },
           {transaction},
         );
       } else {
-        // Update pass fields without recalculating
         await pass.update(
           {
             levelId: levelId || pass.levelId,
@@ -296,7 +320,7 @@ router.put(
       }
 
       const wfFieldsChanged = vidUploadTime || levelId !== oldPass.levelId;
-      const ppAccuracyChanged = judgements != null || accuracy !== undefined;
+      const ppAccuracyChanged = shouldRecalcJudgements || accuracy !== undefined;
 
       if (wfFieldsChanged) {
         if (levelId !== oldPass.levelId) {

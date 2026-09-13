@@ -24,6 +24,10 @@ import {getVideoDetails} from '@/misc/utils/data/videoDetailParser.js';
 import { getPrimaryVideoLink } from '@/misc/utils/data/videoLinkParts.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import {calcAcc, IJudgements} from '@/misc/utils/pass/CalcAcc.js';
+import {
+  adofaiEraWebhookLabel,
+  formatJudgementAnsi,
+} from '@/misc/utils/pass/judgementAnsi.js';
 import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import {
@@ -737,16 +741,22 @@ export async function passSubmissionHook(
 
   const levelLink = `${clientUrlEnv}/levels/${level?.id}`;
 
+  const eraLabel = adofaiEraWebhookLabel(pass.flags?.adofaiVersion ?? (pass.flags?.isAdofaiV2 ? 1 : null));
   const showAddInfo =
-    pass.flags?.is12K || pass.flags?.is16K || pass.flags?.isNoHoldTap || pass.flags?.isAdofaiV2;
+    pass.flags?.is12K ||
+    pass.flags?.is16K ||
+    pass.flags?.isNoHoldTap ||
+    eraLabel ||
+    pass.flags?.isXPerfectMode;
   const additionalInfo = (
     `${pass.flags?.is12K ? '12K  |  ' : ''}` +
     `${pass.flags?.is16K ? '16K  |  ' : ''}` +
     `${pass.flags?.isNoHoldTap ? 'Alt. Hold Option  |  ' : ''}` +
-    `${pass.flags?.isAdofaiV2 ? 'ADOFAI v2  |  ' : ''}`
+    `${eraLabel ? `${eraLabel}  |  ` : ''}` +
+    `${pass.flags?.isXPerfectMode ? 'X-Perfect  |  ' : ''}`
   ).replace(/\|\s*$/, '');
   const judgementLine = sanitizedJudgements
-    ? `\`\`\`ansi\n[2;31m${sanitizedJudgements.earlyDouble}[0m [2;33m${sanitizedJudgements.earlySingle}[0m [2;32m${sanitizedJudgements.ePerfect}[0m [1;32m${sanitizedJudgements.perfect}[0m [2;32m${sanitizedJudgements.lPerfect}[0m [2;33m${sanitizedJudgements.lateSingle}[0m [2;31m${sanitizedJudgements.lateDouble}[0m\n\`\`\`\n`
+    ? formatJudgementAnsi(sanitizedJudgements, pass.flags?.isXPerfectMode)
     : '';
 
   const team = level?.team ? `Level by ${level?.team}` : null;

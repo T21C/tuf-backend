@@ -11,6 +11,7 @@ import Judgement from '@/models/passes/Judgement.js';
 import sequelize from '@/config/db.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { computePassScoreV2 } from '@/misc/utils/pass/scoreService.js';
+import { unwrapJudgements } from '@/misc/utils/pass/CalcAcc.js';
 import { env } from 'process';
 import { logger } from '../core/LoggerService.js';
 import { permissionFlags } from '@/config/constants.js';
@@ -370,18 +371,12 @@ export class ModifierService {
             });
 
             if (level) {
+              const judgements = unwrapJudgements(pass.judgements);
+              judgements.earlyDouble = newEarlyDouble > 0 ? newEarlyDouble : 0;
               const {accuracy: newAccuracy, scoreV2: newScore} = computePassScoreV2(
                 {
                   speed: pass.speed || 1,
-                  judgements: {
-                    earlyDouble: pass.judgements.earlyDouble || 0,
-                    earlySingle: pass.judgements.earlySingle || 0,
-                    ePerfect: pass.judgements.ePerfect || 0,
-                    perfect: pass.judgements.perfect || 0,
-                    lPerfect: pass.judgements.lPerfect || 0,
-                    lateSingle: pass.judgements.lateSingle || 0,
-                    lateDouble: pass.judgements.lateDouble || 0,
-                  },
+                  judgements,
                   isNoHoldTap: pass.isNoHoldTap || false,
                 },
                 level,

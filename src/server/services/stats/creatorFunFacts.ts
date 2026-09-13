@@ -171,7 +171,7 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
       COALESCE(SUM(CASE WHEN p.isWorldsFirst = 1 THEN 1 ELSE 0 END), 0) AS worldsFirstsOnLevels,
       COALESCE(SUM(CASE WHEN p.isWorldsFirstPP = 1 THEN 1 ELSE 0 END), 0) AS worldsFirstPPsOnLevels,
       COALESCE(SUM(
-        j.earlyDouble + j.earlySingle + j.ePerfect + j.perfect + j.lPerfect + j.lateSingle + j.lateDouble
+        j.earlyDouble + j.earlySingle + j.ePerfect + IFNULL(j.perfectMinus, 0) + j.perfect + IFNULL(j.perfectPlus, 0) + j.lPerfect + j.lateSingle + j.lateDouble
       ), 0) AS totalTilesPlayedOnLevels
     FROM passes p
     INNER JOIN judgements j ON j.id = p.id
