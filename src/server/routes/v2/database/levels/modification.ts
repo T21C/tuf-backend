@@ -358,6 +358,7 @@ const handleScoreRecalculations = async (
     playerId: number;
     accuracy: number;
     scoreV2: number;
+    adofaiVersion: number;
   }> = [];
 
   for (const passData of passes) {
@@ -380,6 +381,7 @@ const handleScoreRecalculations = async (
       playerId: pass.playerId,
       accuracy,
       scoreV2,
+      adofaiVersion: pass.adofaiVersion,
     });
   }
 

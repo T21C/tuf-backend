@@ -25,7 +25,7 @@ import Pass from '@/models/passes/Pass.js';
 import Judgement from '@/models/passes/Judgement.js';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
-import {calcAcc, type IJudgements} from '@/misc/utils/pass/CalcAcc.js';
+import {calcAcc, emptyJudgements, type IJudgements} from '@/misc/utils/pass/CalcAcc.js';
 import {computePassScoreV2} from '@/misc/utils/pass/scoreService.js';
 
 initializeAssociations();
@@ -293,15 +293,8 @@ async function runClamp(opts: CliOptions): Promise<void> {
         transaction = await passesSequelize.transaction();
         for (const row of chunk) {
           const tilecountVal = num(row.tilecount);
-          const cleared: IJudgements = {
-            earlyDouble: 0,
-            earlySingle: 0,
-            ePerfect: 0,
-            perfect: tilecountVal,
-            lPerfect: 0,
-            lateSingle: 0,
-            lateDouble: 0,
-          };
+          const cleared: IJudgements = emptyJudgements();
+          cleared.perfect = tilecountVal;
 
           await Judgement.update(cleared, {
             where: {id: row.id},
