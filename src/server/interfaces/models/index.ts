@@ -147,6 +147,9 @@ export interface IPass extends IBaseModel {
   isHidden: boolean | null;
   isDuplicate: boolean | null;
   isAdofaiV2: boolean | null;
+  adofaiVersion: number;
+  passMetaFlags?: bigint | number | string;
+  isXPerfectMode?: boolean;
   createdAt: Date;
   updatedAt: Date;
   level?: ILevel;
@@ -224,7 +227,9 @@ export interface IJudgement extends IBaseModel {
   earlyDouble: number;
   earlySingle: number;
   ePerfect: number;
+  perfectMinus: number;
   perfect: number;
+  perfectPlus: number;
   lPerfect: number;
   lateSingle: number;
   lateDouble: number;
@@ -260,7 +265,9 @@ export interface IPassSubmissionJudgements {
   earlyDouble: number;
   earlySingle: number;
   ePerfect: number;
+  perfectMinus: number;
   perfect: number;
+  perfectPlus: number;
   lPerfect: number;
   lateSingle: number;
   lateDouble: number;
@@ -272,6 +279,9 @@ export interface IPassSubmissionFlags {
   isNoHoldTap: boolean;
   is16K: boolean;
   isAdofaiV2: boolean;
+  adofaiVersion: number;
+  passMetaFlags?: bigint | number | string;
+  isXPerfectMode: boolean;
 }
 
 export interface IPassSubmission extends IBaseModel {

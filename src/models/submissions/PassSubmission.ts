@@ -43,7 +43,9 @@ class PassSubmissionJudgements extends BaseModel {
   declare earlyDouble: number;
   declare earlySingle: number;
   declare ePerfect: number;
+  declare perfectMinus: number;
   declare perfect: number;
+  declare perfectPlus: number;
   declare lPerfect: number;
   declare lateSingle: number;
   declare lateDouble: number;
@@ -56,6 +58,9 @@ class PassSubmissionFlags extends BaseModel {
   declare isNoHoldTap: boolean;
   declare is16K: boolean;
   declare isAdofaiV2: boolean;
+  declare adofaiVersion: number;
+  declare passMetaFlags: bigint | number | string;
+  declare isXPerfectMode: boolean;
 }
 
 PassSubmission.init(
@@ -197,7 +202,15 @@ PassSubmissionJudgements.init(
       type: DataTypes.INTEGER,
       defaultValue: 0,
     },
+    perfectMinus: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
     perfect: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    perfectPlus: {
       type: DataTypes.INTEGER,
       defaultValue: 0,
     },
@@ -250,6 +263,21 @@ PassSubmissionFlags.init(
     },
     isAdofaiV2: {
       type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    adofaiVersion: {
+      type: DataTypes.SMALLINT,
+      allowNull: false,
+      defaultValue: 2,
+    },
+    passMetaFlags: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    isXPerfectMode: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
       defaultValue: false,
     },
   },

@@ -9,6 +9,10 @@ import { OAuthProvider } from '@/models/index.js';
 import { clientUrlEnv } from '@/config/app.config.js';
 import Rating from '@/models/levels/Rating.js';
 import { normalizeKeyCount } from '@/misc/utils/pass/keyCount.js';
+import {
+  adofaiEraWebhookLabel,
+  formatJudgementAnsi,
+} from '@/misc/utils/pass/judgementAnsi.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -194,16 +198,19 @@ export async function createClearEmbed(
           ? '12K'
           : null;
 
+  const eraLabel = adofaiEraWebhookLabel(pass.adofaiVersion ?? (pass.isAdofaiV2 ? 1 : null));
   const showAddInfo =
-    pass.isWorldsFirst || pass.isWorldsFirstPP || keyCountLabel || pass.isNoHoldTap;
+    pass.isWorldsFirst || pass.isWorldsFirstPP || keyCountLabel || pass.isNoHoldTap || eraLabel || pass.isXPerfectMode;
   const additionalInfo = (
     `${pass.isWorldsFirst ? "\u{1F3C6} World's First!  |  " : ''}` +
     `${pass.isWorldsFirstPP ? "\u{1F3C6} World's First PP!  |  " : ''}` +
     `${keyCountLabel ? `${keyCountLabel}  |  ` : ''}` +
-    `${pass.isNoHoldTap ? 'Alt. Hold Option  |  ' : ''}`
+    `${pass.isNoHoldTap ? 'Alt. Hold Option  |  ' : ''}` +
+    `${eraLabel ? `${eraLabel}  |  ` : ''}` +
+    `${pass.isXPerfectMode ? 'X-Perfect  |  ' : ''}`
   ).replace(/\|\s*$/, '');
   const judgementLine = pass.judgements
-    ? `\`\`\`ansi\n[2;31m${pass.judgements.earlyDouble}[0m [2;33m${pass.judgements.earlySingle}[0m [2;32m${pass.judgements.ePerfect}[0m [1;32m${pass.judgements.perfect}[0m [2;32m${pass.judgements.lPerfect}[0m [2;33m${pass.judgements.lateSingle}[0m [2;31m${pass.judgements.lateDouble}[0m\n\`\`\`\n`
+    ? formatJudgementAnsi(pass.judgements, pass.isXPerfectMode)
     : '';
 
   const team = level?.team ? `Level by ${level?.team}` : null;

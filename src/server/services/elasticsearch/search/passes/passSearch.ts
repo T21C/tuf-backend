@@ -23,6 +23,7 @@ import {
   resolveSearchSeed,
   wrapQueryWithSeededRandom,
 } from '@/server/services/elasticsearch/search/tools/seededRandomSort.js';
+import { filterValueToAdofaiVersion } from '@/misc/utils/pass/adofaiVersion.js';
 
 export async function searchPasses(query: string, filters: any = {}, userPlayerId?: number, isSuperAdmin = false): Promise<{ hits: any[], total: number }> {
   try {
@@ -85,6 +86,13 @@ export async function searchPasses(query: string, filters: any = {}, userPlayerI
         case '16k':
           must.push(termField('is16K', true));
           break;
+      }
+    }
+
+    if (filters.adofaiVersionFilter && filters.adofaiVersionFilter !== 'all') {
+      const version = filterValueToAdofaiVersion(String(filters.adofaiVersionFilter));
+      if (version != null) {
+        must.push(termField('adofaiVersion', version));
       }
     }
 

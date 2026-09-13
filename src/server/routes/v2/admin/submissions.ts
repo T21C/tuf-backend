@@ -46,6 +46,10 @@ import {
 } from '@/server/services/creators/creatorSelfAliases.js';
 import submissionSongArtistRoutes from './submissions-song-artist.js';
 import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
+import { unwrapJudgements } from '@/misc/utils/pass/CalcAcc.js';
+import { parseAdofaiVersion } from '@/misc/utils/pass/adofaiVersion.js';
+import { isAdofaiV2FromVersion } from '@/misc/utils/pass/adofaiVersion.js';
+import { preparePassJudgementsForPersist } from '@/misc/utils/pass/passEraApply.js';
 import { SubmissionJobService } from '@/server/services/submissions/SubmissionJobService.js';
 import type { SubmissionAction, SubmissionKind } from '@/server/services/submissions/submissionJobTypes.js';
 import { optionalReasonFromBody } from '@/server/routes/v2/misc/form/shared/sanitize.js';
@@ -281,7 +285,9 @@ const JUDGEMENT_FIELD_KEYS = [
   'earlyDouble',
   'earlySingle',
   'ePerfect',
+  'perfectMinus',
   'perfect',
+  'perfectPlus',
   'lPerfect',
   'lateSingle',
   'lateDouble',
@@ -934,7 +940,9 @@ router.put(
               earlyDouble: { type: 'integer' },
               earlySingle: { type: 'integer' },
               ePerfect: { type: 'integer' },
+              perfectMinus: { type: 'integer' },
               perfect: { type: 'integer' },
+              perfectPlus: { type: 'integer' },
               lPerfect: { type: 'integer' },
               lateSingle: { type: 'integer' },
               lateDouble: { type: 'integer' },
@@ -947,6 +955,8 @@ router.put(
               isNoHoldTap: { type: 'boolean' },
               is16K: { type: 'boolean' },
               isAdofaiV2: { type: 'boolean' },
+              adofaiVersion: { type: 'integer' },
+              isXPerfectMode: { type: 'boolean' },
             },
           },
         },
@@ -1067,7 +1077,14 @@ router.put(
 
       if (hasFlags && body.flags && typeof body.flags === 'object') {
         const f = body.flags;
-        const patch: Partial<{ is12K: boolean; isNoHoldTap: boolean; is16K: boolean; isAdofaiV2: boolean }> = {};
+        const patch: Partial<{
+          is12K: boolean;
+          isNoHoldTap: boolean;
+          is16K: boolean;
+          isAdofaiV2: boolean;
+          adofaiVersion: number;
+          isXPerfectMode: boolean;
+        }> = {};
         if (Object.prototype.hasOwnProperty.call(f, 'is12K')) {
           patch.is12K = f.is12K === true || f.is12K === 'true';
         }
@@ -1077,8 +1094,15 @@ router.put(
         if (Object.prototype.hasOwnProperty.call(f, 'is16K')) {
           patch.is16K = f.is16K === true || f.is16K === 'true';
         }
-        if (Object.prototype.hasOwnProperty.call(f, 'isAdofaiV2')) {
+        if (Object.prototype.hasOwnProperty.call(f, 'adofaiVersion')) {
+          patch.adofaiVersion = parseAdofaiVersion(f.adofaiVersion);
+          patch.isAdofaiV2 = isAdofaiV2FromVersion(patch.adofaiVersion);
+        } else if (Object.prototype.hasOwnProperty.call(f, 'isAdofaiV2')) {
           patch.isAdofaiV2 = f.isAdofaiV2 === true || f.isAdofaiV2 === 'true';
+          patch.adofaiVersion = patch.isAdofaiV2 ? 1 : parseAdofaiVersion(submission.flags.adofaiVersion);
+        }
+        if (Object.prototype.hasOwnProperty.call(f, 'isXPerfectMode')) {
+          patch.isXPerfectMode = f.isXPerfectMode === true || f.isXPerfectMode === 'true';
         }
         if (Object.keys(patch).length > 0) {
           await submission.flags.update(patch, { transaction });
@@ -1103,15 +1127,24 @@ router.put(
           });
         }
 
-        const judgementData = {
-          earlyDouble: judgements.earlyDouble || 0,
-          earlySingle: judgements.earlySingle || 0,
-          ePerfect: judgements.ePerfect || 0,
-          perfect: judgements.perfect || 0,
-          lPerfect: judgements.lPerfect || 0,
-          lateSingle: judgements.lateSingle || 0,
-          lateDouble: judgements.lateDouble || 0,
-        };
+        const prepared = preparePassJudgementsForPersist({
+          judgements: unwrapJudgements(judgements),
+          adofaiVersion: parseAdofaiVersion(flags.adofaiVersion),
+          isXPerfectMode: !!flags.isXPerfectMode,
+          passMetaFlags: flags.passMetaFlags,
+          midspinCount: (level as { midspinCount?: unknown }).midspinCount,
+        });
+        await judgements.update({ ...prepared.judgements }, { transaction });
+        await flags.update(
+          {
+            isAdofaiV2: prepared.isAdofaiV2,
+            isXPerfectMode: prepared.isXPerfectMode,
+            passMetaFlags: prepared.passMetaFlagsDb,
+          },
+          { transaction },
+        );
+
+        const judgementData = prepared.judgements;
 
         const speed = submission.speed ?? 1;
         let accuracy: number;
@@ -1142,7 +1175,7 @@ router.put(
           return res.status(400).json({ error: 'Invalid score — check level and judgements' });
         }
 
-        await submission.update({ scoreV2 }, { transaction });
+        await submission.update({ scoreV2, accuracy }, { transaction });
       }
 
       await submission.reload({

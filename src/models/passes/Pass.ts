@@ -38,6 +38,9 @@ class Pass
   declare isAnnounced: boolean | null;
   declare isDuplicate: boolean | null;
   declare isAdofaiV2: boolean | null;
+  declare adofaiVersion: number;
+  declare passMetaFlags: bigint | number | string;
+  declare isXPerfectMode: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -173,6 +176,23 @@ Pass.init(
       defaultValue: false,
       comment: 'Clear recorded on ADOFAI v2 (pre-v3 release timing)',
     },
+    adofaiVersion: {
+      type: DataTypes.SMALLINT,
+      allowNull: false,
+      defaultValue: 2,
+      comment: 'Frozen ADOFAI era: 1=v2, 2=pre-3.4.0, 3=3.4.0+',
+    },
+    passMetaFlags: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+      comment: 'Processing bitfield; bit0=midspin perfects removed',
+    },
+    isXPerfectMode: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -194,6 +214,7 @@ Pass.init(
       {fields: ['isDeleted']},
       {fields: ['scoreV2']},
       {fields: ['accuracy']},
+      {fields: ['adofaiVersion']},
       //{fields: ['isHidden']},
     ],
   },

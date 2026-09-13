@@ -516,6 +516,9 @@ export const passMapping = {
       isWorldsFirst: { type: 'boolean' as const },
       isWorldsFirstPP: { type: 'boolean' as const },
       isAdofaiV2: { type: 'boolean' as const },
+      adofaiVersion: { type: 'integer' as const },
+      isXPerfectMode: { type: 'boolean' as const },
+      passMetaFlags: { type: 'long' as const },
       player: {
         properties: {
           name: { type: 'text' as const, analyzer: 'custom_text_analyzer' },
@@ -567,7 +570,9 @@ export const passMapping = {
           earlyDouble: { type: 'integer' as const },
           earlySingle: { type: 'integer' as const },
           ePerfect: { type: 'integer' as const },
+          perfectMinus: { type: 'integer' as const },
           perfect: { type: 'integer' as const },
+          perfectPlus: { type: 'integer' as const },
           lPerfect: { type: 'integer' as const },
           lateSingle: { type: 'integer' as const },
           lateDouble: { type: 'integer' as const }

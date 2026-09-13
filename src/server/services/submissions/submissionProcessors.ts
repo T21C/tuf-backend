@@ -16,9 +16,11 @@ import {
   PassScoreCalculationError,
 } from '@/misc/utils/pass/scoreService.js';
 import { deriveKeyFlags, normalizeKeyCount } from '@/misc/utils/pass/keyCount.js';
+import { unwrapJudgements } from '@/misc/utils/pass/CalcAcc.js';
+import { parseAdofaiVersion } from '@/misc/utils/pass/adofaiVersion.js';
+import { preparePassJudgementsForPersist } from '@/misc/utils/pass/passEraApply.js';
 import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
 import { updateWorldsFirstFlags } from '@/server/routes/v2/database/passes/index.js';
-import type { IPassSubmissionJudgements } from '@/server/interfaces/models/index.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import Rating from '@/models/levels/Rating.js';
 import Player from '@/models/players/Player.js';
@@ -574,15 +576,14 @@ async function approvePassSubmission(
   const judgements = submission.judgements;
   const level = submission.level;
   const difficulty = level.difficulty;
-  const judgementData = {
-    earlyDouble: judgements.earlyDouble || 0,
-    earlySingle: judgements.earlySingle || 0,
-    ePerfect: judgements.ePerfect || 0,
-    perfect: judgements.perfect || 0,
-    lPerfect: judgements.lPerfect || 0,
-    lateSingle: judgements.lateSingle || 0,
-    lateDouble: judgements.lateDouble || 0,
-  };
+  const prepared = preparePassJudgementsForPersist({
+    judgements: unwrapJudgements(judgements),
+    adofaiVersion: parseAdofaiVersion(flags.adofaiVersion),
+    isXPerfectMode: !!flags.isXPerfectMode,
+    passMetaFlags: flags.passMetaFlags,
+    midspinCount: (level as { midspinCount?: unknown }).midspinCount,
+  });
+  const judgementData = prepared.judgements;
   const speed = submission.speed || 1;
   let accuracy: number;
   let scoreV2: number;
@@ -590,7 +591,7 @@ async function approvePassSubmission(
     ({ accuracy, scoreV2 } = computePassScoreV2(
       {
         speed,
-        judgements: judgementData as IPassSubmissionJudgements,
+        judgements: judgementData,
         isNoHoldTap: flags.isNoHoldTap || false,
       },
       level,
@@ -621,7 +622,10 @@ async function approvePassSubmission(
     is12K: keyFlags.is12K,
     is16K: keyFlags.is16K,
     isNoHoldTap: flags.isNoHoldTap || false,
-    isAdofaiV2: flags.isAdofaiV2 || false,
+    isAdofaiV2: prepared.isAdofaiV2,
+    adofaiVersion: parseAdofaiVersion(flags.adofaiVersion),
+    isXPerfectMode: prepared.isXPerfectMode,
+    passMetaFlags: prepared.passMetaFlagsDb,
     feelingRating: submission.feelingDifficulty || null,
     expectedRating: submission.expectedDifficulty || null,
     accuracy,

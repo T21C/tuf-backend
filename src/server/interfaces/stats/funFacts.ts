@@ -26,7 +26,9 @@ export interface PlayerFunFactsJudgements {
   earlyDouble: number;
   earlySingle: number;
   ePerfect: number;
+  perfectMinus: number;
   perfect: number;
+  perfectPlus: number;
   lPerfect: number;
   lateSingle: number;
   lateDouble: number;

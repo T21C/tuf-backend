@@ -8,7 +8,9 @@ class Judgement extends Model<IJudgement> implements IJudgement {
   declare earlyDouble: number;
   declare earlySingle: number;
   declare ePerfect: number;
+  declare perfectMinus: number;
   declare perfect: number;
+  declare perfectPlus: number;
   declare lPerfect: number;
   declare lateSingle: number;
   declare lateDouble: number;
@@ -42,7 +44,17 @@ Judgement.init(
       allowNull: false,
       defaultValue: 0,
     },
+    perfectMinus: {
+      type: DataTypes.BIGINT.UNSIGNED,
+      allowNull: false,
+      defaultValue: 0,
+    },
     perfect: {
+      type: DataTypes.BIGINT.UNSIGNED,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    perfectPlus: {
       type: DataTypes.BIGINT.UNSIGNED,
       allowNull: false,
       defaultValue: 0,
