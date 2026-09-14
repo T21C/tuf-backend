@@ -17,7 +17,7 @@ export function formatJudgementAnsi(
   const j = unwrapJudgements(judgements);
   const showX = shouldIncludeXPerfectAnsi(j, isXPerfectMode);
   const perfectBand = showX
-    ? `[1;37m${j.perfectMinus}[0m [1;32m${j.perfect}[0m [1;37m${j.perfectPlus}[0m`
+    ? `[1;32m${j.perfectMinus}[0m [1;37m${j.perfect}[0m [1;32m${j.perfectPlus}[0m`
     : `[1;32m${j.perfect}[0m`;
   return `\`\`\`ansi\n[2;31m${j.earlyDouble}[0m [2;33m${j.earlySingle}[0m [2;32m${j.ePerfect}[0m ${perfectBand} [2;32m${j.lPerfect}[0m [2;33m${j.lateSingle}[0m [2;31m${j.lateDouble}[0m\n\`\`\`\n`;
 }
