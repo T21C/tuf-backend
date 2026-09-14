@@ -538,11 +538,13 @@ router.put(
 
       let finalIconUrl: string | null | undefined = undefined;
       let oldFileId: string | null = null;
+      let oldIconUrl: string | null = null;
 
       if (iconFile) {
         try {
           if (tag.icon && isCdnUrl(tag.icon)) {
             oldFileId = getFileIdFromCdnUrl(tag.icon);
+            oldIconUrl = tag.icon;
           }
 
           const uploadResult = await cdnService.uploadTagIcon(
@@ -557,6 +559,7 @@ router.put(
       } else if (icon === 'null' || icon === null) {
         if (tag.icon && isCdnUrl(tag.icon)) {
           oldFileId = getFileIdFromCdnUrl(tag.icon);
+          oldIconUrl = tag.icon;
         }
         finalIconUrl = null;
       }
@@ -627,7 +630,7 @@ router.put(
             oldFileId,
             newIconUrl: finalIconUrl,
           });
-          await cdnService.deleteFile(oldFileId);
+          await cdnService.deleteFileForStoredUrl(oldIconUrl, oldFileId);
           logger.debug('Successfully cleaned up old tag icon from CDN', {
             tagId,
             oldFileId,
@@ -687,9 +690,10 @@ router.delete(
         await assignment.destroy({ transaction });
       });
 
+      const previousIconUrl = tag.icon;
       let fileId: string | null = null;
-      if (tag.icon && isCdnUrl(tag.icon)) {
-        fileId = getFileIdFromCdnUrl(tag.icon);
+      if (previousIconUrl && isCdnUrl(previousIconUrl)) {
+        fileId = getFileIdFromCdnUrl(previousIconUrl);
       }
 
       await tag.destroy({ transaction });
@@ -702,7 +706,7 @@ router.delete(
             tagId,
             fileId,
           });
-          await cdnService.deleteFile(fileId);
+          await cdnService.deleteFileForStoredUrl(previousIconUrl, fileId);
           logger.debug('Successfully cleaned up tag icon from CDN', {
             tagId,
             fileId,

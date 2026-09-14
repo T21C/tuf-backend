@@ -1,4 +1,5 @@
 import sequelize from '@/config/db.js';
+import { sqlDlLinkIsDomesticCdn, cdnSqlPrefixReplacements } from '@/misc/utils/Utility.js';
 import { QueryTypes } from 'sequelize';
 
 /**
@@ -26,9 +27,8 @@ export const historicalPlayerStatsAtCutoffSql = `
       d.type,
       d.name,
       CASE
-        WHEN l.isExternallyAvailable = true THEN 'Available (Flag)'
-        WHEN l.dlLink IS NOT NULL AND l.dlLink != '' THEN 'Available (DL Link)'
-        WHEN l.workshopLink IS NOT NULL AND l.workshopLink != '' THEN 'Available (Workshop)'
+        WHEN IFNULL(l.isExternallyAvailable, 0) = 1 THEN 'Available (Flag)'
+        WHEN ${sqlDlLinkIsDomesticCdn('l.dlLink')} THEN 'Available (CDN)'
         ELSE 'Not Available'
       END COLLATE utf8mb4_0900_ai_ci AS availability_status
     FROM passes p
@@ -238,7 +238,7 @@ export async function fetchHistoricalLeaderboardRanksAtCutoff(
   cutoff: Date,
 ): Promise<HistoricalPlayerRankRow[]> {
   const rows = (await sequelize.query(historicalPlayerStatsAtCutoffSql, {
-    replacements: { cutoff },
+    replacements: { cutoff, ...cdnSqlPrefixReplacements() },
     type: QueryTypes.SELECT,
   })) as HistoricalPlayerRankRow[];
 

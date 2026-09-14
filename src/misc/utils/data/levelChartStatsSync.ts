@@ -1,6 +1,6 @@
 import Level from '@/models/levels/Level.js';
 import cdnService from '@/server/services/core/CdnService.js';
-import { isCdnUrl } from '@/misc/utils/Utility.js';
+import { isCdnUrl, isWritableCdnUrl } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
@@ -45,6 +45,10 @@ export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void
     return;
   }
 
+  if (!isWritableCdnUrl(level.dlLink)) {
+    return;
+  }
+
   const { bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount } = await cdnService.getLevelChartStats(fileId);
   await Level.update(
     { bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount },
@@ -66,6 +70,10 @@ export async function rebuildCdnCacheAndApplyLevelChartStats(levelId: number): P
 
   if (!level.dlLink || !isCdnUrl(level.dlLink)) {
     await applyLevelChartStatsFromCdn(levelId);
+    return { ...EMPTY_LEVEL_CHART_STATS };
+  }
+
+  if (!isWritableCdnUrl(level.dlLink)) {
     return { ...EMPTY_LEVEL_CHART_STATS };
   }
 

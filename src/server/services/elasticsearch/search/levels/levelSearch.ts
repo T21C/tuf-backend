@@ -1,7 +1,7 @@
 import client, { levelIndexName } from '@/config/elasticsearch.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { convertFromPUA, decodePuaTextOrNull } from '@/misc/utils/data/searchHelpers.js';
-import { sortLevelCredits } from '@/misc/utils/Utility.js';
+import { sortLevelCredits, cdnRecognitionPrefixes } from '@/misc/utils/Utility.js';
 import type { FacetQueryV1 } from '@/misc/utils/search/facetQuery.js';
 import { buildFacetDomainClause, combineFacetClauses } from '@/misc/utils/search/facetQuery.js';
 import {
@@ -90,9 +90,9 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
     }
 
     if (filters.availableDlFilter === 'only') {
-      must.push(buildAvailableDlOnlyClause());
+      must.push(buildAvailableDlOnlyClause(cdnRecognitionPrefixes()));
     } else if (filters.availableDlFilter === 'hide') {
-      must.push(buildAvailableDlHideClause());
+      must.push(buildAvailableDlHideClause(cdnRecognitionPrefixes()));
     }
 
     const facetQueryV1 = filters.facetQueryV1 as FacetQueryV1 | undefined;

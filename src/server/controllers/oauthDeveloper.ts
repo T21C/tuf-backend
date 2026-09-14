@@ -14,7 +14,6 @@ import {
   revokeGrantById,
 } from '@/server/services/oauth/OAuthTokenService.js';
 import cdnService, { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
-import { isCdnUrl, getFileIdFromCdnUrl } from '@/misc/utils/Utility.js';
 
 function serializeClient(client: Awaited<ReturnType<typeof oauthClientService.create>>) {
   return {
@@ -132,12 +131,7 @@ export const oauthDeveloperController = {
       );
 
       try {
-        if (client.iconUrl && isCdnUrl(client.iconUrl)) {
-          const oldFileId = getFileIdFromCdnUrl(client.iconUrl);
-          if (oldFileId && (await cdnService.checkFileExists(oldFileId))) {
-            await cdnService.deleteFile(oldFileId);
-          }
-        }
+        await cdnService.deleteFileForStoredUrl(client.iconUrl);
       } catch (error) {
         logger.error('Error deleting old oauth client icon from CDN:', error);
       }
@@ -171,12 +165,7 @@ export const oauthDeveloperController = {
       }
 
       try {
-        if (client.iconUrl && isCdnUrl(client.iconUrl)) {
-          const oldFileId = getFileIdFromCdnUrl(client.iconUrl);
-          if (oldFileId && (await cdnService.checkFileExists(oldFileId))) {
-            await cdnService.deleteFile(oldFileId);
-          }
-        }
+        await cdnService.deleteFileForStoredUrl(client.iconUrl);
       } catch (error) {
         logger.error('Error deleting oauth client icon from CDN:', error);
       }
@@ -245,12 +234,7 @@ export const oauthAdminController = {
       if (!client) return res.status(404).json({ error: 'Not found' });
 
       try {
-        if (client.iconUrl && isCdnUrl(client.iconUrl)) {
-          const oldFileId = getFileIdFromCdnUrl(client.iconUrl);
-          if (oldFileId && (await cdnService.checkFileExists(oldFileId))) {
-            await cdnService.deleteFile(oldFileId);
-          }
-        }
+        await cdnService.deleteFileForStoredUrl(client.iconUrl);
       } catch (error) {
         logger.error('Error deleting oauth client icon from CDN (admin):', error);
       }

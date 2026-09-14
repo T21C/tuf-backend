@@ -2,18 +2,13 @@ import type {Request} from 'express';
 import Mod from '@/models/misc/Mod.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import cdnService, {CdnError} from '@/server/services/core/CdnService.js';
-import {getFileIdFromCdnUrl, isCdnUrl} from '@/misc/utils/Utility.js';
 import {invalidatePublicModsCache} from './modCache.js';
 import {indexCatalogMod} from './modSearchIndex.js';
 import {serializeMod, type SerializedMod} from './serializeMod.js';
 
 export async function deleteStoredModIcon(imageUrl: string | null | undefined): Promise<void> {
-  if (!imageUrl || !isCdnUrl(imageUrl)) return;
   try {
-    const oldFileId = getFileIdFromCdnUrl(imageUrl);
-    if (oldFileId && (await cdnService.checkFileExists(oldFileId))) {
-      await cdnService.deleteFile(oldFileId);
-    }
+    await cdnService.deleteFileForStoredUrl(imageUrl);
   } catch (error) {
     logger.error('Error deleting mod icon from CDN:', error);
   }

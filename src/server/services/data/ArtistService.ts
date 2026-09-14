@@ -7,7 +7,6 @@ import ArtistRelation from '@/models/artists/ArtistRelation.js';
 import SongCredit from '@/models/songs/SongCredit.js';
 import LevelSubmissionArtistRequest from '@/models/submissions/LevelSubmissionArtistRequest.js';
 import { logger } from '../core/LoggerService.js';
-import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
 import cdnServiceInstance from '../core/CdnService.js';
 import sequelize from '@/config/db.js';
 
@@ -790,10 +789,7 @@ class ArtistService {
       // Note: CDN deletion happens outside transaction as it's an external service
       if (source.avatarUrl) {
         try {
-          const fileId = getFileIdFromCdnUrl(source.avatarUrl);
-          if (fileId && isCdnUrl(source.avatarUrl)) {
-            await cdnServiceInstance.deleteFile(fileId);
-          }
+          await cdnServiceInstance.deleteFileForStoredUrl(source.avatarUrl);
         } catch (error) {
           logger.error('Failed to delete avatar during split:', error);
           // Continue with artist deletion even if CDN deletion fails
@@ -837,13 +833,10 @@ class ArtistService {
       return;
     }
 
-    const fileId = getFileIdFromCdnUrl(artist.avatarUrl);
-    if (fileId && isCdnUrl(artist.avatarUrl)) {
-      try {
-        await cdnServiceInstance.deleteFile(fileId);
-      } catch (error) {
-        logger.error(`Failed to delete avatar for artist ${artistId}:`, error);
-      }
+    try {
+      await cdnServiceInstance.deleteFileForStoredUrl(artist.avatarUrl);
+    } catch (error) {
+      logger.error(`Failed to delete avatar for artist ${artistId}:`, error);
     }
 
     await artist.update({ avatarUrl: null });

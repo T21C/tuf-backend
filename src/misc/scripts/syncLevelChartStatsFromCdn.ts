@@ -20,7 +20,7 @@ dotenv.config();
 import Level from '@/models/levels/Level.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { isCdnUrl } from '@/misc/utils/Utility.js';
+import { isWritableCdnUrl } from '@/misc/utils/Utility.js';
 import { rebuildCdnCacheAndApplyLevelChartStats } from '@/misc/utils/data/levelChartStatsSync.js';
 import { initializeAssociations } from '@/models/associations.js';
 
@@ -101,7 +101,7 @@ async function run(options: RunOptions): Promise<void> {
     afterId = batch[batch.length - 1].id;
 
     const cdnLinked = batch.filter(
-      (l) => typeof l.dlLink === 'string' && l.dlLink !== '' && l.dlLink !== 'removed' && isCdnUrl(l.dlLink)
+      (l) => typeof l.dlLink === 'string' && l.dlLink !== '' && l.dlLink !== 'removed' && isWritableCdnUrl(l.dlLink)
     );
     const remaining = maxTotal - synced;
     const slice = cdnLinked.slice(0, remaining);

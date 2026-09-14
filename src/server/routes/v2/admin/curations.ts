@@ -3,7 +3,7 @@ import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, docRequestBody, standardErrorResponses, standardErrorResponses400500, standardErrorResponses403404500, standardErrorResponses404500, standardErrorResponses500, stringIdParamSpec } from '@/server/schemas/v2/admin/index.js';
 import {Op, QueryTypes} from 'sequelize';
-import { getFileIdFromCdnUrl, isCdnUrl, safeTransactionRollback } from '@/misc/utils/Utility.js';
+import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import CdnService, { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import Curation from '@/models/curations/Curation.js';
@@ -122,38 +122,20 @@ const requireCuratorOrRater = (req: Request, res: Response, next: NextFunction) 
 // Helper function to clean up CDN files for curations
 const cleanupCurationCdnFiles = async (curations: Curation[]) => {
   for (const curation of curations) {
-    // Clean up curation thumbnail if it exists
-    if (curation.previewLink && isCdnUrl(curation.previewLink)) {
-      const fileId = getFileIdFromCdnUrl(curation.previewLink);
-      if (fileId) {
-        try {
-          logger.debug(`Deleting curation thumbnail ${fileId} from CDN`);
-          await CdnService.deleteFile(fileId);
-          logger.debug(`Successfully deleted curation thumbnail ${fileId} from CDN`);
-        } catch (error) {
-          logger.error(`Error deleting curation thumbnail ${fileId} from CDN:`, error);
-          // Continue with cleanup even if CDN deletion fails
-        }
-      }
+    try {
+      await CdnService.deleteFileForStoredUrl(curation.previewLink);
+    } catch (error) {
+      logger.error('Error deleting curation thumbnail from CDN:', error);
     }
   }
 };
 
 // Helper function to clean up CDN files for curation types
 const cleanupCurationTypeCdnFiles = async (type: CurationType) => {
-  // Clean up curation type icon if it exists
-  if (type.icon && isCdnUrl(type.icon)) {
-    const fileId = getFileIdFromCdnUrl(type.icon);
-    if (fileId) {
-      try {
-        logger.debug(`Deleting curation type icon ${fileId} from CDN`);
-        await CdnService.deleteFile(fileId);
-        logger.debug(`Successfully deleted curation type icon ${fileId} from CDN`);
-      } catch (error) {
-        logger.error(`Error deleting curation type icon ${fileId} from CDN:`, error);
-        // Continue with cleanup even if CDN deletion fails
-      }
-    }
+  try {
+    await CdnService.deleteFileForStoredUrl(type.icon);
+  } catch (error) {
+    logger.error('Error deleting curation type icon from CDN:', error);
   }
 };
 
@@ -2659,20 +2641,10 @@ router.post(
       return res.status(404).json({error: 'Curation not found'});
     }
 
-    // Delete existing thumbnail first if it exists
-    if (curation.previewLink && isCdnUrl(curation.previewLink)) {
-      const existingFileId = getFileIdFromCdnUrl(curation.previewLink);
-
-      if (existingFileId) {
-        try {
-          logger.debug(`Deleting existing thumbnail ${existingFileId} before uploading new one`);
-          await CdnService.deleteFile(existingFileId);
-          logger.debug(`Successfully deleted existing thumbnail ${existingFileId}`);
-        } catch (deleteError) {
-          logger.error('Error deleting existing thumbnail:', deleteError);
-          // Continue with upload even if deletion fails
-        }
-      }
+    try {
+      await CdnService.deleteFileForStoredUrl(curation.previewLink);
+    } catch (deleteError) {
+      logger.error('Error deleting existing thumbnail:', deleteError);
     }
 
     // Upload new thumbnail to CDN

@@ -62,14 +62,10 @@ class EvidenceService {
       throw new Error('Evidence not found');
     }
 
-    // Extract fileId and delete from CDN
-    const fileId = getFileIdFromCdnUrl(evidence.link);
-    if (fileId && isCdnUrl(evidence.link)) {
-      try {
-        await cdnServiceInstance.deleteFile(fileId);
-      } catch (error) {
-        logger.error(`Failed to delete evidence ${evidenceId} from CDN:`, error);
-      }
+    try {
+      await cdnServiceInstance.deleteFileForStoredUrl(evidence.link);
+    } catch (error) {
+      logger.error(`Failed to delete evidence ${evidenceId} from CDN:`, error);
     }
 
     // Delete from DB
@@ -95,13 +91,10 @@ class EvidenceService {
     });
 
     for (const evidence of evidenceList) {
-      const fileId = getFileIdFromCdnUrl(evidence.link);
-      if (fileId && isCdnUrl(evidence.link)) {
-        try {
-          await cdnServiceInstance.deleteFile(fileId);
-        } catch (error) {
-          logger.error(`Failed to delete evidence ${evidence.id} from CDN:`, error);
-        }
+      try {
+        await cdnServiceInstance.deleteFileForStoredUrl(evidence.link);
+      } catch (error) {
+        logger.error(`Failed to delete evidence ${evidence.id} from CDN:`, error);
       }
     }
 
@@ -212,13 +205,10 @@ class EvidenceService {
       throw new Error('Evidence not found');
     }
 
-    const fileId = getFileIdFromCdnUrl(evidence.link);
-    if (fileId && isCdnUrl(evidence.link)) {
-      try {
-        await cdnServiceInstance.deleteFile(fileId);
-      } catch (error) {
-        logger.error(`Failed to delete song evidence ${evidenceId} from CDN:`, error);
-      }
+    try {
+      await cdnServiceInstance.deleteFileForStoredUrl(evidence.link);
+    } catch (error) {
+      logger.error(`Failed to delete song evidence ${evidenceId} from CDN:`, error);
     }
 
     await evidence.destroy();
@@ -233,13 +223,10 @@ class EvidenceService {
       throw new Error('Evidence not found');
     }
 
-    const fileId = getFileIdFromCdnUrl(evidence.link);
-    if (fileId && isCdnUrl(evidence.link)) {
-      try {
-        await cdnServiceInstance.deleteFile(fileId);
-      } catch (error) {
-        logger.error(`Failed to delete artist evidence ${evidenceId} from CDN:`, error);
-      }
+    try {
+      await cdnServiceInstance.deleteFileForStoredUrl(evidence.link);
+    } catch (error) {
+      logger.error(`Failed to delete artist evidence ${evidenceId} from CDN:`, error);
     }
 
     await evidence.destroy();

@@ -5,7 +5,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { parseCdcFields, rowId } from './cdcRowParse.js';
-import { getLevelIdsByArtistId, getLevelIdsByCreatorId, getLevelIdsByPlayerId, getLevelIdsBySongId, getPassIdsByLevelId, getTournamentIdByPlacementId, getTournamentIdsByCreatorId, getTournamentIdsByLevelId, getTournamentIdsByPlayerId, getTournamentIdsBySeriesId } from './cdcFanout.js';
+import { getLevelIdsByArtistId, getLevelIdsByCreatorId, getLevelIdsByPlayerId, getLevelIdsBySongId, getPassIdsByLevelId, getPlayerIdsByLevelId, getTournamentIdByPlacementId, getTournamentIdsByCreatorId, getTournamentIdsByLevelId, getTournamentIdsByPlayerId, getTournamentIdsBySeriesId } from './cdcFanout.js';
 import { cdcPassProjectorDebounce } from './cdcPassProjectorDebounce.js';
 import { cdcLevelCreditsProjectorDebounce } from './cdcLevelCreditsProjectorDebounce.js';
 import { CDC_PASSES_STREAM_BLOCK_MS } from '@/server/services/elasticsearch/misc/constants.js';
@@ -158,6 +158,7 @@ function levelCdcChangeRequiresPassReindex(
     'suffix',
     'songId',
     'dlLink',
+    'isExternallyAvailable',
     'notes',
     'isHidden',
     'isDeleted',
@@ -222,6 +223,16 @@ export function startCdcProjectors(): void {
               const passIds = await getPassIdsByLevelId(id);
               if (passIds.length > 0) {
                 await es.reindexPasses(passIds);
+              }
+            }
+            if (
+              op === 'u' &&
+              (String(before?.dlLink ?? '') !== String(after?.dlLink ?? '') ||
+                Boolean(before?.isExternallyAvailable) !== Boolean(after?.isExternallyAvailable))
+            ) {
+              const playerIds = await getPlayerIdsByLevelId(id);
+              if (playerIds.length > 0) {
+                await es.reindexPlayers(playerIds);
               }
             }
             if (

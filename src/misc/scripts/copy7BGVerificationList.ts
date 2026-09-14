@@ -12,7 +12,6 @@ import ArtistLink from '@/models/artists/ArtistLink.js';
 import ArtistEvidence from '@/models/artists/ArtistEvidence.js';
 import cdnServiceInstance from '@/server/services/core/CdnService.js';
 import { Op } from 'sequelize';
-import { isCdnUrl, getFileIdFromCdnUrl } from '@/misc/utils/Utility.js';
 import { coalesceAxiosContentTypeHeader } from '@/misc/utils/http/axiosContentType.js';
 
 // Configuration
@@ -306,14 +305,11 @@ async function processArtist(
 
           // Delete CDN files for evidence that are stored on CDN
           for (const evidence of existingEvidences) {
-            const fileId = getFileIdFromCdnUrl(evidence.link);
-            if (fileId && isCdnUrl(evidence.link)) {
-              try {
-                await cdnServiceInstance.deleteFile(fileId);
-                logger.info(`  Deleted CDN file: ${evidence.link}`);
-              } catch (error: any) {
-                logger.warn(`  Failed to delete CDN file ${evidence.link}: ${error.message}`);
-              }
+            try {
+              await cdnServiceInstance.deleteFileForStoredUrl(evidence.link);
+              logger.info(`  Deleted CDN file: ${evidence.link}`);
+            } catch (error: any) {
+              logger.warn(`  Failed to delete CDN file ${evidence.link}: ${error.message}`);
             }
           }
 
