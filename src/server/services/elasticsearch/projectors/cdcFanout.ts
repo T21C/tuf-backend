@@ -70,6 +70,15 @@ export async function getPassIdsByLevelId(levelId: number): Promise<number[]> {
     .filter((id) => typeof id === 'number' && Number.isFinite(id) && id > 0);
 }
 
+export async function getPlayerIdsByLevelId(levelId: number): Promise<number[]> {
+  const rows = await Pass.findAll({
+    where: { levelId },
+    attributes: ['playerId'],
+    raw: true,
+  });
+  return uniquePositiveIds((rows as { playerId: number }[]).map((r) => r.playerId));
+}
+
 export async function getTournamentIdsBySeriesId(seriesId: number): Promise<number[]> {
   const rows = await Tournament.findAll({
     where: { seriesId },

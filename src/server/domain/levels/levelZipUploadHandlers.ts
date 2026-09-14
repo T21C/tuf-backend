@@ -654,7 +654,7 @@ export async function handleDeleteLevelZipUpload(req: Request, res: Response): P
       throw { error: 'Level does not have a CDN-managed file', code: 400 };
     }
     logger.debug(`Deleting file from CDN: ${fileId}`);
-    await cdnService.deleteFile(fileId);
+    await cdnService.deleteFileForStoredUrl(level.dlLink, fileId);
 
     await Level.update(
       {

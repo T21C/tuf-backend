@@ -12,7 +12,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
 import { User } from '@/models/index.js';
 import { searchPasses } from './index.js';
-import { ensureString, sortLevelCredits } from '@/misc/utils/Utility.js';
+import { ensureString, sortLevelCredits, sqlLevelCountsForRanked, cdnSqlPrefixReplacements } from '@/misc/utils/Utility.js';
 import { hasFlag, wherePermission } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import Creator from '@/models/credits/Creator.js';
@@ -360,17 +360,13 @@ router.get(
             AND IFNULL(p.isDeleted, 0) = 0
             AND IFNULL(p.isHidden, 0) = 0
             AND IFNULL(p.isDuplicate, 0) = 0
-            AND (
-              IFNULL(l.isExternallyAvailable, 0) = 1
-              OR (l.dlLink IS NOT NULL AND l.dlLink != '')
-              OR (l.workshopLink IS NOT NULL AND l.workshopLink != '')
-            )
+            AND ${sqlLevelCountsForRanked('l.dlLink', 'l.isExternallyAvailable')}
           GROUP BY p.levelId
         ) b
         ORDER BY b.scoreV2 DESC
         LIMIT 20
         `,
-        { replacements: { playerId } },
+        { replacements: { playerId, ...cdnSqlPrefixReplacements() } },
       )) as [{ levelId: number; scoreV2: number }[], unknown];
 
       return res.json({

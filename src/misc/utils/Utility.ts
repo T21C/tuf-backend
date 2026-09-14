@@ -1,4 +1,4 @@
-import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
+import { CDN_CONFIG, PUBLIC_CDN_BASE_URL, stripCdnBaseUrl } from '@/externalServices/cdnService/config.js';
 import { ILevel } from '@/server/interfaces/models/index.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 
@@ -149,11 +149,88 @@ export const safeTransactionRollback = async (transaction: any, logger?: any): P
   }
 };
 
-// Helper function to check if a URL is from our CDN
+export { stripCdnBaseUrl };
+
+/** Origin this process may write/delete (`CDN_URL`). */
+export function cdnWritableBaseUrl(): string {
+  return stripCdnBaseUrl(String(CDN_CONFIG.baseUrl || ''));
+}
+
+/**
+ * Origins treated as TUF CDN for rankings / eligibility / UI.
+ * When `CDN_URL` is not production (`https://api.tuforums.com/cdn`), that public
+ * origin is aliased so a local DB copy of prod `dlLink`s still counts — mutations
+ * stay on {@link cdnWritableBaseUrl} only.
+ */
+export function cdnRecognitionPrefixes(): string[] {
+  const writable = cdnWritableBaseUrl();
+  const pub = stripCdnBaseUrl(PUBLIC_CDN_BASE_URL);
+  const prefixes: string[] = [];
+  if (writable) prefixes.push(writable);
+  if (pub && pub !== writable) prefixes.push(pub);
+  return prefixes;
+}
+
+export function urlMatchesCdnPrefix(url: string, prefix: string): boolean {
+  if (!url || !prefix) return false;
+  return url === prefix || url.startsWith(`${prefix}/`);
+}
+
+/** True if the URL is hosted on this environment's writable CDN (`CDN_URL`). */
+export function isWritableCdnUrl(url: string): boolean {
+  const writable = cdnWritableBaseUrl();
+  return writable.length > 0 && urlMatchesCdnPrefix(url, writable);
+}
+
+/** True if the URL is a TUF CDN URL (writable origin, plus prod alias when they differ). */
 export const isCdnUrl = (url: string): boolean => {
-  //if (process.env.NODE_ENV === 'development') return true;
-  return url.startsWith(CDN_CONFIG.baseUrl);
+  if (!url) return false;
+  return cdnRecognitionPrefixes().some((prefix) => urlMatchesCdnPrefix(url, prefix));
 };
+
+/** Hosted TUF CDN zip: present, not the `removed` sentinel, and `isCdnUrl`. */
+export function hasDomesticCdnFile(dlLink: unknown): boolean {
+  return typeof dlLink === 'string' && dlLink !== '' && dlLink !== 'removed' && isCdnUrl(dlLink);
+}
+
+function isExternallyAvailableFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
+/** Ranked eligibility: domestic CDN zip or super-admin `isExternallyAvailable`. */
+export function levelCountsForRanked(level: {
+  dlLink?: unknown;
+  isExternallyAvailable?: unknown;
+} | null | undefined): boolean {
+  if (!level) return false;
+  return isExternallyAvailableFlag(level.isExternallyAvailable) || hasDomesticCdnFile(level.dlLink);
+}
+
+/**
+ * SQL boolean matching {@link hasDomesticCdnFile} for a `dlLink` column.
+ * Bind `:cdnPrefix` / `:cdnPrefixAlias` via {@link cdnSqlPrefixReplacements}.
+ */
+export function sqlDlLinkIsDomesticCdn(columnSql: string): string {
+  return `(${columnSql} IS NOT NULL AND ${columnSql} != '' AND ${columnSql} != 'removed' AND (${columnSql} LIKE CONCAT(:cdnPrefix, '%') OR ${columnSql} LIKE CONCAT(:cdnPrefixAlias, '%')))`;
+}
+
+/**
+ * SQL boolean matching {@link levelCountsForRanked}.
+ * Bind CDN prefixes via {@link cdnSqlPrefixReplacements}.
+ */
+export function sqlLevelCountsForRanked(dlLinkSql: string, externalSql: string): string {
+  return `(IFNULL(${externalSql}, 0) = 1 OR ${sqlDlLinkIsDomesticCdn(dlLinkSql)})`;
+}
+
+/** Sequelize replacements for {@link sqlDlLinkIsDomesticCdn}. Alias equals prefix when they match. */
+export function cdnSqlPrefixReplacements(): {cdnPrefix: string; cdnPrefixAlias: string} {
+  const prefixes = cdnRecognitionPrefixes();
+  const fallback = prefixes[0] ?? '';
+  return {
+    cdnPrefix: prefixes[0] ?? '',
+    cdnPrefixAlias: prefixes[1] ?? fallback,
+  };
+}
 
 // Helper function to extract file ID from CDN URL
 export const getFileIdFromCdnUrl = (url: string): string | null => {

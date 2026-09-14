@@ -14,7 +14,7 @@ import { logger } from './LoggerService.js';
 import { IPlayer } from '@/server/interfaces/models/index.js';
 import { OAuthProvider } from '@/models/index.js';
 import Creator from '@/models/credits/Creator.js';
-import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import { safeTransactionRollback, levelCountsForRanked, sqlLevelCountsForRanked, cdnSqlPrefixReplacements } from '@/misc/utils/Utility.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
@@ -493,6 +493,27 @@ export class PlayerStatsService {
         type: QueryTypes.SELECT,
       }) as {id: number, scoreV2: number}[];
 
+    const potentialTopRows = await sequelize.query(`
+      WITH uniq AS (
+        SELECT
+          p.id,
+          p.scoreV2,
+          ROW_NUMBER() OVER (PARTITION BY p.levelId ORDER BY p.scoreV2 DESC, p.id DESC) AS rn
+        FROM player_pass_summary p
+        WHERE p.playerId = :playerId
+      )
+      SELECT id, scoreV2
+      FROM uniq
+      WHERE rn = 1
+      ORDER BY scoreV2 DESC, id DESC
+      LIMIT 20
+      `, {
+        replacements: {
+          playerId: pass?.player?.id || 0
+        },
+        type: QueryTypes.SELECT,
+      }) as {id: number, scoreV2: number}[];
+
     const currentStats = await sequelize.query(this.statsQuery, {
       replacements: {
         playerIds: [pass.player?.id || 0],
@@ -513,6 +534,12 @@ export class PlayerStatsService {
 
 
     const impact = (currentStats?.rankedScore || 0) - (previousStats?.rankedScore || 0);
+    const countsForRanked = levelCountsForRanked(pass.level);
+    const potentialRank = potentialTopRows.findIndex((score) => score.id === passId);
+    const potentialImpact =
+      potentialRank >= 0
+        ? (potentialTopRows[potentialRank].scoreV2 || 0) * Math.pow(0.9, potentialRank)
+        : 0;
 
     const playerId = pass.player?.id;
     /** Same global rank as v3 leaderboard (`getRankedScoreRanksForHits`), not MySQL `player_stats.rankedScoreRank`. */
@@ -547,7 +574,9 @@ export class PlayerStatsService {
         currentRankedScore: currentStats?.rankedScore || 0,
         previousRankedScore: previousStats?.rankedScore || 0,
         impact: impact || 0,
-        impactRank: topScores.findIndex(score => score.id === passId) + 1
+        impactRank: topScores.findIndex(score => score.id === passId) + 1,
+        countsForRanked,
+        potentialImpact,
       },
       ranks: {
         rankedScoreRank,
@@ -678,7 +707,7 @@ export class PlayerStatsService {
         });
 
         const isLevelAvailable = (level: Level) => {
-          return level.isExternallyAvailable || level.dlLink || level.workshopLink;
+          return levelCountsForRanked(level);
         }
 
         // Tie-break score ties by id DESC — must match getPlayerPasses impact CTE
@@ -835,6 +864,9 @@ export class PlayerStatsService {
       playerId,
       includeHidden: includeHiddenPasses ? 1 : 0,
     };
+    if (sortBy === 'impact') {
+      Object.assign(replacements, cdnSqlPrefixReplacements());
+    }
     const rawQuery = typeof opts.query === 'string' ? opts.query.trim() : '';
     let searchJoinSql = '';
     if (rawQuery.length > 0) {
@@ -876,7 +908,7 @@ export class PlayerStatsService {
       case 'impact':
         // Mirrors `getEnrichedPlayer` topScores / potentialTopScores: best
         // non-duplicate pass per level, then scoreV2 * 0.9^(rank-1) for the
-        // top 20 of the stricter list (level available) or else the potential list.
+        // top 20 of the stricter list (domestic CDN file) or else the potential list.
         // Primary: contribution weight (0 for reclears / outside top 20).
         // Secondary: raw scoreV2 so equal-impact ties (esp. all zeros) resolve
         // and high-score zero-impact reclears stay below any non-zero impact.
@@ -909,9 +941,8 @@ WITH base AS (
 ),
 uniq AS (
   SELECT b.id, b.scoreV2,
-    IFNULL(l.isExternallyAvailable, 0) AS ext_avail,
     IFNULL(l.dlLink, '') AS dl_link,
-    IFNULL(l.workshopLink, '') AS ws_link
+    IFNULL(l.isExternallyAvailable, 0) AS is_ext
   FROM base b
   INNER JOIN levels l ON l.id = b.levelId
   WHERE b.rn_level = 1 AND IFNULL(b.isDuplicate, 0) = 0
@@ -920,7 +951,7 @@ top_ranked AS (
   SELECT id, scoreV2,
     ROW_NUMBER() OVER (ORDER BY scoreV2 DESC, id DESC) AS rnk
   FROM uniq
-  WHERE ext_avail = 1 OR TRIM(dl_link) != '' OR TRIM(ws_link) != ''
+  WHERE ${sqlLevelCountsForRanked('dl_link', 'is_ext')}
 ),
 top_impact AS (
   SELECT id, (scoreV2 * POW(0.9, rnk - 1)) AS impact_val

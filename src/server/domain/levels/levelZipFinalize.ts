@@ -7,7 +7,7 @@ import User from '@/models/auth/User.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
-import { isCdnUrl } from '@/misc/utils/Utility.js';
+import { isWritableCdnUrl } from '@/misc/utils/Utility.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
 import { jobProgressService, isUuidJobId } from '@/server/services/core/JobProgressService.js';
@@ -103,7 +103,7 @@ export async function finalizeLevelZipUploadFromBuffer(params: {
 
     let oldFileId: string | null = null;
     const oldDlLink = levelSnapshot.dlLink;
-    if (levelSnapshot.dlLink && isCdnUrl(levelSnapshot.dlLink)) {
+    if (levelSnapshot.dlLink && isWritableCdnUrl(levelSnapshot.dlLink)) {
       oldFileId = levelSnapshot.fileId ?? null;
       logger.debug('Found existing CDN file to clean up after upload', {
         levelId,
@@ -118,7 +118,7 @@ export async function finalizeLevelZipUploadFromBuffer(params: {
     if (!hasFlag(req.user, permissionFlags.SUPER_ADMIN) && canEdit && levelSnapshot.clears > 0) {
       try {
         let originalDurations: number[] | null = null;
-        if (levelSnapshot.dlLink && isCdnUrl(levelSnapshot.dlLink)) {
+        if (levelSnapshot.dlLink && isWritableCdnUrl(levelSnapshot.dlLink)) {
           const originalFileId = levelSnapshot.fileId ?? null;
           if (originalFileId) {
             originalDurations = await cdnService.getDurationsFromFile(originalFileId);
@@ -282,7 +282,7 @@ export async function finalizeLevelZipUploadFromBuffer(params: {
           oldFileId,
           newFileId: uploadResult.fileId,
         });
-        await cdnService.deleteFile(oldFileId);
+        await cdnService.deleteFileForStoredUrl(oldDlLink, oldFileId);
         logger.debug('Successfully cleaned up old CDN file', {
           levelId,
           oldFileId,

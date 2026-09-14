@@ -1,6 +1,6 @@
 import AWS from 'aws-sdk';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { CDN_IMMUTABLE_CACHE_CONTROL } from '@/externalServices/cdnService/config.js';
+import { CDN_IMMUTABLE_CACHE_CONTROL, cdnCloudMutationsEnabled } from '@/externalServices/cdnService/config.js';
 import {
     LEVEL_SUPPORTED_AUDIO_CONTENT_TYPE_BY_EXT,
     type LevelSupportedAudioExtension
@@ -302,6 +302,12 @@ export class CdnSpacesStorage {
      * Delete a file from DigitalOcean Spaces
      */
     public async deleteFile(key: string): Promise<void> {
+        if (!cdnCloudMutationsEnabled()) {
+            logger.debug('Skipping object-storage delete: this CDN instance is not the production public origin', {
+                key,
+            });
+            return;
+        }
         try {
             const normalizedKey = this.assertSafeDeleteKey(key);
             const deleteParams: AWS.S3.DeleteObjectRequest = {
@@ -328,6 +334,12 @@ export class CdnSpacesStorage {
      */
     public async deleteFiles(keys: string[]): Promise<void> {
         if (keys.length === 0) return;
+        if (!cdnCloudMutationsEnabled()) {
+            logger.debug('Skipping object-storage multi-delete: this CDN instance is not the production public origin', {
+                count: keys.length,
+            });
+            return;
+        }
 
         try {
             const normalizedKeys = keys.map((key) => this.assertSafeDeleteKey(key));
@@ -776,6 +788,10 @@ export class CdnSpacesStorage {
      * Delete all objects under validated Spaces folder keys (last segment must be a UUID).
      */
     public async cleanupPaths(...paths: (string | undefined | null)[]): Promise<boolean> {
+        if (!cdnCloudMutationsEnabled()) {
+            logger.debug('Skipping object-storage folder cleanup: this CDN instance is not the production public origin');
+            return true;
+        }
         let allOk = true;
 
         for (const raw of paths) {

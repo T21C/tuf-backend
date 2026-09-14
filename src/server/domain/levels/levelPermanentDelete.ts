@@ -6,7 +6,7 @@ import Pass from '@/models/passes/Pass.js';
 import DirectiveConditionHistory from '@/models/announcements/DirectiveConditionHistory.js';
 import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
 import {logger} from '@/server/services/core/LoggerService.js';
-import {getFileIdFromCdnUrl, isCdnUrl, safeTransactionRollback} from '@/misc/utils/Utility.js';
+import {isCdnUrl, safeTransactionRollback} from '@/misc/utils/Utility.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import {unlinkLevelForDelete} from '@/server/services/levels/levelLinkService.js';
 
@@ -58,26 +58,21 @@ export async function permanentDeleteLevelInTransaction(
   if (level.fileId && level.dlLink && level.dlLink !== 'removed' && isCdnUrl(level.dlLink)) {
     try {
       logger.debug(`Permanent delete: removing level zip from CDN: ${level.fileId}`);
-      await cdnService.deleteFile(level.fileId);
+      await cdnService.deleteFileForStoredUrl(level.dlLink, level.fileId);
     } catch (cdnErr) {
       logger.error(`Permanent delete: CDN level zip delete failed for ${level.fileId}:`, cdnErr);
     }
   }
 
   for (const curation of curations) {
-    if (curation.previewLink && isCdnUrl(curation.previewLink)) {
-      const thumbId = getFileIdFromCdnUrl(curation.previewLink);
-      if (thumbId) {
-        try {
-          logger.debug(`Permanent delete: removing curation preview from CDN: ${thumbId}`);
-          await cdnService.deleteFile(thumbId);
-        } catch (cdnErr) {
-          logger.error(
-            `Permanent delete: CDN curation preview delete failed for ${thumbId}:`,
-            cdnErr,
-          );
-        }
-      }
+    try {
+      logger.debug(`Permanent delete: removing curation preview from CDN`);
+      await cdnService.deleteFileForStoredUrl(curation.previewLink);
+    } catch (cdnErr) {
+      logger.error(
+        `Permanent delete: CDN curation preview delete failed:`,
+        cdnErr,
+      );
     }
   }
 

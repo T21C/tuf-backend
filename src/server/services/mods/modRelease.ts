@@ -3,7 +3,7 @@ import type {Request} from 'express';
 import ModVersion from '@/models/misc/ModVersion.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import cdnService, {CdnError} from '@/server/services/core/CdnService.js';
-import {getFileIdFromCdnUrl, isCdnUrl} from '@/misc/utils/Utility.js';
+import {isCdnUrl} from '@/misc/utils/Utility.js';
 import {assertModZipFilename} from './modZipValidate.js';
 import {createModVersion, deleteModVersion, updateModVersion} from './modCreate.js';
 
@@ -16,13 +16,9 @@ function releaseClientError(message: string): Error & {status: number} {
 }
 
 export async function deleteStoredModZip(downloadUrl: string | null | undefined): Promise<void> {
-  if (!downloadUrl || !isCdnUrl(downloadUrl)) return;
+  if (!downloadUrl) return;
   try {
-    const fileId = getFileIdFromCdnUrl(downloadUrl);
-    if (!fileId) return;
-    if (await cdnService.checkFileExists(fileId)) {
-      await cdnService.deleteFile(fileId);
-    }
+    await cdnService.deleteFileForStoredUrl(downloadUrl);
   } catch (error) {
     logger.error('Error deleting mod zip from CDN:', error);
   }

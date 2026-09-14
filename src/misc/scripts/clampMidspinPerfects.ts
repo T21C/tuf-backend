@@ -26,7 +26,7 @@ import {initializeAssociations} from '@/models/associations.js';
 import {computePassScoreV2} from '@/misc/utils/pass/scoreService.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
-import {isCdnUrl} from '@/misc/utils/Utility.js';
+import {hasDomesticCdnFile} from '@/misc/utils/Utility.js';
 import {tilecount as judgementHitCount, unwrapJudgements} from '@/misc/utils/pass/CalcAcc.js';
 import {
   applyMidspinPerfectDecrement,
@@ -70,10 +70,6 @@ function csvEscape(s: string): string {
 
 function rowToCsvLine(cols: string[]): string {
   return cols.map(csvEscape).join(',') + '\n';
-}
-
-function hasCdnDownload(dlLink: unknown): boolean {
-  return typeof dlLink === 'string' && dlLink !== '' && dlLink !== 'removed' && isCdnUrl(dlLink);
 }
 
 function displayNum(v: unknown): string {
@@ -175,7 +171,7 @@ async function clampMidspinPerfects(options: CliOptions): Promise<boolean> {
         const classification = classifyMidspinRewrite({
           adofaiVersion: parseAdofaiVersion(pass.adofaiVersion),
           passMetaFlags: pass.passMetaFlags,
-          hasCdnDownload: hasCdnDownload(level.dlLink),
+          hasCdnDownload: hasDomesticCdnFile(level.dlLink),
           midspinCount: (level as {midspinCount?: unknown}).midspinCount,
           tilecount: (level as {tilecount?: unknown}).tilecount,
           judgements,

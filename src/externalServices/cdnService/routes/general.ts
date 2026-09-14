@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '@/server/services/core/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
-import { CDN_CONFIG, IMAGE_TYPES } from '@/externalServices/cdnService/config.js';
+import { CDN_CONFIG, IMAGE_TYPES, cdnCloudMutationsEnabled } from '@/externalServices/cdnService/config.js';
 import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
@@ -315,6 +315,13 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
 
         // Commit the transaction
         await transaction.commit();
+
+        if (!cdnCloudMutationsEnabled()) {
+            logger.debug('Skipping CDN object-storage delete: this instance is not the production public origin', {
+                fileId,
+            });
+            return res.json({ success: true, skippedCloudDelete: true });
+        }
 
         // Clean up files using hybrid storage manager after successful database deletion
         try {

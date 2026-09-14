@@ -8,6 +8,7 @@ import { jobProgressService } from './JobProgressService.js';
 import { ImageFileType } from '@/models/cdn/CdnFile.js';
 import Level from '@/models/levels/Level.js';
 import { EMPTY_LEVEL_CHART_STATS, type LevelChartStats } from '@/misc/utils/data/chartCacheParse.js';
+import { getFileIdFromCdnUrl, isWritableCdnUrl } from '@/misc/utils/Utility.js';
 const CDN_BASE_URL = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 
 const IGNORED_ERROR_CODES = [
@@ -818,6 +819,33 @@ class CdnService {
             fileId,
             totalAttempts: retries + 1
         });
+    }
+
+    /**
+     * Delete a stored object only when `sourceUrl` is this environment's writable
+     * CDN (`CDN_URL`). Rankings may treat `https://api.tuforums.com/cdn` as CDN in
+     * non-prod; those URLs must never be deleted through the local CDN client.
+     */
+    async deleteFileForStoredUrl(
+        sourceUrl: string | null | undefined,
+        fileId?: string | null,
+        retries = 2,
+    ): Promise<void> {
+        if (!sourceUrl) {
+            return;
+        }
+        if (!isWritableCdnUrl(sourceUrl)) {
+            logger.debug('Skipping CDN delete: stored URL is not this environment\'s writable CDN', {
+                sourceUrl,
+            });
+            return;
+        }
+        const id =
+            (typeof fileId === 'string' && fileId.trim()) || getFileIdFromCdnUrl(sourceUrl);
+        if (!id) {
+            return;
+        }
+        await this.deleteFile(id, retries);
     }
 
     async getFileMetadata(fileId: string): Promise<any> {

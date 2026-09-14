@@ -90,9 +90,9 @@ export async function uploadDifficultyIconToCdn(
  */
 export async function cleanupOldDifficultyIcon(
   oldFileId: string | null,
-  context: { diffId: number; kind: 'icon' | 'legacyIcon'; newIconUrl: string | null },
+  context: { diffId: number; kind: 'icon' | 'legacyIcon'; newIconUrl: string | null; oldIconUrl?: string | null },
 ): Promise<void> {
-  if (!oldFileId) return;
+  if (!oldFileId && !context.oldIconUrl) return;
   try {
     logger.debug('Cleaning up old difficulty icon from CDN', {
       diffId: context.diffId,
@@ -100,7 +100,7 @@ export async function cleanupOldDifficultyIcon(
       oldFileId,
       newIconUrl: context.newIconUrl,
     });
-    await cdnService.deleteFile(oldFileId);
+    await cdnService.deleteFileForStoredUrl(context.oldIconUrl, oldFileId);
     logger.debug('Successfully cleaned up old difficulty icon from CDN', {
       diffId: context.diffId,
       kind: context.kind,

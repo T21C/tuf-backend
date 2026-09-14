@@ -17,6 +17,22 @@ if (!process.env.CDN_URL) {
     throw new Error('CDN_URL must be set');
 }
 
+/** Public production CDN origin. Non-prod aliases this for ranking eligibility only. */
+export const PUBLIC_CDN_BASE_URL = 'https://api.tuforums.com/cdn';
+
+export function stripCdnBaseUrl(url: string): string {
+    return String(url || '').replace(/\/+$/, '');
+}
+
+/**
+ * Object-storage deletes/overwrites against the shared bucket are only allowed
+ * when this process's public `CDN_URL` is the production CDN. Local/canary
+ * instances still read and can upload new keys, but must not mutate prod objects.
+ */
+export function cdnCloudMutationsEnabled(): boolean {
+    return stripCdnBaseUrl(String(process.env.CDN_URL || '')) === stripCdnBaseUrl(PUBLIC_CDN_BASE_URL);
+}
+
 if (process.env.NODE_ENV === 'production' && !process.env.CDN_TEMP_ROOT?.trim()) {
     throw new Error('CDN_TEMP_ROOT must be set in production');
 }

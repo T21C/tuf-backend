@@ -149,8 +149,9 @@ router.post(
         return res.status(404).json({ error: 'Difficulty not found' });
       }
 
-      const oldFileId = difficulty.icon && isCdnUrl(difficulty.icon)
-        ? getFileIdFromCdnUrl(difficulty.icon)
+      const previousIconUrl = difficulty.icon;
+      const oldFileId = previousIconUrl && isCdnUrl(previousIconUrl)
+        ? getFileIdFromCdnUrl(previousIconUrl)
         : null;
 
       let newIconUrl: string;
@@ -171,6 +172,7 @@ router.post(
         diffId,
         kind: 'icon',
         newIconUrl,
+        oldIconUrl: previousIconUrl,
       });
 
       await updateDifficultiesHash();
@@ -212,8 +214,9 @@ router.post(
         return res.status(404).json({ error: 'Difficulty not found' });
       }
 
-      const oldFileId = difficulty.legacyIcon && isCdnUrl(difficulty.legacyIcon)
-        ? getFileIdFromCdnUrl(difficulty.legacyIcon)
+      const previousLegacyIconUrl = difficulty.legacyIcon;
+      const oldFileId = previousLegacyIconUrl && isCdnUrl(previousLegacyIconUrl)
+        ? getFileIdFromCdnUrl(previousLegacyIconUrl)
         : null;
 
       let newIconUrl: string;
@@ -234,6 +237,7 @@ router.post(
         diffId,
         kind: 'legacyIcon',
         newIconUrl,
+        oldIconUrl: previousLegacyIconUrl,
       });
 
       await updateDifficultiesHash();
@@ -424,10 +428,13 @@ router.put(
       let finalLegacyIcon: string | null | undefined = undefined;
       let oldIconFileId: string | null = null;
       let oldLegacyIconFileId: string | null = null;
+      let oldIconUrl: string | null = null;
+      let oldLegacyIconUrl: string | null = null;
 
       if (iconFile) {
         if (difficulty.icon && isCdnUrl(difficulty.icon)) {
           oldIconFileId = getFileIdFromCdnUrl(difficulty.icon);
+          oldIconUrl = difficulty.icon;
         }
         try {
           finalIcon = await uploadDifficultyIconToCdn(
@@ -443,6 +450,7 @@ router.put(
       } else if (icon === 'null' || icon === null) {
         if (difficulty.icon && isCdnUrl(difficulty.icon)) {
           oldIconFileId = getFileIdFromCdnUrl(difficulty.icon);
+          oldIconUrl = difficulty.icon;
         }
         finalIcon = null;
       } else if (icon && icon !== difficulty.icon && typeof icon === 'string') {
@@ -452,6 +460,7 @@ router.put(
       if (legacyIconFile) {
         if (difficulty.legacyIcon && isCdnUrl(difficulty.legacyIcon)) {
           oldLegacyIconFileId = getFileIdFromCdnUrl(difficulty.legacyIcon);
+          oldLegacyIconUrl = difficulty.legacyIcon;
         }
         try {
           finalLegacyIcon = await uploadDifficultyIconToCdn(
@@ -467,6 +476,7 @@ router.put(
       } else if (legacyIcon === 'null' || legacyIcon === null) {
         if (difficulty.legacyIcon && isCdnUrl(difficulty.legacyIcon)) {
           oldLegacyIconFileId = getFileIdFromCdnUrl(difficulty.legacyIcon);
+          oldLegacyIconUrl = difficulty.legacyIcon;
         }
         finalLegacyIcon = null;
       } else if (legacyIcon && legacyIcon !== difficulty.legacyIcon && typeof legacyIcon === 'string') {
@@ -598,6 +608,7 @@ router.put(
           diffId,
           kind: 'icon',
           newIconUrl: finalIcon,
+          oldIconUrl,
         });
       }
       if (finalLegacyIcon !== undefined) {
@@ -605,6 +616,7 @@ router.put(
           diffId,
           kind: 'legacyIcon',
           newIconUrl: finalLegacyIcon,
+          oldIconUrl: oldLegacyIconUrl,
         });
       }
 

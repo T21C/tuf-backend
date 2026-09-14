@@ -1370,12 +1370,7 @@ router.post(
 
         // Delete old icon if it exists
         try {
-            if (pack.iconUrl && isCdnUrl(pack.iconUrl)) {
-                const oldFileId = getFileIdFromCdnUrl(pack.iconUrl);
-                if (oldFileId && await cdnService.checkFileExists(oldFileId)) {
-                    await cdnService.deleteFile(oldFileId);
-                }
-            }
+            await cdnService.deleteFileForStoredUrl(pack.iconUrl);
         } catch (error) {
             logger.error('Error deleting old pack icon from CDN:', error);
         }
@@ -1439,16 +1434,15 @@ router.delete(
             return res.status(400).json({ error: 'No icon to remove' });
         }
 
-        const oldFileId = getFileIdFromCdnUrl(pack.iconUrl);
+        const previousIconUrl = pack.iconUrl;
+        const oldFileId = getFileIdFromCdnUrl(previousIconUrl);
 
         await pack.update({
             iconUrl: null
         });
 
         try {
-            if (oldFileId) {
-                await cdnService.deleteFile(oldFileId);
-            }
+            await cdnService.deleteFileForStoredUrl(previousIconUrl, oldFileId);
         } catch (error) {
             logger.error('Error deleting old pack icon from CDN:', error);
         }
