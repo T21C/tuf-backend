@@ -43,6 +43,17 @@ export async function initializeRuntimeServices(): Promise<void> {
     const { startSubmissionQueueWorker } = await import(
       '@/server/services/submissions/submissionQueueWorker.js'
     );
+    const { startAutoSubmissionLevelChanges } = await import(
+      '@/server/services/autoSubmission/levelChangeDispatcher.js'
+    );
+    const stopAutoSubmissionChanges = startAutoSubmissionLevelChanges();
+    if (stopAutoSubmissionChanges) {
+      registerShutdownStep({
+        name: 'auto-submission-changes',
+        priority: 43,
+        fn: stopAutoSubmissionChanges,
+      });
+    }
     startOutboxRelay();
     startDiscordOutboxDispatcher();
     startNotificationOutboxDispatcher();

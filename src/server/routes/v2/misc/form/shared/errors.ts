@@ -6,36 +6,15 @@ import { CdnError, respondWithCdnError } from '@/server/services/core/CdnService
  * Canonical error shape used by every new form route. Throw one of these from
  * inside a handler and `sendFormError` will turn it into a clean JSON response.
  */
-export class FormError extends Error {
-  readonly code: number;
-  readonly details?: Record<string, unknown>;
-  readonly field?: string;
-  constructor(code: number, message: string, opts: { details?: Record<string, unknown>; field?: string } = {}) {
-    super(message);
-    this.name = 'FormError';
-    this.code = code;
-    this.details = opts.details;
-    this.field = opts.field;
-  }
-}
-
-export const formError = {
-  bad: (message: string, opts?: { details?: Record<string, unknown>; field?: string }) =>
-    new FormError(400, message, opts),
-  unauth: (message = 'User not authenticated') => new FormError(401, message),
-  forbid: (message: string) => new FormError(403, message),
-  notFound: (message: string) => new FormError(404, message),
-  conflict: (message: string, opts?: { details?: Record<string, unknown>; field?: string }) =>
-    new FormError(409, message, opts),
-  server: (message = 'Internal server error', opts?: { details?: Record<string, unknown> }) =>
-    new FormError(500, message, opts),
-};
+export { FormError, formError } from '@/server/services/submissions/submissionErrors.js';
+import { FormError } from '@/server/services/submissions/submissionErrors.js';
 
 export function sendFormError(res: Response, err: unknown, fallback = 'Failed to process request'): void {
   if (err instanceof FormError) {
     const payload: Record<string, unknown> = { error: err.message };
     if (err.details) payload.details = err.details;
     if (err.field) payload.field = err.field;
+    if (err.denialReason) payload.denial_reason = err.denialReason;
     res.status(err.code).json(payload);
     return;
   }
