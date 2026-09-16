@@ -18,7 +18,7 @@ import {
 } from '@/server/services/ratings/ratingListService.js';
 import {
   clampZenRandomness,
-  isZenDeckSize,
+  parseZenDeckSize,
   parseZenIncludeBands,
   peeksAllowedForDeckSize,
   sampleZenPoolIndices,
@@ -26,7 +26,6 @@ import {
   ZEN_DECK_UNIT,
   ZEN_DEFAULT_DECK_SIZE,
   ZEN_DEFAULT_RANDOMNESS,
-  type ZenDeckSize,
 } from '@/server/services/ratings/zenRatingConstants.js';
 
 export interface ZenDealOptions {
@@ -56,7 +55,7 @@ export interface ZenDealResult {
 }
 
 export function parseZenDealOptions(body: Record<string, unknown>): {
-  deckSize: ZenDeckSize;
+  deckSize: number;
   includeP: boolean;
   includeG: boolean;
   includeU: boolean;
@@ -64,11 +63,7 @@ export function parseZenDealOptions(body: Record<string, unknown>): {
   order: RatingListOrder;
   randomness: number;
 } {
-  const rawSize = body.deckSize ?? ZEN_DEFAULT_DECK_SIZE;
-  if (!isZenDeckSize(rawSize)) {
-    throw Object.assign(new Error('Invalid deckSize'), { status: 400 });
-  }
-  const deckSize = Number(rawSize) as ZenDeckSize;
+  const deckSize = parseZenDeckSize(body.deckSize ?? ZEN_DEFAULT_DECK_SIZE);
 
   const sortRaw = String(body.sort || 'ratings');
   const sort: RatingListSort =
@@ -155,7 +150,7 @@ export async function dealZenDeck(
   return {
     deckUnit: ZEN_DECK_UNIT,
     deckSize: parsed.deckSize,
-    peeksAllowed: peeksAllowedForDeckSize(parsed.deckSize),
+    peeksAllowed: peeksAllowedForDeckSize(cards.length),
     sort: parsed.sort,
     order: parsed.order,
     includeP: parsed.includeP,

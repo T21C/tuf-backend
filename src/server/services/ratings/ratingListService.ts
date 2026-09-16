@@ -16,9 +16,11 @@ import {
   isUniversalRatingProposal,
   lowDiffFilterForRequestBands,
   requestPguBand,
+  includeRequestBandsFromFlags,
   type RequestPguBand,
 } from '@/misc/utils/data/RatingUtils.js';
 import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
+import { parseZenIncludeBands } from '@/server/services/ratings/zenRatingConstants.js';
 
 export const RATING_LIST_PAGE_SIZE = 30;
 export const RATING_LIST_CACHE_TTL_SEC = 300;
@@ -163,6 +165,15 @@ export function parseRatingListQuery(
     String(reqQuery.order || 'ASC').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
   const lowDiff = normalizeShowHideOnly(reqQuery.lowDiff);
+  let includeRequestBands: RequestPguBand[] | null = null;
+  if (
+    reqQuery.includeP !== undefined ||
+    reqQuery.includeG !== undefined ||
+    reqQuery.includeU !== undefined
+  ) {
+    const { includeP, includeG, includeU } = parseZenIncludeBands(reqQuery);
+    includeRequestBands = includeRequestBandsFromFlags(includeP, includeG, includeU);
+  }
   const fourVote = normalizeShowHideOnly(reqQuery.fourVote);
   const myRated = parseMyRated(reqQuery, userId);
   const zeroClears =
@@ -197,6 +208,7 @@ export function parseRatingListQuery(
     rankReady,
     vote,
     excludeUniversals: false,
+    includeRequestBands,
     userId: userId || null,
     levelIdsFilter: box.levelIds,
   };
@@ -521,14 +533,18 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
     where: levelWhere,
   };
 
+  const bandFiltered = Boolean(includeBandSet && includeBandSet.size < 3);
+
   const findOptions: any = {
     where: ratingWhere,
     include: [levelInclude],
     order: orderClause,
-    limit: params.limit,
-    offset: params.offset,
     subQuery: false,
   };
+  if (!bandFiltered) {
+    findOptions.limit = params.limit;
+    findOptions.offset = params.offset;
+  }
 
   if (havingParts.length > 0) {
     findOptions.attributes = {
@@ -538,57 +554,63 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
     findOptions.having = literal(havingParts.join(' AND '));
   }
 
-  let total: number;
-  if (havingParts.length > 0) {
-    const countRows = await Rating.findAll({
-      where: ratingWhere,
-      include: [
-        {
-          model: Level,
-          as: 'level',
-          required: true,
-          attributes: [],
-          where: levelWhere,
-        },
-      ],
-      attributes: ['id'],
-      group: ['Rating.id'],
-      having: literal(havingParts.join(' AND ')),
-      subQuery: false,
-    });
-    total = countRows.length;
-  } else {
-    total = await Rating.count({
-      where: ratingWhere,
-      include: [
-        {
-          model: Level,
-          as: 'level',
-          required: true,
-          attributes: [],
-          where: levelWhere,
-        },
-      ],
-      distinct: true,
-      col: 'id',
-    });
+  let total = 0;
+  if (!bandFiltered) {
+    if (havingParts.length > 0) {
+      const countRows = await Rating.findAll({
+        where: ratingWhere,
+        include: [
+          {
+            model: Level,
+            as: 'level',
+            required: true,
+            attributes: [],
+            where: levelWhere,
+          },
+        ],
+        attributes: ['id'],
+        group: ['Rating.id'],
+        having: literal(havingParts.join(' AND ')),
+        subQuery: false,
+      });
+      total = countRows.length;
+    } else {
+      total = await Rating.count({
+        where: ratingWhere,
+        include: [
+          {
+            model: Level,
+            as: 'level',
+            required: true,
+            attributes: [],
+            where: levelWhere,
+          },
+        ],
+        distinct: true,
+        col: 'id',
+      });
+    }
   }
 
   const ratings = await Rating.findAll(findOptions);
-  let results = await hydrateRatingListRows(ratings);
-
-  const bandFiltered = Boolean(includeBandSet && includeBandSet.size < 3);
+  let pageRatings = ratings;
   if (bandFiltered && includeBandSet) {
-    results = results.filter((row) => {
+    const filtered = ratings.filter((row) => {
       const level = row.level as { rerateNum?: string | null } | undefined;
       const band = requestPguBand(
         level?.rerateNum,
-        row.requesterFR as string | null | undefined,
+        row.requesterFR,
         Boolean(row.lowDiff)
       );
       return includeBandSet.has(band);
     });
-  } else if (params.excludeUniversals) {
+    total = filtered.length;
+    pageRatings = filtered.slice(params.offset, params.offset + params.limit);
+  }
+
+  let results = await hydrateRatingListRows(pageRatings);
+
+  if (!bandFiltered && params.excludeUniversals) {
     results = results.filter((row) => {
       const level = row.level as { rerateNum?: string | null } | undefined;
       return !isUniversalRatingProposal(
@@ -596,15 +618,21 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
         row.requesterFR as string | null | undefined
       );
     });
+    return {
+      results,
+      total: results.length,
+      offset: params.offset,
+      limit: params.limit,
+      hasMore: false,
+    };
   }
 
-  const postFiltered = bandFiltered || params.excludeUniversals;
   return {
     results,
-    total: postFiltered ? results.length : total,
+    total,
     offset: params.offset,
     limit: params.limit,
-    hasMore: postFiltered ? false : params.offset + params.limit < total,
+    hasMore: params.offset + params.limit < total,
   };
 }
 

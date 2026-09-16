@@ -94,6 +94,10 @@ export function tilecount(inp: IJudgements | unknown): number {
   );
 }
 
+/**
+ * Weighted xacc. Perfect− / Perfect+ count as 1.0 like Perfect.
+ * Must stay in sync with MySQL `calculate_accuracy` (judgement accuracy triggers).
+ */
 export function calcAcc(inp: IJudgements | unknown): number {
   if (!inp) return 0;
   const judgements = unwrapJudgements(inp);

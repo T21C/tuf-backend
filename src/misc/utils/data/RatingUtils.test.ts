@@ -4,6 +4,7 @@ import {
   isUniversalRatingProposal,
   lowDiffFilterForRequestBands,
   requestPguBand,
+  includeRequestBandsFromFlags,
 } from './RatingUtils.js';
 
 test('requestPguBand uses universal proposal as U', () => {
@@ -35,4 +36,10 @@ test('lowDiffFilterForRequestBands matches existing P / not-P filters', () => {
   assert.equal(lowDiffFilterForRequestBands(false, true, true), 'hide');
   assert.equal(lowDiffFilterForRequestBands(true, true, false), 'show');
   assert.equal(lowDiffFilterForRequestBands(true, true, true), 'show');
+});
+
+test('includeRequestBandsFromFlags omits the filter when all bands are on', () => {
+  assert.equal(includeRequestBandsFromFlags(true, true, true), null);
+  assert.deepEqual(includeRequestBandsFromFlags(true, true, false), ['P', 'G']);
+  assert.deepEqual(includeRequestBandsFromFlags(false, false, false), []);
 });

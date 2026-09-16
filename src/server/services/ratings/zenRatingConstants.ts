@@ -1,6 +1,8 @@
 export const ZEN_DECK_UNIT = 5;
 export const ZEN_DEFAULT_DECK_SIZE = 15;
+export const ZEN_MIN_DECK_SIZE = 1;
 export const ZEN_MAX_DECK_SIZE = 200;
+/** UI presets only; any integer from ZEN_MIN_DECK_SIZE..ZEN_MAX_DECK_SIZE is valid. */
 export const ZEN_ALLOWED_DECK_SIZES = [
   5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 125, 150, 175, 200,
 ] as const;
@@ -12,7 +14,6 @@ export const ZEN_MAX_RANDOMNESS = 100;
 /** Max sorted candidates fetched before weighted sampling. */
 export const ZEN_CANDIDATE_POOL_CAP = 500;
 
-export type ZenDeckSize = (typeof ZEN_ALLOWED_DECK_SIZES)[number];
 export type ZenRequestBand = 'P' | 'G' | 'U';
 
 function parseOptionalBool(value: unknown): boolean | undefined {
@@ -57,9 +58,17 @@ export function parseZenIncludeBands(body: Record<string, unknown>): {
   return { includeP: true, includeG: true, includeU: true };
 }
 
-export function isZenDeckSize(value: unknown): value is ZenDeckSize {
+/** Integer deck size in 1..200. Query strings like `"37"` are accepted. */
+export function parseZenDeckSize(value: unknown): number {
   const n = Number(value);
-  return (ZEN_ALLOWED_DECK_SIZES as readonly number[]).includes(n);
+  if (!Number.isFinite(n)) {
+    throw Object.assign(new Error('Invalid deckSize'), { status: 400 });
+  }
+  const size = Math.floor(n);
+  if (size < ZEN_MIN_DECK_SIZE || size > ZEN_MAX_DECK_SIZE) {
+    throw Object.assign(new Error('Invalid deckSize'), { status: 400 });
+  }
+  return size;
 }
 
 export function clampZenRandomness(value: unknown): number {
