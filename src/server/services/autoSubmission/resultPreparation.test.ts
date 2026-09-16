@@ -79,6 +79,21 @@ test('maps competitive XPerfect and split counts without a legacy decrement', ()
   assert.equal(result.isXPerfectMode, true);
   assert.equal(result.isAdofaiV2, false);
   assert.equal(result.midspinDecrement.skippedReason, 'latest_era');
-  assert.equal(Number.isFinite(result.accuracy), true);
+  assert.equal(result.accuracy, 1);
   assert.equal(Number.isFinite(result.scoreV2), true);
+});
+
+test('XPerfect accuracy treats minus/plus as perfect when other buckets exist', () => {
+  const result = prepareAutoSubmissionResult(validation({
+    is_adofai_v2: false,
+    adofai_version: 3,
+    is_x_perfect_mode: true,
+    perfect_minus: 422,
+    perfect_plus: 169,
+    judgments: [0, 1, 22, 112, 3893, 20, 6, 0, 0],
+  }), scoreContext);
+  const total = 4645;
+  const weighted = 4484 + 132 * 0.75 + 28 * 0.4 + 0.2;
+  assert.equal(result.judgements.perfect, 3893);
+  assert.equal(result.accuracy, weighted / total);
 });

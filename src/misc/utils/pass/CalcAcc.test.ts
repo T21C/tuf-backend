@@ -19,6 +19,25 @@ describe('CalcAcc xperfect weights', () => {
     assert.equal(calcAcc(j), (1 + 0.75) / 2);
   });
 
+  it('includes minus/plus in mixed X-Perfect clears (not the 7-bucket SQL formula)', () => {
+    const j = emptyJudgements();
+    j.earlyDouble = 1;
+    j.earlySingle = 22;
+    j.ePerfect = 112;
+    j.perfectMinus = 422;
+    j.perfect = 3893;
+    j.perfectPlus = 169;
+    j.lPerfect = 20;
+    j.lateSingle = 6;
+    const total = 1 + 22 + 112 + 422 + 3893 + 169 + 20 + 6;
+    const weighted = 422 + 3893 + 169 + (112 + 20) * 0.75 + (22 + 6) * 0.4 + 1 * 0.2;
+    assert.equal(total, 4645);
+    assert.equal(calcAcc(j), weighted / total);
+    const omittedPlusMinus = (3893 + (112 + 20) * 0.75 + (22 + 6) * 0.4 + 1 * 0.2) / (total - 422 - 169);
+    assert.ok(Math.abs(omittedPlusMinus - 0.9875) < 5e-5);
+    assert.ok(calcAcc(j) > omittedPlusMinus);
+  });
+
   it('detects 5-40-5 and pure xperfect', () => {
     const ancient = emptyJudgements();
     ancient.ePerfect = 5;

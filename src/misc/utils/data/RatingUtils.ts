@@ -238,6 +238,19 @@ export function lowDiffFilterForRequestBands(
   return 'show';
 }
 
+/** Null means all three bands (no extra filter). Empty array means hide everything. */
+export function includeRequestBandsFromFlags(
+  includeP: boolean,
+  includeG: boolean,
+  includeU: boolean,
+): RequestPguBand[] | null {
+  const bands: RequestPguBand[] = [];
+  if (includeP) bands.push('P');
+  if (includeG) bands.push('G');
+  if (includeU) bands.push('U');
+  return bands.length === 3 ? null : bands;
+}
+
 /** PGU difficulties closest to `targetSortOrder`; on equal distance prefer higher sortOrder (e.g. 40.5 → U1 not G20). */
 function comparePguByDistanceToSortOrder(a: any, b: any, targetSortOrder: number): number {
   const distA = Math.abs(a.sortOrder - targetSortOrder);
