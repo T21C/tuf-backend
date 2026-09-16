@@ -23,6 +23,8 @@ class Pass
   declare feelingRating: string | null;
   declare expectedRating: string | null;
   declare keyCount: number | null;
+  declare submissionSource: 'video' | 'auto_submission';
+  declare autoSubmissionRunId: string | null;
   declare vidTitle: string | null;
   declare videoLink: string | null;
   declare vidUploadTime: Date;
@@ -83,6 +85,15 @@ Pass.init(
     },
     expectedRating: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    submissionSource: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      defaultValue: 'video',
+    },
+    autoSubmissionRunId: {
+      type: DataTypes.UUID,
       allowNull: true,
     },
     keyCount: {

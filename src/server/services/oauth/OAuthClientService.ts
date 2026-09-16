@@ -1,3 +1,4 @@
+import { grantableScopesForClient } from '@/config/oauthClientPolicy.js';
 import crypto from 'crypto';
 import { Op, WhereOptions } from 'sequelize';
 import {
@@ -88,31 +89,31 @@ function normalizeRedirectUris(uris: unknown): string[] {
   return out;
 }
 
-function normalizeAllowedScopes(input: unknown): string {
+function normalizeAllowedScopes(input: unknown, mask = V1_GRANTABLE_MASK): string {
   if (input == null || input === '') {
-    return V1_GRANTABLE_MASK.toString();
+    return mask.toString();
   }
   if (typeof input === 'bigint' || typeof input === 'number') {
     const bits = BigInt(input);
     if (bits === 0n) {
       throw new OAuthClientError('allowedScopes must be non-zero');
     }
-    if ((bits & ~V1_GRANTABLE_MASK) !== 0n) {
+    if ((bits & ~mask) !== 0n) {
       throw new OAuthClientError('allowedScopes contains non-grantable bits');
     }
     return bits.toString();
   }
   if (typeof input === 'string') {
-    const parsed = parseScopeString(input);
+    const parsed = parseScopeString(input, mask);
     if (!parsed.ok) throw new OAuthClientError(parsed.error);
-    if ((parsed.bits & ~V1_GRANTABLE_MASK) !== 0n) {
+    if ((parsed.bits & ~mask) !== 0n) {
       throw new OAuthClientError('allowedScopes contains non-grantable bits');
     }
     return parsed.bits.toString();
   }
   if (Array.isArray(input)) {
     // Legacy name list — prefer bigint string going forward.
-    const parsed = parseScopeString(input.map(String).join(' '));
+    const parsed = parseScopeString(input.map(String).join(' '), mask);
     if (!parsed.ok) throw new OAuthClientError(parsed.error);
     return parsed.bits.toString();
   }
@@ -195,7 +196,7 @@ export const oauthClientService = {
       client.redirectUris = normalizeRedirectUris(body.redirectUris);
     }
     if (body.allowedScopes !== undefined || body.scopes !== undefined) {
-      client.allowedScopes = normalizeAllowedScopes(body.allowedScopes ?? body.scopes);
+      client.allowedScopes = normalizeAllowedScopes(body.allowedScopes ?? body.scopes, grantableScopesForClient(client.clientId));
     }
     if (body.singleGrant !== undefined) client.singleGrant = Boolean(body.singleGrant);
     if (body.description !== undefined) {
