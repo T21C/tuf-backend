@@ -1,4 +1,5 @@
 import {Router} from 'express';
+import autoSubmissionRoutes from './autoSubmission/index.js';
 import authRoutes from './auth/index.js';
 import adminRoutes from './admin/index.js';
 import databaseRoutes from './database/index.js';
@@ -14,6 +15,7 @@ const router: Router = Router();
 
 // Auth routes
 router.use('/auth', authRoutes);
+router.use('/internal/auto-submission', autoSubmissionRoutes);
 
 // User inbox
 router.use('/notifications', notificationRoutes);

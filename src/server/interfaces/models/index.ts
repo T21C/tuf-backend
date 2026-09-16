@@ -126,6 +126,8 @@ export interface ILevel extends IBaseModel {
 
 // Pass interface
 export interface IPass extends IBaseModel {
+  submissionSource?: 'video' | 'auto_submission';
+  autoSubmissionRunId?: string | null;
   levelId: number;
   speed: number | null;
   playerId: number;

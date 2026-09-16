@@ -1037,6 +1037,7 @@ impact_calc AS (
       'speed',
       'vidUploadTime',
       'videoLink',
+      'submissionSource',
       'keyCount',
       'is12K',
       'is16K',

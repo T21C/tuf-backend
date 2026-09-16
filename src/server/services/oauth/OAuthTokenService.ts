@@ -1,3 +1,4 @@
+import { grantableScopesForClient, isAutoSubmissionClient } from '@/config/oauthClientPolicy.js';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { Op } from 'sequelize';
@@ -15,7 +16,6 @@ import {
   parseScopeBitsStored,
   parseScopeString,
   scopeBitsToSpaceSeparated,
-  V1_GRANTABLE_MASK,
   oauthScopeFlags,
 } from '@/config/oauthScopes.js';
 import OAuthAuthorizationCode from '@/models/oauth/OAuthAuthorizationCode.js';
@@ -190,7 +190,7 @@ export async function validateAuthorizeAgainstClient(
   if (!isRedirectUriAllowed(client.redirectUris, req.redirectUri)) {
     throw new OAuthAsError('redirect_uri mismatch', 400, 'invalid_request', false);
   }
-  const parsed = parseScopeString(req.scope);
+  const parsed = parseScopeString(req.scope, grantableScopesForClient(req.clientId));
   if (!parsed.ok) {
     throw new OAuthAsError(parsed.error, 400, 'invalid_scope', true);
   }
@@ -198,10 +198,17 @@ export async function validateAuthorizeAgainstClient(
   if ((parsed.bits & ~allowed) !== 0n) {
     throw new OAuthAsError('requested scope exceeds client allowlist', 400, 'invalid_scope', true);
   }
-  if ((parsed.bits & ~V1_GRANTABLE_MASK) !== 0n) {
+  if ((parsed.bits & ~grantableScopesForClient(req.clientId)) !== 0n) {
     throw new OAuthAsError('scope not grantable', 400, 'invalid_scope', true);
   }
   return { client, scopeBits: parsed.bits, scopeNames: parsed.names };
+}
+
+function requireClientScopes(client: OAuthClient, bits: bigint): void {
+  if (bits === 0n || (bits & ~grantableScopesForClient(client.clientId)) !== 0n
+      || (bits & ~parseScopeBitsStored(client.allowedScopes)) !== 0n) {
+    throw new OAuthAsError('scope not grantable for this client', 400, 'invalid_scope');
+  }
 }
 
 export async function findActiveGrant(
@@ -223,7 +230,11 @@ export async function upsertGrant(args: {
   client: OAuthClient;
   scopeBits: bigint;
 }): Promise<OAuthGrant> {
-  const existing = await findActiveGrant(args.userId, args.client.clientId);
+  // The official native client gets one grant per authorization/device.
+  // Refresh rotation remains within that grant; ordinary OAuth apps keep their existing behavior.
+  const existing = isAutoSubmissionClient(args.client.clientId)
+    ? null
+    : await findActiveGrant(args.userId, args.client.clientId);
   if (existing) {
     existing.scopeBits = args.scopeBits.toString();
     existing.singleGrant = args.client.singleGrant;
@@ -245,6 +256,10 @@ export async function issueAuthorizationCode(args: {
   scopeBits: bigint;
   codeChallenge: string;
 }): Promise<{ code: string; grant: OAuthGrant }> {
+  requireClientScopes(args.client, args.scopeBits);
+  if (args.client.status !== 'active' || !isRedirectUriAllowed(args.client.redirectUris, args.redirectUri)) {
+    throw new OAuthAsError('Client authorization changed', 400, 'unauthorized_client');
+  }
   const user = await User.findByPk(args.userId, {
     attributes: ['id', 'playerId'],
   });
@@ -391,6 +406,7 @@ export async function exchangeAuthorizationCode(args: {
   }
 
   const scopeBits = parseScopeBitsStored(row.scopeBits);
+  requireClientScopes(client, scopeBits);
   const access_token = mintOAuthAccessToken({
     userId: row.userId,
     clientId: client.clientId,
@@ -424,7 +440,7 @@ export async function refreshAccessToken(args: {
   refresh_token: string;
   scope: string;
 }> {
-  await requireActiveClient(args.clientId);
+  const client = await requireActiveClient(args.clientId);
   const tokenHash = hashOpaque(args.refreshToken);
   const record = await OAuthRefreshToken.findOne({
     where: { tokenHash },
@@ -456,6 +472,8 @@ export async function refreshAccessToken(args: {
   if (record.expiresAt.getTime() < Date.now()) {
     throw new OAuthAsError('Refresh token expired', 400, 'invalid_grant');
   }
+
+  requireClientScopes(client, parseScopeBitsStored(grant.scopeBits));
 
   const newPlain = crypto.randomBytes(32).toString('hex');
   const newHash = hashOpaque(newPlain);
@@ -517,7 +535,14 @@ export async function revokeToken(args: {
 export async function revokeGrantById(grantId: string, userId: string): Promise<boolean> {
   const grant = await OAuthGrant.findOne({ where: { id: grantId, userId } });
   if (!grant || grant.revokedAt) return false;
-  await revokeGrantFamily(grant.id);
+  if (isAutoSubmissionClient(grant.clientId)) {
+    const devices = await OAuthGrant.findAll({
+      where: { userId, clientId: grant.clientId, revokedAt: null },
+    });
+    for (const device of devices) await revokeGrantFamily(device.id);
+  } else {
+    await revokeGrantFamily(grant.id);
+  }
   return true;
 }
 
