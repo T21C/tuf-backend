@@ -7,7 +7,7 @@
 export const oauthScopeFlags = {
   USER_READ_PUBLIC: 1n << 0n,
   USER_READ_EMAIL: 1n << 1n,
-  /** Reserved — not grantable in v1 */
+  /** Grantable only to the configured official auto submission client. */
   USER_SUBMISSION_CREATE: 1n << 16n,
 } as const;
 
@@ -56,7 +56,7 @@ export function hasOAuthScope(bits: bigint, flag: bigint): boolean {
   return (bits & flag) === flag;
 }
 
-export function parseScopeString(scope: string | undefined | null): {
+export function parseScopeString(scope: string | undefined | null, grantableMask = V1_GRANTABLE_MASK): {
   ok: true;
   bits: bigint;
   names: string[];
@@ -80,7 +80,7 @@ export function parseScopeString(scope: string | undefined | null): {
     if (bits === 0n) {
       return { ok: false, error: 'scope is required' };
     }
-    if ((bits & ~V1_GRANTABLE_MASK) !== 0n) {
+    if ((bits & ~grantableMask) !== 0n) {
       return { ok: false, error: 'scope contains non-grantable bits' };
     }
     return { ok: true, bits, names: scopeBitsToNames(bits) };
@@ -95,7 +95,7 @@ export function parseScopeString(scope: string | undefined | null): {
     if (flag === undefined) {
       return { ok: false, error: `unknown scope: ${name}` };
     }
-    if (!V1_GRANTABLE_SCOPES.includes(flag)) {
+    if ((grantableMask & flag) !== flag) {
       return { ok: false, error: `scope not grantable: ${name}` };
     }
     bits |= flag;
@@ -107,7 +107,7 @@ export function parseScopeString(scope: string | undefined | null): {
 export function scopeBitsToNames(bits: bigint): string[] {
   const names: string[] = [];
   for (const [flag, name] of OAUTH_SCOPE_NAME_BY_FLAG) {
-    if (hasOAuthScope(bits, flag) && V1_GRANTABLE_SCOPES.includes(flag)) {
+    if (hasOAuthScope(bits, flag)) {
       names.push(name);
     }
   }
