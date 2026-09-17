@@ -39,6 +39,8 @@ const PUBLIC_ADMIN_READS: readonly RegExp[] = [
   // still needs a logged-in user for myRated hide/only (Auth on the route).
   /^\/rating\/zen\/deal$/,
   /^\/statistics\/ratings-per-user$/,
+  // Level-page confirmed rating popup loads career accuracy for anonymous visitors.
+  /^\/statistics\/rating-accuracy$/,
 ];
 
 /** True when an anonymous caller may reach this admin route. */

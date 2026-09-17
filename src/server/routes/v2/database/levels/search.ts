@@ -11,6 +11,7 @@ import sequelize from '@/config/db.js';
 import { Op } from 'sequelize';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
+import RatingAccuracySample from '@/models/levels/RatingAccuracySample.js';
 import Rating from '@/models/levels/Rating.js';
 import LevelLikes from '@/models/levels/LevelLikes.js';
 import { User } from '@/models/index.js';
@@ -21,6 +22,7 @@ import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import { TAG_GROUP_INCLUDE, loadSerializedAssignedTags, tagGroupName } from '@/server/services/data/levelTagGroupService.js';
+import { attachSerializedAccuracySamples } from '@/server/services/ratings/ratingAccuracyService.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import cdnService, { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
@@ -681,12 +683,22 @@ router.get(
               as: 'user',
               attributes: ['username', 'avatarUrl'],
             },
+            {
+              model: RatingAccuracySample,
+              as: 'accuracySample',
+              required: false,
+            },
           ],
         },
       ],
       order: [['confirmedAt', 'DESC']],
     });
-    return res.json(ratings);
+    if (!ratings) {
+      return res.json(ratings);
+    }
+    const plain = ratings.toJSON() as Record<string, unknown>;
+    attachSerializedAccuracySamples(plain);
+    return res.json(plain);
   }
   catch (error) {
     logger.error('Error fetching level ratings:', error);

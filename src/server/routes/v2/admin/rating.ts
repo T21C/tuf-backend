@@ -38,6 +38,7 @@ import {
   parseRatingListQuery,
 } from '@/server/services/ratings/ratingListService.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
+import RatingAccuracySample from '@/models/levels/RatingAccuracySample.js';
 import {
   dealZenDeck,
   parseZenDealOptions,
@@ -151,6 +152,11 @@ function fullRatingIncludeOptions(transaction: any) {
             model: User,
             as: 'user',
             attributes: ['id', 'username', 'nickname', 'avatarUrl'],
+          },
+          {
+            model: RatingAccuracySample,
+            as: 'accuracySample',
+            required: false,
           },
         ],
       },
@@ -407,6 +413,19 @@ router.put(
         return res.status(403).json({ error: 'User is banned from rating' });
       }
 
+      const lockedRating = await Rating.findByPk(Number(id), {
+        attributes: ['id', 'confirmedAt', 'createdAt'],
+        transaction,
+      });
+      if (!lockedRating) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Rating not found' });
+      }
+      if (lockedRating.confirmedAt != null) {
+        await safeTransactionRollback(transaction);
+        return res.status(409).json({ error: 'Cannot change ratings after a level has been settled' });
+      }
+
       if (!isCommunityRating && !hasFlag(user, permissionFlags.RATER)) {
         await safeTransactionRollback(transaction);
         return res.status(403).json({ error: 'User is not a rater' });
@@ -463,14 +482,7 @@ router.put(
       });
       const ratedInZen = bodyRatedInZen || Boolean(existingDetail?.ratedInZen);
 
-      const parentRating = await Rating.findByPk(Number(id), {
-        attributes: ['id', 'createdAt'],
-        transaction,
-      });
-      if (!parentRating) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({ error: 'Rating not found' });
-      }
+      const parentRating = lockedRating;
 
       const parsedViewDuration = Number(viewDurationSecondsBody);
       const clientViewSeconds =
@@ -577,6 +589,19 @@ router.delete(
       if (!currentUser) {
         await safeTransactionRollback(transaction);
         return res.status(401).json({ error: 'User not authenticated' });
+      }
+
+      const lockedRating = await Rating.findByPk(Number(id), {
+        attributes: ['id', 'confirmedAt'],
+        transaction,
+      });
+      if (!lockedRating) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Rating not found' });
+      }
+      if (lockedRating.confirmedAt != null) {
+        await safeTransactionRollback(transaction);
+        return res.status(409).json({ error: 'Cannot change ratings after a level has been settled' });
       }
 
       await RatingDetail.destroy({

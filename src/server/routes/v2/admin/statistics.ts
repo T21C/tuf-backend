@@ -6,6 +6,7 @@ import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import {PassSubmission} from '@/models/submissions/PassSubmission.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import User from '@/models/auth/User.js';
+import RatingAccuracyStats from '@/models/levels/RatingAccuracyStats.js';
 import sequelize from '@/config/db.js';
 import { Op } from 'sequelize';
 import { logger } from '@/server/services/core/LoggerService.js';
@@ -14,10 +15,56 @@ import { wherehasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import { validateAndClampDate } from '@/misc/utils/server/dateUtils.js';
 import { Cache } from '@/server/middleware/cache.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
+import { RATING_ACCURACY_PROVISIONAL_N } from '@/misc/utils/data/ratingAccuracy.js';
 const router: Router = Router();
 
 /** Automated rating account — excluded from top-rater stats/leaderboard. */
 const EXCLUDED_TOP_RATER_USERNAMES = ['autorater'];
+
+type TopRaterSort = 'accuracy' | 'count';
+
+type TopRaterAccuracyFields = {
+  pguRawMean: number | null;
+  pguN: number;
+  pguShrunkMean: number | null;
+  specialRawMean: number | null;
+  specialN: number;
+};
+
+const EMPTY_TOP_RATER_ACCURACY: TopRaterAccuracyFields = {
+  pguRawMean: null,
+  pguN: 0,
+  pguShrunkMean: null,
+  specialRawMean: null,
+  specialN: 0,
+};
+
+function parseTopRaterSort(raw: unknown): TopRaterSort {
+  return raw === 'accuracy' ? 'accuracy' : 'count';
+}
+
+function compareTopRaters(
+  a: {ratingCount?: number} & TopRaterAccuracyFields,
+  b: {ratingCount?: number} & TopRaterAccuracyFields,
+  sort: TopRaterSort,
+): number {
+  const aActive = (a.ratingCount ?? 0) > 0;
+  const bActive = (b.ratingCount ?? 0) > 0;
+  if (aActive !== bActive) return aActive ? -1 : 1;
+
+  if (sort === 'accuracy') {
+    const aProv = (a.pguN ?? 0) < RATING_ACCURACY_PROVISIONAL_N;
+    const bProv = (b.pguN ?? 0) < RATING_ACCURACY_PROVISIONAL_N;
+    if (aProv !== bProv) return aProv ? 1 : -1;
+    const shrunkA = Number(a.pguShrunkMean ?? 0.5);
+    const shrunkB = Number(b.pguShrunkMean ?? 0.5);
+    if (shrunkB !== shrunkA) return shrunkB - shrunkA;
+    const nDiff = Number(b.pguN ?? 0) - Number(a.pguN ?? 0);
+    if (nDiff !== 0) return nDiff;
+  }
+
+  return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
+}
 
 router.get(
   '/',
@@ -75,16 +122,17 @@ router.get(
   ApiDoc({
     operationId: 'getAdminStatisticsRatingsPerUser',
     summary: 'Ratings per user',
-    description: 'Ratings per rater in date range. Query: startDate, endDate, date, page, offset, limit. Cached.',
+    description: 'Ratings per rater in date range. Query: startDate, endDate, date, page, offset, limit, sort. Cached.',
     tags: ['Admin', 'Statistics'],
-    query: { startDate: { schema: { type: 'string' } }, endDate: { schema: { type: 'string' } }, date: { schema: { type: 'string' } }, page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } } },
+    query: { startDate: { schema: { type: 'string' } }, endDate: { schema: { type: 'string' } }, date: { schema: { type: 'string' } }, page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Ratings per user' }, ...standardErrorResponses500 },
   }),
-  Cache({ ttl: 300, varyByQuery: ['startDate', 'endDate', 'date', 'page', 'offset', 'limit'], prefix: 'admin:statistics:ratings-per-user' }),
+  Cache({ ttl: 300, varyByQuery: ['startDate', 'endDate', 'date', 'page', 'offset', 'limit', 'sort'], prefix: 'admin:statistics:ratings-per-user' }),
   async (req: Request, res: Response) => {
   try {
     const { page, limit, offset } = req.query as unknown as PaginationQuery;
-    const { startDate, endDate, date } = req.query;
+    const { startDate, endDate, date, sort: sortRaw } = req.query;
+    const sort = parseTopRaterSort(sortRaw);
     const startDateParam = (startDate || date) as string | undefined;
 
     // Parse pagination parameters
@@ -205,23 +253,42 @@ router.get(
       ? totalRatingsCount / daysDiff
       : 0;
 
+    const accuracyRows = await RatingAccuracyStats.findAll({
+      where: {isCommunityRating: false},
+    });
+    const accuracyByUser = new Map<string, TopRaterAccuracyFields>();
+    for (const row of accuracyRows) {
+      accuracyByUser.set(row.userId, {
+        pguRawMean: row.pguRawMean,
+        pguN: row.pguN,
+        pguShrunkMean: row.pguShrunkMean,
+        specialRawMean: row.specialRawMean,
+        specialN: row.specialN,
+      });
+    }
+
+    const attachAccuracy = <T extends {userId: string}>(rater: T) => ({
+      ...rater,
+      ...(accuracyByUser.get(rater.userId) || EMPTY_TOP_RATER_ACCURACY),
+    });
+
     // Format active raters
     const formattedActiveRaters = activeRaters.map((result: any) => {
       const ratingCount = parseInt(result.dataValues.ratingCount);
       const averagePerDay = daysDiff > 0 ? ratingCount / daysDiff : 0;
 
-      return {
+      return attachAccuracy({
         userId: result.userId,
         username: result.user?.username || 'Unknown',
         avatarUrl: result.user?.avatarUrl || '',
         nickname: result.user?.nickname || '',
         ratingCount,
         averagePerDay
-      };
+      });
     });
 
     // Format inactive raters
-    const formattedInactiveRaters = inactiveRaters.map((rater: any) => ({
+    const formattedInactiveRaters = inactiveRaters.map((rater: any) => attachAccuracy({
       userId: rater.id,
       username: rater.username,
       avatarUrl: rater.avatarUrl,
@@ -230,8 +297,8 @@ router.get(
       averagePerDay: 0
     }));
 
-    // Combine both lists: active raters first, then inactive raters
-    const allRaters = [...formattedActiveRaters, ...formattedInactiveRaters];
+    const allRaters = [...formattedActiveRaters, ...formattedInactiveRaters]
+      .sort((a, b) => compareTopRaters(a, b, sort));
 
     // Calculate total count for pagination
     const totalCount = allRaters.length;
@@ -260,6 +327,59 @@ router.get(
     return res.status(500).json({error: 'Failed to fetch ratings per user'});
   }
   }
+);
+
+router.get(
+  '/rating-accuracy',
+  // Public read: confirmed rating popups (rating page + level page) paint career
+  // accuracy for anonymous visitors, matching ratings-per-user.
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getAdminStatisticsRatingAccuracy',
+    summary: 'Rater accuracy career stats',
+    description:
+      'Career PGU/special rating-accuracy stats per user (managers and community separate). Cached.',
+    tags: ['Admin', 'Statistics'],
+    security: ['bearerAuth'],
+    responses: {200: {description: 'Accuracy stats'}, ...standardErrorResponses500},
+  }),
+  Cache({
+    ttl: 300,
+    prefix: 'admin:statistics:rating-accuracy',
+    tags: ['admin:rating-accuracy'],
+  }),
+  async (_req: Request, res: Response) => {
+    try {
+      const excludedUserIds = new Set<string>();
+      const botId = process.env.AUTORATER_UUID;
+      if (botId) excludedUserIds.add(botId);
+      const autoraterUsers = await User.findAll({
+        attributes: ['id'],
+        where: {username: {[Op.in]: EXCLUDED_TOP_RATER_USERNAMES}},
+      });
+      for (const row of autoraterUsers) {
+        excludedUserIds.add(row.id);
+      }
+
+      const where =
+        excludedUserIds.size > 0 ? {userId: {[Op.notIn]: [...excludedUserIds]}} : {};
+      const rows = await RatingAccuracyStats.findAll({where});
+      return res.json({
+        stats: rows.map((row) => ({
+          userId: row.userId,
+          isCommunityRating: row.isCommunityRating,
+          pguRawMean: row.pguRawMean,
+          pguN: row.pguN,
+          pguShrunkMean: row.pguShrunkMean,
+          specialRawMean: row.specialRawMean,
+          specialN: row.specialN,
+        })),
+      });
+    } catch (error) {
+      logger.error('Error fetching rating accuracy stats:', error);
+      return res.status(500).json({error: 'Failed to fetch rating accuracy stats'});
+    }
+  },
 );
 
 export default router;

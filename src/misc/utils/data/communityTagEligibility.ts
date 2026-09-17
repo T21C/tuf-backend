@@ -224,11 +224,12 @@ export function maxVotableSortOrder(
 export function parseQRange(name: string | null | undefined): ParsedQRange | null {
   const n = String(name || '').trim().toUpperCase();
   if (!n) return null;
-  const gq = n.match(/^GQ([0-4])$/);
+  // Live difficulty labels are `GQ1 (G5~G8)` / `UQ2 (U9~U12)`; votes may be bare `GQ1`.
+  const gq = n.match(/^GQ([0-4])(?:\s|\(|$)/);
   if (gq) return { letter: 'G', tier: Number(gq[1]) };
-  const uq = n.match(/^UQ([0-4])$/);
+  const uq = n.match(/^UQ([0-4])(?:\s|\(|$)/);
   if (uq) return { letter: 'U', tier: Number(uq[1]) };
-  const q = n.match(/^Q([0-4])$/);
+  const q = n.match(/^Q([0-4])(?:\s|\(|$)/);
   if (q) return { letter: 'U', tier: Number(q[1]) };
   return null;
 }

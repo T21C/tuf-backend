@@ -13,11 +13,13 @@ interface RatingAttributes {
   averageDifficultyId: number | null;
   communityDifficultyId: number | null;
   confirmedAt: Date | null;
+  settledDiffId: number | null;
+  clearsAtSettle: number | null;
 }
 
 type RatingCreationAttributes = Optional<
   RatingAttributes,
-  'id' | 'averageDifficultyId' | 'communityDifficultyId'
+  'id' | 'averageDifficultyId' | 'communityDifficultyId' | 'settledDiffId' | 'clearsAtSettle'
 >;
 
 class Rating
@@ -36,7 +38,10 @@ class Rating
   declare details?: RatingDetail[];
   declare averageDifficulty?: Difficulty;
   declare communityDifficulty?: Difficulty;
+  declare settledDifficulty?: Difficulty;
   declare confirmedAt: Date | null;
+  declare settledDiffId: number | null;
+  declare clearsAtSettle: number | null;
 }
 
 Rating.init(
@@ -82,6 +87,18 @@ Rating.init(
       type: DataTypes.DATE,
       allowNull: true,
       defaultValue: null,
+    },
+    settledDiffId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'difficulties',
+        key: 'id',
+      },
+    },
+    clearsAtSettle: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
     },
   },
   {
