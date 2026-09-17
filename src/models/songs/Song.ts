@@ -1,29 +1,18 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import { getSequelizeForModelGroup } from '@/config/db.js';
+import {
+  SONG_VERIFICATION_STATES,
+  type SongVerificationState,
+} from '@/models/verificationStates.js';
+
+export {
+  SONG_VERIFICATION_STATES,
+  isSongVerificationState,
+  parseSongVerificationState,
+} from '@/models/verificationStates.js';
+export type { SongVerificationState } from '@/models/verificationStates.js';
+
 const sequelize = getSequelizeForModelGroup('levels');
-
-export const SONG_VERIFICATION_STATES = [
-  'declined',
-  'pending',
-  'conditional',
-  'ysmod_only',
-  'allowed',
-  'tuf_verified',
-] as const;
-
-export type SongVerificationState = (typeof SONG_VERIFICATION_STATES)[number];
-
-const SONG_VERIFICATION_STATE_SET: ReadonlySet<string> = new Set(SONG_VERIFICATION_STATES);
-
-export function isSongVerificationState(value: unknown): value is SongVerificationState {
-  return typeof value === 'string' && SONG_VERIFICATION_STATE_SET.has(value);
-}
-
-export function parseSongVerificationState(value: unknown): SongVerificationState | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim().toLowerCase();
-  return isSongVerificationState(trimmed) ? trimmed : null;
-}
 
 type SongAttributes = {
   id: number;

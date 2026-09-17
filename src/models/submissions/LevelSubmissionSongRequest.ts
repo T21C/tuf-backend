@@ -1,6 +1,6 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import LevelSubmission from './LevelSubmission.js';
-import Song from '@/models/songs/Song.js';
+import Song, { SONG_VERIFICATION_STATES } from '@/models/songs/Song.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('submissions');
 
@@ -69,7 +69,7 @@ LevelSubmissionSongRequest.init(
       defaultValue: false,
     },
     verificationState: {
-      type: DataTypes.ENUM('declined', 'pending', 'conditional', 'ysmod_only', 'allowed', 'tuf_verified'),
+      type: DataTypes.ENUM(...SONG_VERIFICATION_STATES),
       allowNull: true,
       defaultValue: null,
     },

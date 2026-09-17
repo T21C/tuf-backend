@@ -1,11 +1,14 @@
 import { UploadError, type UploadKind } from '@/server/services/upload/UploadSessionService.js';
 import Level from '@/models/levels/Level.js';
+import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import sequelize from '@/config/db.js';
 import { checkLevelOwnership } from '@/server/domain/levels/levelOwnership.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { isPermissionBanActive } from '@/server/services/accounts/playerBanUtils.js';
+import { SubmissionJobService } from '@/server/services/submissions/SubmissionJobService.js';
+import { shouldSkipEnqueue } from '@/server/services/submissions/submissionJobTypes.js';
 import {
   LEVEL_ZIP_MAX_FILE_SIZE_BYTES,
 } from '@/server/services/upload/kinds/levelZipLimits.js';
@@ -15,6 +18,8 @@ export interface LevelZipMeta {
   levelId: number | null;
   /** True when the session was minted by `POST /v2/form/level/validate` for a brand-new submission. */
   forSubmission?: boolean;
+  /** Pending level submission whose zip a super-admin is replacing. */
+  submissionId?: number | null;
 }
 
 export interface LevelZipResult {
@@ -48,6 +53,35 @@ export const LevelZipUploadKind: UploadKind<LevelZipMeta, LevelZipResult> = {
         ? null
         : Number(rawLevelId);
     const forSubmission = metaObj.forSubmission === true || metaObj.forSubmission === 'true';
+    const rawSubmissionId = metaObj.submissionId;
+    const submissionId =
+      rawSubmissionId == null || rawSubmissionId === ''
+        ? null
+        : Number(rawSubmissionId);
+
+    if (submissionId != null) {
+      if (levelId != null || forSubmission) {
+        throw new UploadError(400, 'submissionId cannot be combined with levelId or forSubmission');
+      }
+      if (!hasFlag(user, permissionFlags.SUPER_ADMIN)) {
+        throw new UploadError(403, 'Forbidden');
+      }
+      if (!Number.isInteger(submissionId) || submissionId <= 0) {
+        throw new UploadError(400, 'Invalid submissionId in meta');
+      }
+      const submission = await LevelSubmission.findByPk(submissionId);
+      if (!submission) {
+        throw new UploadError(404, 'Level submission not found');
+      }
+      if (submission.status !== 'pending') {
+        throw new UploadError(409, 'Submission is not pending');
+      }
+      const job = await SubmissionJobService.getItemState('level', submissionId);
+      if (shouldSkipEnqueue(job?.status) === 'inflight') {
+        throw new UploadError(409, 'This submission is already being approved or declined. Wait for it to finish.');
+      }
+      return { meta: { levelId: null, forSubmission: false, submissionId } };
+    }
 
     if (levelId == null) {
       // "New submission" path: require the submission gate. This matches the
@@ -87,7 +121,7 @@ export const LevelZipUploadKind: UploadKind<LevelZipMeta, LevelZipResult> = {
       logger.warn('level-zip validateInit ownership check failed:', err);
       throw new UploadError(500, 'Failed to verify level access');
     }
-    return { meta: { levelId, forSubmission: false } };
+    return { meta: { levelId, forSubmission: false, submissionId: null } };
   },
 
   async onAssembled({ assembledPath }) {

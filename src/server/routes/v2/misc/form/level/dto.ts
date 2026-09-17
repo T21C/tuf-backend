@@ -1,4 +1,5 @@
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
+import { parseSongVerificationState } from '@/models/verificationStates.js';
 
 import { cleanVideoUrl } from '../shared/videoUrl.js';
 import { sanitizeNotes, sanitizeTextInput } from '../shared/sanitize.js';
@@ -10,21 +11,6 @@ import type { CreatorRequestLike, TeamRequestLike } from '../shared/validators.j
  * Shape of the normalised level submission payload that both `/validate` and
  * `/submit` work against. Producing this is pure: no DB, no I/O.
  */
-const SONG_VERIFICATION_STATES = new Set([
-  'declined',
-  'pending',
-  'conditional',
-  'ysmod_only',
-  'allowed',
-  'tuf_verified',
-]);
-
-function parseSongVerificationState(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim().toLowerCase();
-  return SONG_VERIFICATION_STATES.has(trimmed) ? trimmed : null;
-}
-
 export interface LevelFormSanitised {
   artist: string;
   song: string;
