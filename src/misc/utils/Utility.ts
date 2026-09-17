@@ -242,6 +242,18 @@ export const getFileIdFromCdnUrl = (url: string): string | null => {
   return matches[0][1];
 };
 
+const ICON_SIZE_SEGMENT_RE = /\/(?:small|medium|large|original)(?=\/|\.|\?|#|$)/gi;
+
+/** Swap CDN icon size path segment. No-op when the URL has no size token. */
+export function selectIconSize(
+  url: string | null | undefined,
+  size: 'small' | 'medium' | 'large' | 'original' = 'small',
+): string | null {
+  if (url == null || url === '') return null;
+  const token = size === 'medium' || size === 'large' || size === 'original' ? size : 'small';
+  return url.replace(ICON_SIZE_SEGMENT_RE, `/${token}`);
+}
+
 
 
 export function formatCredits(credits: string[] | undefined): string {

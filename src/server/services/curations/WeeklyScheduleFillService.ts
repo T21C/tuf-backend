@@ -1,3 +1,4 @@
+import {Op} from 'sequelize';
 import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import CurationSchedule from '@/models/curations/CurationSchedule.js';
@@ -143,6 +144,31 @@ function emptyBuckets(): TierBuckets {
   return { 0: [], 1: [], 2: [], 3: [] };
 }
 
+/**
+ * Resolve which of the given level ids are still public. Queried on the Level
+ * model (levels pool) so a Curation→Level include `where` cannot leak deleted
+ * or hidden charts across connection pools.
+ */
+export async function getPublicLevelIdSet(
+  levelIds: Iterable<number | null | undefined>,
+): Promise<Set<number>> {
+  const unique = [
+    ...new Set(
+      [...levelIds].filter((id): id is number => typeof id === 'number' && Number.isFinite(id)),
+    ),
+  ];
+  if (unique.length === 0) return new Set();
+  const rows = await Level.findAll({
+    attributes: ['id'],
+    where: {
+      id: { [Op.in]: unique },
+      isDeleted: false,
+      isHidden: false,
+    },
+  });
+  return new Set(rows.map((row) => row.id));
+}
+
 async function buildPool(targetWeekStart: Date, excludeCurationIds: Set<number>): Promise<EligiblePool> {
   const cutoff = new Date(targetWeekStart);
   cutoff.setUTCDate(cutoff.getUTCDate() - REFEATURE_COOLDOWN_WEEKS * 7);
@@ -158,23 +184,16 @@ async function buildPool(targetWeekStart: Date, excludeCurationIds: Set<number>)
   }
 
   const curations = await Curation.findAll({
-    include: [
-      { model: CurationType, as: 'types', through: { attributes: [] } },
-      {
-        model: Level,
-        as: 'level',
-        attributes: ['id', 'isDeleted', 'isHidden'],
-        required: true,
-        where: { isDeleted: false, isHidden: false },
-      },
-    ],
+    include: [{ model: CurationType, as: 'types', through: { attributes: [] } }],
   });
+  const publicLevelIds = await getPublicLevelIdSet(curations.map((curation) => curation.levelId));
 
   const fresh = emptyBuckets();
   const refeature = emptyBuckets();
   const tierById = new Map<number, number>();
 
   for (const curation of curations) {
+    if (!publicLevelIds.has(curation.levelId)) continue;
     const tier = scoreCuration(curation.types);
     if (tier === null) continue;
     tierById.set(curation.id, tier);

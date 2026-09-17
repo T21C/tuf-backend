@@ -24,7 +24,7 @@ import { User } from '@/models/index.js';
 import { port } from '@/config/app.config.js';
 import CdnService from '@/server/services/core/CdnService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { clampFloat, escapeHtml, formatCredits } from '@/misc/utils/Utility.js';
+import { clampFloat, escapeHtml, formatCredits, selectIconSize } from '@/misc/utils/Utility.js';
 import { htmlToPng, formatAxiosError } from './media.js';
 import { formatNumber } from '@/server/routes/v2/webhooks/embeds.js';
 import dotenv from 'dotenv';
@@ -695,7 +695,7 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
                   </div>
                   <div class="header-right">
                     <div class="level-id">#${levelId}</div>
-                    ${level.tags && level.tags.length > 0 ? `<div class="level-tags">${level.tags.map((tag: LevelTag) => `<img src="${escapeHtml(tag.icon)}" class="level-tag-icon"/>`).join(' ')}</div>` : ''}
+                    ${level.tags && level.tags.length > 0 ? `<div class="level-tags">${level.tags.map((tag: LevelTag) => `<img src="${escapeHtml(selectIconSize(tag.icon, 'small') || tag.icon || '')}" class="level-tag-icon"/>`).join(' ')}</div>` : ''}
                     <div class="level-metadata ${level.tilecount && level.bpm ? '' : 'hidden'}">
                                         ${level.levelLengthInMs ? `
                     <div class="level-metadata-item">
