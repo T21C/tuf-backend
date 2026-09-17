@@ -14,7 +14,11 @@ import Level from '@/models/levels/Level.js';
 import CurationSchedule from '@/models/curations/CurationSchedule.js';
 import Creator from '@/models/credits/Creator.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { WeeklyScheduleFillService } from '@/server/services/curations/WeeklyScheduleFillService.js';
+import {
+  WeeklyScheduleFillService,
+  getPublicLevelIdSet,
+} from '@/server/services/curations/WeeklyScheduleFillService.js';
+import { isWeeklyLevelPublic } from '@/server/services/curations/weeklyLevelVisibility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import sequelize from '@/config/db.js';
 import { hasAnyFlag } from '@/misc/utils/auth/permissionUtils.js';
@@ -2141,16 +2145,34 @@ router.delete(
   }
 );
 
+function canIncludeUnavailableWeeklySchedules(req: Request): boolean {
+  const raw = req.query.includeUnavailable;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const requested = value === '1' || value === 'true';
+  if (!requested) return false;
+  return hasAnyFlag(req.user, [
+    permissionFlags.SUPER_ADMIN,
+    permissionFlags.HEAD_CURATOR,
+    permissionFlags.CURATOR,
+    permissionFlags.RATER,
+  ]);
+}
+
 // Get curation schedules
 // All dates are handled in UTC to avoid timezone issues
 router.get(
   '/schedules',
+  Auth.tryUser(),
   ApiDoc({
     operationId: 'getAdminCurationSchedules',
     summary: 'List curation schedules',
-    description: 'Get schedules for a week. Query: weekStart (optional).',
+    description:
+      'Get schedules for a week. Query: weekStart (optional). Deleted and hidden levels are omitted unless includeUnavailable=1 is sent by a curator.',
     tags: ['Admin', 'Curations'],
-    query: { weekStart: { schema: { type: 'string' } } },
+    query: {
+      weekStart: { schema: { type: 'string' } },
+      includeUnavailable: { schema: { type: 'string' } },
+    },
     responses: { 200: { description: 'Schedules' }, ...standardErrorResponses500 },
   }),
   async (req, res) => {
@@ -2221,9 +2243,20 @@ router.get(
       order: [['listType', 'ASC'], ['position', 'ASC']],
     });
 
+    let visibleSchedules = schedules;
+    if (!canIncludeUnavailableWeeklySchedules(req)) {
+      const publicLevelIds = await getPublicLevelIdSet(
+        schedules.map((s) => s.scheduledCuration?.levelId),
+      );
+      visibleSchedules = schedules.filter((s) => {
+        const levelId = s.scheduledCuration?.levelId;
+        return typeof levelId === 'number' && publicLevelIds.has(levelId);
+      });
+    }
+
     const levelIds = [
       ...new Set(
-        schedules
+        visibleSchedules
           .map((s) => s.scheduledCuration?.levelId)
           .filter((id): id is number => typeof id === 'number')
       ),
@@ -2245,7 +2278,7 @@ router.get(
       curationsByLevelId.get(c.levelId)!.push(c);
     }
 
-    const serializedSchedules = schedules.map((schedule) => {
+    const serializedSchedules = visibleSchedules.map((schedule) => {
       const lid = schedule.scheduledCuration?.levelId;
       const allForLevel = lid
         ? sortCurationsByTypeOrder(curationsByLevelId.get(lid) || []).map(serializeCurationRow)
@@ -2425,6 +2458,13 @@ router.post(
     const curation = await Curation.findByPk(curationId);
     if (!curation) {
       return res.status(404).json({error: 'Curation not found'});
+    }
+
+    const scheduledLevel = await Level.findByPk(curation.levelId, {
+      attributes: ['id', 'isDeleted', 'isHidden'],
+    });
+    if (!isWeeklyLevelPublic(scheduledLevel)) {
+      return res.status(400).json({error: 'Cannot schedule a deleted or hidden level'});
     }
 
     // Validate listType
