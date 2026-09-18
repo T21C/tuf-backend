@@ -32,6 +32,8 @@ import { assertPassKeyCountForDifficulty, MAX_PASS_KEY_COUNT } from '@/misc/util
 import { parseAndSanitizePassForm, type PassFormSanitised } from './dto.js';
 import { applyResolvedVideoLinkToPayload } from '../shared/videoUrl.js';
 import { preparePassJudgementsForPersist } from '@/misc/utils/pass/passEraApply.js';
+import { getVideoDetails } from '@/misc/utils/data/videoDetailParser.js';
+import { validateDateInput } from '../shared/sanitize.js';
 
 export interface CreatePassSubmissionInput {
   req: Request;
@@ -49,13 +51,38 @@ export interface CreatePassSubmissionResult {
  * Pure-JSON pass submission flow. The pass branch is much simpler than the
  * level branch — no uploads, no evidence, no multi-phase orchestration.
  */
+async function attachPassVideoMeta(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const videoLink = typeof payload.videoLink === 'string' ? payload.videoLink : '';
+  let details: Awaited<ReturnType<typeof getVideoDetails>> = null;
+  if (videoLink) {
+    try {
+      details = await getVideoDetails(videoLink);
+    } catch {
+      details = null;
+    }
+  }
+
+  const apiTitle = typeof details?.title === 'string' ? details.title.trim() : '';
+  const payloadTitle = typeof payload.title === 'string' ? payload.title.trim() : '';
+  const title = apiTitle || payloadTitle;
+
+  const apiTime = details?.timestamp ? validateDateInput(details.timestamp) : null;
+  const payloadTime = validateDateInput(payload.rawTime);
+  const rawTime = (apiTime ?? payloadTime ?? new Date()).toISOString();
+
+  return { ...payload, title, rawTime };
+}
+
 export async function createPassSubmission(
   input: CreatePassSubmissionInput,
 ): Promise<CreatePassSubmissionResult> {
   const { userId, formPayload } = input;
 
   const resolvedPayload = await applyResolvedVideoLinkToPayload(formPayload);
-  const sanitized = parseAndSanitizePassForm(resolvedPayload);
+  const withVideoMeta = await attachPassVideoMeta(resolvedPayload);
+  const sanitized = parseAndSanitizePassForm(withVideoMeta);
 
   let transaction: Transaction | undefined;
   try {

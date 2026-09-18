@@ -31,6 +31,7 @@ import dotenv from 'dotenv';
 import { sortCurationTypesByOrder } from '@/misc/utils/data/curationOrdering.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import { getSongDisplayName, getArtistDisplayName, formatDuration } from '@/misc/utils/data/levelHelpers.js';
+import { getYouTubeThumbnailUrl } from '@/misc/utils/data/videoLinkParts.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import {
@@ -366,8 +367,13 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
           // Use helper functions to prioritize songObject for both song and artist
           const song = getSongDisplayName(level);
           const artist = getArtistDisplayName(level);
-          const details = await axios.get(`http://localhost:${port}/v2/media/video-details/${encodeURIComponent(level.videoLink)}`)
-          .then(res => res.data).catch(() => undefined);
+          const youtubeThumb = getYouTubeThumbnailUrl(level.videoLink);
+          const details = youtubeThumb
+            ? { image: youtubeThumb }
+            : level.videoLink
+              ? await axios.get(`http://localhost:${port}/v2/media/video-details/${encodeURIComponent(level.videoLink)}`)
+                .then(res => res.data).catch(() => undefined)
+              : undefined;
 
           // Generate the HTML and PNG for LARGE size
           const {width, height, multiplier} = THUMBNAIL_SIZES.LARGE;
