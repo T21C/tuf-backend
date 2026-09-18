@@ -696,7 +696,7 @@ router.get(
     if (!ratings) {
       return res.json(ratings);
     }
-    const plain = ratings.toJSON() as Record<string, unknown>;
+    const plain = ratings.toJSON();
     attachSerializedAccuracySamples(plain);
     return res.json(plain);
   }

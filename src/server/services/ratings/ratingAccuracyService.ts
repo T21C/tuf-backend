@@ -207,27 +207,34 @@ export async function invalidateRatingAccuracyCache(): Promise<void> {
   );
 }
 
-export function serializeAccuracySample(sample: RatingAccuracySample | Record<string, unknown> | null | undefined) {
+type AccuracySampleFields = Pick<
+  RatingAccuracySample,
+  'score' | 'track' | 'scoringMode' | 'frozenRating' | 'chart'
+>;
+
+export type SerializedAccuracySample = AccuracySampleFields;
+
+export function serializeAccuracySample(
+  sample: AccuracySampleFields | null | undefined,
+): SerializedAccuracySample | null {
   if (!sample) return null;
-  const row = sample as RatingAccuracySample;
   return {
-    score: row.score,
-    track: row.track,
-    scoringMode: row.scoringMode,
-    frozenRating: row.frozenRating,
-    chart: row.chart,
+    score: sample.score,
+    track: sample.track,
+    scoringMode: sample.scoringMode,
+    frozenRating: sample.frozenRating,
+    chart: sample.chart,
   };
 }
 
-export function attachSerializedAccuracySamples(plain: Record<string, unknown>): void {
+/** Slim included `details[].accuracySample` on a rating `toJSON()` payload. */
+export function attachSerializedAccuracySamples(plain: {details?: unknown}): void {
   const details = plain.details;
   if (!Array.isArray(details)) return;
   for (const detail of details) {
     if (!detail || typeof detail !== 'object') continue;
-    const row = detail as Record<string, unknown>;
-    row.accuracySample = serializeAccuracySample(
-      (row.accuracySample as RatingAccuracySample | null) ?? null,
-    );
+    const row = detail as {accuracySample?: AccuracySampleFields | null};
+    row.accuracySample = serializeAccuracySample(row.accuracySample);
   }
 }
 
