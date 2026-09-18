@@ -243,8 +243,8 @@ class TagAssignmentService {
             tagsToAssign.push({ tagName: dlcTagsMap.containsDLC, groupName: groupNameMap.dlc });
         }
 
-        // Auto Tile tag: autoTileCount excludes midspins (tilecount already excludes them too),
-        // so also honor autoTile for ranges that only cover 999° tiles.
+        // Auto Tile tag: autoTileCount includes auto-range midspins; still honor
+        // autoTile so a toggle with zero counted tiles is not missed.
         if (
             analysis?.autoTile === true
             || (typeof analysis?.autoTileCount === 'number' && analysis.autoTileCount > 0)

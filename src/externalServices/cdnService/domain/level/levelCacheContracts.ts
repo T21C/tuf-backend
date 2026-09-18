@@ -12,10 +12,11 @@ export const SAFE_TO_PARSE_VERSION = 4;
  * - Field types or meanings change
  * - Calculation logic for any analysis field changes
  * - Persisted `tilecount` formula changes (v8: excludes midspins)
+ * - Auto-range midspins count as auto tiles (v9)
  *
  * This invalidates ONLY the analysis cache, not tilecount/settings.
  */
-export const ANALYSIS_FORMAT_VERSION = 8;
+export const ANALYSIS_FORMAT_VERSION = 9;
 
 /**
  * Analysis object keys that must be present on a fully populated cache entry
@@ -54,7 +55,7 @@ export interface AnalysisCacheData {
 
 export interface LevelCacheData {
     _metadataSignature?: string;
-    /** In-game tilecount: path length minus midspins (999°). */
+    /** In-game tilecount: path length minus non-auto midspins (999°). */
     tilecount?: number;
     settings?: any;
     analysis?: AnalysisCacheData;

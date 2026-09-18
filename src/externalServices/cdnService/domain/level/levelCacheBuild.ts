@@ -75,10 +75,7 @@ export function buildFullCachePayload(params: {
 
     return {
         _metadataSignature: computeLevelCacheMetadataSignature(metadata),
-        tilecount: Math.max(
-            parsedLevelData.getAngles().length - analysisUtils.getMidspinCount(parsedLevelData),
-            0
-        ),
+        tilecount: analysisUtils.getTileCount(parsedLevelData),
         settings: parsedLevelData.getSettings(),
         analysis: buildFullAnalysis(parsedLevelData, protectedEventTypes),
         transformOptions: buildTransformOptions(parsedLevelData, protectedEventTypes)
