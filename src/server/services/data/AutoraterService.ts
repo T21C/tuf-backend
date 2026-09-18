@@ -47,9 +47,12 @@ class AutoraterService {
     try {
       transaction = await sequelize.transaction();
 
-      const rating = await Rating.findByPk(ratingId);
+      const rating = await Rating.findByPk(ratingId, {transaction});
       if (!rating) {
         throw new AutoraterError('Rating not found', 404);
+      }
+      if (rating.confirmedAt != null) {
+        throw new AutoraterError('Cannot autorate a settled rating', 409);
       }
       if (!rating.levelId) {
         throw new AutoraterError('Level ID is required', 400);

@@ -45,6 +45,7 @@ import {
   validateCreatorAliasListForSelf,
 } from '@/server/services/creators/creatorSelfAliases.js';
 import submissionSongArtistRoutes from './submissions-song-artist.js';
+import submissionUploadRoutes from './submissions-upload.js';
 import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { unwrapJudgements } from '@/misc/utils/pass/CalcAcc.js';
 import { parseAdofaiVersion } from '@/misc/utils/pass/adofaiVersion.js';
@@ -2053,5 +2054,6 @@ router.delete(
 
 // Mount song/artist management routes (submissions-song-artist.ts)
 router.use('/', submissionSongArtistRoutes);
+router.use('/', submissionUploadRoutes);
 
 export default router;

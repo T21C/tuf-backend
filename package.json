@@ -34,6 +34,7 @@
     "reconcile:es": "cross-env tsx src/misc/scripts/reconcileElasticsearch.ts",
     "backfill:leaderboard-ranks": "cross-env tsx src/misc/scripts/backfillLeaderboardRankHistory.ts",
     "backfill:analysis-by-tag": "cross-env tsx src/misc/scripts/backfillAnalysisByTag.ts",
+    "backfill:rating-accuracy": "cross-env tsx src/misc/scripts/backfillRatingAccuracy.ts",
     "seed:mods": "cross-env tsx src/misc/scripts/seedModsCatalog.ts",
     "auto-submission:operator": "cross-env tsx src/misc/scripts/autoSubmissionOperator.ts",
     "pentest:zip-fixtures": "cross-env tsx src/externalServices/cdnService/scripts/security/generateZipPentestFixtures.ts",

@@ -3,6 +3,8 @@ import Pass from './passes/Pass.js';
 import Player from './players/Player.js';
 import Rating from './levels/Rating.js';
 import RatingDetail from './levels/RatingDetail.js';
+import RatingAccuracySample from './levels/RatingAccuracySample.js';
+import RatingAccuracyStats from './levels/RatingAccuracyStats.js';
 import Judgement from './passes/Judgement.js';
 import LevelSubmission from './submissions/LevelSubmission.js';
 import Difficulty from './levels/Difficulty.js';
@@ -105,6 +107,8 @@ export const db = {
     Player,
     Rating,
     RatingDetail,
+    RatingAccuracySample,
+    RatingAccuracyStats,
     Judgement,
     LevelSubmission,
     PassSubmission,

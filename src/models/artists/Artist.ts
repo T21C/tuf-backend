@@ -1,12 +1,24 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import { getSequelizeForModelGroup } from '@/config/db.js';
+import {
+  ARTIST_VERIFICATION_STATES,
+  type ArtistVerificationState,
+} from '@/models/verificationStates.js';
+
+export {
+  ARTIST_VERIFICATION_STATES,
+  isArtistVerificationState,
+  parseArtistVerificationState,
+} from '@/models/verificationStates.js';
+export type { ArtistVerificationState } from '@/models/verificationStates.js';
+
 const sequelize = getSequelizeForModelGroup('levels');
 
 type ArtistAttributes = {
   id: number;
   name: string;
   avatarUrl: string | null;
-  verificationState: 'unverified' | 'pending' | 'ysmod_only' | 'declined' | 'mostly_declined' | 'mostly_allowed' | 'allowed' | 'tuf_verified';
+  verificationState: ArtistVerificationState;
   extraInfo: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -49,7 +61,7 @@ Artist.init(
       allowNull: true,
     },
     verificationState: {
-      type: DataTypes.ENUM('unverified', 'pending', 'declined', 'mostly_declined', 'mostly_allowed', 'allowed', 'ysmod_only', 'tuf_verified'),
+      type: DataTypes.ENUM(...ARTIST_VERIFICATION_STATES),
       allowNull: false,
       defaultValue: 'unverified',
     },

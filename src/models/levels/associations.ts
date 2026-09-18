@@ -2,6 +2,9 @@ import Level from './Level.js';
 import Difficulty from './Difficulty.js';
 import Rating from './Rating.js';
 import RatingDetail from './RatingDetail.js';
+import RatingAccuracySample from './RatingAccuracySample.js';
+import RatingAccuracyStats from './RatingAccuracyStats.js';
+import User from '@/models/auth/User.js';
 import LevelCredit from './LevelCredit.js';
 import LevelAlias from './LevelAlias.js';
 import Reference from './References.js';
@@ -185,6 +188,59 @@ export function initializeLevelsAssociations() {
     as: 'parentRating',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
+  });
+
+  Rating.belongsTo(Difficulty, {
+    foreignKey: 'settledDiffId',
+    as: 'settledDifficulty',
+  });
+
+  Difficulty.hasMany(Rating, {
+    foreignKey: 'settledDiffId',
+    as: 'settledRatings',
+  });
+
+  RatingDetail.hasOne(RatingAccuracySample, {
+    foreignKey: 'ratingDetailId',
+    as: 'accuracySample',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  RatingAccuracySample.belongsTo(RatingDetail, {
+    foreignKey: 'ratingDetailId',
+    as: 'detail',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  Rating.hasMany(RatingAccuracySample, {
+    foreignKey: 'ratingId',
+    as: 'accuracySamples',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  RatingAccuracySample.belongsTo(Rating, {
+    foreignKey: 'ratingId',
+    as: 'rating',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  RatingAccuracySample.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  RatingAccuracySample.belongsTo(Difficulty, {
+    foreignKey: 'settledDiffId',
+    as: 'settledDifficulty',
+  });
+
+  RatingAccuracyStats.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
   });
 
   // Level <-> LevelPackItem associations

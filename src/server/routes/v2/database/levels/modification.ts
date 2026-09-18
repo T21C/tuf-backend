@@ -39,6 +39,10 @@ import LevelTag from '@/models/levels/LevelTag.js';
 import {permissionFlags} from '@/config/constants.js';
 import {hasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import {tagAssignmentService} from '@/server/services/data/TagAssignmentService.js';
+import {
+  freezeAndUpsertRating,
+  invalidateRatingAccuracyCache,
+} from '@/server/services/ratings/ratingAccuracyService.js';
 import { logLevelMetadataUpdateHook } from '@/server/routes/v2/webhooks/misc.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import { TAG_GROUP_INCLUDE } from '@/server/services/data/levelTagGroupService.js';
@@ -831,6 +835,21 @@ router.put(
       transaction,
     });
 
+    if (settledRatingId) {
+      const settledDiffId =
+        req.body.diffId !== undefined && req.body.diffId !== null
+          ? Number(req.body.diffId)
+          : level.diffId;
+      await freezeAndUpsertRating(
+        settledRatingId,
+        {
+          settledDiffId: Number.isFinite(settledDiffId) ? settledDiffId : null,
+          clearsAtSettle: level.clears ?? 0,
+        },
+        transaction,
+      );
+    }
+
     const basescoreTagName = 'Basescore Edit'
     const ppBasescoreTagName = 'Pure Perfect Basescore Edit'
     let basescoreTag = await LevelTag.findOne({where: {name: basescoreTagName}, transaction});
@@ -938,6 +957,10 @@ router.put(
     }
 
     await transaction.commit();
+
+    if (settledRatingId) {
+      await invalidateRatingAccuracyCache();
+    }
 
     // Log metadata changes (songId, suffix, etc.)
     if (updatedLevel) {

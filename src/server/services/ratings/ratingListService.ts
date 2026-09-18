@@ -3,6 +3,7 @@ import { Op, literal } from 'sequelize';
 import * as Sentry from '@sentry/node';
 import Rating from '@/models/levels/Rating.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
+import RatingAccuracySample from '@/models/levels/RatingAccuracySample.js';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import Pass from '@/models/passes/Pass.js';
@@ -21,6 +22,9 @@ import {
 } from '@/misc/utils/data/RatingUtils.js';
 import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
 import { parseZenIncludeBands } from '@/server/services/ratings/zenRatingConstants.js';
+import {
+  attachSerializedAccuracySamples,
+} from '@/server/services/ratings/ratingAccuracyService.js';
 
 export const RATING_LIST_PAGE_SIZE = 30;
 export const RATING_LIST_CACHE_TTL_SEC = 300;
@@ -700,6 +704,11 @@ export async function buildCompleteRatingById(
             as: 'user',
             attributes: ['id', 'username', 'nickname', 'avatarUrl'],
           },
+          {
+            model: RatingAccuracySample,
+            as: 'accuracySample',
+            required: false,
+          },
         ],
       },
     ],
@@ -743,6 +752,8 @@ export async function buildCompleteRatingById(
   if (displayVideoLink) {
     plain.displayVideoLink = displayVideoLink;
   }
+
+  attachSerializedAccuracySamples(plain);
 
   return plain;
 }

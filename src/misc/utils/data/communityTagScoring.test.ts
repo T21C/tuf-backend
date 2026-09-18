@@ -366,6 +366,8 @@ test('parseQRange maps GQ, UQ, and Q0-4 onto PGU buckets', () => {
   assert.equal(qRangeToPguFloorName('UQ1'), 'U5');
   assert.equal(qRangeToPguFloorName('Q1'), 'U5');
   assert.equal(qRangeToPguFloorName('GQ0'), 'G1');
+  assert.equal(qRangeToPguFloorName('GQ1 (G5~G8)'), 'G5');
+  assert.equal(qRangeToPguFloorName('UQ2 (U9~U12)'), 'U9');
   assert.equal(qRangeToPguFloorName('Qq'), null);
   assert.equal(qRangeToPguFloorName('Grandmaster'), null);
 });

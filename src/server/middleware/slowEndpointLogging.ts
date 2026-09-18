@@ -26,6 +26,8 @@ const SLOW_LOG_EXCLUDED_ROUTES = [
   '/v2/auth/profile/avatar',
   '/v2/database/levels/*/upload-from-url',
   '/v3/levels/*/upload-from-url',
+  '/v2/admin/submissions/levels/*/upload',
+  '/v2/admin/submissions/levels/*/upload-from-url',
   '/v2/jobs/*/stream',
   '/v2/auth/oauth/callback',
   '/v2/media/player-avatar/*',
