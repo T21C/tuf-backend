@@ -2,6 +2,7 @@ export type SiteLanguageConfig = {
   display: string;
   countryCode: string;
   folder: string;
+  /** Fallback if `languages.contributorNames` is missing from that locale. */
   contributors: string[];
 };
 
@@ -18,7 +19,7 @@ export const SITE_LANGUAGE_CONFIGS: Record<string, SiteLanguageConfig> = {
     display: '中文',
     countryCode: 'cn',
     folder: 'cn',
-    contributors: ['Desktop-0114514', 'Alex1044', '和九酱'],
+    contributors: [],
   },
   id: {display: 'Bahasa Indonesia', countryCode: 'id', folder: 'id', contributors: []},
   jp: {display: '日本語', countryCode: 'jp', folder: 'jp', contributors: []},

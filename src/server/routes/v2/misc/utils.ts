@@ -53,6 +53,40 @@ function getKeysRecursively(obj: any, prefix = ''): string[] {
   return keys;
 }
 
+function parseContributorNames(value: unknown): string[] {
+  if (typeof value !== 'string') {
+    return [];
+  }
+  return value
+    .split(',')
+    .map(name => name.trim())
+    .filter(Boolean);
+}
+
+function contributorNamesFromDocuments(
+  documents: {relativePath: string; content: string}[],
+): string[] | null {
+  const document = documents.find(
+    item => item.relativePath.replace(/\\/g, '/') === 'pages/translations.json',
+  );
+  if (!document) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(document.content) as {
+      languages?: {contributorNames?: unknown};
+    };
+    const value = parsed?.languages?.contributorNames;
+    if (typeof value !== 'string') {
+      return null;
+    }
+    return parseContributorNames(value);
+  } catch {
+    return null;
+  }
+}
+
 // Utility to find the first directory containing JSON files
 function findTranslationRoot(dir: string): string | null {
   const list = fs.readdirSync(dir);
@@ -262,14 +296,22 @@ router.get(
 // Language configuration - now dynamic based on directory check
 const languages: {[key: string]: {display: string; countryCode: string; folder: string; status: number; contributors: string[]}} = {};
 
+type LanguageImplementation = {
+  status: number;
+  contributors: string[] | null;
+};
+
 // Function to check if a language is implemented
-async function checkLanguageImplementation(langCode: string): Promise<number> {
+async function checkLanguageImplementation(langCode: string): Promise<LanguageImplementation> {
   try {
     const [langDocuments, enDocuments] = await Promise.all([
       getTranslationDocuments(langCode),
       getTranslationDocuments('en'),
     ]);
-    if (langDocuments.length === 0 || enDocuments.length === 0) return 0;
+    const contributors = contributorNamesFromDocuments(langDocuments);
+    if (langDocuments.length === 0 || enDocuments.length === 0) {
+      return {status: 0, contributors};
+    }
 
     const langByPath = new Map(
       langDocuments.map(document => [document.relativePath, document.content]),
@@ -305,10 +347,10 @@ async function checkLanguageImplementation(langCode: string): Promise<number> {
     const overallCompletion = (fileCompletion + keyCompletion) / 2;
 
     logger.debug(`language: ${langCode} completion: ${overallCompletion}`);
-    return overallCompletion;
+    return {status: overallCompletion, contributors};
   } catch (error) {
     logger.error(`Error checking implementation for ${langCode}:`, error);
-    return 0;
+    return {status: 0, contributors: null};
   }
 }
 
@@ -316,10 +358,11 @@ async function checkLanguageImplementation(langCode: string): Promise<number> {
 async function initializeLanguages() {
   // Check each language's implementation
   for (const [code, config] of Object.entries(languageConfigs)) {
-    const status = await checkLanguageImplementation(code);
+    const {status, contributors} = await checkLanguageImplementation(code);
     languages[code] = {
       ...config,
       status,
+      contributors: contributors ?? config.contributors,
     };
   }
 }

@@ -29,6 +29,39 @@ function midspinInt(midspinCount: unknown): number | null {
   return Math.max(0, Math.floor(n));
 }
 
+/** Treat missing/invalid midspin counts as 0 for difference math. */
+export function midspinCountOrZero(midspinCount: unknown): number {
+  return midspinInt(midspinCount) ?? 0;
+}
+
+/**
+ * Amount to add to each pass Perfect when midspinCount changes.
+ * More midspins → fewer Perfects (legacy charts counted midspins as Perfect).
+ */
+export function perfectsDeltaFromMidspinChange(
+  oldMidspinCount: unknown,
+  newMidspinCount: unknown,
+): number {
+  return midspinCountOrZero(oldMidspinCount) - midspinCountOrZero(newMidspinCount);
+}
+
+export type PerfectsDeltaSkipReason = 'no_change' | 'would_go_negative' | null;
+
+export function applyPerfectsDelta(
+  perfect: number,
+  delta: number,
+): {perfect: number; applied: boolean; skippedReason: PerfectsDeltaSkipReason} {
+  const current = Number.isFinite(perfect) ? Math.max(0, Math.floor(perfect)) : 0;
+  if (!Number.isFinite(delta) || delta === 0) {
+    return {perfect: current, applied: false, skippedReason: 'no_change'};
+  }
+  const next = current + Math.trunc(delta);
+  if (next < 0) {
+    return {perfect: current, applied: false, skippedReason: 'would_go_negative'};
+  }
+  return {perfect: next, applied: true, skippedReason: null};
+}
+
 /**
  * Subtract midspinCount from Perfect for pre-3.4.0 / v2 clears.
  * Idempotent via MIDSPIN_PERFECTS_REMOVED. midspinCount 0 still sets the bit.

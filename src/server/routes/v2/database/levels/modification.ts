@@ -27,6 +27,7 @@ import {logger} from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import {updateWorldsFirstPPStatus} from '@/server/routes/v2/database/passes/index.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
+import { applyMidspinPerfectsDifferenceToLevelPasses } from '@/misc/utils/pass/applyMidspinPerfectsDifference.js';
 import {
   isCdnUrl,
   safeTransactionRollback,
@@ -172,6 +173,10 @@ function parseChartStatPayload(body: Record<string, unknown>): {
   }
 
   return { ok: true, update };
+}
+
+function parseApplyPerfectsDifference(raw: unknown): boolean {
+  return raw === true || raw === 'true' || raw === 1 || raw === '1';
 }
 
 function parseXaccCurvePayload(body: Record<string, unknown>): {
@@ -1562,12 +1567,13 @@ router.patch(
     operationId: 'patchLevelChartStats',
     summary: 'Update level chart stats (non-CDN)',
     description:
-      'Super admin only. Sets bpm, tilecount, levelLengthInMs, autoTileCount, and/or midspinCount for levels whose download is not CDN-managed. CDN levels must use chart sync from the uploaded file.',
+      'Super admin only. Sets bpm, tilecount, levelLengthInMs, autoTileCount, and/or midspinCount for levels whose download is not CDN-managed. CDN levels must use chart sync from the uploaded file. Optional applyPerfectsDifference adds (oldMidspin - newMidspin) to Perfect on every pass of the level.',
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
     requestBody: {
-      description: 'At least one of bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount (null clears)',
+      description:
+        'At least one of bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount (null clears). Optional applyPerfectsDifference updates pass Perfects by the midspin delta.',
       schema: {
         type: 'object',
         properties: {
@@ -1576,6 +1582,7 @@ router.patch(
           levelLengthInMs: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
           autoTileCount: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
           midspinCount: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
+          applyPerfectsDifference: { type: 'boolean' },
         },
       },
       required: true,
@@ -1596,7 +1603,7 @@ router.patch(
       }
 
       const level = await Level.findByPk(levelId, {
-        attributes: ['id', 'dlLink'],
+        attributes: ['id', 'dlLink', 'midspinCount'],
       });
       if (!level) {
         return res.status(404).json({ error: 'Level not found' });
@@ -1610,6 +1617,17 @@ router.patch(
         });
       }
 
+      const applyPerfectsDifference = parseApplyPerfectsDifference(
+        body.applyPerfectsDifference,
+      );
+      const oldMidspinCount = level.midspinCount ?? null;
+      const newMidspinCount = Object.prototype.hasOwnProperty.call(
+        parsed.update,
+        'midspinCount',
+      )
+        ? (parsed.update.midspinCount ?? null)
+        : oldMidspinCount;
+
       await Level.update(
         {...parsed.update, updatedAt: new Date()},
         {where: {id: levelId}},
@@ -1619,37 +1637,82 @@ router.patch(
         attributes: ['id', 'bpm', 'tilecount', 'levelLengthInMs', 'autoTileCount', 'midspinCount'],
       });
 
-      await elasticsearchService.indexLevel(levelId);
-      try {
-        await CacheInvalidation.invalidateTags([
-          `level:${levelId}`,
-          'levels:all',
-        ]);
-      } catch (cacheErr) {
-        logger.error(
-          `Cache invalidation after chart-stats patch failed for level ${levelId}:`,
-          cacheErr,
-        );
+      let passesUpdated = 0;
+      let passesSkipped = 0;
+      let passDiffApplied = false;
+      if (applyPerfectsDifference && Object.prototype.hasOwnProperty.call(parsed.update, 'midspinCount')) {
+        try {
+          const passDiff = await applyMidspinPerfectsDifferenceToLevelPasses({
+            levelId,
+            oldMidspinCount,
+            newMidspinCount,
+          });
+          passesUpdated = passDiff.updatedCount;
+          passesSkipped = passDiff.skippedCount;
+          if (passDiff.updatedCount > 0) {
+            await finalizePassScoreRecalc(levelId, passDiff);
+            passDiffApplied = true;
+          }
+        } catch (recalcError) {
+          logger.error(
+            `Error applying midspin Perfects difference after chart-stats patch for level ${levelId}:`,
+            recalcError,
+          );
+          try {
+            await elasticsearchService.indexLevel(levelId);
+            await CacheInvalidation.invalidateTags([
+              `level:${levelId}`,
+              'levels:all',
+            ]);
+          } catch (cacheErr) {
+            logger.error(
+              `Cache invalidation after chart-stats patch (partial) failed for level ${levelId}:`,
+              cacheErr,
+            );
+          }
+          return res.status(500).json({
+            error:
+              'Chart stats were saved but updating pass Perfects failed. Revert midspins and save again, or edit passes manually.',
+            level: updated,
+          });
+        }
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      (async () => {
+      if (!passDiffApplied) {
+        await elasticsearchService.indexLevel(levelId);
         try {
-          sseManager.broadcastToSources([SSE_SOURCES.rating], {
-            type: 'levelUpdate',
-            data: await buildLevelUpdateSseData(levelId),
-          });
-        } catch (error) {
+          await CacheInvalidation.invalidateTags([
+            `level:${levelId}`,
+            'levels:all',
+          ]);
+        } catch (cacheErr) {
           logger.error(
-            'Error broadcasting after chart-stats patch:',
-            error,
+            `Cache invalidation after chart-stats patch failed for level ${levelId}:`,
+            cacheErr,
           );
         }
-      })();
+
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
+        (async () => {
+          try {
+            sseManager.broadcastToSources([SSE_SOURCES.rating], {
+              type: 'levelUpdate',
+              data: await buildLevelUpdateSseData(levelId),
+            });
+          } catch (error) {
+            logger.error(
+              'Error broadcasting after chart-stats patch:',
+              error,
+            );
+          }
+        })();
+      }
 
       return res.json({
         message: 'Chart stats updated',
         level: updated,
+        passesUpdated,
+        passesSkipped,
       });
     } catch (error) {
       logger.error('Error patching level chart stats:', error);

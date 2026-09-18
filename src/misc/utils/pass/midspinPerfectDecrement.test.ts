@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import {ADOFAI_VERSION} from './adofaiVersion.js';
 import {emptyJudgements} from './CalcAcc.js';
 import {hasPassMetaFlag, passMetaFlags} from './passMetaFlags.js';
-import {applyMidspinPerfectDecrement, classifyMidspinRewrite, willApplyMidspinDecrement} from './midspinPerfectDecrement.js';
+import {
+  applyMidspinPerfectDecrement,
+  applyPerfectsDelta,
+  classifyMidspinRewrite,
+  midspinCountOrZero,
+  perfectsDeltaFromMidspinChange,
+  willApplyMidspinDecrement,
+} from './midspinPerfectDecrement.js';
 
 describe('applyMidspinPerfectDecrement', () => {
   it('subtracts midspins from perfect and sets the bit', () => {
@@ -190,5 +197,38 @@ describe('classifyMidspinRewrite', () => {
       }),
       {action: 'skip_csv', reason: 'inexact'},
     );
+  });
+});
+
+describe('perfectsDeltaFromMidspinChange', () => {
+  it('treats null as 0 and subtracts Perfects when midspins increase', () => {
+    assert.equal(midspinCountOrZero(null), 0);
+    assert.equal(perfectsDeltaFromMidspinChange(10, 15), -5);
+    assert.equal(perfectsDeltaFromMidspinChange(null, 15), -15);
+    assert.equal(perfectsDeltaFromMidspinChange(15, null), 15);
+    assert.equal(perfectsDeltaFromMidspinChange(7, 7), 0);
+  });
+
+  it('applies the delta and refuses a negative Perfect count', () => {
+    assert.deepEqual(applyPerfectsDelta(100, -5), {
+      perfect: 95,
+      applied: true,
+      skippedReason: null,
+    });
+    assert.deepEqual(applyPerfectsDelta(100, 5), {
+      perfect: 105,
+      applied: true,
+      skippedReason: null,
+    });
+    assert.deepEqual(applyPerfectsDelta(3, -5), {
+      perfect: 3,
+      applied: false,
+      skippedReason: 'would_go_negative',
+    });
+    assert.deepEqual(applyPerfectsDelta(100, 0), {
+      perfect: 100,
+      applied: false,
+      skippedReason: 'no_change',
+    });
   });
 });
