@@ -74,8 +74,7 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
   const videoLink = cleanVideoUrl(requiredText('videoLink'));
   const passer = sanitizeTextInput(requiredText('passer'));
   const feelingDifficulty = sanitizeTextInput(requiredText('feelingDifficulty'));
-  const title = sanitizeTextInput(requiredText('title'));
-  requiredText('rawTime');
+  const title = sanitizeTextInput(typeof body.title === 'string' ? body.title : '');
 
   const levelId = requirePositiveInt(body.levelId, 'levelId');
 
@@ -89,12 +88,7 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
     speed = validateFloatInput(speedNum, 1, 100);
   }
 
-  const rawTime = validateDateInput(body.rawTime);
-  if (!rawTime) {
-    throw formError.bad('Invalid or missing rawTime — must be a valid date between 2020 and now', {
-      field: 'rawTime',
-    });
-  }
+  const rawTime = validateDateInput(body.rawTime) ?? new Date();
 
   const keyCount = normalizeKeyCount(body.keyCount);
   if (body.keyCount !== undefined && body.keyCount !== null && body.keyCount !== '' && keyCount === null) {
