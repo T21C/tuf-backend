@@ -228,9 +228,9 @@ export function serializeAccuracySample(
 }
 
 /** Slim included `details[].accuracySample` on a rating `toJSON()` payload. */
-export function attachSerializedAccuracySamples(plain: {details?: unknown}): void {
+export function attachSerializedAccuracySamples(plain: object): void {
+  if (!('details' in plain) || !Array.isArray(plain.details)) return;
   const details = plain.details;
-  if (!Array.isArray(details)) return;
   for (const detail of details) {
     if (!detail || typeof detail !== 'object') continue;
     const row = detail as {accuracySample?: AccuracySampleFields | null};
