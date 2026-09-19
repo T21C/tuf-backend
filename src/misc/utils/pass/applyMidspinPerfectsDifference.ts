@@ -5,11 +5,13 @@ import Judgement from '@/models/passes/Judgement.js';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {cloneJudgements} from './CalcAcc.js';
+import {parseAdofaiVersion} from './adofaiVersion.js';
 import {buildLevelScoreContext, computePassScoreV2} from './scoreService.js';
 import {updateWorldsFirstPPStatus} from '@/server/services/passes/worldsFirst.js';
 import {
   applyPerfectsDelta,
   perfectsDeltaFromMidspinChange,
+  shouldApplyMidspinPerfectsDifference,
 } from './midspinPerfectDecrement.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 
@@ -26,13 +28,15 @@ function emptyResult(delta: number): MidspinPerfectsDifferenceResult {
 }
 
 /**
- * Add `oldMidspin - newMidspin` to Perfect on every pass of the level, then
- * recompute accuracy/score. Skips rows that would go below 0.
+ * Add `oldMidspin - newMidspin` to Perfect on passes whose hit total exactly
+ * matches tilecount (or tilecount + old midspin). Inexact/invalid clears are skipped.
  */
 export async function applyMidspinPerfectsDifferenceToLevelPasses(params: {
   levelId: number;
   oldMidspinCount: number | null;
   newMidspinCount: number | null;
+  tilecount: number | null;
+  autoTileCount: number | null;
 }): Promise<MidspinPerfectsDifferenceResult> {
   const delta = perfectsDeltaFromMidspinChange(
     params.oldMidspinCount,
@@ -89,6 +93,19 @@ export async function applyMidspinPerfectsDifferenceToLevelPasses(params: {
       }
 
       const judgements = cloneJudgements(judgementsRow);
+      const gate = shouldApplyMidspinPerfectsDifference({
+        judgements,
+        adofaiVersion: parseAdofaiVersion(pass.adofaiVersion),
+        tilecount: params.tilecount,
+        autoTileCount: params.autoTileCount,
+        oldMidspinCount: params.oldMidspinCount,
+        newMidspinCount: params.newMidspinCount,
+        perfectDelta: delta,
+      });
+      if (!gate.apply) {
+        skippedCount++;
+        continue;
+      }
       const applied = applyPerfectsDelta(judgements.perfect, delta);
       if (!applied.applied) {
         skippedCount++;

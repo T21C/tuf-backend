@@ -7,8 +7,10 @@ import {
   applyMidspinPerfectDecrement,
   applyPerfectsDelta,
   classifyMidspinRewrite,
+  exactHitTotalsForMidspinDifference,
   midspinCountOrZero,
   perfectsDeltaFromMidspinChange,
+  shouldApplyMidspinPerfectsDifference,
   willApplyMidspinDecrement,
 } from './midspinPerfectDecrement.js';
 
@@ -40,7 +42,7 @@ describe('applyMidspinPerfectDecrement', () => {
     assert.equal(r.judgements.perfect, 930);
   });
 
-  it('does not subtract Latest-era clears', () => {
+  it('does not subtract Alpha-era clears', () => {
     const j = emptyJudgements();
     j.perfect = 930;
     const r = applyMidspinPerfectDecrement({
@@ -230,5 +232,169 @@ describe('perfectsDeltaFromMidspinChange', () => {
       applied: false,
       skippedReason: 'no_change',
     });
+  });
+});
+
+describe('shouldApplyMidspinPerfectsDifference', () => {
+  function hits(perfect: number, extra: {ePerfect?: number; lPerfect?: number} = {}) {
+    const j = emptyJudgements();
+    j.perfect = perfect;
+    j.ePerfect = extra.ePerfect ?? 0;
+    j.lPerfect = extra.lPerfect ?? 0;
+    return j;
+  }
+
+  const base = {
+    tilecount: 100,
+    autoTileCount: 0,
+    adofaiVersion: ADOFAI_VERSION.PRE_3_4_0,
+  };
+
+  it('first-time set only moves uncorrected extras (tilecount + new midspin)', () => {
+    const delta = perfectsDeltaFromMidspinChange(0, 15);
+    assert.equal(delta, -15);
+    assert.deepEqual(
+      [...exactHitTotalsForMidspinDifference(100, 0, 0, 15)].sort((a, b) => a - b),
+      [115],
+    );
+    assert.equal(
+      shouldApplyMidspinPerfectsDifference({
+        ...base,
+        judgements: hits(115),
+        oldMidspinCount: 0,
+        newMidspinCount: 15,
+        perfectDelta: delta,
+      }).apply,
+      true,
+    );
+    assert.equal(
+      shouldApplyMidspinPerfectsDifference({
+        ...base,
+        judgements: hits(100),
+        oldMidspinCount: 0,
+        newMidspinCount: 15,
+        perfectDelta: delta,
+      }).reason,
+      'inexact',
+    );
+  });
+
+  it('correction only moves exact tilecount and tilecount+old midspin', () => {
+    const delta = perfectsDeltaFromMidspinChange(10, 15);
+    assert.equal(delta, -5);
+    assert.deepEqual(
+      [...exactHitTotalsForMidspinDifference(100, 0, 10, 15)].sort((a, b) => a - b),
+      [100, 110],
+    );
+    assert.equal(
+      shouldApplyMidspinPerfectsDifference({
+        ...base,
+        judgements: hits(100),
+        oldMidspinCount: 10,
+        newMidspinCount: 15,
+        perfectDelta: delta,
+      }).apply,
+      true,
+    );
+    assert.equal(
+      shouldApplyMidspinPerfectsDifference({
+        ...base,
+        judgements: hits(90, {ePerfect: 10, lPerfect: 10}),
+        oldMidspinCount: 10,
+        newMidspinCount: 15,
+        perfectDelta: delta,
+      }).apply,
+      true,
+    );
+    assert.equal(
+      shouldApplyMidspinPerfectsDifference({
+        ...base,
+        judgements: hits(107),
+        oldMidspinCount: 10,
+        newMidspinCount: 15,
+        perfectDelta: delta,
+      }).reason,
+      'inexact',
+    );
+    assert.equal(
+      shouldApplyMidspinPerfectsDifference({
+        ...base,
+        judgements: hits(115),
+        oldMidspinCount: 10,
+        newMidspinCount: 15,
+        perfectDelta: delta,
+      }).reason,
+      'inexact',
+    );
+  });
+
+  it('skips latest-era, ancient 5-40-5, and missing tilecount', () => {
+    const delta = perfectsDeltaFromMidspinChange(10, 15);
+    assert.equal(
+      shouldApplyMidspinPerfectsDifference({
+        ...base,
+        adofaiVersion: ADOFAI_VERSION.V3_4_0,
+        judgements: hits(100),
+        oldMidspinCount: 10,
+        newMidspinCount: 15,
+        perfectDelta: delta,
+      }).reason,
+      'latest_era',
+    );
+    const ancient = emptyJudgements();
+    ancient.ePerfect = 5;
+    ancient.perfect = 40;
+    ancient.lPerfect = 5;
+    assert.equal(
+      shouldApplyMidspinPerfectsDifference({
+        tilecount: 50,
+        autoTileCount: 0,
+        adofaiVersion: ADOFAI_VERSION.PRE_3_4_0,
+        judgements: ancient,
+        oldMidspinCount: 10,
+        newMidspinCount: 15,
+        perfectDelta: delta,
+      }).reason,
+      'ancient_5405',
+    );
+    assert.equal(
+      shouldApplyMidspinPerfectsDifference({
+        ...base,
+        tilecount: null,
+        judgements: hits(100),
+        oldMidspinCount: 10,
+        newMidspinCount: 15,
+        perfectDelta: delta,
+      }).reason,
+      'tilecount_missing',
+    );
+  });
+
+  it('subtracts auto tiles from the expected total', () => {
+    const delta = perfectsDeltaFromMidspinChange(10, 15);
+    assert.equal(
+      shouldApplyMidspinPerfectsDifference({
+        tilecount: 100,
+        autoTileCount: 8,
+        adofaiVersion: ADOFAI_VERSION.V2,
+        judgements: hits(92),
+        oldMidspinCount: 10,
+        newMidspinCount: 15,
+        perfectDelta: delta,
+      }).apply,
+      true,
+    );
+    assert.equal(
+      shouldApplyMidspinPerfectsDifference({
+        tilecount: 100,
+        autoTileCount: 8,
+        adofaiVersion: ADOFAI_VERSION.V2,
+        judgements: hits(100),
+        oldMidspinCount: 10,
+        newMidspinCount: 15,
+        perfectDelta: delta,
+      }).reason,
+      'inexact',
+    );
   });
 });
