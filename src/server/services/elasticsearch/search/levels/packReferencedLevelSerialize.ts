@@ -7,6 +7,30 @@ function normalizeFileId(value: unknown): string | null {
 }
 
 /**
+ * LevelCard hydrates catalog fields from tagsDict, but pack cards still need a
+ * display name (letter fallback) plus assignment overlay (score/pinned).
+ * ID-only rows crash the client when the catalog is empty or missing that id.
+ */
+function prunePackReferencedLevelTag(t: unknown): Record<string, unknown> | null {
+  const row = t && typeof t === 'object' ? (t as Record<string, unknown>) : null;
+  if (row?.id == null) return null;
+
+  const name = row.name != null ? String(row.name) : '';
+  const scoreRaw = row.score;
+  const out: Record<string, unknown> = { id: row.id };
+  if (name) out.name = name;
+  if (row.icon) out.icon = row.icon;
+  if (row.color) out.color = row.color;
+  if (row.group != null && row.group !== '') out.group = row.group;
+  if (row.sortOrder != null) out.sortOrder = row.sortOrder;
+  if (row.groupSortOrder != null) out.groupSortOrder = row.groupSortOrder;
+  if (typeof scoreRaw === 'number' && Number.isFinite(scoreRaw)) out.score = scoreRaw;
+  if (row.pinned) out.pinned = true;
+  if (row.isCommunity) out.isCommunity = true;
+  return out;
+}
+
+/**
  * Minimal `referencedLevel` payload for pack tree UI (LevelCard pack mode + creator line).
  * Omits ES/MySQL bloat (level aliases, full song objects, nested search fields, etc.).
  *
@@ -29,12 +53,7 @@ export function pruneMysqlReferencedLevelForPack(
 
   const tagsRaw = level.tags as unknown[] | undefined;
   const tags = Array.isArray(tagsRaw)
-    ? (tagsRaw
-        .map((t) => {
-          const row = t as Record<string, unknown>;
-          return row?.id != null ? { id: row.id } : null;
-        })
-        .filter(Boolean) as { id: unknown }[])
+    ? (tagsRaw.map(prunePackReferencedLevelTag).filter(Boolean) as Record<string, unknown>[])
     : [];
 
   const curationsRaw = level.curations as unknown[] | undefined;
