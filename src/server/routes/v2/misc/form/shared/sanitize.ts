@@ -8,12 +8,37 @@ export function sanitizeTextInput(input: string | null | undefined, maxLength = 
 }
 
 export const NOTES_MAX_LENGTH = 4000;
+export const LEVEL_DESCRIPTION_MAX_LENGTH = 2000;
 
 /** Optional notes: trim, cap length, empty → null. */
-export function sanitizeNotes(input: unknown): string | null {
+function sanitizeOptionalPlainText(
+  input: unknown,
+  maxLength: number,
+): string | null {
   if (typeof input !== 'string') return null;
-  const cleaned = sanitizeTextInput(input, NOTES_MAX_LENGTH);
+  const cleaned = sanitizeTextInput(input, maxLength);
   return cleaned.length > 0 ? cleaned : null;
+}
+
+export function sanitizeNotes(input: unknown): string | null {
+  return sanitizeOptionalPlainText(input, NOTES_MAX_LENGTH);
+}
+
+/** Optional website-only level description: trim, empty → null. Throws if invalid. */
+export function sanitizeLevelDescription(input: unknown): string | null {
+  if (input === undefined || input === null) return null;
+  if (typeof input !== 'string') {
+    throw { error: 'Level description must be a string', code: 400 };
+  }
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.length > LEVEL_DESCRIPTION_MAX_LENGTH) {
+    throw {
+      error: `Level description cannot exceed ${LEVEL_DESCRIPTION_MAX_LENGTH} characters`,
+      code: 400,
+    };
+  }
+  return trimmed;
 }
 
 /** Optional admin reason from a JSON body `{ reason?: string }`. */

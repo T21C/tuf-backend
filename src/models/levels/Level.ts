@@ -19,7 +19,7 @@ const sequelize = getSequelizeForModelGroup('levels');
 type LevelAttributes = ILevel;
 type LevelCreationAttributes = Optional<
   LevelAttributes,
-  'id' | 'createdAt' | 'updatedAt'
+  'id' | 'createdAt' | 'updatedAt' | 'description'
 >;
 
 class Level
@@ -44,6 +44,7 @@ class Level
   declare legacyDllink: string | null;
   declare workshopLink: string;
   declare publicComments: string;
+  declare description: string | null;
   declare notes: string | null;
   declare toRate: boolean;
   declare rerateReason: string;
@@ -155,6 +156,12 @@ Level.init(
     publicComments: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Optional website-only plain-text description of the level',
     },
     notes: {
       type: DataTypes.TEXT,
