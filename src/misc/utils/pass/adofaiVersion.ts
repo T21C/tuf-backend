@@ -1,5 +1,5 @@
 // tuf-search: #adofaiVersion #passEra
-/** Frozen era ids stored on passes. Do not store "Latest" — UI Latest maps to V3_4_0. */
+/** Frozen era ids stored on passes. Do not store "Alpha" — UI Alpha maps to V3_4_0. */
 export const ADOFAI_VERSION = {
   V2: 1,
   PRE_3_4_0: 2,

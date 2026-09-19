@@ -1603,7 +1603,7 @@ router.patch(
       }
 
       const level = await Level.findByPk(levelId, {
-        attributes: ['id', 'dlLink', 'midspinCount'],
+        attributes: ['id', 'dlLink', 'midspinCount', 'tilecount', 'autoTileCount'],
       });
       if (!level) {
         return res.status(404).json({ error: 'Level not found' });
@@ -1646,6 +1646,8 @@ router.patch(
             levelId,
             oldMidspinCount,
             newMidspinCount,
+            tilecount: level.tilecount ?? null,
+            autoTileCount: level.autoTileCount ?? null,
           });
           passesUpdated = passDiff.updatedCount;
           passesSkipped = passDiff.skippedCount;

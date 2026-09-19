@@ -62,6 +62,98 @@ export function applyPerfectsDelta(
   return {perfect: next, applied: true, skippedReason: null};
 }
 
+function chartTilecountInt(raw: unknown): number | null {
+  if (raw == null || raw === '') return null;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.floor(n));
+}
+
+/** Playable tiles: persisted tilecount minus auto tiles (midspins already excluded from tilecount). */
+export function effectiveChartTilecount(
+  tilecount: unknown,
+  autoTileCount: unknown = 0,
+): number | null {
+  const tiles = chartTilecountInt(tilecount);
+  if (tiles == null) return null;
+  const auto = chartTilecountInt(autoTileCount) ?? 0;
+  return Math.max(tiles - auto, 0);
+}
+
+export type MidspinDifferenceSkipReason =
+  | 'latest_era'
+  | 'ancient_5405'
+  | 'tilecount_missing'
+  | 'inexact'
+  | 'would_go_negative'
+  | 'no_change';
+
+/**
+ * Exact hit totals that may receive a midspin Perfects difference.
+ * First-time set (old 0 → new N): only tilecount + N (uncorrected extras).
+ * Correction (old M → new N): tilecount (already rewritten) and tilecount + M.
+ */
+export function exactHitTotalsForMidspinDifference(
+  tilecount: unknown,
+  autoTileCount: unknown,
+  oldMidspinCount: unknown,
+  newMidspinCount: unknown,
+): Set<number> {
+  const totals = new Set<number>();
+  const playable = effectiveChartTilecount(tilecount, autoTileCount);
+  if (playable == null) return totals;
+  const oldM = midspinCountOrZero(oldMidspinCount);
+  const newM = midspinCountOrZero(newMidspinCount);
+  if (oldM === 0) {
+    if (newM > 0) totals.add(playable + newM);
+    return totals;
+  }
+  totals.add(playable);
+  totals.add(playable + oldM);
+  return totals;
+}
+
+/** Whether this pass's hit total is an exact chart match (not an invalid/inexact clear). */
+export function shouldApplyMidspinPerfectsDifference(params: {
+  judgements: unknown;
+  adofaiVersion: number;
+  tilecount: unknown;
+  autoTileCount?: unknown;
+  oldMidspinCount: unknown;
+  newMidspinCount: unknown;
+  perfectDelta: number;
+}): {apply: boolean; reason: MidspinDifferenceSkipReason | null} {
+  if (!isLegacyAdofaiVersion(params.adofaiVersion)) {
+    return {apply: false, reason: 'latest_era'};
+  }
+  if (isAncient5405Pattern(params.judgements)) {
+    return {apply: false, reason: 'ancient_5405'};
+  }
+  const playable = effectiveChartTilecount(params.tilecount, params.autoTileCount);
+  if (playable == null) {
+    return {apply: false, reason: 'tilecount_missing'};
+  }
+  const totals = exactHitTotalsForMidspinDifference(
+    params.tilecount,
+    params.autoTileCount,
+    params.oldMidspinCount,
+    params.newMidspinCount,
+  );
+  const hits = judgementHitCount(params.judgements);
+  if (!totals.has(hits)) {
+    return {apply: false, reason: 'inexact'};
+  }
+  const perfect = unwrapJudgements(params.judgements).perfect;
+  const deltaResult = applyPerfectsDelta(perfect, params.perfectDelta);
+  if (!deltaResult.applied) {
+    return {
+      apply: false,
+      reason: deltaResult.skippedReason === 'would_go_negative' ? 'would_go_negative' : 'no_change',
+    };
+  }
+  return {apply: true, reason: null};
+}
+
 /**
  * Subtract midspinCount from Perfect for pre-3.4.0 / v2 clears.
  * Idempotent via MIDSPIN_PERFECTS_REMOVED. midspinCount 0 still sets the bit.
@@ -145,13 +237,6 @@ export type MidspinRewriteClassification =
   | {action: 'skip_csv'; reason: MidspinRewriteSkipCsvReason}
   | {action: 'flag_only'}
   | {action: 'subtract'};
-
-function chartTilecountInt(raw: unknown): number | null {
-  if (raw == null || raw === '') return null;
-  const n = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(n)) return null;
-  return Math.max(0, Math.floor(n));
-}
 
 /** Bulk rewrite decision: env-free; caller supplies CDN presence. */
 export function classifyMidspinRewrite(params: {
