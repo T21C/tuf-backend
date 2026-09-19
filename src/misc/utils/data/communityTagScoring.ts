@@ -74,7 +74,7 @@ export function shouldDestroyCommunityAssignment(opts: {
   keep: boolean;
 }): boolean {
   if (opts.preserveAssignments) return false;
-  if (!opts.bandOk) return true;
+  if (!opts.bandOk) return false;
   return !opts.keep;
 }
 

@@ -22,6 +22,27 @@ export function isSentryEnabled(): boolean {
   return sentryEnabled;
 }
 
+/**
+ * Ingest sample rate for traces/spans (hits Relay/Kafka).
+ * `SENTRY_TRACES_FAST_SAMPLE_RATE` only drops finished transactions in
+ * `beforeSendTransaction` — SDK 10 already flushed child spans by then.
+ *
+ * Default 1 in development, 0.05 in production. Override: SENTRY_TRACES_SAMPLE_RATE.
+ */
+export function resolveTracesSampleRate(): number {
+  const env =
+    process.env.SENTRY_ENVIRONMENT?.trim() ||
+    process.env.NODE_ENV?.trim() ||
+    '';
+  const isDev = env === 'development' || env === 'dev';
+  const fallback = isDev ? 1 : 0.05;
+  const raw = process.env.SENTRY_TRACES_SAMPLE_RATE;
+  if (raw == null || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.min(n, 1);
+}
+
 function buildTracePropagationTargets(): Array<string | RegExp> {
   const targets: Array<string | RegExp> = [
     'localhost',
@@ -109,7 +130,7 @@ export function initSentry(): void {
       if (isOrphanElasticsearchClientTransaction(name)) {
         return 0;
       }
-      return 1;
+      return resolveTracesSampleRate();
     },
     beforeSend(event) {
       return redactSentryEvent(event as unknown as Record<string, unknown>) as unknown as typeof event;

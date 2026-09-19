@@ -240,19 +240,20 @@ export async function rematerializeCommunityTagsForLevel(
     const pinned = Boolean(assignment?.pinned);
     const assigned = assignment != null;
     const bandOk = tagAllowedForDifficulty(settings.allowedBands, difficulty);
+    if (!bandOk) {
+      continue;
+    }
 
     let upWeight = 0;
     let downWeight = 0;
-    if (bandOk) {
-      const tagVotes = votesByTag.get(asTagId(tag.id)) ?? [];
-      for (const vote of tagVotes) {
-        if (!(vote.weight > 0)) continue;
-        if (settings.scoringMode === 'skillset' && !clearerUserIds.has(asUserId(vote.userId))) {
-          continue;
-        }
-        if (vote.direction < 0) downWeight += vote.weight;
-        else upWeight += vote.weight;
+    const tagVotes = votesByTag.get(asTagId(tag.id)) ?? [];
+    for (const vote of tagVotes) {
+      if (!(vote.weight > 0)) continue;
+      if (settings.scoringMode === 'skillset' && !clearerUserIds.has(asUserId(vote.userId))) {
+        continue;
       }
+      if (vote.direction < 0) downWeight += vote.weight;
+      else upWeight += vote.weight;
     }
     const totalWeight = upWeight + downWeight;
     const score = wilsonLowerBound(upWeight, totalWeight, settings.wilsonZ);
@@ -280,7 +281,7 @@ export async function rematerializeCommunityTagsForLevel(
         if (assignment.score !== score) {
           await assignment.update({ score }, { transaction });
         }
-      } else if (bandOk) {
+      } else {
         const keepNew = shouldKeepCommunityAssignment({
           assigned: false,
           pinned: false,

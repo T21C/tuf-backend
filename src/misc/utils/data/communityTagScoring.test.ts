@@ -263,13 +263,24 @@ test('shouldDestroyCommunityAssignment honors preserveAssignments', () => {
     }),
     false,
   );
+});
+
+test('shouldDestroyCommunityAssignment does not drop assignments on band mismatch', () => {
   assert.equal(
     shouldDestroyCommunityAssignment({
       preserveAssignments: false,
       bandOk: false,
       keep: true,
     }),
-    true,
+    false,
+  );
+  assert.equal(
+    shouldDestroyCommunityAssignment({
+      preserveAssignments: false,
+      bandOk: false,
+      keep: false,
+    }),
+    false,
   );
 });
 
