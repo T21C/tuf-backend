@@ -72,7 +72,19 @@ export function flatRowsToTreeItems(
       isCleared: false,
     }));
 
-  return [...foldersPlain, ...levels];
+  const notesPlain = flat
+    .filter((row) => row.type === 'note')
+    .map((row) => ({
+      id: row.id,
+      type: row.type,
+      parentId: row.parentId,
+      name: row.name,
+      description: row.description,
+      sortOrder: row.sortOrder,
+      isCleared: false,
+    }));
+
+  return [...foldersPlain, ...notesPlain, ...levels];
 }
 
 export async function loadPackStructureFlatFromDb(packId: number): Promise<PackStructureFlatRow[]> {

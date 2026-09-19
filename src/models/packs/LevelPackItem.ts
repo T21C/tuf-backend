@@ -7,7 +7,7 @@ const sequelize = getSequelizeForModelGroup('packs');
 export interface ILevelPackItem {
   id: number;
   packId: number;
-  type: 'folder' | 'level';
+  type: 'folder' | 'level' | 'note';
   parentId: number; // 0 = root level
   name: string | null;
   description: string | null;
@@ -29,7 +29,7 @@ class LevelPackItem
 {
   declare id: number;
   declare packId: number;
-  declare type: 'folder' | 'level';
+  declare type: 'folder' | 'level' | 'note';
   declare parentId: number; // 0 = root level
   declare name: string | null;
   declare description: string | null;
@@ -63,10 +63,10 @@ LevelPackItem.init(
       comment: 'Reference to the level pack',
     },
     type: {
-      type: DataTypes.ENUM('folder', 'level'),
+      type: DataTypes.ENUM('folder', 'level', 'note'),
       allowNull: false,
       defaultValue: 'level',
-      comment: 'Type of item: folder or level',
+      comment: 'Type of item: folder, level, or note',
     },
     parentId: {
       type: DataTypes.INTEGER,
@@ -77,12 +77,12 @@ LevelPackItem.init(
     name: {
       type: DataTypes.STRING,
       allowNull: true,
-      comment: 'Name of the folder (null for level items)',
+      comment: 'Folder name or note title (null for level items)',
     },
     description: {
       type: DataTypes.TEXT,
       allowNull: true,
-      comment: 'Optional website-only description of the folder (null for level items)',
+      comment: 'Website-only folder description or note body (null for level items)',
     },
     levelId: {
       type: DataTypes.INTEGER,
@@ -92,7 +92,7 @@ LevelPackItem.init(
         key: 'id',
       },
       onDelete: 'CASCADE',
-      comment: 'Reference to the level (null for folder items)',
+      comment: 'Reference to the level (null for folder and note items)',
     },
     sortOrder: {
       type: DataTypes.INTEGER,
@@ -133,9 +133,6 @@ LevelPackItem.init(
         name: 'level_pack_items_pack_parent_sort',
       },
       {
-        // Prevent duplicate levels in the same folder within a pack
-        // Same level can exist in different folders (different parentId)
-        // NULL levelIds (folders) don't conflict due to MySQL NULL handling in unique indexes
         unique: true,
         fields: ['packId', 'parentId', 'levelId'],
         name: 'level_pack_items_pack_parent_level_unique',
