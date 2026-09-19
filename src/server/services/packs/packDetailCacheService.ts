@@ -16,6 +16,7 @@ export type PackStructureFlatRow = {
   parentId: number;
   sortOrder: number;
   name: string | null;
+  description: string | null;
   levelId: number | null;
 };
 
@@ -66,17 +67,30 @@ export function flatRowsToTreeItems(
       type: row.type,
       parentId: row.parentId,
       name: row.name,
+      description: row.description,
       sortOrder: row.sortOrder,
       isCleared: false,
     }));
 
-  return [...foldersPlain, ...levels];
+  const notesPlain = flat
+    .filter((row) => row.type === 'note')
+    .map((row) => ({
+      id: row.id,
+      type: row.type,
+      parentId: row.parentId,
+      name: row.name,
+      description: row.description,
+      sortOrder: row.sortOrder,
+      isCleared: false,
+    }));
+
+  return [...foldersPlain, ...notesPlain, ...levels];
 }
 
 export async function loadPackStructureFlatFromDb(packId: number): Promise<PackStructureFlatRow[]> {
   const rows = await LevelPackItem.findAll({
     where: { packId },
-    attributes: ['id', 'type', 'parentId', 'sortOrder', 'name', 'levelId'],
+    attributes: ['id', 'type', 'parentId', 'sortOrder', 'name', 'description', 'levelId'],
     order: [['sortOrder', 'ASC']],
   });
   return rows.map((r) => {
@@ -87,6 +101,7 @@ export async function loadPackStructureFlatFromDb(packId: number): Promise<PackS
       parentId: Number(j.parentId ?? 0),
       sortOrder: Number(j.sortOrder ?? 0),
       name: j.name != null ? String(j.name) : null,
+      description: j.description != null ? String(j.description) : null,
       levelId: j.levelId != null ? Number(j.levelId) : null,
     };
   });

@@ -85,6 +85,8 @@ export interface ILevel extends IBaseModel {
   legacyDllink?: string | null;
   workshopLink: string;
   publicComments: string;
+  /** Optional website-only plain-text description of the level. */
+  description?: string | null;
   notes?: string | null;
   toRate: boolean;
   rerateReason?: string;

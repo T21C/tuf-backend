@@ -55,18 +55,100 @@ const CDN_METADATA_BATCH_SIZE = 100; // Batch CDN metadata requests to prevent O
 const PACK_CDN_METADATA_BATCH_TIMEOUT_MS = 15_000;
 const PACK_DESCRIPTION_MAX_LENGTH = 2000;
 
-/** Trim pack description; blank → null. Throws { error, code: 400 } if invalid. */
-function normalizePackDescription(value: unknown): string | null {
+/** Trim optional plain text; blank → null. Throws { error, code: 400 } if invalid. */
+function normalizeOptionalPlainText(
+  value: unknown,
+  label: string,
+  maxLength: number = PACK_DESCRIPTION_MAX_LENGTH,
+): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== 'string') {
-    throw { error: 'Pack description must be a string', code: 400 };
+    throw { error: `${label} must be a string`, code: 400 };
   }
   const trimmed = value.trim();
   if (trimmed.length === 0) return null;
-  if (trimmed.length > PACK_DESCRIPTION_MAX_LENGTH) {
-    throw { error: `Pack description cannot exceed ${PACK_DESCRIPTION_MAX_LENGTH} characters`, code: 400 };
+  if (trimmed.length > maxLength) {
+    throw { error: `${label} cannot exceed ${maxLength} characters`, code: 400 };
   }
   return trimmed;
+}
+
+/** Trim pack description; blank → null. Throws { error, code: 400 } if invalid. */
+function normalizePackDescription(value: unknown): string | null {
+  return normalizeOptionalPlainText(value, 'Pack description');
+}
+
+/** Trim folder description; blank → null. Throws { error, code: 400 } if invalid. */
+function normalizeFolderDescription(value: unknown): string | null {
+  return normalizeOptionalPlainText(value, 'Folder description');
+}
+
+/** Trim note body; blank → null. Throws { error, code: 400 } if invalid. */
+function normalizeNoteBody(value: unknown): string | null {
+  return normalizeOptionalPlainText(value, 'Note body');
+}
+
+async function assertParentIsFolder(
+  packId: number,
+  parentId: number | undefined | null,
+  transaction: any,
+): Promise<void> {
+  if (!parentId) return;
+  const parent = await LevelPackItem.findOne({
+    where: { id: parentId, packId, type: 'folder' },
+    transaction,
+  });
+  if (!parent) {
+    throw { error: 'Invalid parent folder', code: 400 };
+  }
+}
+
+async function assertNameUniqueInParent({
+  packId,
+  parentId,
+  name,
+  excludeId,
+  transaction,
+}: {
+  packId: number;
+  parentId: number;
+  name: string;
+  excludeId?: number;
+  transaction: any;
+}): Promise<void> {
+  const where: Record<string, unknown> = {
+    packId,
+    parentId,
+    name,
+  };
+  if (excludeId != null) {
+    where.id = { [Op.ne]: excludeId };
+  }
+  const existing = await LevelPackItem.findOne({ where, transaction });
+  if (existing) {
+    throw { error: `An item named "${name}" already exists in this location`, code: 400 };
+  }
+}
+
+async function assertDestinationParentsAreFolders(
+  packId: number,
+  parentIds: number[],
+  transaction: any,
+): Promise<void> {
+  const uniqueParentIds = [...new Set(parentIds.filter((id) => id !== 0))];
+  if (uniqueParentIds.length === 0) return;
+
+  const parents = await LevelPackItem.findAll({
+    where: { packId, id: { [Op.in]: uniqueParentIds } },
+    attributes: ['id', 'type'],
+    transaction,
+  });
+  const typeById = new Map(parents.map((parent) => [parent.id, parent.type]));
+  for (const parentId of uniqueParentIds) {
+    if (typeById.get(parentId) !== 'folder') {
+      throw { error: 'Items can only be placed inside folders', code: 400 };
+    }
+  }
 }
 
 async function resolvePackQuotaForUser(user: NonNullable<Request['user']>): Promise<{ maxPacks: number; maxItems: number }> {
@@ -916,6 +998,10 @@ router.post(
           };
         }
 
+        if (child.type !== 'level') {
+          return null;
+        }
+
         const level: any = child.referencedLevel;
         if (!level) {
           return null;
@@ -1653,11 +1739,11 @@ router.post(
   ApiDoc({
     operationId: 'postPackItems',
     summary: 'Add pack items',
-    description: 'Add folder(s) or level(s) to a pack. type, name/levelIds, parentId, sortOrder.',
+    description: 'Add folder(s), level(s), or note(s) to a pack. type, name/description (folder or note), levelIds (level), parentId, sortOrder.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
-    requestBody: { description: 'type, name (folder), levelIds (level), parentId, sortOrder', schema: { type: 'object' }, required: true },
+    requestBody: { description: 'type, name (folder/note), description (folder/note, optional), levelIds (level), parentId, sortOrder', schema: { type: 'object' }, required: true },
     responses: { 200: { description: 'Items added' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
@@ -1670,10 +1756,10 @@ router.post(
       throw { error: 'Invalid pack ID or link code', code: 400 };
     }
 
-    const { type, name, levelIds, parentId, sortOrder } = req.body;
+    const { type, name, description, levelIds, parentId, sortOrder } = req.body;
 
-    if (!type || (type !== 'folder' && type !== 'level')) {
-      throw { error: 'Type must be "folder" or "level"', code: 400 };
+    if (!type || (type !== 'folder' && type !== 'level' && type !== 'note')) {
+      throw { error: 'Type must be "folder", "level", or "note"', code: 400 };
     }
 
     const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
@@ -1688,39 +1774,22 @@ router.post(
     const packQuota = await resolvePackQuotaForUser(req.user!);
 
     // Validate based on type
-    if (type === 'folder') {
+    if (type === 'folder' || type === 'note') {
       if (!name || typeof name !== 'string' || name.trim().length === 0) {
-        throw { error: 'Folder name is required', code: 400 };
+        throw { error: type === 'note' ? 'Note title is required' : 'Folder name is required', code: 400 };
       }
 
-      // Check for duplicate folder name in same parent
-      const existingFolder = await LevelPackItem.findOne({
-        where: {
-          packId: resolvedPackId,
-          type: 'folder',
-          parentId: parentId || 0,
-          name: name.trim()
-        },
-        transaction
+      const trimmedName = name.trim();
+      const destParentId = parentId || 0;
+
+      await assertNameUniqueInParent({
+        packId: resolvedPackId,
+        parentId: destParentId,
+        name: trimmedName,
+        transaction,
       });
+      await assertParentIsFolder(resolvedPackId, parentId, transaction);
 
-      if (existingFolder) {
-        throw { error: 'Folder with this name already exists in this location', code: 400 };
-      }
-
-      // Validate parent if provided
-      if (parentId) {
-        const parent = await LevelPackItem.findOne({
-          where: { id: parentId, packId: resolvedPackId, type: 'folder' },
-          transaction
-        });
-
-        if (!parent) {
-          throw { error: 'Invalid parent folder', code: 400 };
-        }
-      }
-
-      // Check item limit
       const itemCount = await LevelPackItem.count({
         where: { packId: resolvedPackId },
         transaction
@@ -1730,11 +1799,10 @@ router.post(
         throw { error: `Maximum ${packQuota.maxItems} items allowed per pack`, code: 400 };
       }
 
-      // Determine sort order
       let finalSortOrder = sortOrder;
       if (finalSortOrder === undefined || finalSortOrder === null) {
         const maxSortOrder = await LevelPackItem.max('sortOrder', {
-          where: { packId: resolvedPackId, parentId: parentId || 0 },
+          where: { packId: resolvedPackId, parentId: destParentId },
           transaction
         });
         finalSortOrder = (maxSortOrder as number || 0) + 1;
@@ -1742,9 +1810,12 @@ router.post(
 
       const item = await LevelPackItem.create({
         packId: resolvedPackId,
-        type: 'folder',
-        parentId: parentId || 0,
-        name: name.trim(),
+        type,
+        parentId: destParentId,
+        name: trimmedName,
+        description: type === 'note'
+          ? normalizeNoteBody(description)
+          : normalizeFolderDescription(description),
         levelId: null,
         sortOrder: finalSortOrder
       }, { transaction });
@@ -1811,7 +1882,7 @@ router.post(
         where: {
           id: { [Op.in]: createdItems.map(item => item.id) }
         },
-        attributes: ['id', 'type', 'parentId', 'sortOrder', 'name', 'levelId', 'packId'],
+        attributes: ['id', 'type', 'parentId', 'sortOrder', 'name', 'description', 'levelId', 'packId'],
         order: [['sortOrder', 'ASC']],
       });
 
@@ -1839,11 +1910,21 @@ router.put(
   ApiDoc({
     operationId: 'putPackItem',
     summary: 'Update pack item',
-    description: 'Update pack item (e.g. folder name).',
+    description: 'Update pack item (folder/note name and website-only description).',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
     params: { id: { schema: { type: 'string' } }, itemId: { schema: { type: 'string' } } },
-    requestBody: { description: 'name (for folders)', schema: { type: 'object', properties: { name: { type: 'string' } } }, required: true },
+    requestBody: {
+      description: 'name and/or description (folders and notes)',
+      schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          description: { type: 'string', nullable: true },
+        },
+      },
+      required: true,
+    },
     responses: { 200: { description: 'Item updated' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
@@ -1880,30 +1961,42 @@ router.put(
       throw { error: 'Item not found in pack', code: 404 };
     }
 
-    const { name } = req.body;
+    const { name, description } = req.body;
 
-    if (item.type === 'folder' && name !== undefined) {
-      if (typeof name !== 'string' || name.trim().length === 0) {
-        throw { error: 'Folder name cannot be empty', code: 400 };
-      }
+    if ((name !== undefined || description !== undefined) && item.type === 'level') {
+      throw { error: 'Name and description are only allowed on folders and notes', code: 400 };
+    }
 
-      // Check for duplicate folder name in same parent
-      const existingFolder = await LevelPackItem.findOne({
-        where: {
+    if (item.type === 'folder' || item.type === 'note') {
+      const updates: { name?: string; description?: string | null } = {};
+      const isNote = item.type === 'note';
+
+      if (name !== undefined) {
+        if (typeof name !== 'string' || name.trim().length === 0) {
+          throw { error: isNote ? 'Note title cannot be empty' : 'Folder name cannot be empty', code: 400 };
+        }
+
+        const trimmedName = name.trim();
+        await assertNameUniqueInParent({
           packId: resolvedPackId,
-          type: 'folder',
           parentId: item.parentId,
-          name: name.trim(),
-          id: { [Op.ne]: itemId }
-        },
-        transaction
-      });
+          name: trimmedName,
+          excludeId: itemId,
+          transaction,
+        });
 
-      if (existingFolder) {
-        throw { error: 'Folder with this name already exists in this location', code: 400 };
+        updates.name = trimmedName;
       }
 
-      await item.update({ name: name.trim() }, { transaction });
+      if (description !== undefined) {
+        updates.description = isNote
+          ? normalizeNoteBody(description)
+          : normalizeFolderDescription(description);
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await item.update(updates, { transaction });
+      }
     }
 
     await transaction.commit();
@@ -2024,34 +2117,24 @@ router.put(
       item: itemMap.get(update.id)!
     }));
 
-    // Check for unique constraint violations before updating
-    // The constraint is on (packId, parentId, name) for folders
-    // For levels, check (packId, parentId, levelId) to prevent duplicates in same location
-    for (const update of enrichedUpdates) {
-      if (update.item?.type === 'folder' && update.item?.name) {
-        // Check if moving this folder to the new parent would create a duplicate name
-        const existingFolder = await LevelPackItem.findOne({
-          where: {
-            packId: resolvedPackId,
-            type: 'folder',
-            parentId: update.parentId,
-            name: update.item.name,
-            id: { [Op.ne]: update.id } // Exclude the current item
-          },
-          transaction
-        });
+    await assertDestinationParentsAreFolders(
+      resolvedPackId,
+      enrichedUpdates.map((update) => update.parentId ?? 0),
+      transaction,
+    );
 
-        if (existingFolder) {
-          throw {
-            error: `Folder "${update.item.name}" already exists in the target location`,
-            code: 400,
-            details: {
-              folderId: update.id,
-              folderName: update.item.name,
-              targetParentId: update.parentId
-            }
-          };
-        }
+    // Check for unique constraint violations before updating
+    // Named items (folders and notes) share (packId, parentId, name)
+    // Levels check (packId, parentId, levelId) to prevent duplicates in same location
+    for (const update of enrichedUpdates) {
+      if ((update.item?.type === 'folder' || update.item?.type === 'note') && update.item?.name) {
+        await assertNameUniqueInParent({
+          packId: resolvedPackId,
+          parentId: update.parentId ?? 0,
+          name: update.item.name,
+          excludeId: update.id,
+          transaction,
+        });
       } else if (update.item?.type === 'level' && update.item?.levelId) {
         // Check if moving this level to the new parent would create a duplicate levelId in same location
         const existingLevel = await LevelPackItem.findOne({
@@ -2105,7 +2188,7 @@ router.put(
 
     const treeRows = await LevelPackItem.findAll({
       where: { packId: resolvedPackId },
-      attributes: ['id', 'type', 'parentId', 'sortOrder', 'name', 'levelId'],
+      attributes: ['id', 'type', 'parentId', 'sortOrder', 'name', 'description', 'levelId'],
       order: [['sortOrder', 'ASC']],
     });
 
@@ -2501,28 +2584,28 @@ router.put(
 
     const itemMap = new Map(packItems.map(item => [item.id, item]));
 
+    await assertDestinationParentsAreFolders(
+      resolvedPackId,
+      items
+        .filter((entry: any) => entry.id && entry.parentId !== undefined)
+        .map((entry: any) => entry.parentId || 0),
+      transaction,
+    );
+
     // Check for unique constraint violations before updating
-    // The constraint is on (packId, parentId, name) for folders
-    // For levels, check (packId, parentId, levelId) to prevent duplicates in same location
+    // Named items (folders and notes) share (packId, parentId, name)
+    // Levels check (packId, parentId, levelId) to prevent duplicates in same location
     for (const { id, parentId } of items) {
       if (id && parentId !== undefined) {
         const item = itemMap.get(id);
-        if (item && item.type === 'folder' && item.name) {
-          // Check if moving this folder to the new parent would create a duplicate name
-          const existingFolder = await LevelPackItem.findOne({
-            where: {
-              packId: resolvedPackId,
-              type: 'folder',
-              parentId: parentId || 0,
-              name: item.name,
-              id: { [Op.ne]: id } // Exclude the current item
-            },
-            transaction
+        if (item && (item.type === 'folder' || item.type === 'note') && item.name) {
+          await assertNameUniqueInParent({
+            packId: resolvedPackId,
+            parentId: parentId || 0,
+            name: item.name,
+            excludeId: id,
+            transaction,
           });
-
-          if (existingFolder) {
-            throw { error: `Folder "${item.name}" already exists in the target location`, code: 400 };
-          }
         } else if (item && item.type === 'level' && item.levelId) {
           // Check if moving this level to the new parent would create a duplicate levelId in same location
           const existingLevel = await LevelPackItem.findOne({
