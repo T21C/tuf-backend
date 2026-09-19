@@ -55,18 +55,32 @@ const CDN_METADATA_BATCH_SIZE = 100; // Batch CDN metadata requests to prevent O
 const PACK_CDN_METADATA_BATCH_TIMEOUT_MS = 15_000;
 const PACK_DESCRIPTION_MAX_LENGTH = 2000;
 
-/** Trim pack description; blank → null. Throws { error, code: 400 } if invalid. */
-function normalizePackDescription(value: unknown): string | null {
+/** Trim optional plain text; blank → null. Throws { error, code: 400 } if invalid. */
+function normalizeOptionalPlainText(
+  value: unknown,
+  label: string,
+  maxLength: number = PACK_DESCRIPTION_MAX_LENGTH,
+): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== 'string') {
-    throw { error: 'Pack description must be a string', code: 400 };
+    throw { error: `${label} must be a string`, code: 400 };
   }
   const trimmed = value.trim();
   if (trimmed.length === 0) return null;
-  if (trimmed.length > PACK_DESCRIPTION_MAX_LENGTH) {
-    throw { error: `Pack description cannot exceed ${PACK_DESCRIPTION_MAX_LENGTH} characters`, code: 400 };
+  if (trimmed.length > maxLength) {
+    throw { error: `${label} cannot exceed ${maxLength} characters`, code: 400 };
   }
   return trimmed;
+}
+
+/** Trim pack description; blank → null. Throws { error, code: 400 } if invalid. */
+function normalizePackDescription(value: unknown): string | null {
+  return normalizeOptionalPlainText(value, 'Pack description');
+}
+
+/** Trim folder description; blank → null. Throws { error, code: 400 } if invalid. */
+function normalizeFolderDescription(value: unknown): string | null {
+  return normalizeOptionalPlainText(value, 'Folder description');
 }
 
 async function resolvePackQuotaForUser(user: NonNullable<Request['user']>): Promise<{ maxPacks: number; maxItems: number }> {
@@ -1653,11 +1667,11 @@ router.post(
   ApiDoc({
     operationId: 'postPackItems',
     summary: 'Add pack items',
-    description: 'Add folder(s) or level(s) to a pack. type, name/levelIds, parentId, sortOrder.',
+    description: 'Add folder(s) or level(s) to a pack. type, name/description (folder), levelIds (level), parentId, sortOrder.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
-    requestBody: { description: 'type, name (folder), levelIds (level), parentId, sortOrder', schema: { type: 'object' }, required: true },
+    requestBody: { description: 'type, name (folder), description (folder, optional), levelIds (level), parentId, sortOrder', schema: { type: 'object' }, required: true },
     responses: { 200: { description: 'Items added' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
@@ -1670,7 +1684,7 @@ router.post(
       throw { error: 'Invalid pack ID or link code', code: 400 };
     }
 
-    const { type, name, levelIds, parentId, sortOrder } = req.body;
+    const { type, name, description, levelIds, parentId, sortOrder } = req.body;
 
     if (!type || (type !== 'folder' && type !== 'level')) {
       throw { error: 'Type must be "folder" or "level"', code: 400 };
@@ -1745,6 +1759,7 @@ router.post(
         type: 'folder',
         parentId: parentId || 0,
         name: name.trim(),
+        description: normalizeFolderDescription(description),
         levelId: null,
         sortOrder: finalSortOrder
       }, { transaction });
@@ -1811,7 +1826,7 @@ router.post(
         where: {
           id: { [Op.in]: createdItems.map(item => item.id) }
         },
-        attributes: ['id', 'type', 'parentId', 'sortOrder', 'name', 'levelId', 'packId'],
+        attributes: ['id', 'type', 'parentId', 'sortOrder', 'name', 'description', 'levelId', 'packId'],
         order: [['sortOrder', 'ASC']],
       });
 
@@ -1839,11 +1854,21 @@ router.put(
   ApiDoc({
     operationId: 'putPackItem',
     summary: 'Update pack item',
-    description: 'Update pack item (e.g. folder name).',
+    description: 'Update pack item (folder name and/or website-only description).',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
     params: { id: { schema: { type: 'string' } }, itemId: { schema: { type: 'string' } } },
-    requestBody: { description: 'name (for folders)', schema: { type: 'object', properties: { name: { type: 'string' } } }, required: true },
+    requestBody: {
+      description: 'name and/or description (folders only)',
+      schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          description: { type: 'string', nullable: true },
+        },
+      },
+      required: true,
+    },
     responses: { 200: { description: 'Item updated' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
@@ -1880,30 +1905,46 @@ router.put(
       throw { error: 'Item not found in pack', code: 404 };
     }
 
-    const { name } = req.body;
+    const { name, description } = req.body;
 
-    if (item.type === 'folder' && name !== undefined) {
-      if (typeof name !== 'string' || name.trim().length === 0) {
-        throw { error: 'Folder name cannot be empty', code: 400 };
+    if (description !== undefined && item.type !== 'folder') {
+      throw { error: 'Description is only allowed on folders', code: 400 };
+    }
+
+    if (item.type === 'folder') {
+      const updates: { name?: string; description?: string | null } = {};
+
+      if (name !== undefined) {
+        if (typeof name !== 'string' || name.trim().length === 0) {
+          throw { error: 'Folder name cannot be empty', code: 400 };
+        }
+
+        // Check for duplicate folder name in same parent
+        const existingFolder = await LevelPackItem.findOne({
+          where: {
+            packId: resolvedPackId,
+            type: 'folder',
+            parentId: item.parentId,
+            name: name.trim(),
+            id: { [Op.ne]: itemId }
+          },
+          transaction
+        });
+
+        if (existingFolder) {
+          throw { error: 'Folder with this name already exists in this location', code: 400 };
+        }
+
+        updates.name = name.trim();
       }
 
-      // Check for duplicate folder name in same parent
-      const existingFolder = await LevelPackItem.findOne({
-        where: {
-          packId: resolvedPackId,
-          type: 'folder',
-          parentId: item.parentId,
-          name: name.trim(),
-          id: { [Op.ne]: itemId }
-        },
-        transaction
-      });
-
-      if (existingFolder) {
-        throw { error: 'Folder with this name already exists in this location', code: 400 };
+      if (description !== undefined) {
+        updates.description = normalizeFolderDescription(description);
       }
 
-      await item.update({ name: name.trim() }, { transaction });
+      if (Object.keys(updates).length > 0) {
+        await item.update(updates, { transaction });
+      }
     }
 
     await transaction.commit();
@@ -2105,7 +2146,7 @@ router.put(
 
     const treeRows = await LevelPackItem.findAll({
       where: { packId: resolvedPackId },
-      attributes: ['id', 'type', 'parentId', 'sortOrder', 'name', 'levelId'],
+      attributes: ['id', 'type', 'parentId', 'sortOrder', 'name', 'description', 'levelId'],
       order: [['sortOrder', 'ASC']],
     });
 

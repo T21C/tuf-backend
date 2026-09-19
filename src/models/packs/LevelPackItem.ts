@@ -10,6 +10,7 @@ export interface ILevelPackItem {
   type: 'folder' | 'level';
   parentId: number; // 0 = root level
   name: string | null;
+  description: string | null;
   levelId: number | null;
   sortOrder: number;
   createdAt: Date;
@@ -19,7 +20,7 @@ export interface ILevelPackItem {
 type LevelPackItemAttributes = ILevelPackItem;
 type LevelPackItemCreationAttributes = Optional<
   LevelPackItemAttributes,
-  'id' | 'parentId' | 'name' | 'levelId' | 'createdAt' | 'updatedAt'
+  'id' | 'parentId' | 'name' | 'description' | 'levelId' | 'createdAt' | 'updatedAt'
 >;
 
 class LevelPackItem
@@ -31,6 +32,7 @@ class LevelPackItem
   declare type: 'folder' | 'level';
   declare parentId: number; // 0 = root level
   declare name: string | null;
+  declare description: string | null;
   declare levelId: number | null;
   declare sortOrder: number;
   declare createdAt: Date;
@@ -76,6 +78,11 @@ LevelPackItem.init(
       type: DataTypes.STRING,
       allowNull: true,
       comment: 'Name of the folder (null for level items)',
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'Optional website-only description of the folder (null for level items)',
     },
     levelId: {
       type: DataTypes.INTEGER,
