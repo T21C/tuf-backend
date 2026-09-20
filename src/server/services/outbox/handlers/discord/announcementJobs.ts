@@ -88,6 +88,20 @@ function buildRequiredWebhooksByLevelTrackingId(
   return map;
 }
 
+function buildLabelByWebhookUrl(
+  configs: Iterable<{ channels?: { label: string; webhookUrl: string }[] } | undefined>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const config of configs) {
+    for (const ch of config?.channels || []) {
+      if (ch.webhookUrl && !map.has(ch.webhookUrl)) {
+        map.set(ch.webhookUrl, ch.label);
+      }
+    }
+  }
+  return map;
+}
+
 /** Executes the same work as POST /v2/webhooks/passes (Discord + isAnnounced update). */
 export async function runPassAnnouncementJob(passIds: number[]): Promise<void> {
   try {
@@ -141,6 +155,12 @@ export async function runPassAnnouncementJob(passIds: number[]): Promise<void> {
       await AnnouncementJobService.releaseConveyor('pass', alreadyDoneIds);
     }
 
+    await AnnouncementJobService.setItemsPhase(
+      'pass',
+      passes.map(p => p.id),
+      'resolving',
+    );
+
     const configs = new Map<number, Awaited<ReturnType<typeof getPassAnnouncementConfig>>>();
     for (const pass of passes) {
       if (!pass.level?.diffId) continue;
@@ -178,6 +198,11 @@ export async function runPassAnnouncementJob(passIds: number[]): Promise<void> {
     }
 
     const requiredWebhooksByItemId = buildRequiredWebhooksByPassId(announceablePasses, configs);
+    await AnnouncementJobService.seedPendingDestinations({
+      kind: 'pass',
+      requiredWebhooksByItemId,
+      labelByWebhookUrl: buildLabelByWebhookUrl(configs.values()),
+    });
     const allWebhookUrls = [...new Set(
       [...requiredWebhooksByItemId.values()].flat(),
     )];
@@ -255,6 +280,12 @@ export async function runLevelAnnouncementJob(queueRowIds: number[]): Promise<vo
       await AnnouncementJobService.releaseConveyor('level', alreadyDoneIds);
     }
 
+    await AnnouncementJobService.setItemsPhase(
+      'level',
+      rows.map(r => r.id),
+      'resolving',
+    );
+
     const levels = rows.map(r => r.level!).filter(Boolean);
     const trackingIdByEntityId = new Map<number, number>();
     const levelIdByItemId = new Map<number, number>();
@@ -306,6 +337,11 @@ export async function runLevelAnnouncementJob(queueRowIds: number[]): Promise<vo
       announceableRows.map(r => ({ id: r.id, levelId: r.levelId })),
       configs,
     );
+    await AnnouncementJobService.seedPendingDestinations({
+      kind: 'level',
+      requiredWebhooksByItemId,
+      labelByWebhookUrl: buildLabelByWebhookUrl(configs.values()),
+    });
     const allWebhookUrls = [...new Set(
       [...requiredWebhooksByItemId.values()].flat(),
     )];
@@ -387,10 +423,25 @@ export async function runRerateAnnouncementJob(queueRowIds: number[]): Promise<v
     const targetUrls = targets.map(t => t.webhookUrl);
     const requiredWebhooksByItemId = new Map<number, string[]>();
     const levelIdByItemId = new Map<number, number>();
+    const labelByWebhookUrl = new Map<string, string>();
     for (const row of eligibleRows) {
       requiredWebhooksByItemId.set(row.id, targetUrls);
       levelIdByItemId.set(row.id, row.levelId);
     }
+    for (let i = 0; i < targets.length; i++) {
+      labelByWebhookUrl.set(targets[i].webhookUrl, `rerates-${i}`);
+    }
+
+    await AnnouncementJobService.setItemsPhase(
+      'rerate',
+      eligibleRows.map(r => r.id),
+      'resolving',
+    );
+    await AnnouncementJobService.seedPendingDestinations({
+      kind: 'rerate',
+      requiredWebhooksByItemId,
+      labelByWebhookUrl,
+    });
 
     const alreadyDelivered = await AnnouncementDeliveryTracker.buildAlreadyDeliveredSet(
       'rerate',
