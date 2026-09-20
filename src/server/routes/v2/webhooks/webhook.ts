@@ -923,6 +923,40 @@ router.get(
 );
 
 router.post(
+  '/announcement-jobs/:requestId/discard',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postWebhookAnnouncementJobDiscard',
+    summary: 'Discard an in-progress announcement request',
+    description:
+      'Fail hung items, release the conveyor, and close the request without marking them announced. Super admin.',
+    tags: ['Webhooks'],
+    security: ['bearerAuth'],
+    params: { requestId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Discarded' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const requestId = String(req.params.requestId || '').trim();
+      if (!requestId) {
+        return res.status(400).json({ error: 'requestId is required' });
+      }
+      const discarded = await AnnouncementJobService.discardRequest(requestId);
+      if (!discarded) {
+        return res.status(404).json({ error: 'Announcement request not found' });
+      }
+      return res.json({ success: true, request: discarded });
+    } catch (error) {
+      logger.error('Error discarding announcement job:', error);
+      return res.status(500).json({
+        error: 'Failed to discard announcement job',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.post(
   '/passes',
   Auth.superAdmin(),
   ApiDoc({

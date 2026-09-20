@@ -34,6 +34,13 @@ export type AnnouncementItemPhase =
 
 export type AnnouncementBatchStatus = 'pending' | 'sending' | 'sent' | 'failed';
 
+/** Stored on discarded requests/items so the UI can skip failure toasts. */
+export const ANNOUNCEMENT_DISCARD_ERROR = 'Discarded';
+
+function isDiscardedItem(item: AnnouncementItemState | null | undefined): boolean {
+  return item?.status === 'failed' && item.error === ANNOUNCEMENT_DISCARD_ERROR;
+}
+
 export type AnnouncementRequestedBy = {
   userId: string;
   username: string;
@@ -346,7 +353,11 @@ export const AnnouncementJobService = {
     for (const itemId of itemIds) {
       const item = await getItem(kind, itemId);
       if (!item) continue;
-      if (item.status === 'delivered' || item.status === 'skipped') continue;
+      if (
+        item.status === 'delivered'
+        || item.status === 'skipped'
+        || isDiscardedItem(item)
+      ) continue;
       const updated: AnnouncementItemState = {
         ...item,
         status: 'sending',
@@ -435,7 +446,7 @@ export const AnnouncementJobService = {
 
     for (const itemId of itemIds) {
       const item = await getItem(kind, itemId);
-      if (!item) continue;
+      if (!item || isDiscardedItem(item)) continue;
       const batches = [...(item.batches || [])];
       const idx = batches.findIndex(b => b.batchId === batchId);
       const prev = idx >= 0 ? batches[idx] : undefined;
@@ -617,6 +628,75 @@ export const AnnouncementJobService = {
   async releaseConveyor(kind: AnnouncementKind, itemIds: number[]): Promise<void> {
     if (itemIds.length === 0) return;
     await redis.sRem(conveyorKey(kind), ...itemIds.map(String));
+  },
+
+  async excludeDiscarded(kind: AnnouncementKind, itemIds: number[]): Promise<number[]> {
+    const active: number[] = [];
+    for (const itemId of itemIds) {
+      const item = await getItem(kind, itemId);
+      if (isDiscardedItem(item)) continue;
+      active.push(itemId);
+    }
+    return active;
+  },
+
+  /**
+   * Abort an in-progress request: fail non-terminal items, release the conveyor,
+   * and move the request to recent. Does not mark DB announced — items can be sent again.
+   */
+  async discardRequest(
+    requestId: string,
+    error: string = ANNOUNCEMENT_DISCARD_ERROR,
+  ): Promise<AnnouncementRequestState | null> {
+    const req = await getRequest(requestId);
+    if (!req) return null;
+    if (req.status === 'completed' || req.status === 'failed') {
+      return req;
+    }
+
+    const otherRequestIds = new Set<string>();
+    const now = Date.now();
+
+    for (const itemId of req.itemIds) {
+      const item = await getItem(req.kind, itemId);
+      if (!item) continue;
+      item.requestIds.filter(id => id !== requestId).forEach(id => otherRequestIds.add(id));
+      if (item.status === 'delivered' || item.status === 'skipped' || item.status === 'failed') {
+        continue;
+      }
+
+      const updated: AnnouncementItemState = {
+        ...item,
+        status: 'failed',
+        error,
+        updatedAt: now,
+        batches: (item.batches || []).map(b =>
+          b.status === 'sending' || b.status === 'pending'
+            ? { ...b, status: 'failed' as const, error, updatedAt: now }
+            : b,
+        ),
+      };
+      await saveItem(updated);
+      await redis.sRem(conveyorKey(req.kind), String(itemId));
+      broadcast('announcement.item.progress', { item: updated, error });
+    }
+
+    const updatedReq: AnnouncementRequestState = {
+      ...req,
+      status: 'failed',
+      error,
+      updatedAt: now,
+    };
+    await saveRequest(updatedReq);
+    await removeOpen(req.kind, requestId);
+    await pushRecent(req.kind, requestId);
+    broadcast('announcement.request.updated', { request: updatedReq });
+
+    for (const otherId of otherRequestIds) {
+      await recomputeRequestStatus(otherId);
+    }
+
+    return updatedReq;
   },
 
   async getSnapshot(kind: AnnouncementKind): Promise<{
