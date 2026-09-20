@@ -103,7 +103,9 @@ function buildLabelByWebhookUrl(
 }
 
 /** Executes the same work as POST /v2/webhooks/passes (Discord + isAnnounced update). */
-export async function runPassAnnouncementJob(passIds: number[]): Promise<void> {
+export async function runPassAnnouncementJob(requestedIds: number[]): Promise<void> {
+  const passIds = await AnnouncementJobService.excludeDiscarded('pass', requestedIds);
+  if (passIds.length === 0) return;
   try {
     await DiscordWebhookGate.assertNotBlocked();
     await AnnouncementJobService.markRequestsSending('pass', passIds);
@@ -244,7 +246,9 @@ export async function runPassAnnouncementJob(passIds: number[]): Promise<void> {
 }
 
 /** Executes the same work as POST /v2/webhooks/levels. */
-export async function runLevelAnnouncementJob(queueRowIds: number[]): Promise<void> {
+export async function runLevelAnnouncementJob(requestedIds: number[]): Promise<void> {
+  const queueRowIds = await AnnouncementJobService.excludeDiscarded('level', requestedIds);
+  if (queueRowIds.length === 0) return;
   try {
     await DiscordWebhookGate.assertNotBlocked();
     await AnnouncementJobService.markRequestsSending('level', queueRowIds);
@@ -383,7 +387,9 @@ export async function runLevelAnnouncementJob(queueRowIds: number[]): Promise<vo
 }
 
 /** Executes the same work as POST /v2/webhooks/rerates. */
-export async function runRerateAnnouncementJob(queueRowIds: number[]): Promise<void> {
+export async function runRerateAnnouncementJob(requestedIds: number[]): Promise<void> {
+  const queueRowIds = await AnnouncementJobService.excludeDiscarded('rerate', requestedIds);
+  if (queueRowIds.length === 0) return;
   try {
     await DiscordWebhookGate.assertNotBlocked();
     await AnnouncementJobService.markRequestsSending('rerate', queueRowIds);
