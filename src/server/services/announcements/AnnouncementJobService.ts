@@ -3,7 +3,10 @@ import { redis } from '@/server/services/core/RedisService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
 import { DiscordWebhookGate } from '@/server/services/discord/DiscordWebhookGate.js';
-import type { AnnouncementDeliveryKind } from '@/server/services/discord/AnnouncementDeliveryTracker.js';
+import {
+  AnnouncementDeliveryTracker,
+  type AnnouncementDeliveryKind,
+} from '@/server/services/discord/AnnouncementDeliveryTracker.js';
 
 export type AnnouncementKind = AnnouncementDeliveryKind;
 
@@ -21,6 +24,14 @@ export type AnnouncementItemStatus =
   | 'failed'
   | 'skipped';
 
+export type AnnouncementItemPhase =
+  | 'queued'
+  | 'preparing'
+  | 'resolving'
+  | 'waiting_gate'
+  | 'sending_webhook'
+  | 'recording';
+
 export type AnnouncementBatchStatus = 'pending' | 'sending' | 'sent' | 'failed';
 
 export type AnnouncementRequestedBy = {
@@ -34,6 +45,8 @@ export type AnnouncementBatchState = {
   status: AnnouncementBatchStatus;
   destinationsDone: number;
   destinationsRequired: number;
+  error?: string;
+  updatedAt?: number;
 };
 
 export type AnnouncementItemState = {
@@ -41,6 +54,9 @@ export type AnnouncementItemState = {
   itemId: number;
   label: string;
   status: AnnouncementItemStatus;
+  phase?: AnnouncementItemPhase;
+  error?: string;
+  attempt?: number;
   batches: AnnouncementBatchState[];
   requestIds: string[];
   updatedAt: number;
@@ -145,16 +161,17 @@ async function recomputeRequestStatus(
     s === 'delivered' || s === 'failed' || s === 'skipped',
   );
   const anyFailed = statuses.some(s => s === 'failed');
-  const anySending = statuses.some(s => s === 'sending' || s === 'pending');
+  const anySending = statuses.some(s => s === 'sending');
+  const anyPending = statuses.some(s => s === 'pending');
 
   let status: AnnouncementRequestStatus = req.status;
   if (allTerminal) {
     status = anyFailed && !statuses.some(s => s === 'delivered') ? 'failed' : 'completed';
   } else if (req.status === 'blocked') {
     status = 'blocked';
-  } else if (anySending || statuses.some(s => s === 'sending')) {
+  } else if (anySending) {
     status = 'sending';
-  } else if (req.status === 'queued') {
+  } else if (anyPending || req.status === 'queued') {
     status = 'queued';
   }
 
@@ -223,6 +240,7 @@ export const AnnouncementJobService = {
           itemId,
           label: options.labelsByItemId?.get(itemId) || String(itemId),
           status: 'sending',
+          phase: 'preparing',
           batches: [],
           requestIds: [],
           updatedAt: now,
@@ -236,11 +254,14 @@ export const AnnouncementJobService = {
       }
 
       addedItemIds.push(itemId);
+      const retryingFailed = existing?.status === 'failed';
       const base: AnnouncementItemState = existing || {
         kind,
         itemId,
         label: options.labelsByItemId?.get(itemId) || String(itemId),
         status: 'pending',
+        phase: 'queued',
+        attempt: 0,
         batches: [],
         requestIds: [],
         updatedAt: now,
@@ -248,7 +269,11 @@ export const AnnouncementJobService = {
       await saveItem({
         ...base,
         label: options.labelsByItemId?.get(itemId) || base.label,
-        status: base.status === 'failed' ? 'pending' : base.status,
+        status: retryingFailed ? 'pending' : base.status,
+        phase: retryingFailed || !base.phase ? 'queued' : base.phase,
+        error: retryingFailed ? undefined : base.error,
+        attempt: retryingFailed ? 0 : base.attempt,
+        batches: retryingFailed ? [] : base.batches,
         requestIds: [...new Set([...base.requestIds, requestId])],
         updatedAt: now,
       });
@@ -322,16 +347,70 @@ export const AnnouncementJobService = {
       const item = await getItem(kind, itemId);
       if (!item) continue;
       if (item.status === 'delivered' || item.status === 'skipped') continue;
-      await saveItem({ ...item, status: 'sending', updatedAt: Date.now() });
+      const updated: AnnouncementItemState = {
+        ...item,
+        status: 'sending',
+        phase: 'preparing',
+        attempt: (item.attempt || 0) + 1,
+        error: undefined,
+        updatedAt: Date.now(),
+      };
+      await saveItem(updated);
       item.requestIds.forEach(id => requestIds.add(id));
-      broadcast('announcement.item.progress', { item: { ...item, status: 'sending' } });
+      broadcast('announcement.item.progress', { item: updated });
     }
     for (const requestId of requestIds) {
       const req = await getRequest(requestId);
       if (!req || req.status === 'completed' || req.status === 'failed') continue;
-      const updated = { ...req, status: 'sending' as const, updatedAt: Date.now() };
+      const updated = { ...req, status: 'sending' as const, error: undefined, updatedAt: Date.now() };
       await saveRequest(updated);
       broadcast('announcement.request.updated', { request: updated });
+    }
+  },
+
+  async setItemsPhase(
+    kind: AnnouncementKind,
+    itemIds: number[],
+    phase: AnnouncementItemPhase,
+  ): Promise<void> {
+    for (const itemId of itemIds) {
+      const item = await getItem(kind, itemId);
+      if (!item) continue;
+      if (item.status === 'delivered' || item.status === 'skipped' || item.status === 'failed') {
+        continue;
+      }
+      const updated: AnnouncementItemState = {
+        ...item,
+        phase,
+        updatedAt: Date.now(),
+      };
+      await saveItem(updated);
+      broadcast('announcement.item.progress', { item: updated });
+    }
+  },
+
+  async seedPendingDestinations(options: {
+    kind: AnnouncementKind;
+    requiredWebhooksByItemId: Map<number, string[]>;
+    labelByWebhookUrl: Map<string, string>;
+  }): Promise<void> {
+    const { kind, requiredWebhooksByItemId, labelByWebhookUrl } = options;
+    for (const [itemId, urls] of requiredWebhooksByItemId) {
+      const uniqueUrls = [...new Set(urls.filter(Boolean))];
+      for (const webhookUrl of uniqueUrls) {
+        const batchId = AnnouncementDeliveryTracker.hashWebhookUrl(webhookUrl);
+        const webhookLabel =
+          labelByWebhookUrl.get(webhookUrl) || `webhook-${batchId}`;
+        await this.upsertBatchForItems({
+          kind,
+          itemIds: [itemId],
+          batchId,
+          webhookLabel,
+          status: 'pending',
+          destinationsDone: 0,
+          destinationsRequired: Math.max(1, uniqueUrls.length),
+        });
+      }
     }
   },
 
@@ -343,6 +422,7 @@ export const AnnouncementJobService = {
     status: AnnouncementBatchStatus;
     destinationsDone?: number;
     destinationsRequired?: number;
+    error?: string;
   }): Promise<void> {
     const {
       kind,
@@ -350,8 +430,7 @@ export const AnnouncementJobService = {
       batchId,
       webhookLabel,
       status,
-      destinationsDone = 0,
-      destinationsRequired = 1,
+      error,
     } = options;
 
     for (const itemId of itemIds) {
@@ -359,27 +438,50 @@ export const AnnouncementJobService = {
       if (!item) continue;
       const batches = [...(item.batches || [])];
       const idx = batches.findIndex(b => b.batchId === batchId);
+      const prev = idx >= 0 ? batches[idx] : undefined;
+      const now = Date.now();
+      const nextError =
+        error !== undefined
+          ? error
+          : status === 'failed'
+            ? prev?.error
+            : undefined;
       const batch: AnnouncementBatchState = {
         batchId,
-        webhookLabel,
+        webhookLabel: webhookLabel || prev?.webhookLabel || batchId,
         status,
-        destinationsDone,
-        destinationsRequired,
+        destinationsDone: options.destinationsDone ?? prev?.destinationsDone ?? 0,
+        destinationsRequired:
+          options.destinationsRequired ?? prev?.destinationsRequired ?? 1,
+        updatedAt: now,
+        ...(nextError ? { error: nextError } : {}),
       };
-      if (idx >= 0) batches[idx] = { ...batches[idx], ...batch };
-      else batches.push(batch);
+      if (idx >= 0) {
+        const merged = { ...prev, ...batch };
+        if (!nextError) delete merged.error;
+        batches[idx] = merged;
+      } else {
+        batches.push(batch);
+      }
 
       let nextStatus = item.status;
+      let nextPhase = item.phase;
       if (item.status !== 'delivered' && item.status !== 'skipped') {
-        if (status === 'sending') nextStatus = 'sending';
-        else if (status === 'failed') nextStatus = 'failed';
+        if (status === 'sending') {
+          nextStatus = 'sending';
+          nextPhase = 'sending_webhook';
+        } else if (status === 'failed') {
+          nextStatus = 'failed';
+        }
       }
 
       const updated: AnnouncementItemState = {
         ...item,
         batches,
         status: nextStatus,
-        updatedAt: Date.now(),
+        phase: nextPhase,
+        error: status === 'failed' ? (error || item.error) : item.error,
+        updatedAt: now,
       };
       await saveItem(updated);
       broadcast('announcement.batch.updated', { item: updated, batchId });
@@ -396,7 +498,9 @@ export const AnnouncementJobService = {
         status: 'delivered',
         updatedAt: Date.now(),
         batches: (item.batches || []).map(b =>
-          b.status === 'sending' ? { ...b, status: 'sent', destinationsDone: b.destinationsRequired } : b,
+          b.status === 'sending' || b.status === 'pending'
+            ? { ...b, status: 'sent', destinationsDone: b.destinationsRequired }
+            : b,
         ),
       };
       await saveItem(updated);
@@ -445,13 +549,15 @@ export const AnnouncementJobService = {
     for (const itemId of itemIds) {
       const item = await getItem(kind, itemId);
       if (!item || item.status === 'delivered') continue;
+      const now = Date.now();
       const updated: AnnouncementItemState = {
         ...item,
         status: 'failed',
-        updatedAt: Date.now(),
+        error: error || item.error,
+        updatedAt: now,
         batches: (item.batches || []).map(b =>
           b.status === 'sending' || b.status === 'pending'
-            ? { ...b, status: 'failed' }
+            ? { ...b, status: 'failed' as const, error: error || b.error, updatedAt: now }
             : b,
         ),
       };
@@ -477,9 +583,10 @@ export const AnnouncementJobService = {
 
   async markKindBlocked(kind: AnnouncementKind, error: string): Promise<void> {
     const openIds = await redis.sMembers(openKey(kind));
+    const itemIds = new Set<number>();
     for (const requestId of openIds) {
       const req = await getRequest(requestId);
-      if (!req || req.status === 'completed') continue;
+      if (!req || req.status === 'completed' || req.status === 'failed') continue;
       const updated = {
         ...req,
         status: 'blocked' as const,
@@ -488,6 +595,22 @@ export const AnnouncementJobService = {
       };
       await saveRequest(updated);
       broadcast('announcement.request.updated', { request: updated });
+      req.itemIds.forEach(id => itemIds.add(id));
+    }
+    for (const itemId of itemIds) {
+      const item = await getItem(kind, itemId);
+      if (!item) continue;
+      if (item.status === 'delivered' || item.status === 'skipped' || item.status === 'failed') {
+        continue;
+      }
+      const updated: AnnouncementItemState = {
+        ...item,
+        phase: 'waiting_gate',
+        error,
+        updatedAt: Date.now(),
+      };
+      await saveItem(updated);
+      broadcast('announcement.item.progress', { item: updated });
     }
   },
 

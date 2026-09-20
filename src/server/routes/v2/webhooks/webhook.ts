@@ -518,6 +518,7 @@ async function recordDeliveryAndNotify(
   }
 
   if (newlyCompleted.length > 0) {
+    await AnnouncementJobService.setItemsPhase(delivery.kind, newlyCompleted, 'recording');
     await AnnouncementJobService.markItemsDelivered(delivery.kind, newlyCompleted);
   }
 }
@@ -635,11 +636,27 @@ export async function sendMessages(
       }
     }
   } catch (err) {
-    if (isWebhookRateLimitError(err) && delivery) {
-      await AnnouncementJobService.markKindBlocked(
-        delivery.kind,
-        err.message || 'Discord webhook rate limited',
-      );
+    if (delivery) {
+      const itemIds = [
+        ...new Set(channel.messages.flatMap(msg => msg.itemIds || [])),
+      ];
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (itemIds.length > 0 && !isWebhookRateLimitError(err)) {
+        await AnnouncementJobService.upsertBatchForItems({
+          kind: delivery.kind,
+          itemIds,
+          batchId,
+          webhookLabel,
+          status: 'failed',
+          error: errorMessage,
+        });
+      }
+      if (isWebhookRateLimitError(err)) {
+        await AnnouncementJobService.markKindBlocked(
+          delivery.kind,
+          errorMessage || 'Discord webhook rate limited',
+        );
+      }
     }
     throw err;
   }
