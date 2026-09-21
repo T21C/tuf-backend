@@ -109,6 +109,9 @@ export function initSentry(): void {
           // Drop raw http.client to ES (health, HEAD exists, sniff, _search transport).
           // High-level db.elasticsearch spans still come from clientSpanProxy.
           ignoreOutgoingRequests: (url) => isElasticsearchOutgoingUrl(url),
+          // Skip health/docs/static before a span is created (ignoreStaticAssets
+          // already covers hashed .js/.css; this catches `/assets/` itself).
+          ignoreIncomingRequests: (urlPath) => isTraceDenylistedPath(urlPath),
           // Bodies may contain webhook URLs / API keys; never attach them.
           maxIncomingRequestBodySize: 'none',
         }),
