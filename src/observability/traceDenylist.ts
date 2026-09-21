@@ -11,6 +11,13 @@ export function isTraceDenylistedPath(pathOrTransactionName: string): boolean {
   }
   const q = path.indexOf('?');
   if (q >= 0) path = path.slice(0, q);
+  if (/^https?:\/\//i.test(path)) {
+    try {
+      path = new URL(path).pathname;
+    } catch {
+      // keep unparsed path
+    }
+  }
   // Strip trailing slash except root
   if (path.length > 1 && path.endsWith('/')) {
     path = path.slice(0, -1);
@@ -19,6 +26,9 @@ export function isTraceDenylistedPath(pathOrTransactionName: string): boolean {
   if (path === '/health' || path === '/v2/health') return true;
   if (path === '/openapi.json') return true;
   if (path === '/docs' || path.startsWith('/docs/')) return true;
+  // Vite hashed bundles / static files (prod `/assets/…`, Vite dev `/src/assets/…`).
+  if (path === '/assets' || path.startsWith('/assets/')) return true;
+  if (path === '/src/assets' || path.startsWith('/src/assets/')) return true;
   return false;
 }
 
