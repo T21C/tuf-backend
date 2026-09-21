@@ -3,7 +3,7 @@ import {logger} from '@/server/services/core/LoggerService.js';
 
 /**
  * Resolve a chart's logical "published" instant from its showcase `videoLink`, using the same
- * API-backed stack as {@link getVideoDetails} (YouTube Data API + Bilibili view API).
+ * API-backed stack as {@link getVideoDetails} (YouTube Data API or Bilibili view API, chosen by host).
  *
  * Used when ingesting new levels so `levels.createdAt` reflects the video upload time instead of
  * the DB insert clock (which can collapse to a single migration/init timestamp).

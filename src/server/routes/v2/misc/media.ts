@@ -11,6 +11,7 @@ import * as Sentry from '@sentry/node';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {getVideoDetails,} from '@/misc/utils/data/videoDetailParser.js';
+import { BILIBILI_REQUEST_HEADERS, downloadBilibiliCoverByBvid } from '@/misc/utils/data/bilibiliVideoDetails.js';
 import { resolveSubmissionVideoUrl } from './form/shared/videoUrl.js';
 import { gateSubmission } from './form/shared/submissionAuth.js';
 import { FormError, sendFormError } from './form/shared/errors.js';
@@ -823,7 +824,7 @@ router.get(
 
   while (attempt <= maxAttempts) {
     try {
-      const response = await fetch(apiUrl);
+      const response = await fetch(apiUrl, { headers: BILIBILI_REQUEST_HEADERS });
       const data = await response.json();
 
       if (!response.ok) {
@@ -844,6 +845,35 @@ router.get(
   }
   return res.status(500).json({error: 'Internal Server Error'});
   }
+);
+
+router.get(
+  '/bilibili-cover',
+  ApiDoc({
+    operationId: 'getMediaBilibiliCover',
+    summary: 'Bilibili video cover',
+    description: 'Returns the Bilibili video cover image for a bvid. Does not call the YouTube Data API.',
+    tags: ['Media'],
+    query: { bvid: { description: 'Bilibili video ID (bvid)', schema: { type: 'string' }, required: true } },
+    responses: {
+      200: { description: 'Cover image' },
+      400: { description: 'Invalid bvid' },
+      404: { description: 'Cover not found' },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    const bvid = typeof req.query.bvid === 'string' ? req.query.bvid : '';
+    if (!/^BV[a-zA-Z0-9]+$/.test(bvid)) {
+      return res.status(400).send('Invalid bvid');
+    }
+    const cover = await downloadBilibiliCoverByBvid(bvid);
+    if (!cover) {
+      return res.status(404).send('Cover not found');
+    }
+    res.set('Content-Type', cover.contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    return res.send(cover.buffer);
+  },
 );
 
 router.get(

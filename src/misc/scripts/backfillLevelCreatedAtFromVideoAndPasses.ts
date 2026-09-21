@@ -2,7 +2,7 @@
  * Backfill `levels.createdAt` when it was bulk-set to a DB-init timestamp.
  *
  * For each level with a `videoLink`, derives an upload time from:
- * - Bilibili: `api.bilibili.com/x/web-interface/view` (same as media route; no YouTube quota).
+ * - Bilibili: public video page `videoData` (cover, title, pubdate). No YouTube quota.
  * - Other hosts (YouTube, etc.): `yt-dlp` JSON (`timestamp` / `upload_date`) via subprocess — avoids YouTube Data API quota.
  *
  * Then: `best = min(videoUploadTime, oldestPassVidUploadTime)` (ignoring nulls).
