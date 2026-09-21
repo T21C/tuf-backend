@@ -15,6 +15,26 @@ export function getPrimaryVideoLink(raw: string | null | undefined): string {
   return splitVideoLinks(raw)[0] ?? '';
 }
 
+const VIDEO_HOST_PATTERNS: Array<{ host: RegExp; label: 'youtube' | 'bilibili' }> = [
+  { host: /(^|\.)youtube\.com$|(^|\.)youtube-nocookie\.com$|(^|\.)youtu\.be$/i, label: 'youtube' },
+  { host: /(^|\.)bilibili\.com$|(^|\.)b23\.tv$/i, label: 'bilibili' },
+];
+
+/** Host of the primary link. YouTube and Bilibili never share a match. */
+export function getVideoProvider(url: string | null | undefined): 'youtube' | 'bilibili' | null {
+  const primary = getPrimaryVideoLink(url);
+  if (!primary) return null;
+  try {
+    const host = new URL(primary).hostname.replace(/^www\./i, '');
+    for (const row of VIDEO_HOST_PATTERNS) {
+      if (row.host.test(host)) return row.label;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 const YOUTUBE_ID_PATTERNS = [
   /youtu\.be\/([a-zA-Z0-9_-]{11})/,
   /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
@@ -26,7 +46,7 @@ const YOUTUBE_ID_PATTERNS = [
 /** Extract an 11-character YouTube video id from common watch/short/embed URLs. */
 export function extractYouTubeVideoId(url: string | null | undefined): string | null {
   const primary = getPrimaryVideoLink(url);
-  if (!primary) return null;
+  if (!primary || getVideoProvider(primary) !== 'youtube') return null;
   for (const pattern of YOUTUBE_ID_PATTERNS) {
     const match = primary.match(pattern);
     if (match?.[1]) return match[1];
@@ -58,7 +78,7 @@ export function getYouTubeThumbnailUrl(url: string | null | undefined): string |
 /** Extract a Bilibili BV id from a video or b23 URL. */
 export function extractBilibiliBvId(url: string | null | undefined): string | null {
   const primary = getPrimaryVideoLink(url);
-  if (!primary) return null;
+  if (!primary || getVideoProvider(primary) !== 'bilibili') return null;
   const match = primary.match(/\/(BV[a-zA-Z0-9]+)/);
   return match?.[1] ?? null;
 }

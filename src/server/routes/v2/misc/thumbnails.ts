@@ -21,7 +21,6 @@ import Pass from '@/models/passes/Pass.js';
 import PlayerStats from '@/models/players/PlayerStats.js';
 import { LevelPack, LevelPackItem } from '@/models/packs/index.js';
 import { User } from '@/models/index.js';
-import { port } from '@/config/app.config.js';
 import CdnService from '@/server/services/core/CdnService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { clampFloat, escapeHtml, formatCredits, selectIconSize } from '@/misc/utils/Utility.js';
@@ -31,7 +30,8 @@ import dotenv from 'dotenv';
 import { sortCurationTypesByOrder } from '@/misc/utils/data/curationOrdering.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import { getSongDisplayName, getArtistDisplayName, formatDuration } from '@/misc/utils/data/levelHelpers.js';
-import { getYouTubeThumbnailUrl } from '@/misc/utils/data/videoLinkParts.js';
+import { getVideoProvider, getYouTubeThumbnailUrl } from '@/misc/utils/data/videoLinkParts.js';
+import { downloadBilibiliCover } from '@/misc/utils/data/bilibiliVideoDetails.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import {
@@ -367,25 +367,25 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
           // Use helper functions to prioritize songObject for both song and artist
           const song = getSongDisplayName(level);
           const artist = getArtistDisplayName(level);
-          const youtubeThumb = getYouTubeThumbnailUrl(level.videoLink);
-          const details = youtubeThumb
-            ? { image: youtubeThumb }
-            : level.videoLink
-              ? await axios.get(`http://localhost:${port}/v2/media/video-details/${encodeURIComponent(level.videoLink)}`)
-                .then(res => res.data).catch(() => undefined)
-              : undefined;
-
           // Generate the HTML and PNG for LARGE size
           const {width, height, multiplier} = THUMBNAIL_SIZES.LARGE;
           const iconSize = Math.floor(height * 0.184);
 
-          // Download background image with retry logic
+          // YouTube covers are img.youtube.com. Bilibili covers come from the Bilibili module.
           let backgroundBuffer: Buffer;
           try {
-            if (!details || !details.image) {
+            const provider = getVideoProvider(level.videoLink);
+            if (provider === 'youtube') {
+              const youtubeThumb = getYouTubeThumbnailUrl(level.videoLink);
+              if (!youtubeThumb) throw new Error('YouTube thumbnail not found');
+              backgroundBuffer = await downloadImageWithRetry(youtubeThumb);
+            } else if (provider === 'bilibili') {
+              const cover = await downloadBilibiliCover(level.videoLink);
+              if (!cover) throw new Error('Bilibili cover not found');
+              backgroundBuffer = cover;
+            } else {
               throw new Error('Video details not found');
             }
-            backgroundBuffer = await downloadImageWithRetry(details.image);
           } catch (error: unknown) {
             logWithCondition(`Failed to download background image after all retries for level ${levelId}: ${error instanceof Error ? error.message : String(error)}`, 'thumbnail');
             // Create a black background
