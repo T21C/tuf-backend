@@ -164,6 +164,9 @@ export function redactSentrySpan<T extends Record<string, unknown>>(span: T): T 
   const s = span as T & {
     description?: string;
     name?: string;
+    trace_id?: string;
+    span_id?: string;
+    parent_span_id?: string;
     data?: Record<string, unknown>;
     attributes?: Record<string, unknown>;
   };
@@ -173,6 +176,7 @@ export function redactSentrySpan<T extends Record<string, unknown>>(span: T): T 
   if (typeof s.name === 'string') {
     s.name = redactSensitiveText(s.name);
   }
+  // trace_id / span_id stay untouched (32/16 hex). Never run redactSensitiveText on them.
   if (s.data && typeof s.data === 'object') {
     s.data = redactSensitiveValue(s.data) as Record<string, unknown>;
   }

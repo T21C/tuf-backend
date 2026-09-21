@@ -17,7 +17,44 @@ const SKIP_ENV_KEYS = new Set([
   'USER',
   'SHELL',
   'TERM',
+  // Tracing identifiers / public DSN — stripping these from span payloads
+  // made Relay drop every main-server span (Aug 14 2026).
+  'SENTRY_DSN',
+  'VITE_SENTRY_DSN',
+  'SENTRY_RELEASE',
+  'SENTRY_ENVIRONMENT',
+  'SENTRY_SERVER_NAME',
+  'GIT_SHA',
 ]);
+
+/**
+ * Span/event fields that must stay verbatim for Sentry to accept the payload.
+ * `token` in SENSITIVE_KEY_RE must not win over these.
+ */
+const TRACING_FIELD_KEY_RE =
+  /(?:^|[._-])(?:trace_id|span_id|parent_span_id|parent_spanid|traceid|spanid)$|^sentry-trace$|^traceparent$|^baggage$/i;
+
+const SPAN_ID_RE = /^[a-f0-9]{16}$/i;
+const TRACE_ID_RE = /^[a-f0-9]{32}$/i;
+const GIT_SHA_RE = /^[a-f0-9]{40}$/i;
+const SENTRY_TRACE_HEADER_RE = /^[a-f0-9]{32}-[a-f0-9]{16}(?:-[01])?$/i;
+const W3C_TRACEPARENT_RE = /^00-[a-f0-9]{32}-[a-f0-9]{16}-[0-9a-f]{2}$/i;
+
+export function isTracingFieldKey(key: string): boolean {
+  return TRACING_FIELD_KEY_RE.test(key);
+}
+
+/** Trace/span/git ids and sentry-trace/traceparent headers — never hex-scrub these. */
+export function isSentryTraceIdentity(value: string): boolean {
+  const s = value.trim();
+  return (
+    SPAN_ID_RE.test(s) ||
+    TRACE_ID_RE.test(s) ||
+    GIT_SHA_RE.test(s) ||
+    SENTRY_TRACE_HEADER_RE.test(s) ||
+    W3C_TRACEPARENT_RE.test(s)
+  );
+}
 
 const MIN_ENV_SECRET_LENGTH = 16;
 
@@ -55,6 +92,9 @@ const MAX_REDACT_DEPTH = 8;
  * Redact secrets and PII from log/Sentry strings before egress.
  */
 export function redactSensitiveText(input: string): string {
+  if (isSentryTraceIdentity(input)) {
+    return input;
+  }
   let out = input;
   // Discord webhook URLs (token is the last path segment). Keep snowflake id.
   out = out.replace(
@@ -112,7 +152,9 @@ export function redactSensitiveValue(value: unknown, depth = 0): unknown {
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (SENSITIVE_KEY_RE.test(k)) {
+      if (isTracingFieldKey(k)) {
+        out[k] = v;
+      } else if (SENSITIVE_KEY_RE.test(k)) {
         out[k] = '[REDACTED]';
       } else {
         out[k] = redactSensitiveValue(v, depth + 1);
