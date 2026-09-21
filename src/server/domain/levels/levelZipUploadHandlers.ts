@@ -193,11 +193,13 @@ export async function handlePostLevelZipUpload(req: Request, res: Response): Pro
       void (async () => {
         try {
           await runFinalizeOnce(null, zipSnapshot);
-        } catch (err) {
-          logger.error('Async level zip finalise failed', {
-            levelId,
-            err
-          });
+        } catch (err: unknown) {
+          if (httpStatusFromHandlerError(err) >= 500) {
+            logger.error('Async level zip finalise failed', {
+              levelId,
+              err,
+            });
+          }
         } finally {
           activeLevelZipFinalizeByLevelId.delete(levelId);
         }
@@ -426,11 +428,13 @@ export async function handlePostLevelZipUploadFromUrl(req: Request, res: Respons
             uploadJobId,
             uploadJobMeta: { source: 'upload_from_url', stage: 'cdn' },
           });
-        } catch (err) {
-          logger.error('Async upload-from-url finalise failed', {
-            levelId,
-            err
-          });
+        } catch (err: unknown) {
+          if (httpStatusFromHandlerError(err) >= 500) {
+            logger.error('Async upload-from-url finalise failed', {
+              levelId,
+              err,
+            });
+          }
         } finally {
           activeLevelZipFinalizeByLevelId.delete(levelId);
         }
