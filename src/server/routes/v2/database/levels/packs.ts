@@ -436,7 +436,7 @@ router.get(
       viewMode,
       pinned,
       myLikesOnly,
-      sort = 'RECENT',
+      sort = 'FAVORITES',
       order: orderQuery = 'DESC'
     } = req.query;
 
@@ -836,22 +836,25 @@ router.get(
       req.user
         ? Pass.findAll({
             where: { playerId: req.user.playerId, isDeleted: false },
-            attributes: ['levelId', 'accuracy'],
+            attributes: ['levelId', 'accuracy', 'isXPerfectMode'],
           }).then((passes) => {
             const cleared = new Set<number>();
             const purePerfect = new Set<number>();
+            const pureXPerfect = new Set<number>();
             for (const pass of passes) {
               if (pass.levelId == null) continue;
               cleared.add(pass.levelId);
               if (Number(pass.accuracy) >= 1 - 1e-9) {
                 purePerfect.add(pass.levelId);
+                if (pass.isXPerfectMode) pureXPerfect.add(pass.levelId);
               }
             }
-            return { cleared, purePerfect };
+            return { cleared, purePerfect, pureXPerfect };
           })
         : Promise.resolve({
             cleared: new Set<number>(),
             purePerfect: new Set<number>(),
+            pureXPerfect: new Set<number>(),
           }),
       resolvePackItemsWithStackedCache(resolvedPackId, linkCode, []),
     ]);
@@ -860,6 +863,7 @@ router.get(
       ...item,
       isCleared: clearSets.cleared.has(item.levelId || 0),
       isPurePerfect: clearSets.purePerfect.has(item.levelId || 0),
+      isPureXPerfect: clearSets.pureXPerfect.has(item.levelId || 0),
     }));
 
     const items = await annotateReferencedLevelsWithLikeState(

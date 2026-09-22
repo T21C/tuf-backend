@@ -1,14 +1,18 @@
 import Pass from '@/models/passes/Pass.js';
 
+/** Only 1.0x clears qualify for world's first and world's first PP. */
+const WORLDS_FIRST_SPEED = 1;
+
 export async function updateWorldsFirstStatus(
   levelId: number,
   transaction?: any,
 ) : Promise<Pass | null> {
-  // Find the earliest non-deleted pass for this level from non-banned players
+  // Earliest non-deleted 1.0x pass for this level
   const earliestPass = await Pass.findOne({
     where: {
       levelId,
-      isDeleted: false
+      isDeleted: false,
+      speed: WORLDS_FIRST_SPEED,
     },
     attributes: ['id', 'vidUploadTime'],
     order: [['vidUploadTime', 'ASC']],
@@ -47,6 +51,7 @@ export async function updateWorldsFirstPPStatus(
       levelId,
       isDeleted: false,
       accuracy: 1,
+      speed: WORLDS_FIRST_SPEED,
     },
     attributes: ['id', 'vidUploadTime'],
     order: [['vidUploadTime', 'ASC']],

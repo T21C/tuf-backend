@@ -241,6 +241,16 @@ export async function rematerializeCommunityTagsForLevel(
     const assigned = assignment != null;
     const bandOk = tagAllowedForDifficulty(settings.allowedBands, difficulty);
     if (!bandOk) {
+      if (
+        assignment &&
+        shouldDestroyCommunityAssignment({
+          preserveAssignments,
+          bandOk: false,
+          keep: pinned || assigned,
+        })
+      ) {
+        await assignment.destroy({ transaction });
+      }
       continue;
     }
 

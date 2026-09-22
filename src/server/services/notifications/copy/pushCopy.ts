@@ -83,12 +83,26 @@ export function renderPushCopy(
   const visibility = payload.isHidden
     ? copy.visibility?.hidden || fallback.visibility?.hidden || 'hidden'
     : copy.visibility?.public || fallback.visibility?.public || 'public';
+  const untitled = copy.untitledLevel || fallback.untitledLevel || 'Level #{{levelId}}';
+  const unknownArtist = copy.unknownArtist || fallback.unknownArtist || 'Unknown artist';
+  const swappedWithLevelId = payload.swappedWithLevelId;
+  const swappedWithSong =
+    typeof swappedWithLevelId === 'number'
+      ? (typeof payload.swappedWithSong === 'string' && payload.swappedWithSong) ||
+        interpolateTemplate(untitled, {levelId: swappedWithLevelId})
+      : undefined;
+  const swappedWithArtist =
+    typeof swappedWithLevelId === 'number'
+      ? (typeof payload.swappedWithArtist === 'string' && payload.swappedWithArtist) || unknownArtist
+      : undefined;
   const vars: Record<string, string | number | null | undefined> = {
     ...payload,
     song,
     artist,
     visibility,
     reason: undefined,
+    swappedWithSong,
+    swappedWithArtist,
   };
   const typeNode = lookupPath(copy.types, type) as {title?: string; body?: string} | undefined;
   const fallbackType = lookupPath(fallback.types, type) as {title?: string; body?: string} | undefined;

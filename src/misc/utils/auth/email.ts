@@ -26,6 +26,24 @@ interface EmailOptions {
   html: string;
 }
 
+/** MailerSend returns 202 even when every recipient was dropped. Nothing is queued, so activity stays empty. */
+function suppressedRecipientReason(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const warnings = (data as { warnings?: unknown }).warnings;
+  if (!Array.isArray(warnings)) return null;
+  const blocked = warnings.find(
+    (warning) =>
+      !!warning &&
+      typeof warning === 'object' &&
+      (warning as { type?: unknown }).type === 'ALL_SUPPRESSED',
+  ) as { recipients?: Array<{ reasons?: unknown }> } | undefined;
+  if (!blocked) return null;
+  const reasons = (blocked.recipients ?? []).flatMap((recipient) =>
+    Array.isArray(recipient.reasons) ? recipient.reasons.filter((reason) => typeof reason === 'string') : [],
+  );
+  return reasons.length ? reasons.join(', ') : 'suppressed';
+}
+
 export type EmailVerifyPurpose = 'register' | 'change' | 'add';
 
 interface VerificationCodeOptions {
@@ -70,6 +88,11 @@ export const emailService = {
       }
 
       if (response?.status === 202) {
+        const suppressed = suppressedRecipientReason(response.data);
+        if (suppressed) {
+          logger.error(`Email not queued; MailerSend suppressed ${to} (${suppressed})`);
+          return false;
+        }
         return true;
       }
 

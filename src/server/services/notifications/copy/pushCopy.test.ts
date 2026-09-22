@@ -36,6 +36,22 @@ test('chart.cleared interpolates player and level', () => {
   assert.match(body, /Camellia/);
 });
 
+test('chart.swapped names both level ids', () => {
+  const {title, body} = renderPushCopy('en', 'chart.swapped', {
+    song: 'Storm',
+    artist: 'Camellia',
+    levelId: 16786,
+    swappedWithLevelId: 16796,
+    swappedWithSong: 'Other',
+    swappedWithArtist: 'Someone',
+  });
+  assert.equal(title, 'Chart data swapped');
+  assert.match(body, /Storm/);
+  assert.match(body, /level #16786/);
+  assert.match(body, /level #16796/);
+  assert.match(body, /Other/);
+});
+
 test('chart.rated interpolates song, artist, and difficulty', () => {
   const {title, body} = renderPushCopy('en', 'chart.rated', {
     song: 'Storm',

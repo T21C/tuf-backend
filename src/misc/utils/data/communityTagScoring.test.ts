@@ -16,6 +16,7 @@ import {
   isTopPlayRequirementSatisfied,
   maxVotableSortOrder,
   normalizeVoteAction,
+  isCommunityTagHiddenForDifficulty,
   parseAllowedBands,
   parseCommunityTagKnobFields,
   parseScoringMode,
@@ -245,7 +246,7 @@ test('shouldDestroyCommunityAssignment honors preserveAssignments', () => {
       bandOk: false,
       keep: false,
     }),
-    false,
+    true,
   );
   assert.equal(
     shouldDestroyCommunityAssignment({
@@ -265,21 +266,60 @@ test('shouldDestroyCommunityAssignment honors preserveAssignments', () => {
   );
 });
 
-test('shouldDestroyCommunityAssignment does not drop assignments on band mismatch', () => {
+test('shouldDestroyCommunityAssignment drops assignments when the band is off', () => {
   assert.equal(
     shouldDestroyCommunityAssignment({
       preserveAssignments: false,
       bandOk: false,
       keep: true,
     }),
-    false,
+    true,
   );
   assert.equal(
     shouldDestroyCommunityAssignment({
-      preserveAssignments: false,
+      preserveAssignments: true,
       bandOk: false,
-      keep: false,
+      keep: true,
     }),
+    true,
+  );
+});
+
+test('community tags are hidden on a turned-off difficulty band', () => {
+  const env = {
+    wilsonZ: 1.96,
+    scoreOn: 0.45,
+    scoreOff: 0.35,
+    cardCap: 7,
+    clearerWeight: 10,
+    defaultWeight: 1,
+  };
+  const galactic = { name: 'G1', type: 'PGU', sortOrder: 1 };
+  assert.equal(
+    isCommunityTagHiddenForDifficulty(
+      { isCommunity: true, allowedBands: ['P', 'U'] },
+      null,
+      galactic,
+      env,
+    ),
+    true,
+  );
+  assert.equal(
+    isCommunityTagHiddenForDifficulty(
+      { isCommunity: true, allowedBands: ['G'] },
+      null,
+      galactic,
+      env,
+    ),
+    false,
+  );
+  assert.equal(
+    isCommunityTagHiddenForDifficulty(
+      { isCommunity: false, allowedBands: ['P'] },
+      null,
+      galactic,
+      env,
+    ),
     false,
   );
 });

@@ -18,6 +18,9 @@ import SongAlias from '@/models/songs/SongAlias.js';
 import SongCredit from '@/models/songs/SongCredit.js';
 import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
+import Difficulty from '@/models/levels/Difficulty.js';
+import { getCommunityTagConfig } from '@/config/app.config.js';
+import { isCommunityTagHiddenForDifficulty } from '@/misc/utils/data/communityTagEligibility.js';
 
 /** Reuse Team/Song rows across reindex batches (same song/team on many levels). */
 const esTeamCache = new Map<number, any>();
@@ -143,6 +146,7 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
   }
 
   const sequelize = Level.sequelize!;
+  const diffIds = [...new Set(levels.map((level) => level.diffId).filter((id): id is number => id != null))];
 
   const [
     aliases,
@@ -151,6 +155,7 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
     ratingsRaw,
     tagAssignments,
     clearsRows,
+    difficulties,
   ] = await Promise.all([
     LevelAlias.findAll({
       where: { levelId: { [Op.in]: ids } },
@@ -229,13 +234,29 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
             'groupId',
             'isCommunity',
             'passWarningEnabled',
+            'allowedBands',
+            'wilsonZ',
+            'scoreOn',
+            'scoreOff',
+            'scoringMode',
+            'requireTopPlay',
           ],
           include: [
             {
               model: LevelTagGroup,
               as: 'tagGroup',
               required: false,
-              attributes: ['id', 'name', 'sortOrder'],
+              attributes: [
+                'id',
+                'name',
+                'sortOrder',
+                'allowedBands',
+                'wilsonZ',
+                'scoreOn',
+                'scoreOff',
+                'scoringMode',
+                'requireTopPlay',
+              ],
             },
           ],
         }
@@ -251,12 +272,20 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
        GROUP BY p.levelId`,
       { replacements: { ids }, type: QueryTypes.SELECT }
     ),
+    diffIds.length
+      ? Difficulty.findAll({
+          where: { id: { [Op.in]: diffIds } },
+          attributes: ['id', 'name', 'type', 'sortOrder'],
+        })
+      : Promise.resolve([] as Difficulty[]),
   ]);
 
   const aliasesByLevel = groupAliasesByLevelId(aliases);
   const creditsByLevel = groupLevelCreditsByLevelId(levelCredits);
   const curationsByLevel = groupCurationsByLevelId(curations);
   const tagsByLevel = groupTagsByLevelId(tagAssignments);
+  const difficultyById = new Map(difficulties.map((difficulty) => [difficulty.id, difficulty]));
+  const communityTagEnv = getCommunityTagConfig();
 
   const latestRatingByLevel = new Map<number, Rating>();
   for (const r of ratingsRaw) {
@@ -285,7 +314,12 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
     level.setDataValue('curations', curationsByLevel.get(level.id) ?? []);
     const lr = latestRatingByLevel.get(level.id);
     level.setDataValue('ratings', lr ? [lr] : []);
-    level.setDataValue('tags', tagsByLevel.get(level.id) ?? []);
+    const difficulty = level.diffId != null ? difficultyById.get(level.diffId) ?? null : null;
+    const visibleTags = (tagsByLevel.get(level.id) ?? []).filter((tag) => {
+      const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
+      return !isCommunityTagHiddenForDifficulty(tag, group, difficulty, communityTagEnv);
+    });
+    level.setDataValue('tags', visibleTags);
     level.setDataValue(
       'songObject',
       level.songId != null ? esSongCache.get(level.songId) ?? undefined : undefined
