@@ -66,6 +66,7 @@ import BillingEvent from './billing/BillingEvent.js';
 import UserTufStellarBilling from './billing/UserTufStellarBilling.js';
 import UserTufStellarEntitlementSegment from './billing/UserTufStellarEntitlementSegment.js';
 import UserTufStellarAdminGrant from './billing/UserTufStellarAdminGrant.js';
+import TufStellarNomineeMonth from './billing/TufStellarNomineeMonth.js';
 import TournamentSeries from './tournaments/TournamentSeries.js';
 import Tournament from './tournaments/Tournament.js';
 import TournamentTier from './tournaments/TournamentTier.js';
@@ -98,6 +99,7 @@ import ModTagAssignment from './misc/ModTagAssignment.js';
 import ModLike from './misc/ModLike.js';
 import ModDownloadUnique from './misc/ModDownloadUnique.js';
 import ModSlugRedirect from './misc/ModSlugRedirect.js';
+import TranslationContributor from './misc/TranslationContributor.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -170,6 +172,7 @@ export const db = {
     UserTufStellarBilling,
     UserTufStellarEntitlementSegment,
     UserTufStellarAdminGrant,
+    TufStellarNomineeMonth,
     TournamentSeries,
     Tournament,
     TournamentTier,
@@ -202,6 +205,7 @@ export const db = {
     ModLike,
     ModDownloadUnique,
     ModSlugRedirect,
+    TranslationContributor,
   },
 };
 
@@ -230,6 +234,7 @@ export {
   UserTufStellarBilling,
   UserTufStellarEntitlementSegment,
   UserTufStellarAdminGrant,
+  TufStellarNomineeMonth,
   OAuthClient,
   OAuthGrant,
   OAuthAuthorizationCode,

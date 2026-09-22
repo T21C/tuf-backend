@@ -18,6 +18,7 @@ import {
   getTranslationDocuments,
   stageTranslationDocuments,
 } from '@/server/services/core/FrontendContentService.js';
+import {listTranslationContributorsByLanguage} from '@/server/services/translations/translationContributors.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -51,40 +52,6 @@ function getKeysRecursively(obj: any, prefix = ''): string[] {
   }
 
   return keys;
-}
-
-function parseContributorNames(value: unknown): string[] {
-  if (typeof value !== 'string') {
-    return [];
-  }
-  return value
-    .split(',')
-    .map(name => name.trim())
-    .filter(Boolean);
-}
-
-function contributorNamesFromDocuments(
-  documents: {relativePath: string; content: string}[],
-): string[] | null {
-  const document = documents.find(
-    item => item.relativePath.replace(/\\/g, '/') === 'pages/translations.json',
-  );
-  if (!document) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(document.content) as {
-      languages?: {contributorNames?: unknown};
-    };
-    const value = parsed?.languages?.contributorNames;
-    if (typeof value !== 'string') {
-      return null;
-    }
-    return parseContributorNames(value);
-  } catch {
-    return null;
-  }
 }
 
 // Utility to find the first directory containing JSON files
@@ -294,23 +261,17 @@ router.get(
 );
 
 // Language configuration - now dynamic based on directory check
-const languages: {[key: string]: {display: string; countryCode: string; folder: string; status: number; contributors: string[]}} = {};
-
-type LanguageImplementation = {
-  status: number;
-  contributors: string[] | null;
-};
+const languages: {[key: string]: {display: string; countryCode: string; folder: string; status: number}} = {};
 
 // Function to check if a language is implemented
-async function checkLanguageImplementation(langCode: string): Promise<LanguageImplementation> {
+async function checkLanguageImplementation(langCode: string): Promise<number> {
   try {
     const [langDocuments, enDocuments] = await Promise.all([
       getTranslationDocuments(langCode),
       getTranslationDocuments('en'),
     ]);
-    const contributors = contributorNamesFromDocuments(langDocuments);
     if (langDocuments.length === 0 || enDocuments.length === 0) {
-      return {status: 0, contributors};
+      return 0;
     }
 
     const langByPath = new Map(
@@ -347,22 +308,40 @@ async function checkLanguageImplementation(langCode: string): Promise<LanguageIm
     const overallCompletion = (fileCompletion + keyCompletion) / 2;
 
     logger.debug(`language: ${langCode} completion: ${overallCompletion}`);
-    return {status: overallCompletion, contributors};
+    return overallCompletion;
   } catch (error) {
     logger.error(`Error checking implementation for ${langCode}:`, error);
-    return {status: 0, contributors: null};
+    return 0;
   }
+}
+
+async function languagesWithContributors() {
+  let contributorsByLanguage: Record<string, string[]> = {};
+  try {
+    contributorsByLanguage = await listTranslationContributorsByLanguage();
+  } catch (error) {
+    logger.error('Error loading translation contributors:', error);
+  }
+
+  return Object.fromEntries(
+    Object.entries(languages).map(([code, info]) => [
+      code,
+      {
+        ...info,
+        contributors: contributorsByLanguage[code] ?? [],
+      },
+    ]),
+  );
 }
 
 // Initialize languages configuration
 async function initializeLanguages() {
   // Check each language's implementation
   for (const [code, config] of Object.entries(languageConfigs)) {
-    const {status, contributors} = await checkLanguageImplementation(code);
+    const status = await checkLanguageImplementation(code);
     languages[code] = {
       ...config,
       status,
-      contributors: contributors ?? config.contributors,
     };
   }
 }
@@ -384,7 +363,7 @@ router.get(
   }),
   async (req: Request, res: Response) => {
   try {
-    res.json(languages);
+    res.json(await languagesWithContributors());
   } catch (error) {
     logger.error('Error getting languages list:', error);
     res.status(500).json({
@@ -465,7 +444,8 @@ router.get(
   }),
   async (req: Request, res: Response) => {
   try {
-    const languagesInfo = Object.entries(languages).map(([code, info]) => ({
+    const withContributors = await languagesWithContributors();
+    const languagesInfo = Object.entries(withContributors).map(([code, info]) => ({
       code,
       display: info.display,
       countryCode: info.countryCode,

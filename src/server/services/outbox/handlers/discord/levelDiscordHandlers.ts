@@ -9,6 +9,10 @@ import type {
   DiscordLevelMetadataChangedPayload,
   DiscordLevelTargetUpdatedPayload,
 } from '@/server/services/outbox/events.js';
+import {
+  addLevelFileEmbedDetails,
+  hasLevelFileSnapshot,
+} from '@/server/services/outbox/handlers/discord/levelFileEmbed.js';
 
 const botAvatar = process.env.BOT_AVATAR_URL || '';
 
@@ -36,11 +40,16 @@ export async function handleDiscordLevelFileUpdated(payload: DiscordLevelFileUpd
       `${level.song || 'Unknown Song'} — ${level.artist || 'Unknown Artist'}`,
       false,
     )
-    .addField('Original Path', payload.originalPath, false)
-    .addField('New Path', payload.newPath, false)
     .setURL(`${clientUrlEnv}/levels/${payload.levelId}`)
     .setColor('#99ff00')
     .setTimestamp();
+  if (hasLevelFileSnapshot(payload)) {
+    addLevelFileEmbedDetails(embed, payload, 'update');
+  } else {
+    embed
+      .addField('Original Path', payload.originalPath, false)
+      .addField('New Path', payload.newPath, false);
+  }
   await hook.send(embed);
 }
 
@@ -90,10 +99,14 @@ export async function handleDiscordLevelFileUploaded(payload: DiscordLevelFileUp
       `${level.song || 'Unknown Song'} — ${level.artist || 'Unknown Artist'}`,
       true,
     )
-    .addField('File Path', payload.filePath, false)
     .setURL(`${clientUrlEnv}/levels/${payload.levelId}`)
     .setTimestamp()
     .setColor('#00cc00');
+  if (hasLevelFileSnapshot(payload)) {
+    addLevelFileEmbedDetails(embed, payload, 'upload');
+  } else {
+    embed.addField('File Path', payload.filePath, false);
+  }
   await hook.send(embed);
 }
 

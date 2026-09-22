@@ -28,6 +28,7 @@ import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchS
 import {updateWorldsFirstPPStatus} from '@/server/routes/v2/database/passes/index.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
 import { applyMidspinPerfectsDifferenceToLevelPasses } from '@/misc/utils/pass/applyMidspinPerfectsDifference.js';
+import { syncWrongJudgementFlagsForLevel } from '@/misc/utils/pass/wrongJudgementSync.js';
 import {
   isCdnUrl,
   safeTransactionRollback,
@@ -1693,6 +1694,27 @@ router.patch(
               'Chart stats were saved but updating pass Perfects failed. Revert midspins and save again, or edit passes manually.',
             level: updated,
           });
+        }
+      }
+
+      const chartFieldsChanged =
+        Object.prototype.hasOwnProperty.call(parsed.update, 'tilecount') ||
+        Object.prototype.hasOwnProperty.call(parsed.update, 'autoTileCount');
+      if (chartFieldsChanged) {
+        try {
+          const flagPassIds = await syncWrongJudgementFlagsForLevel({
+            levelId,
+            tilecount: updated?.tilecount ?? null,
+            autoTileCount: updated?.autoTileCount ?? null,
+          });
+          if (flagPassIds.length > 0) {
+            await elasticsearchService.reindexPasses(flagPassIds);
+          }
+        } catch (flagError) {
+          logger.error(
+            `Error syncing wrong-judgement flags after chart-stats patch for level ${levelId}:`,
+            flagError,
+          );
         }
       }
 

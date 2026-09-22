@@ -2,31 +2,19 @@ export type SiteLanguageConfig = {
   display: string;
   countryCode: string;
   folder: string;
-  /** Fallback if `languages.contributorNames` is missing from that locale. */
-  contributors: string[];
 };
 
 export const SITE_LANGUAGE_CONFIGS: Record<string, SiteLanguageConfig> = {
-  en: {display: 'English', countryCode: 'us', folder: 'en', contributors: []},
-  pl: {display: 'Polish', countryCode: 'pl', folder: 'pl', contributors: ['Matsum']},
-  kr: {
-    display: '한국어',
-    countryCode: 'kr',
-    folder: 'kr',
-    contributors: ['부담토끼', 'van-ci', 'HaeengIn', '동찬토끼'],
-  },
-  cn: {
-    display: '中文',
-    countryCode: 'cn',
-    folder: 'cn',
-    contributors: [],
-  },
-  id: {display: 'Bahasa Indonesia', countryCode: 'id', folder: 'id', contributors: []},
-  jp: {display: '日本語', countryCode: 'jp', folder: 'jp', contributors: []},
-  ru: {display: 'Русский', countryCode: 'ru', folder: 'ru', contributors: []},
-  de: {display: 'Deutsch', countryCode: 'de', folder: 'de', contributors: []},
-  fr: {display: 'Français', countryCode: 'fr', folder: 'fr', contributors: ['Folcrome', 'Dexical']},
-  es: {display: 'Español', countryCode: 'es', folder: 'es', contributors: []},
+  en: {display: 'English', countryCode: 'us', folder: 'en'},
+  pl: {display: 'Polish', countryCode: 'pl', folder: 'pl'},
+  kr: {display: '한국어', countryCode: 'kr', folder: 'kr'},
+  cn: {display: '中文', countryCode: 'cn', folder: 'cn'},
+  id: {display: 'Bahasa Indonesia', countryCode: 'id', folder: 'id'},
+  jp: {display: '日本語', countryCode: 'jp', folder: 'jp'},
+  ru: {display: 'Русский', countryCode: 'ru', folder: 'ru'},
+  de: {display: 'Deutsch', countryCode: 'de', folder: 'de'},
+  fr: {display: 'Français', countryCode: 'fr', folder: 'fr'},
+  es: {display: 'Español', countryCode: 'es', folder: 'es'},
 };
 
 /** English names so queries like "Korean" or "French" match native display labels. */

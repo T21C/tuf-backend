@@ -3,7 +3,11 @@ import Level from '@/models/levels/Level.js';
 import type { User } from '@/models/index.js';
 import { OutboxService } from '@/server/services/outbox/OutboxService.js';
 import { OUTBOX_EVENT_TYPES } from '@/server/services/outbox/events.js';
-import type { LevelMetadataSnapshot } from '@/server/services/outbox/events.js';
+import type {
+  DiscordLevelFileUpdatedPayload,
+  DiscordLevelFileUploadedPayload,
+  LevelMetadataSnapshot,
+} from '@/server/services/outbox/events.js';
 
 function outboxUserSnapshot(user: User) {
   return {
@@ -26,19 +30,15 @@ function getLevelMetadata(level: Level): LevelMetadataSnapshot {
 }
 
 async function logLevelFileUpdateHook(
-  originalPath: string,
-  newPath: string,
-  levelId: number,
+  payload: Omit<DiscordLevelFileUpdatedPayload, 'user'>,
   user: User,
   transaction?: Transaction,
 ): Promise<void> {
   await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordLevelFileUpdated, {
     aggregate: 'level',
-    aggregateId: String(levelId),
+    aggregateId: String(payload.levelId),
     payload: {
-      originalPath,
-      newPath,
-      levelId,
+      ...payload,
       user: outboxUserSnapshot(user),
     },
     transaction,
@@ -62,17 +62,15 @@ async function logLevelFileDeleteHook(
 }
 
 async function logLevelFileUploadHook(
-  filePath: string,
-  levelId: number,
+  payload: Omit<DiscordLevelFileUploadedPayload, 'user'>,
   user: User,
   transaction?: Transaction,
 ): Promise<void> {
   await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordLevelFileUploaded, {
     aggregate: 'level',
-    aggregateId: String(levelId),
+    aggregateId: String(payload.levelId),
     payload: {
-      filePath,
-      levelId,
+      ...payload,
       user: outboxUserSnapshot(user),
     },
     transaction,

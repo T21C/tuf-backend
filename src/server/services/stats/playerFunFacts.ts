@@ -27,9 +27,9 @@ function toIso(d: unknown): string | null {
  *   aggregates (counts, judgements, extremes, difficulty breakdowns). Must only
  *   be set when the caller has explicitly opted in (e.g. `showHidden=true` on
  *   the profile API); otherwise hidden passes are excluded entirely.
- * @param options.reportHiddenPassCount — When true (own-profile callers only),
- *   `counts.hiddenPasses` is still the real number of hidden passes even if
- *   `includeHidden` is false; other aggregates stay excluding hidden rows.
+ * @param options.reportHiddenPassCount — When true (profile owner or super
+ *   admin), `counts.hiddenPasses` is still the real number of hidden passes
+ *   even if `includeHidden` is false; other aggregates stay excluding hidden rows.
  */
 export async function computePlayerFunFacts(
   playerId: number,

@@ -1,6 +1,14 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
-import {calcAcc, emptyJudgements, isAncient5405Pattern, isPureXPerfect, tilecount} from './CalcAcc.js';
+import {
+  calcAcc,
+  emptyJudgements,
+  getEffectiveTilecount,
+  isAncient5405Pattern,
+  isPureXPerfect,
+  isWrongJudgement,
+  tilecount,
+} from './CalcAcc.js';
 
 describe('CalcAcc xperfect weights', () => {
   it('treats minus/plus as 1.0 like perfect', () => {
@@ -49,5 +57,37 @@ describe('CalcAcc xperfect weights', () => {
     xp.perfect = 100;
     assert.equal(isPureXPerfect(xp, true), true);
     assert.equal(isPureXPerfect(xp, false), false);
+  });
+});
+
+describe('isWrongJudgement', () => {
+  it('treats missing or non-positive achievable tilecount as not wrong', () => {
+    const j = emptyJudgements();
+    j.perfect = 10;
+    assert.equal(isWrongJudgement(j, {tilecount: null}), false);
+    assert.equal(isWrongJudgement(j, {tilecount: 0}), false);
+    assert.equal(isWrongJudgement(j, {tilecount: 8, autoTileCount: 8}), false);
+    assert.equal(getEffectiveTilecount(null), null);
+    assert.equal(getEffectiveTilecount(8, 8), 0);
+  });
+
+  it('flags hit totals that do not match tilecount minus auto tiles', () => {
+    const j = emptyJudgements();
+    j.perfect = 90;
+    j.perfectMinus = 5;
+    j.perfectPlus = 5;
+    assert.equal(isWrongJudgement(j, {tilecount: 100, autoTileCount: 0}), false);
+    assert.equal(isWrongJudgement(j, {tilecount: 108, autoTileCount: 8}), false);
+    j.lateSingle = 1;
+    assert.equal(isWrongJudgement(j, {tilecount: 100}), true);
+    assert.equal(isWrongJudgement(j, {tilecount: 108, autoTileCount: 8}), true);
+  });
+
+  it('ignores early/late doubles in the hit total', () => {
+    const j = emptyJudgements();
+    j.perfect = 100;
+    j.earlyDouble = 12;
+    j.lateDouble = 3;
+    assert.equal(isWrongJudgement(j, {tilecount: 100}), false);
   });
 });

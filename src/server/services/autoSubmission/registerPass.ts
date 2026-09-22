@@ -14,6 +14,7 @@ import { updateWorldsFirstFlags } from '@/server/services/passes/worldsFirst.js'
 import { eligibleDifficulty, type RegistrationInput } from './registrationSchema.js';
 import { requireSubmissionAuthorization } from './authorization.js';
 import { prepareAutoSubmissionResult } from './resultPreparation.js';
+import { isWrongJudgementFromChart } from '@/misc/utils/pass/wrongJudgementSync.js';
 
 /** A pass and its idempotency receipt commit together, including on HTTP response loss. */
 export async function registerAutoSubmission(input: RegistrationInput): Promise<number> {
@@ -76,6 +77,7 @@ export async function registerAutoSubmission(input: RegistrationInput): Promise<
       scoreV2: result.scoreV2,
       isAnnounced: false,
       isDeleted: false,
+      isWrongJudgement: isWrongJudgementFromChart(result.judgements, level),
     }, { transaction });
     const now = new Date();
     await Judgement.create({

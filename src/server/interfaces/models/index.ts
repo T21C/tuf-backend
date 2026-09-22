@@ -154,6 +154,7 @@ export interface IPass extends IBaseModel {
   adofaiVersion: number;
   passMetaFlags?: bigint | number | string;
   isXPerfectMode?: boolean;
+  isWrongJudgement?: boolean;
   createdAt: Date;
   updatedAt: Date;
   level?: ILevel;

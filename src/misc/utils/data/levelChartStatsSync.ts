@@ -6,6 +6,7 @@ import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { invalidatePackLevelsCachesForLevelIds } from '@/server/services/packs/packDetailCacheService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { EMPTY_LEVEL_CHART_STATS, type LevelChartStats } from './chartCacheParse.js';
+import { syncWrongJudgementFlagsForLevel } from '@/misc/utils/pass/wrongJudgementSync.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
@@ -24,6 +25,21 @@ export async function invalidateLevelCaches(levelId: number): Promise<void> {
   }
 }
 
+async function reindexWrongJudgementFlags(
+  levelId: number,
+  tilecount: unknown,
+  autoTileCount: unknown,
+): Promise<void> {
+  const flagPassIds = await syncWrongJudgementFlagsForLevel({
+    levelId,
+    tilecount,
+    autoTileCount,
+  });
+  if (flagPassIds.length > 0) {
+    await elasticsearchService.reindexPasses(flagPassIds);
+  }
+}
+
 export { parseChartStatsFromCache } from './chartCacheParse.js';
 
 /**
@@ -31,15 +47,22 @@ export { parseChartStatsFromCache } from './chartCacheParse.js';
  * Call after commits when CDN zip / target / dlLink may have changed (cross-pool; do not pass a transaction).
  */
 export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void> {
-  const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink', 'fileId'] });
+  const level = await Level.findByPk(levelId, {
+    attributes: ['id', 'dlLink', 'fileId', 'tilecount', 'autoTileCount'],
+  });
   if (!level) return;
 
   const fileId = level.fileId ?? null;
   if (!level.dlLink || !isCdnUrl(level.dlLink) || !fileId) {
+    const hadChart =
+      level.tilecount != null || level.autoTileCount != null;
     await Level.update(
       { bpm: null, tilecount: null, levelLengthInMs: null, autoTileCount: null, midspinCount: null },
       { where: { id: levelId }, hooks: false },
     );
+    if (hadChart) {
+      await reindexWrongJudgementFlags(levelId, null, null);
+    }
     await elasticsearchService.indexLevel(levelId);
     await invalidateLevelCaches(levelId);
     return;
@@ -50,10 +73,16 @@ export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void
   }
 
   const { bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount } = await cdnService.getLevelChartStats(fileId);
+  const chartChanged =
+    (level.tilecount ?? null) !== (tilecount ?? null) ||
+    (level.autoTileCount ?? null) !== (autoTileCount ?? null);
   await Level.update(
     { bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount },
     { where: { id: levelId }, hooks: false },
   );
+  if (chartChanged) {
+    await reindexWrongJudgementFlags(levelId, tilecount, autoTileCount);
+  }
   await elasticsearchService.indexLevel(levelId);
   await invalidateLevelCaches(levelId);
 }
@@ -63,7 +92,9 @@ export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void
  * Falls back to reading the existing cache if refresh fails.
  */
 export async function rebuildCdnCacheAndApplyLevelChartStats(levelId: number): Promise<LevelChartStats | null> {
-  const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink', 'fileId'] });
+  const level = await Level.findByPk(levelId, {
+    attributes: ['id', 'dlLink', 'fileId', 'tilecount', 'autoTileCount'],
+  });
   if (!level) {
     return null;
   }
@@ -86,10 +117,16 @@ export async function rebuildCdnCacheAndApplyLevelChartStats(levelId: number): P
   try {
     const { bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount } =
       await cdnService.refreshLevelChartCacheAndGetStats(fileId);
+    const chartChanged =
+      (level.tilecount ?? null) !== (tilecount ?? null) ||
+      (level.autoTileCount ?? null) !== (autoTileCount ?? null);
     await Level.update(
       { bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount },
       { where: { id: levelId }, hooks: false },
     );
+    if (chartChanged) {
+      await reindexWrongJudgementFlags(levelId, tilecount, autoTileCount);
+    }
     await elasticsearchService.indexLevel(levelId);
     await invalidateLevelCaches(levelId);
     return { bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount };

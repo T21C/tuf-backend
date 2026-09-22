@@ -13,6 +13,7 @@ import { updateWorldsFirstFlags, updateWorldsFirstPPStatus } from './index.js';
 import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
 import { optionalReasonFromBody } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 import { IJudgements, unwrapJudgements } from '@/misc/utils/pass/CalcAcc.js';
+import { isWrongJudgementFromChart } from '@/misc/utils/pass/wrongJudgementSync.js';
 import {
   computePassScoreV2,
   PassScoreCalculationError,
@@ -273,6 +274,10 @@ router.put(
             adofaiVersion: resolvedAdofaiVersion,
             isXPerfectMode: prepared.isXPerfectMode,
             passMetaFlags: prepared.passMetaFlagsDb,
+            isWrongJudgement: isWrongJudgementFromChart(
+              prepared.judgements,
+              newLevel || pass.level,
+            ),
           },
           {transaction},
         );
@@ -314,6 +319,10 @@ router.put(
             isAnnounced: isAnnounced !== undefined ? isAnnounced : pass.isAnnounced,
             isDuplicate: isDuplicate !== undefined ? isDuplicate : pass.isDuplicate,
             isAdofaiV2: isAdofaiV2 !== undefined ? isAdofaiV2 : pass.isAdofaiV2,
+            isWrongJudgement: isWrongJudgementFromChart(
+              pass.judgements,
+              newLevel || pass.level,
+            ),
           },
           {transaction},
         );

@@ -27,6 +27,13 @@ import { getRankedScoreRanksForHits } from '@/server/services/elasticsearch/sear
 
 dotenv.config();
 
+/** Profile owner and super admins may opt in to a player's user-hidden clears. */
+export function viewerMayRevealHiddenPasses(user: any, playerId: number): boolean {
+  if (!user) return false;
+  if (user.playerId && user.playerId === playerId) return true;
+  return hasFlag(user, permissionFlags.SUPER_ADMIN);
+}
+
 type EnrichedPlayer = IPlayer & {
   passes: Pass[];
   topScores: {id: number, impact: number}[];
@@ -798,8 +805,8 @@ export class PlayerStatsService {
    * client can paginate via `InfiniteScroll` without needing the entire
    * dataset in memory.
    *
-   * Hidden passes are only visible to the owning user, and only if they
-   * opt in via `showHidden`.
+   * Hidden passes are visible to the owning user and to super admins, and
+   * only if they opt in via `showHidden`.
    */
   public async getPlayerPasses(
     playerId: number,
@@ -820,8 +827,8 @@ export class PlayerStatsService {
     const order = opts.order === 'ASC' ? 'ASC' : 'DESC';
     const sortBy = opts.sortBy ?? 'score';
 
-    const isOwnProfile = Boolean(user && user.playerId && user.playerId === playerId);
-    const includeHiddenPasses = isOwnProfile && opts.showHidden === true;
+    const includeHiddenPasses =
+      viewerMayRevealHiddenPasses(user, playerId) && opts.showHidden === true;
     const bestPerLevel = opts.bestPerLevel === true;
 
     // --- Phase 1: resolve ordered pass ids + total count via raw SQL. ---
@@ -1045,6 +1052,7 @@ impact_calc AS (
       'isAdofaiV2',
       'adofaiVersion',
       'isXPerfectMode',
+      'isWrongJudgement',
       'passMetaFlags',
       'isHidden',
       'isWorldsFirst',

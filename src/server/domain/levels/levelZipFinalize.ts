@@ -7,7 +7,7 @@ import User from '@/models/auth/User.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
-import { isWritableCdnUrl } from '@/misc/utils/Utility.js';
+import { isCdnUrl, isWritableCdnUrl } from '@/misc/utils/Utility.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
 import { jobProgressService, isUuidJobId } from '@/server/services/core/JobProgressService.js';
@@ -19,6 +19,13 @@ import { tagAssignmentService } from '@/server/services/data/TagAssignmentServic
 import { logLevelFileUploadHook, logLevelFileUpdateHook } from '@/server/routes/v2/webhooks/misc.js';
 import { compareDurations, formatDurationMismatchMessage } from '@/server/domain/levels/levelZipDurationCompare.js';
 import { normalizeLevelDlLinkSnapshot } from '@/server/domain/levels/levelDlLinkSnapshot.js';
+import {
+  chartStatsFromLevel,
+  classifyPreviousSource,
+  extractZipFilesSnapshot,
+  oldChartStatsForPreviousSource,
+  resolveUploadSource,
+} from '@/server/domain/levels/levelFileDiscordSnapshot.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
@@ -266,10 +273,51 @@ export async function finalizeLevelZipUploadFromBuffer(params: {
         newPath: `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`,
       });
       const newPath = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
+      const uploadSource = resolveUploadSource(jobMetaBase.source);
+      let files = extractZipFilesSnapshot(null, levelFiles);
+      try {
+        const metadata = await cdnService.getFileMetadata(uploadResult.fileId);
+        files = extractZipFilesSnapshot(metadata, levelFiles);
+      } catch (metadataError) {
+        logger.warn('Failed to load CDN metadata for level file Discord hook:', {
+          levelId,
+          fileId: uploadResult.fileId,
+          error: metadataError instanceof Error ? metadataError.message : String(metadataError),
+        });
+      }
+      const afterStats = await Level.findByPk(levelId, {
+        attributes: ['bpm', 'tilecount', 'midspinCount', 'autoTileCount', 'levelLengthInMs'],
+      });
+      const snapshot = {
+        newFileId: uploadResult.fileId,
+        zipFilename: encodedZipFileName,
+        zipSizeBytes: fileBuffer.length,
+        uploadSource,
+        files,
+        newChartStats: chartStatsFromLevel(afterStats),
+      };
       if (oldDlLink && typeof oldDlLink === 'string' && oldDlLink.length > 12) {
-        await logLevelFileUpdateHook(oldDlLink, newPath, levelId, getUserModel(req.user));
+        const previousSource = classifyPreviousSource(oldDlLink, isCdnUrl(oldDlLink));
+        await logLevelFileUpdateHook(
+          {
+            originalPath: oldDlLink,
+            newPath,
+            levelId,
+            previousSource,
+            oldChartStats: oldChartStatsForPreviousSource(previousSource, levelSnapshot),
+            ...snapshot,
+          },
+          getUserModel(req.user),
+        );
       } else {
-        await logLevelFileUploadHook(newPath, levelId, getUserModel(req.user));
+        await logLevelFileUploadHook(
+          {
+            filePath: newPath,
+            levelId,
+            ...snapshot,
+          },
+          getUserModel(req.user),
+        );
       }
     } catch (webhookError) {
       logger.warn('Failed to send webhook for level file upload:', webhookError);
