@@ -286,6 +286,6 @@ export function addLevelFileEmbedDetails(
 
 export function hasLevelFileSnapshot(
   payload: Partial<DiscordLevelFileSnapshot> | null | undefined,
-): payload is DiscordLevelFileSnapshot {
+): boolean {
   return typeof payload?.newFileId === 'string' && payload.newFileId.length > 0;
 }
