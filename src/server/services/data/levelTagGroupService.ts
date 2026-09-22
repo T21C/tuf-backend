@@ -1,9 +1,14 @@
 import { Includeable, Order, Transaction } from 'sequelize';
+import Level from '@/models/levels/Level.js';
+import Difficulty from '@/models/levels/Difficulty.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import { getCommunityTagConfig } from '@/config/app.config.js';
-import { resolveCommunityTagSettings } from '@/misc/utils/data/communityTagEligibility.js';
+import {
+  isCommunityTagHiddenForDifficulty,
+  resolveCommunityTagSettings,
+} from '@/misc/utils/data/communityTagEligibility.js';
 
 export const TAG_GROUP_INCLUDE: Includeable = {
   model: LevelTagGroup,
@@ -87,23 +92,40 @@ export async function loadSerializedAssignedTags(
   levelId: number,
   transaction?: Transaction,
 ): Promise<Record<string, unknown>[]> {
-  const assignments = await LevelTagAssignment.findAll({
-    where: { levelId },
-    include: [
-      {
-        model: LevelTag,
-        as: 'tag',
-        required: true,
-        include: [TAG_GROUP_INCLUDE],
-      },
-    ],
-    transaction,
-  });
+  const [assignments, level] = await Promise.all([
+    LevelTagAssignment.findAll({
+      where: { levelId },
+      include: [
+        {
+          model: LevelTag,
+          as: 'tag',
+          required: true,
+          include: [TAG_GROUP_INCLUDE],
+        },
+      ],
+      transaction,
+    }),
+    Level.findByPk(levelId, {
+      attributes: ['id', 'diffId'],
+      include: [{
+        model: Difficulty,
+        as: 'difficulty',
+        attributes: ['id', 'name', 'type', 'sortOrder'],
+        required: false,
+      }],
+      transaction,
+    }),
+  ]);
+
+  const difficulty = (level as (Level & { difficulty?: Difficulty | null }) | null)?.difficulty ?? null;
+  const env = getCommunityTagConfig();
 
   return assignments
     .map((assignment) => {
       const tag = (assignment as LevelTagAssignment & { tag?: LevelTag }).tag;
       if (!tag) return null;
+      const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
+      if (isCommunityTagHiddenForDifficulty(tag, group, difficulty, env)) return null;
       return serializeAssignedLevelTag(tag, assignment);
     })
     .filter((row): row is Record<string, unknown> => row != null)

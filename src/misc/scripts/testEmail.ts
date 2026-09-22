@@ -102,13 +102,23 @@ program
 program
   .command('test')
   .description('Send one or all email templates to a test inbox')
-  .option('-e, --email <email>', 'Email to send to', 'test@test.com')
+  .argument('[email]', 'Inbox to send to')
+  .option('-e, --email <email>', 'Inbox to send to')
   .option(
     '-t, --template <name>',
     `Template name (${TEMPLATES.join(', ')}) or "all"`,
     'login-code',
   )
-  .action(async (options) => {
+  .action(async (emailArg: string | undefined, options: { email?: string; template: string }) => {
+    const email = (emailArg || options.email || '').trim();
+    if (!email || !email.includes('@') || email.endsWith('@test.com')) {
+      console.error(
+        'Pass a real inbox: test you@example.com -t login-code   or   test -e you@example.com',
+      );
+      process.exitCode = 1;
+      return;
+    }
+
     const list: TemplateName[] =
       options.template === 'all'
         ? [...TEMPLATES]
@@ -120,8 +130,9 @@ program
         process.exitCode = 1;
         return;
       }
-      const ok = await sendTemplate(options.email, name);
-      console.log(`${name}: ${ok ? 'sent' : 'failed'}`);
+      const ok = await sendTemplate(email, name);
+      console.log(`${name} -> ${email}: ${ok ? 'sent' : 'failed'}`);
+      if (!ok) process.exitCode = 1;
     }
   });
 

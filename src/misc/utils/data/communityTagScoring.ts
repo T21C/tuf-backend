@@ -67,14 +67,18 @@ export function shouldKeepCommunityAssignment(opts: {
   return opts.score >= opts.knobs.scoreOn;
 }
 
-/** Whether rematerialize may delete an existing unpinned community assignment. */
+/**
+ * Whether rematerialize may delete an existing community assignment.
+ * A band that no longer applies removes the tag from that bracket even when
+ * score changes are being preserved. Vote rows are left untouched.
+ */
 export function shouldDestroyCommunityAssignment(opts: {
   preserveAssignments: boolean;
   bandOk: boolean;
   keep: boolean;
 }): boolean {
+  if (!opts.bandOk) return true;
   if (opts.preserveAssignments) return false;
-  if (!opts.bandOk) return false;
   return !opts.keep;
 }
 

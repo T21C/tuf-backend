@@ -32,6 +32,7 @@ export function buildPassIndexDocument(pass: Pass): any {
     ...p,
     adofaiVersion: Number(p.adofaiVersion) || 2,
     isXPerfectMode: !!p.isXPerfectMode,
+    isWrongJudgement: !!p.isWrongJudgement,
     passMetaFlags: Number(p.passMetaFlags) || 0,
     vidTitle: puaOrNull(p.vidTitle),
     videoLink: puaOrNull(p.videoLink),

@@ -19,6 +19,23 @@ test('chart.cleared is opt-in for in-app by default', () => {
   );
 });
 
+test('chart.swapped links to the level that now holds the chart', () => {
+  const definition = getNotificationTypeDefinition(NOTIFICATION_TYPES.ChartSwapped);
+  assert.equal(definition.defaults.inApp, true);
+  assert.equal(definition.category, 'chart');
+  assert.equal(
+    definition.href({
+      levelId: 16786,
+      song: '脱社会ヴァンダリズム独白if',
+      artist: 'katagiri',
+      swappedWithLevelId: 16796,
+      swappedWithSong: 'Other',
+      swappedWithArtist: 'Someone',
+    }),
+    '/levels/16786',
+  );
+});
+
 test('chart.rated is in-app by default and links to the level', () => {
   const definition = getNotificationTypeDefinition(NOTIFICATION_TYPES.ChartRated);
   assert.equal(definition.defaults.inApp, true);

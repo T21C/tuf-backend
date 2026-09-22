@@ -17,6 +17,7 @@ export async function searchPasses(query: any, userPlayerId?: number, isSuperAdm
         keyFlag: query.keyFlag,
         wfFilter: query.wfFilter,
         adofaiVersionFilter: query.adofaiVersionFilter,
+        wrongJudgementFilter: query.wrongJudgementFilter,
         specialDifficulties: query.specialDifficulties,
         sort: query.sort,
         seed: query.seed,

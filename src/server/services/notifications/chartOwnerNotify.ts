@@ -91,6 +91,48 @@ export async function notifyChartRated(args: {
   });
 }
 
+export async function notifyChartSwapped(args: {
+  level: {id: number; song?: string | null; artist?: string | null};
+  other: {id: number; song?: string | null; artist?: string | null};
+  actorId?: string | null;
+}): Promise<void> {
+  const snapshot = chartSnapshot(args.level);
+  const otherId = Number(args.other.id);
+  if (!Number.isFinite(snapshot.levelId) || snapshot.levelId <= 0) return;
+  if (!Number.isInteger(otherId) || otherId <= 0 || otherId === snapshot.levelId) return;
+
+  await notificationService.notify({
+    type: NOTIFICATION_TYPES.ChartSwapped,
+    payload: {
+      ...snapshot,
+      swappedWithLevelId: otherId,
+      swappedWithSong: args.other.song ?? null,
+      swappedWithArtist: args.other.artist ?? null,
+    },
+    recipients: {levelId: snapshot.levelId},
+    actorId: args.actorId ?? null,
+    dedupKey: `chart-swapped:${snapshot.levelId}:${otherId}:${Date.now()}`,
+    entity: {type: 'level', id: String(snapshot.levelId)},
+  });
+}
+
+export async function notifyBothChartsSwapped(args: {
+  levelA: {id: number; song?: string | null; artist?: string | null};
+  levelB: {id: number; song?: string | null; artist?: string | null};
+  actorId?: string | null;
+}): Promise<void> {
+  await notifyChartSwapped({
+    level: args.levelA,
+    other: args.levelB,
+    actorId: args.actorId,
+  });
+  await notifyChartSwapped({
+    level: args.levelB,
+    other: args.levelA,
+    actorId: args.actorId,
+  });
+}
+
 export async function notifyChartWeeklySelected(args: {
   level: {id: number; song?: string | null; artist?: string | null};
   weekStart: string;

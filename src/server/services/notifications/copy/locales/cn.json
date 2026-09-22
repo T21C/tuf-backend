@@ -90,6 +90,10 @@
         "title": "谱面已更新",
         "body": "{{song}} — {{artist}} 已更新。"
       },
+      "swapped": {
+        "title": "谱面数据已交换",
+        "body": "{{song}} — {{artist}} 现为关卡 #{{levelId}}，已与 {{swappedWithSong}} — {{swappedWithArtist}}（关卡 #{{swappedWithLevelId}}）交换数据。"
+      },
       "rated": {
         "title": "谱面已评级",
         "body": "{{song}} — {{artist}} 已评为 {{difficultyName}}。"

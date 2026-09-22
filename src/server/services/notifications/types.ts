@@ -14,6 +14,7 @@ export const NOTIFICATION_TYPES = {
   ChartRestored: 'chart.restored',
   ChartVisibilityChanged: 'chart.visibility.changed',
   ChartModified: 'chart.modified',
+  ChartSwapped: 'chart.swapped',
   ChartRated: 'chart.rated',
   ChartCurated: 'chart.curated',
   ChartCurationRemoved: 'chart.curation.removed',
@@ -79,6 +80,14 @@ export const chartWeeklyPayloadSchema = chartSnapshotPayloadSchema.extend({
   weekStart: z.string(),
 });
 
+export const chartSwappedPayloadSchema = chartSnapshotPayloadSchema.extend({
+  swappedWithLevelId: z.number().int().positive(),
+  swappedWithSong: z.string().nullable(),
+  swappedWithArtist: z.string().nullable(),
+});
+
+export type ChartSwappedPayload = z.infer<typeof chartSwappedPayloadSchema>;
+
 export type ChartWeeklyPayload = z.infer<typeof chartWeeklyPayloadSchema>;
 
 export const followingPlayerPassPayloadSchema = z.object({
@@ -116,6 +125,7 @@ export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.ChartRestored]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartVisibilityChanged]: ChartVisibilityPayload;
   [NOTIFICATION_TYPES.ChartModified]: ChartSnapshotPayload;
+  [NOTIFICATION_TYPES.ChartSwapped]: ChartSwappedPayload;
   [NOTIFICATION_TYPES.ChartRated]: ChartRatedPayload;
   [NOTIFICATION_TYPES.ChartCurated]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartCurationRemoved]: ChartSnapshotPayload;
@@ -257,6 +267,12 @@ const notificationTypeRegistry: {
     NOTIFICATION_TYPES.ChartModified,
     'chart',
     chartSnapshotPayloadSchema,
+    levelHref,
+  ),
+  [NOTIFICATION_TYPES.ChartSwapped]: def(
+    NOTIFICATION_TYPES.ChartSwapped,
+    'chart',
+    chartSwappedPayloadSchema,
     levelHref,
   ),
   [NOTIFICATION_TYPES.ChartRated]: def(

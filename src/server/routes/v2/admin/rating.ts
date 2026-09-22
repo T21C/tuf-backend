@@ -44,6 +44,10 @@ import {
   parseZenDealOptions,
   sendZenMediaReport,
 } from '@/server/services/ratings/zenRatingService.js';
+import {
+  countOfficialRatingsInUtcMonth,
+  enqueueTufStellarNomineeIfEligible,
+} from '@/server/services/ratings/tufStellarNomineeService.js';
 
 const router: Router = Router();
 
@@ -480,6 +484,14 @@ router.put(
         where: { ratingId: Number(id), userId: user.id },
         transaction,
       });
+      const isNewOfficialRaterVote =
+        !existingDetail &&
+        !isCommunityRating &&
+        hasFlag(user, permissionFlags.RATER);
+      const nomineeNow = new Date();
+      const priorOfficialCountThisMonth = isNewOfficialRaterVote
+        ? await countOfficialRatingsInUtcMonth(user.id, nomineeNow, transaction)
+        : 0;
       const ratedInZen = bodyRatedInZen || Boolean(existingDetail?.ratedInZen);
 
       const parentRating = lockedRating;
@@ -534,6 +546,22 @@ router.put(
       const updatedRating = await Rating.findByPk(id, fullRatingIncludeOptions(transaction));
 
       await transaction.commit();
+
+      if (isNewOfficialRaterVote) {
+        try {
+          await enqueueTufStellarNomineeIfEligible({
+            user,
+            isNewOfficialRaterVote: true,
+            priorOfficialCountThisMonth,
+            now: nomineeNow,
+          });
+        } catch (err) {
+          logger.error('[tufstellar-nominee] Failed to enqueue nominee webhook', {
+            userId: user.id,
+            error: err,
+          });
+        }
+      }
 
       await CacheInvalidation.invalidateTag('admin:ratings').catch((err) =>
         logger.error('Error invalidating admin ratings cache:', err)

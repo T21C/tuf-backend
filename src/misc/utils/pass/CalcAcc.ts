@@ -95,6 +95,37 @@ export function tilecount(inp: IJudgements | unknown): number {
 }
 
 /**
+ * Achievable manual judgements: persisted tilecount minus auto-play tiles.
+ * Returns null when tilecount is missing or not a finite number.
+ */
+export function getEffectiveTilecount(
+  levelTilecount: unknown,
+  autoTileCount: unknown = 0,
+): number | null {
+  if (levelTilecount == null || levelTilecount === '') return null;
+  const tc = typeof levelTilecount === 'number' ? levelTilecount : Number(levelTilecount);
+  if (!Number.isFinite(tc)) return null;
+  const tileInt = Math.floor(tc);
+  const autoRaw =
+    typeof autoTileCount === 'number' ? autoTileCount : Number(autoTileCount);
+  const autoInt = Number.isFinite(autoRaw) ? Math.floor(autoRaw) : 0;
+  return Math.max(tileInt - autoInt, 0);
+}
+
+/**
+ * True when the chart has a positive achievable tilecount and judgement hits
+ * (tilecount buckets, excluding doubles) do not equal that count.
+ */
+export function isWrongJudgement(
+  judgements: IJudgements | unknown,
+  chart: {tilecount?: unknown; autoTileCount?: unknown},
+): boolean {
+  const effective = getEffectiveTilecount(chart.tilecount, chart.autoTileCount);
+  if (effective == null || effective <= 0) return false;
+  return tilecount(judgements) !== effective;
+}
+
+/**
  * Weighted xacc. Perfect− / Perfect+ count as 1.0 like Perfect.
  * Must stay in sync with MySQL `calculate_accuracy` (judgement accuracy triggers).
  */

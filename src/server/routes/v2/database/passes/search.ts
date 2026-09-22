@@ -509,7 +509,7 @@ router.get(
   ApiDoc({
     operationId: 'searchPasses',
     summary: 'Search passes',
-    description: 'Search passes with filters (query, deletedFilter, minDiff, maxDiff, keyFlag, wfFilter, levelId, player, specialDifficulties, sort). Query: page, offset, limit. Uses Elasticsearch.',
+    description: 'Search passes with filters (query, deletedFilter, minDiff, maxDiff, keyFlag, wfFilter, adofaiVersionFilter, wrongJudgementFilter, levelId, player, specialDifficulties, sort). Query: page, offset, limit. Uses Elasticsearch.',
     tags: ['Passes'],
     security: ['bearerAuth'],
     query: {
@@ -520,6 +520,7 @@ router.get(
       keyFlag: { schema: { type: 'string' } },
       wfFilter: { schema: { type: 'string' } },
       adofaiVersionFilter: { schema: { type: 'string' } },
+      wrongJudgementFilter: { schema: { type: 'string' } },
       levelId: { schema: { type: 'string' } },
       player: { schema: { type: 'string' } },
       specialDifficulties: { schema: { type: 'string' } },
@@ -541,6 +542,7 @@ router.get(
         keyFlag,
         wfFilter,
         adofaiVersionFilter,
+        wrongJudgementFilter,
         levelId,
         player,
         specialDifficulties,
@@ -561,6 +563,7 @@ router.get(
         keyFlag: ensureString(keyFlag),
         wfFilter: ensureString(wfFilter),
         adofaiVersionFilter: ensureString(adofaiVersionFilter),
+        wrongJudgementFilter: ensureString(wrongJudgementFilter),
         levelId: ensureString(levelId),
         player: ensureString(player),
         specialDifficulties,

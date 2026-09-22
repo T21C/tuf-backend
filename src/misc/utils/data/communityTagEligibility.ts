@@ -203,6 +203,18 @@ export function tagAllowedForDifficulty(
   return allowedBands.includes(band);
 }
 
+/** Community tags stay votable in storage, but are hidden once a band is turned off. */
+export function isCommunityTagHiddenForDifficulty(
+  tag: CommunityTagSettingsSource & { isCommunity?: boolean | number | null },
+  group: CommunityTagSettingsSource | null | undefined,
+  difficulty: DifficultyLike | null | undefined,
+  env: CommunityTagConfig,
+): boolean {
+  if (!tag.isCommunity) return false;
+  const settings = resolveCommunityTagSettings(tag, group, env);
+  return !tagAllowedForDifficulty(settings.allowedBands, difficulty);
+}
+
 export function maxVotableSortOrder(
   topDiff: DifficultyLike | null | undefined,
   pguDifficulties: DifficultyLike[],

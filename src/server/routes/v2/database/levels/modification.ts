@@ -28,6 +28,7 @@ import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchS
 import {updateWorldsFirstPPStatus} from '@/server/routes/v2/database/passes/index.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
 import { applyMidspinPerfectsDifferenceToLevelPasses } from '@/misc/utils/pass/applyMidspinPerfectsDifference.js';
+import { syncWrongJudgementFlagsForLevel } from '@/misc/utils/pass/wrongJudgementSync.js';
 import {
   isCdnUrl,
   safeTransactionRollback,
@@ -57,10 +58,12 @@ import {
 } from '@/server/services/announcements/levelAnnouncementQueue.js';
 import { createUserRateLimiter } from '@/server/middleware/userRateLimit.js';
 import {
+  notifyBothChartsSwapped,
   notifyChartOwners,
   notifyChartRated,
   notifyChartVisibilityChanged,
 } from '@/server/services/notifications/chartOwnerNotify.js';
+import { remapNotificationsAfterLevelPayloadSwap } from '@/server/services/notifications/remapNotificationLevelIds.js';
 import { NOTIFICATION_TYPES } from '@/server/services/notifications/types.js';
 import {
   validateXaccCurveParams,
@@ -1694,6 +1697,27 @@ router.patch(
         }
       }
 
+      const chartFieldsChanged =
+        Object.prototype.hasOwnProperty.call(parsed.update, 'tilecount') ||
+        Object.prototype.hasOwnProperty.call(parsed.update, 'autoTileCount');
+      if (chartFieldsChanged) {
+        try {
+          const flagPassIds = await syncWrongJudgementFlagsForLevel({
+            levelId,
+            tilecount: updated?.tilecount ?? null,
+            autoTileCount: updated?.autoTileCount ?? null,
+          });
+          if (flagPassIds.length > 0) {
+            await elasticsearchService.reindexPasses(flagPassIds);
+          }
+        } catch (flagError) {
+          logger.error(
+            `Error syncing wrong-judgement flags after chart-stats patch for level ${levelId}:`,
+            flagError,
+          );
+        }
+      }
+
       if (!passDiffApplied) {
         await elasticsearchService.indexLevel(levelId);
         try {
@@ -1844,7 +1868,7 @@ router.post(
     operationId: 'postLevelSwapPayload',
     summary: 'Swap level payloads',
     description:
-      'Exchange chart/metadata columns between two levels while keeping both IDs fixed, then remap child levelIds (passes, ratings, credits, packs, tags, likes, community tag votes, curations, etc.).',
+      'Exchange chart/metadata columns between two levels while keeping both IDs fixed, then remap child levelIds (passes, ratings, credits, packs, tags, likes, community tag votes, curations, etc.). Existing notifications follow each chart onto its new id, and chart owners are notified of the swap.',
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
@@ -1869,6 +1893,29 @@ router.post(
 
       const { levelA, levelB, sourceId: a, targetId: b } =
         await executeLevelPayloadSwap(sourceId, targetId);
+
+      const levelMeta = (level: Record<string, unknown> | null, id: number) => ({
+        id,
+        song: typeof level?.song === 'string' ? level.song : null,
+        artist: typeof level?.artist === 'string' ? level.artist : null,
+      });
+
+      try {
+        const remapped = await remapNotificationsAfterLevelPayloadSwap(a, b);
+        logger.info(`Remapped ${remapped} notification(s) after level payload swap ${a}<->${b}`);
+      } catch (err) {
+        logger.error('Error remapping notifications after level payload swap:', err);
+      }
+
+      try {
+        await notifyBothChartsSwapped({
+          levelA: levelMeta(levelA, a),
+          levelB: levelMeta(levelB, b),
+          actorId: req.user?.id ?? null,
+        });
+      } catch (err) {
+        logger.error('Error notifying chart owners after level payload swap:', err);
+      }
 
       void (async () => {
         try {

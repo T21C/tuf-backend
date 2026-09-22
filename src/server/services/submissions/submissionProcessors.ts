@@ -17,6 +17,7 @@ import {
 } from '@/misc/utils/pass/scoreService.js';
 import { deriveKeyFlags, normalizeKeyCount } from '@/misc/utils/pass/keyCount.js';
 import { unwrapJudgements } from '@/misc/utils/pass/CalcAcc.js';
+import { isWrongJudgementFromChart } from '@/misc/utils/pass/wrongJudgementSync.js';
 import { parseAdofaiVersion } from '@/misc/utils/pass/adofaiVersion.js';
 import { preparePassJudgementsForPersist } from '@/misc/utils/pass/passEraApply.js';
 import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
@@ -632,6 +633,7 @@ async function approvePassSubmission(
     scoreV2,
     isAnnounced: false,
     isDeleted: false,
+    isWrongJudgement: isWrongJudgementFromChart(judgementData, level),
   }, { transaction });
 
   const now = new Date();

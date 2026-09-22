@@ -3,10 +3,42 @@
  * Add new types here first, then add a Discord (or other) handler.
  */
 
-export type DiscordLevelFileUpdatedPayload = {
+import type { LevelChartStats } from '@/misc/utils/data/chartCacheParse.js';
+
+export type DiscordLevelChartStatsSnapshot = LevelChartStats;
+
+export type DiscordLevelPreviousSource = 'cdn' | 'google_drive' | 'external';
+
+export type DiscordLevelZipChartFile = {
+  name: string;
+  relativePath: string;
+};
+
+export type DiscordLevelZipAudioFile = {
+  name: string;
+};
+
+export type DiscordLevelZipFilesSnapshot = {
+  charts: DiscordLevelZipChartFile[];
+  audio: DiscordLevelZipAudioFile[];
+  targetRelativePath: string | null;
+};
+
+export type DiscordLevelFileSnapshot = {
+  newFileId: string;
+  zipFilename: string;
+  zipSizeBytes: number;
+  uploadSource: string;
+  files: DiscordLevelZipFilesSnapshot;
+  newChartStats: DiscordLevelChartStatsSnapshot;
+};
+
+export type DiscordLevelFileUpdatedPayload = DiscordLevelFileSnapshot & {
   originalPath: string;
   newPath: string;
   levelId: number;
+  previousSource: DiscordLevelPreviousSource;
+  oldChartStats: DiscordLevelChartStatsSnapshot;
   user: { username: string; avatarUrl: string | null; playerId: number | null };
 };
 
@@ -15,7 +47,7 @@ export type DiscordLevelFileDeletedPayload = {
   user: { username: string; avatarUrl: string | null; playerId: number | null };
 };
 
-export type DiscordLevelFileUploadedPayload = {
+export type DiscordLevelFileUploadedPayload = DiscordLevelFileSnapshot & {
   filePath: string;
   levelId: number;
   user: { username: string; avatarUrl: string | null; playerId: number | null };
@@ -68,6 +100,15 @@ export type FollowFanoutPayload = {
   ids: number[];
 };
 
+export type DiscordTufStellarNomineePayload = {
+  userId: string;
+  username: string;
+  avatarUrl: string | null;
+  playerId: number | null;
+  monthKey: string;
+  officialRatingsThisMonth: number;
+};
+
 export const OUTBOX_EVENT_TYPES = {
   DiscordLevelFileUpdated: 'DiscordLevelFileUpdated',
   DiscordLevelFileDeleted: 'DiscordLevelFileDeleted',
@@ -77,6 +118,7 @@ export const OUTBOX_EVENT_TYPES = {
   DiscordPassBatchAnnouncement: 'DiscordPassBatchAnnouncement',
   DiscordLevelBatchAnnouncement: 'DiscordLevelBatchAnnouncement',
   DiscordRerateBatchAnnouncement: 'DiscordRerateBatchAnnouncement',
+  DiscordTufStellarNominee: 'DiscordTufStellarNominee',
   NotificationCreated: 'NotificationCreated',
   FollowFanout: 'FollowFanout',
 } as const;
@@ -92,6 +134,7 @@ export type OutboxPayloadByType = {
   [OUTBOX_EVENT_TYPES.DiscordPassBatchAnnouncement]: DiscordPassBatchAnnouncementPayload;
   [OUTBOX_EVENT_TYPES.DiscordLevelBatchAnnouncement]: DiscordLevelBatchAnnouncementPayload;
   [OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement]: DiscordRerateBatchAnnouncementPayload;
+  [OUTBOX_EVENT_TYPES.DiscordTufStellarNominee]: DiscordTufStellarNomineePayload;
   [OUTBOX_EVENT_TYPES.NotificationCreated]: NotificationCreatedPayload;
   [OUTBOX_EVENT_TYPES.FollowFanout]: FollowFanoutPayload;
 };

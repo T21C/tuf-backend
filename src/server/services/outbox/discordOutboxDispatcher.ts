@@ -15,6 +15,7 @@ import {
   runPassAnnouncementJob,
   runRerateAnnouncementJob,
 } from '@/server/services/outbox/handlers/discord/announcementJobs.js';
+import { handleDiscordTufStellarNominee } from '@/server/services/outbox/handlers/discord/tufStellarNominee.js';
 
 const STREAM = 'outbox:events';
 
@@ -76,6 +77,13 @@ export function startDiscordOutboxDispatcher(): void {
             parsePayload<OutboxPayloadByType[typeof OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement]>(
               payloadRaw,
             ).queueRowIds,
+          );
+          break;
+        case OUTBOX_EVENT_TYPES.DiscordTufStellarNominee:
+          await handleDiscordTufStellarNominee(
+            parsePayload<OutboxPayloadByType[typeof OUTBOX_EVENT_TYPES.DiscordTufStellarNominee]>(
+              payloadRaw,
+            ),
           );
           break;
         default:

@@ -77,6 +77,10 @@ export async function searchPasses(query: string, filters: any = {}, userPlayerI
       );
     }
 
+    if (filters.wrongJudgementFilter === 'only' && isSuperAdmin) {
+      must.push(termField('isWrongJudgement', true));
+    }
+
     // Handle key flag filter
     if (filters.keyFlag) {
       switch (filters.keyFlag) {

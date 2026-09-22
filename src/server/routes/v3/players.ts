@@ -17,7 +17,7 @@ import {
   parsePlayerFlagFilter,
   PlayerSearchOptions,
 } from '@/server/services/elasticsearch/search/players/playerSearch.js';
-import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
+import { PlayerStatsService, viewerMayRevealHiddenPasses } from '@/server/services/core/PlayerStatsService.js';
 import { computePlayerFunFacts } from '@/server/services/stats/playerFunFacts.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
@@ -611,8 +611,9 @@ router.get(
 /**
  * Full profile view: ES stats + ranks + DB-enriched passes/topScores/potentialTopScores.
  * Fun-facts aggregates include hidden passes only when the caller owns the profile
- * and passes `showHidden=true` (same rule as GET .../passes). The `funFacts.counts.hiddenPasses`
- * tally is still returned for the owning caller even when `showHidden` is false.
+ * or is a super admin, and passes `showHidden=true` (same rule as GET .../passes).
+ * The `funFacts.counts.hiddenPasses` tally is still returned for those callers
+ * even when `showHidden` is false.
  */
 router.get(
   '/:id([0-9]{1,20})/profile',
@@ -621,7 +622,7 @@ router.get(
     operationId: 'v3GetPlayerProfile',
     summary: 'Get player profile (v3)',
     description:
-      'Player profile page payload: ES document + on-demand ranks + DB-sourced passes, topScores, and potentialTopScores. `funFacts` aggregates include hidden passes only when the caller owns the profile and `showHidden=true`; `funFacts.counts.hiddenPasses` is always the real hidden-pass count for the owning caller.',
+      'Player profile page payload: ES document + on-demand ranks + DB-sourced passes, topScores, and potentialTopScores. `funFacts` aggregates include hidden passes only when the caller owns the profile or is a super admin and `showHidden=true`; `funFacts.counts.hiddenPasses` is always the real hidden-pass count for those callers.',
     tags: ['Database', 'Players', 'v3'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
@@ -642,8 +643,9 @@ router.get(
 
       const user = req.user;
       const isOwnProfile = Boolean(user && user.playerId && user.playerId === id);
+      const mayRevealHiddenPasses = viewerMayRevealHiddenPasses(user, id);
       const showHidden = String(req.query.showHidden || '').toLowerCase() === 'true';
-      const includeHiddenInFunFacts = isOwnProfile && showHidden;
+      const includeHiddenInFunFacts = mayRevealHiddenPasses && showHidden;
 
       const doc = await elasticsearchService.getPlayerDocumentById(id);
       if (!doc) return res.status(404).json({ error: 'Player not found' });
@@ -654,7 +656,7 @@ router.get(
           playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
           computePlayerFunFacts(id, {
             includeHidden: includeHiddenInFunFacts,
-            reportHiddenPassCount: isOwnProfile,
+            reportHiddenPassCount: mayRevealHiddenPasses,
           }),
           Player.findByPk(id, {
             attributes: [
@@ -1246,7 +1248,8 @@ router.patch(
  *
  * Server-side sort/search lets the client page through thousands of passes
  * without ever loading the whole dataset. Hidden passes are revealed only to
- * the owning caller, and only when they explicitly opt in via `showHidden`.
+ * the owning caller and to super admins, and only when they explicitly opt in
+ * via `showHidden`.
  *
  * Query: limit (<=100), offset, sortBy (score|speed|date|xacc|difficulty),
  *        order (ASC|DESC), query (free text), showHidden (true|false),
@@ -1265,7 +1268,7 @@ router.get(
     operationId: 'v3GetPlayerPasses',
     summary: 'Get player passes (v3)',
     description:
-      "Paginated list of a player's passes (trimmed to just what the profile UI needs). Hidden passes are included only when the caller owns the profile and passes `showHidden=true`.",
+      "Paginated list of a player's passes (trimmed to just what the profile UI needs). Hidden passes are included only when the caller owns the profile or is a super admin and passes `showHidden=true`.",
     tags: ['Database', 'Players', 'v3'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
