@@ -12,6 +12,7 @@ import {
   parseCatalogModId,
   runBotModsSync,
   setBotModLinkEnabled,
+  setBotModDuplicate,
   unlinkBotMod,
 } from '@/server/services/mods/botModSync.js';
 
@@ -146,6 +147,32 @@ router.delete(
       return res.json({ok: true});
     } catch (error) {
       return respondSyncError(res, error, 'Failed to unlink bot mod', 'Admin unlink bot mod failed:');
+    }
+  },
+);
+
+router.patch(
+  '/:botId',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'adminPatchBotMod',
+    summary: 'Update scraped bot mod flags',
+    tags: ['Admin', 'Mods'],
+    security: ['bearerAuth'],
+    responses: {200: {description: 'Updated bot mod'}},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const botId = parseBotModId(req.params.botId);
+      if (!botId) return res.status(400).json({error: 'Invalid bot mod id'});
+      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+      if (typeof body.isDuplicate !== 'boolean') {
+        return res.status(400).json({error: 'isDuplicate must be a boolean'});
+      }
+      const botMod = await setBotModDuplicate(botId, body.isDuplicate);
+      return res.json({botMod});
+    } catch (error) {
+      return respondSyncError(res, error, 'Failed to update bot mod', 'Admin patch bot mod failed:');
     }
   },
 );

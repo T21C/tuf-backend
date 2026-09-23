@@ -29,7 +29,7 @@ const LIST_MAX_LIMIT = 500;
 
 const sequelize = getSequelizeForModelGroup('admin');
 
-export const BOT_MOD_LIST_FILTERS = ['all', 'unlinked', 'linked', 'problems'] as const;
+export const BOT_MOD_LIST_FILTERS = ['all', 'unlinked', 'linked', 'problems', 'duplicates'] as const;
 export type BotModListFilter = (typeof BOT_MOD_LIST_FILTERS)[number];
 
 export type SerializedBotModLink = {
@@ -56,6 +56,7 @@ export type SerializedBotMod = {
   uploadedAt: string | null;
   ignoreUpdate: boolean;
   hideFromSearch: boolean;
+  isDuplicate: boolean;
   lastSeenAt: string | null;
   missingSince: string | null;
   link: SerializedBotModLink | null;
@@ -166,6 +167,7 @@ export function serializeBotMod(row: BotMod): SerializedBotMod {
     uploadedAt: iso(row.uploadedAt),
     ignoreUpdate: Boolean(row.ignoreUpdate),
     hideFromSearch: Boolean(row.hideFromSearch),
+    isDuplicate: Boolean(row.isDuplicate),
     lastSeenAt: iso(row.lastSeenAt),
     missingSince: iso(row.missingSince),
     link: link
@@ -185,6 +187,7 @@ export function serializeBotMod(row: BotMod): SerializedBotMod {
 }
 
 function isProblemRow(row: SerializedBotMod): boolean {
+  if (row.isDuplicate) return false;
   if (row.missingSince) return true;
   if (row.ignoreUpdate) return true;
   if (!snapshotVersion(row.version)) return true;
@@ -316,6 +319,7 @@ async function applyLinkedSnapshot(link: BotModLink, seenAt: Date, counts: BotMo
   const action = decideBotModLinkAction({
     enabled: Boolean(link.enabled),
     ignoreUpdate: Boolean(bot.ignoreUpdate),
+    isDuplicate: Boolean(bot.isDuplicate),
     missing: Boolean(bot.missingSince),
     version: bot.version,
     parsedDownload: bot.parsedDownload,
@@ -363,6 +367,15 @@ async function applyLinkedSnapshot(link: BotModLink, seenAt: Date, counts: BotMo
       await stampLink(link, {
         status: 'error',
         message: 'Missing download URL',
+        at: seenAt,
+        keepCursor: true,
+      });
+      return;
+    case BOT_MOD_DIFF.DUPLICATE:
+      counts.ignored += 1;
+      await stampLink(link, {
+        status: 'duplicate',
+        message: 'Marked as duplicate',
         at: seenAt,
         keepCursor: true,
       });
@@ -599,11 +612,13 @@ export async function listBotMods(options: {
 
   let serialized = rows.map(serializeBotMod);
   if (options.filter === 'unlinked') {
-    serialized = serialized.filter((row) => !row.link);
+    serialized = serialized.filter((row) => !row.link && !row.isDuplicate);
   } else if (options.filter === 'linked') {
     serialized = serialized.filter((row) => Boolean(row.link));
   } else if (options.filter === 'problems') {
     serialized = serialized.filter(isProblemRow);
+  } else if (options.filter === 'duplicates') {
+    serialized = serialized.filter((row) => row.isDuplicate);
   }
 
   const total = serialized.length;
@@ -616,6 +631,7 @@ export async function listBotMods(options: {
 export async function linkBotModToCatalog(botId: string, modId: number): Promise<SerializedBotMod> {
   const bot = await BotMod.findByPk(botId);
   if (!bot) throw clientError('Unknown bot mod id. Run a sync first.', 404);
+  if (bot.isDuplicate) throw clientError('This scraped entry is marked as a duplicate', 400);
   const mod = await Mod.findByPk(modId);
   if (!mod) throw clientError('Mod not found', 404);
 
@@ -685,4 +701,25 @@ export async function setBotModLinkEnabled(botId: string, enabled: boolean): Pro
   });
   if (!reloaded) throw clientError('Unknown bot mod id', 404);
   return serializeBotMod(reloaded);
+}
+
+async function loadSerializedBotMod(botId: string): Promise<SerializedBotMod> {
+  const reloaded = await BotMod.findByPk(botId, {
+    include: [
+      {
+        model: BotModLink,
+        as: 'link',
+        include: [{model: Mod, as: 'mod', attributes: ['id', 'name', 'slug']}],
+      },
+    ],
+  });
+  if (!reloaded) throw clientError('Unknown bot mod id', 404);
+  return serializeBotMod(reloaded);
+}
+
+export async function setBotModDuplicate(botId: string, isDuplicate: boolean): Promise<SerializedBotMod> {
+  const bot = await BotMod.findByPk(botId);
+  if (!bot) throw clientError('Unknown bot mod id', 404);
+  await bot.update({isDuplicate});
+  return loadSerializedBotMod(botId);
 }

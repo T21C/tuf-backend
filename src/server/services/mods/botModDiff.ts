@@ -6,6 +6,7 @@ export const BOT_MOD_DIFF = {
   EMPTY_VERSION: 'empty_version',
   MISSING_DOWNLOAD: 'missing_download',
   IGNORE_UPDATE: 'ignore_update',
+  DUPLICATE: 'duplicate',
   DISABLED: 'disabled',
   MISSING: 'missing',
 } as const;
@@ -27,6 +28,7 @@ export function snapshotDownloadUrl(raw: unknown): string {
 export type BotModLinkDiffInput = {
   enabled: boolean;
   ignoreUpdate: boolean;
+  isDuplicate: boolean;
   missing: boolean;
   version: string | null | undefined;
   parsedDownload: string | null | undefined;
@@ -38,6 +40,7 @@ export type BotModLinkDiffInput = {
 export function decideBotModLinkAction(input: BotModLinkDiffInput): {kind: BotModDiffKind} {
   if (input.missing) return {kind: BOT_MOD_DIFF.MISSING};
   if (!input.enabled) return {kind: BOT_MOD_DIFF.DISABLED};
+  if (input.isDuplicate) return {kind: BOT_MOD_DIFF.DUPLICATE};
   if (input.ignoreUpdate) return {kind: BOT_MOD_DIFF.IGNORE_UPDATE};
 
   const version = snapshotVersion(input.version);
