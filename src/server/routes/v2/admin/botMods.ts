@@ -46,7 +46,7 @@ router.get(
       const result = await listBotMods({
         q: q || undefined,
         filter: parseBotModListFilter(req.query.filter),
-        modId,
+        modId: modId ?? undefined,
         offset: parseBotModListOffset(req.query.offset),
         limit: parseBotModListLimit(req.query.limit),
       });
