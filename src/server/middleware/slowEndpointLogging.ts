@@ -31,7 +31,9 @@ const SLOW_LOG_EXCLUDED_ROUTES = [
   '/v2/jobs/*/stream',
   '/v2/auth/oauth/callback',
   '/v2/media/player-avatar/*',
-  '/v2/cdn/download-events'
+  '/v2/cdn/download-events',
+  '/v2/media/bilibili-cover',
+  '/v2/media/bilibili'
 ];
 
 function isExcludedRoute(path: string): boolean {
