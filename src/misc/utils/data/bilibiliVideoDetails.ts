@@ -1,27 +1,24 @@
-import axios from 'axios';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { extractBilibiliBvId } from '@/misc/utils/data/videoLinkParts.js';
 import type { VideoDetails } from '@/misc/utils/data/videoDetailTypes.js';
+import {
+  BILIBILI_REQUEST_HEADERS,
+  isArchiveCover,
+  normalizePicUrl,
+  parseBilibiliViewHtml,
+  resolveBilibiliFetchMode,
+  type BilibiliViewData,
+} from '@/misc/utils/data/bilibiliProxy.js';
+import {
+  fetchBilibiliHtml,
+  fetchBilibiliImage,
+} from '@/misc/utils/data/bilibiliProxyAxios.js';
+import { getHealthyCount } from '@/server/services/media/bilibiliProxyPool.js';
+import { raceProxyWaves } from '@/server/services/media/bilibiliProxyWaves.js';
 
-interface BilibiliData {
-  aid: string;
-  bvid: string;
-  cid: string;
-  pubdate: number;
-  pic: string;
-  title: string;
-  owner: {
-    name: string;
-    face: string;
-  };
-}
+export { BILIBILI_REQUEST_HEADERS };
 
-export const BILIBILI_REQUEST_HEADERS = {
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  Referer: 'https://www.bilibili.com/',
-  Origin: 'https://www.bilibili.com',
-};
+type BilibiliData = BilibiliViewData;
 
 const VIEW_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 const VIEW_NULL_TTL_MS = 1000 * 60 * 5;
@@ -36,28 +33,6 @@ const ownUrlEnv =
         ? process.env.DEV_URL
         : 'http://localhost:3002';
 
-function normalizePicUrl(pic: string): string | null {
-  const trimmed = pic.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith('//')) return `https:${trimmed}`;
-  if (trimmed.startsWith('http://')) return `https://${trimmed.slice('http://'.length)}`;
-  if (trimmed.startsWith('https://')) return trimmed;
-  return null;
-}
-
-/** Archive stills only, e.g. i0.hdslb.com/bfs/archive/<hash>.jpg */
-function isArchiveCover(pic: string): boolean {
-  try {
-    const url = new URL(pic);
-    return (
-      /(^|\.)hdslb\.com$/i.test(url.hostname) &&
-      /^\/bfs\/archive\/[a-zA-Z0-9]+\.jpe?g$/i.test(url.pathname)
-    );
-  } catch {
-    return false;
-  }
-}
-
 function embedFromView(data: BilibiliData): string | null {
   if (!data.bvid) return null;
   return `https://player.bilibili.com/player.html?isOutside=true&aid=${data.aid}&bvid=${data.bvid}&cid=${data.cid}&p=1&autoplay=0`;
@@ -68,74 +43,53 @@ function publicCoverUrl(bvid: string): string {
   return `${base}/v2/media/bilibili-cover?bvid=${encodeURIComponent(bvid)}`;
 }
 
-function unescapeJsonString(raw: string): string {
-  try {
-    return JSON.parse(`"${raw}"`) as string;
-  } catch {
-    return raw.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) =>
-      String.fromCharCode(parseInt(hex, 16)),
-    );
+async function fetchMode() {
+  const disabled = process.env.BILIBILI_PROXY_DISABLED === '1';
+  const nodeEnv = process.env.NODE_ENV;
+  if (disabled || (nodeEnv !== 'production' && nodeEnv !== 'staging')) {
+    return resolveBilibiliFetchMode({ nodeEnv, disabled, healthyCount: 0 });
   }
+  return resolveBilibiliFetchMode({
+    nodeEnv,
+    disabled,
+    healthyCount: await getHealthyCount(),
+  });
 }
 
-function decodePic(raw: string): string {
-  const decoded = raw.includes('\\') ? unescapeJsonString(raw) : raw;
-  return decoded.replace(/@[^/?#]+$/, '');
-}
-
-/** Cover and metadata from the public video page (`videoData.pic` / og:image). */
 async function loadViewFromPage(bvid: string): Promise<BilibiliData | null> {
-  try {
-    const response = await axios.get<string>(
-      `https://www.bilibili.com/video/${encodeURIComponent(bvid)}/`,
-      {
-        headers: {
-          ...BILIBILI_REQUEST_HEADERS,
-          Accept: 'text/html,application/xhtml+xml',
-        },
-        timeout: 10000,
-        responseType: 'text',
-        validateStatus: (status) => status >= 200 && status < 300,
-      },
-    );
-    const html = response.data;
-    if (typeof html !== 'string') return null;
-
-    const marker = `"videoData":{"bvid":"${bvid}"`;
-    const start = html.indexOf(marker);
-    const slice = start >= 0 ? html.slice(start, start + 20000) : '';
-    const picRaw =
-      slice.match(/"pic":"([^"]+)"/)?.[1] ??
-      html.match(/property="og:image" content="([^"]+)"/)?.[1];
-    if (!picRaw) return null;
-
-    const pic = decodePic(picRaw);
-    if (!isArchiveCover(normalizePicUrl(pic) || '')) return null;
-
-    const title =
-      unescapeJsonString(slice.match(/"title":"((?:\\.|[^"\\])*)"/)?.[1] ?? '') ||
-      html.match(/property="og:title" content="([^"]*)"/)?.[1] ||
-      bvid;
-    const ownerName = unescapeJsonString(
-      slice.match(/"owner":\{"mid":\d+,"name":"((?:\\.|[^"\\])*)"/)?.[1] ?? '',
-    );
-    const pubdate = Number(slice.match(/"pubdate":(\d+)/)?.[1] ?? '0');
-    const aid = slice.match(/"aid":(\d+)/)?.[1] ?? '';
-    const cid = slice.match(/"cid":(\d+)/)?.[1] ?? '';
-
-    return {
-      aid,
-      bvid,
-      cid,
-      pubdate,
-      pic,
-      title,
-      owner: { name: ownerName, face: '' },
-    };
-  } catch (error) {
-    logger.debug(`Bilibili video page failed for ${bvid}:`, error);
+  const mode = await fetchMode();
+  if (mode === 'fail_closed') {
+    logger.warn(`Bilibili proxy pool empty; fail closed for ${bvid}`);
     return null;
   }
+
+  if (mode === 'direct') {
+    const result = await fetchBilibiliHtml(bvid, { proxy: null, timeoutMs: 10000 });
+    if ('reason' in result) {
+      logger.warn(`Bilibili video page failed for ${bvid}: ${result.reason}`);
+      return null;
+    }
+    return parseBilibiliViewHtml(bvid, result.html);
+  }
+
+  const won = await raceProxyWaves<BilibiliData>(
+    async (proxy, signal) => {
+      const result = await fetchBilibiliHtml(bvid, { proxy, signal });
+      if ('reason' in result) return result;
+      const parsed = parseBilibiliViewHtml(bvid, result.html);
+      if (!parsed) return { reason: 'no_meta' as const, proxyOk: true };
+      return { value: parsed };
+    },
+    { logLabel: `html ${bvid}` },
+  );
+
+  if (!won) {
+    logger.warn(`Bilibili video page failed for ${bvid}: all proxy waves empty`);
+    return null;
+  }
+
+  won.value.viaProxyId = won.proxy.id;
+  return won.value;
 }
 
 async function loadView(bvid: string): Promise<BilibiliData | null> {
@@ -175,7 +129,7 @@ export async function getBilibiliVideoDetails(url: string): Promise<VideoDetails
     if (!data) return null;
     return toDetails(data);
   } catch (error) {
-    logger.debug(`Error fetching Bilibili video details for link ${url}:`, error);
+    logger.warn(`Error fetching Bilibili video details for link ${url}:`, error);
     return null;
   }
 }
@@ -196,23 +150,33 @@ export async function downloadBilibiliCoverByBvid(
   const pic = data?.pic ? normalizePicUrl(data.pic) : null;
   if (!pic || !isArchiveCover(pic)) return null;
 
-  try {
-    const response = await axios.get<ArrayBuffer>(pic, {
-      responseType: 'arraybuffer',
-      timeout: 10000,
-      maxContentLength: 10 * 1024 * 1024,
-      maxBodyLength: 10 * 1024 * 1024,
-      headers: BILIBILI_REQUEST_HEADERS,
-      validateStatus: (status) => status >= 200 && status < 300,
-    });
-    const contentType = String(response.headers['content-type'] || '')
-      .split(';')[0]
-      .trim()
-      .toLowerCase();
-    if (!contentType.startsWith('image/')) return null;
-    return { buffer: Buffer.from(response.data), contentType };
-  } catch (error) {
-    logger.debug(`Error downloading Bilibili cover for ${bvid}:`, error);
+  const mode = await fetchMode();
+  if (mode === 'fail_closed') {
+    logger.warn(`Bilibili proxy pool empty; fail closed cover for ${bvid}`);
     return null;
   }
+
+  if (mode === 'direct') {
+    const result = await fetchBilibiliImage(pic, { proxy: null, timeoutMs: 10000 });
+    if ('reason' in result) {
+      logger.warn(`Error downloading Bilibili cover for ${bvid}: ${result.reason}`);
+      return null;
+    }
+    return result;
+  }
+
+  const won = await raceProxyWaves<{ buffer: Buffer; contentType: string }>(
+    async (proxy, signal) => {
+      const result = await fetchBilibiliImage(pic, { proxy, signal });
+      if ('reason' in result) return result;
+      return { value: result };
+    },
+    { preferredId: data?.viaProxyId ?? null, logLabel: `cover ${bvid}` },
+  );
+
+  if (!won) {
+    logger.warn(`Error downloading Bilibili cover for ${bvid}: all proxy waves empty`);
+    return null;
+  }
+  return won.value;
 }
