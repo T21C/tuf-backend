@@ -6,6 +6,7 @@ import {BOT_MOD_DIFF, decideBotModLinkAction, snapshotVersion} from './botModDif
 const base = {
   enabled: true,
   ignoreUpdate: false,
+  isDuplicate: false,
   missing: false,
   version: '1.2.0',
   parsedDownload: 'https://github.com/org/mod/releases/download/1.2.0/mod.zip',
@@ -66,6 +67,13 @@ void test('missing download url is an error', () => {
   assert.equal(
     decideBotModLinkAction({...base, parsedDownload: '  '}).kind,
     BOT_MOD_DIFF.MISSING_DOWNLOAD,
+  );
+});
+
+void test('duplicate rows are not applied', () => {
+  assert.equal(
+    decideBotModLinkAction({...base, isDuplicate: true, version: '9.9.9'}).kind,
+    BOT_MOD_DIFF.DUPLICATE,
   );
 });
 

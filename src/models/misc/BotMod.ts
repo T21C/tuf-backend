@@ -23,6 +23,7 @@ class BotMod extends Model<InferAttributes<BotMod>, InferCreationAttributes<BotM
   declare uploadedAt: CreationOptional<Date | null>;
   declare ignoreUpdate: CreationOptional<boolean>;
   declare hideFromSearch: CreationOptional<boolean>;
+  declare isDuplicate: CreationOptional<boolean>;
   declare lastSeenAt: Date;
   declare missingSince: CreationOptional<Date | null>;
   declare createdAt: CreationOptional<Date>;
@@ -83,6 +84,11 @@ BotMod.init(
       allowNull: false,
       defaultValue: false,
     },
+    isDuplicate: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     lastSeenAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -103,7 +109,10 @@ BotMod.init(
   {
     sequelize,
     tableName: 'bot_mods',
-    indexes: [{fields: ['missingSince'], name: 'idx_bot_mods_missing_since'}],
+    indexes: [
+      {fields: ['missingSince'], name: 'idx_bot_mods_missing_since'},
+      {fields: ['isDuplicate'], name: 'idx_bot_mods_is_duplicate'},
+    ],
   },
 );
 
