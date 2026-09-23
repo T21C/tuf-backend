@@ -18,6 +18,8 @@ import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import { jobProgressService } from '@/server/services/core/JobProgressService.js';
 import Pass from '@/models/passes/Pass.js';
+import Judgement from '@/models/passes/Judgement.js';
+import { isPureXPerfect } from '@/misc/utils/pass/CalcAcc.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
@@ -837,6 +839,22 @@ router.get(
         ? Pass.findAll({
             where: { playerId: req.user.playerId, isDeleted: false },
             attributes: ['levelId', 'accuracy', 'isXPerfectMode'],
+            include: [{
+              model: Judgement,
+              as: 'judgements',
+              attributes: [
+                'earlyDouble',
+                'earlySingle',
+                'ePerfect',
+                'perfectMinus',
+                'perfect',
+                'perfectPlus',
+                'lPerfect',
+                'lateSingle',
+                'lateDouble',
+              ],
+              required: false,
+            }],
           }).then((passes) => {
             const cleared = new Set<number>();
             const purePerfect = new Set<number>();
@@ -846,7 +864,9 @@ router.get(
               cleared.add(pass.levelId);
               if (Number(pass.accuracy) >= 1 - 1e-9) {
                 purePerfect.add(pass.levelId);
-                if (pass.isXPerfectMode) pureXPerfect.add(pass.levelId);
+              }
+              if (isPureXPerfect(pass.judgements, pass.isXPerfectMode)) {
+                pureXPerfect.add(pass.levelId);
               }
             }
             return { cleared, purePerfect, pureXPerfect };

@@ -195,7 +195,7 @@ export async function computePlayerFunFacts(
           AND IFNULL(p2.isDeleted, 0) = 0
           AND (:includeHidden = 1 OR IFNULL(p2.isHidden, 0) = 0)
           AND p2.accuracy IS NOT NULL
-        ORDER BY p2.accuracy DESC, p2.id DESC
+        ORDER BY p2.accuracy DESC, p2.xaccuracy DESC, p2.id DESC
         LIMIT 1
       ) AS bestAccuracyPassId,
       (
@@ -206,7 +206,7 @@ export async function computePlayerFunFacts(
           AND IFNULL(p2.isDeleted, 0) = 0
           AND (:includeHidden = 1 OR IFNULL(p2.isHidden, 0) = 0)
           AND p2.accuracy IS NOT NULL
-        ORDER BY p2.accuracy ASC, p2.id DESC
+        ORDER BY p2.accuracy ASC, p2.xaccuracy ASC, p2.id DESC
         LIMIT 1
       ) AS worstAccuracyPassId,
       (

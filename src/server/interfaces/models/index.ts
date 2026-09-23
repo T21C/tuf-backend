@@ -145,6 +145,7 @@ export interface IPass extends IBaseModel {
   isWorldsFirst: boolean | null;
   isWorldsFirstPP: boolean | null;
   accuracy: number | null;
+  xaccuracy?: number | null;
   scoreV2: number | null;
   isAnnounced: boolean | null;
   isDeleted: boolean | null;
@@ -239,6 +240,7 @@ export interface IJudgement extends IBaseModel {
   lateSingle: number;
   lateDouble: number;
   accuracy: number | null;
+  xaccuracy?: number | null;
 }
 
 // Model instance types

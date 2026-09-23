@@ -145,14 +145,35 @@ export function calcAcc(inp: IJudgements | unknown): number {
   );
 }
 
+/**
+ * Internal sort key. Same buckets as `calcAcc` except Perfect− / Perfect+ weigh 0.9.
+ * Must stay in sync with MySQL `calculate_xaccuracy`. Never displayed.
+ */
+export function calcXAcc(inp: IJudgements | unknown): number {
+  if (!inp) return 0;
+  const judgements = unwrapJudgements(inp);
+  const total = sumJudgements(judgements);
+  if (!total) return 0;
+
+  return (
+    (judgements.perfect +
+      (judgements.perfectMinus + judgements.perfectPlus) * 0.9 +
+      (judgements.ePerfect + judgements.lPerfect) * 0.75 +
+      (judgements.earlySingle + judgements.lateSingle) * 0.4 +
+      (judgements.earlyDouble + judgements.lateDouble) * 0.2) /
+    total
+  );
+}
+
+/** Every hit is an x-perfect (center perfect). Perfect− / Perfect+ still score 1.0, so accuracy alone is not enough. */
 export function isPureXPerfect(
   judgements: unknown,
   isXPerfectMode: boolean | null | undefined,
-  accuracy?: number | null,
 ): boolean {
   if (!isXPerfectMode) return false;
-  const acc = accuracy == null ? calcAcc(judgements) : accuracy;
-  return acc === 1;
+  const j = unwrapJudgements(judgements);
+  const total = sumJudgements(j);
+  return total > 0 && j.perfect === total;
 }
 
 /** Ancient placeholder judgements (no results screen): 5 / 40 / 5 with other hit buckets 0. */

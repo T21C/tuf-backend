@@ -34,6 +34,7 @@ class Pass
   declare isWorldsFirst: boolean | null;
   declare isWorldsFirstPP: boolean | null;
   declare accuracy: number | null;
+  declare xaccuracy: number | null;
   declare scoreV2: number | null;
   declare isHidden: boolean | null;
   declare isDeleted: boolean | null;
@@ -157,6 +158,11 @@ Pass.init(
       allowNull: true,
       defaultValue: null,
     },
+    xaccuracy: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+      defaultValue: null,
+    },
     scoreV2: {
       type: DataTypes.FLOAT,
       allowNull: true,
@@ -237,5 +243,19 @@ Pass.init(
     ],
   },
 );
+
+Pass.prototype.toJSON = function toJSON() {
+  const {xaccuracy: _xaccuracy, ...rest} = this.get() as any;
+  const judgements = rest.judgements;
+  if (judgements && typeof judgements === 'object') {
+    const plain =
+      typeof judgements.toJSON === 'function' ? judgements.toJSON() : judgements;
+    if (plain && typeof plain === 'object') {
+      const {xaccuracy: _jx, ...judgementRest} = plain;
+      rest.judgements = judgementRest;
+    }
+  }
+  return rest;
+};
 
 export default Pass;
