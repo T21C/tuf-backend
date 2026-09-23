@@ -96,3 +96,29 @@ test('authorized tester can pass the final BE mutation gate', async t => {
   assert.equal(identity.can_submit, true);
   assert.equal(identity.denial_reason, null);
 });
+
+test('replay tester authority still rejects revoked OAuth grants at final registration', async t => {
+  withEnv(t, {
+    TUF_AUTO_SUBMISSION_OAUTH_CLIENT_ID: clientId,
+    AUTO_SUBMISSION_ENABLED: 'true',
+    AUTO_SUBMISSION_TESTER_AUTHORITY: 'replay',
+    AUTO_SUBMISSION_TRUSTED_USER_IDS: undefined,
+  });
+  mockIdentity(t);
+  assert.equal((await requireSubmissionAuthorization(ownerId, grantId)).can_submit, true);
+  t.mock.method(OAuthGrant, 'findByPk', async () => ({
+    id: grantId, userId: ownerId, clientId, scopeBits: '65537', revokedAt: new Date(),
+  }) as never);
+  await assert.rejects(requireSubmissionAuthorization(ownerId, grantId));
+});
+
+test('replay tester authority still rejects unavailable accounts', async t => {
+  withEnv(t, {
+    TUF_AUTO_SUBMISSION_OAUTH_CLIENT_ID: clientId,
+    AUTO_SUBMISSION_ENABLED: 'true',
+    AUTO_SUBMISSION_TESTER_AUTHORITY: 'replay',
+  });
+  mockIdentity(t);
+  t.mock.method(User, 'findByPk', async () => null);
+  await assert.rejects(requireSubmissionAuthorization(ownerId, grantId));
+});
