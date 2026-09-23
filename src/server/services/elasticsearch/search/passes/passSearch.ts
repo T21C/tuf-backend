@@ -351,8 +351,16 @@ async function searchPassesWithRegularSearch(
 }
 
 function convertPassSearchHit(source: Record<string, any>): any {
+  const {xaccuracy: _xaccuracy, ...rest} = source;
+  const judgements = rest.judgements
+    ? (() => {
+        const {xaccuracy: _jx, ...judgementRest} = rest.judgements as Record<string, unknown>;
+        return judgementRest;
+      })()
+    : rest.judgements;
   return {
-    ...source,
+    ...rest,
+    judgements,
     vidTitle: convertFromPUA(source.vidTitle as string),
     videoLink: convertFromPUA(source.videoLink as string),
     player: source.player ? {
@@ -388,7 +396,7 @@ async function getPassSortOptions(sort?: string): Promise<any[]> {
     case 'SCORE':
       return [{ scoreV2: direction }, { id: 'desc' }];
     case 'XACC':
-      return [{ accuracy: direction }, { scoreV2: 'desc' }, { id: 'desc' }];
+      return [{ accuracy: direction }, { xaccuracy: direction }, { scoreV2: 'desc' }, { id: 'desc' }];
     case 'SPEED':
       return [{ speed: direction }, { speed: 'desc' }, { id: 'desc' }];
     case 'KEYCOUNT':

@@ -494,6 +494,9 @@ export const levelMapping = {
 export const passMapping = {
   settings,
   mappings: {
+    _source: {
+      excludes: ['xaccuracy', 'judgements.xaccuracy'],
+    },
     properties: {
       id: { type: 'integer' as const },
       levelId: { type: 'integer' as const },
@@ -515,6 +518,7 @@ export const passMapping = {
       is16K: { type: 'boolean' as const },
       isNoHoldTap: { type: 'boolean' as const },
       accuracy: { type: 'float' as const },
+      xaccuracy: { type: 'float' as const },
       scoreV2: { type: 'float' as const },
       isDeleted: { type: 'boolean' as const },
       isAnnounced: { type: 'boolean' as const },

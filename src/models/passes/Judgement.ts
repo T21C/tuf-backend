@@ -15,6 +15,7 @@ class Judgement extends Model<IJudgement> implements IJudgement {
   declare lateSingle: number;
   declare lateDouble: number;
   declare accuracy: number | null;
+  declare xaccuracy: number | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 }
@@ -87,11 +88,22 @@ Judgement.init(
       allowNull: true,
       defaultValue: null,
     },
+    xaccuracy: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+      defaultValue: null,
+    },
   },
   {
     sequelize,
     tableName: 'judgements',
   },
 );
+
+Judgement.prototype.toJSON = function toJSON() {
+  const values = this.get() as Record<string, unknown>;
+  const {xaccuracy: _xaccuracy, ...rest} = values;
+  return rest;
+};
 
 export default Judgement;

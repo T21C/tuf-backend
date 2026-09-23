@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {BOT_MOD_DIFF, decideBotModLinkAction, snapshotVersion} from './botModDiff.js';
+import {
+  BOT_MOD_DIFF,
+  decideBotModLinkAction,
+  snapshotDescription,
+  snapshotVersion,
+} from './botModDiff.js';
 
 const base = {
   enabled: true,
@@ -19,6 +24,13 @@ void test('snapshotVersion trims and caps length', () => {
   assert.equal(snapshotVersion('  1.0.0  '), '1.0.0');
   assert.equal(snapshotVersion(null), '');
   assert.equal(snapshotVersion('x'.repeat(80)).length, 64);
+});
+
+void test('snapshotDescription trims empty and caps length', () => {
+  assert.equal(snapshotDescription('  hello  '), 'hello');
+  assert.equal(snapshotDescription(null), null);
+  assert.equal(snapshotDescription('   '), null);
+  assert.equal(snapshotDescription('x'.repeat(20000))?.length, 16384);
 });
 
 void test('same version and url is a no-op', () => {

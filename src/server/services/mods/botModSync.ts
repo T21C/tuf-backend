@@ -13,6 +13,7 @@ import {normalizeVersionLabel} from './modSlug.js';
 import {
   BOT_MOD_DIFF,
   decideBotModLinkAction,
+  snapshotDescription,
   snapshotDownloadUrl,
   snapshotVersion,
 } from './botModDiff.js';
@@ -293,6 +294,32 @@ async function stampLink(
   await link.update(next);
 }
 
+async function syncCatalogDescriptionFromBot(
+  modId: number,
+  version: string,
+  description: string | null,
+  notesMode: 'always' | 'if-empty',
+): Promise<boolean> {
+  if (!description) return false;
+  let changed = false;
+  const versionRow = await ModVersion.findOne({
+    where: {modId, version: normalizeVersionLabel(version)},
+  });
+  const existingNotes = String(versionRow?.notes ?? '').trim();
+  const shouldWriteNotes = notesMode === 'always' || !existingNotes;
+  if (!shouldWriteNotes) return false;
+  if (versionRow && (versionRow.notes || '') !== description) {
+    await versionRow.update({notes: description});
+    changed = true;
+  }
+  const mod = await Mod.findByPk(modId);
+  if (mod && (mod.description || '') !== description) {
+    await mod.update({description});
+    changed = true;
+  }
+  return changed;
+}
+
 async function applyLinkedSnapshot(link: BotModLink, seenAt: Date, counts: BotModsSyncCounts, createdModIds: Set<number>): Promise<void> {
   const bot = link.botMod;
   if (!bot) {
@@ -308,6 +335,7 @@ async function applyLinkedSnapshot(link: BotModLink, seenAt: Date, counts: BotMo
 
   const version = snapshotVersion(bot.version);
   const downloadUrl = snapshotDownloadUrl(bot.parsedDownload);
+  const description = snapshotDescription(bot.description);
   let catalogHasVersion = false;
   if (version) {
     const existing = await ModVersion.findOne({
@@ -331,10 +359,16 @@ async function applyLinkedSnapshot(link: BotModLink, seenAt: Date, counts: BotMo
   switch (action.kind) {
     case BOT_MOD_DIFF.NOOP:
       counts.unchanged += 1;
+      if (await syncCatalogDescriptionFromBot(link.modId, version, description, 'if-empty')) {
+        createdModIds.add(link.modId);
+      }
       await stampLink(link, {status: 'ok', message: null, at: seenAt, keepCursor: true});
       return;
     case BOT_MOD_DIFF.ADVANCE_URL:
       counts.advanced += 1;
+      if (await syncCatalogDescriptionFromBot(link.modId, version, description, 'if-empty')) {
+        createdModIds.add(link.modId);
+      }
       await stampLink(link, {
         status: 'ok',
         message: 'Download URL changed for the same version',
@@ -345,6 +379,9 @@ async function applyLinkedSnapshot(link: BotModLink, seenAt: Date, counts: BotMo
       return;
     case BOT_MOD_DIFF.SKIP_EXISTING:
       counts.skipped += 1;
+      if (await syncCatalogDescriptionFromBot(link.modId, version, description, 'if-empty')) {
+        createdModIds.add(link.modId);
+      }
       await stampLink(link, {
         status: 'skipped',
         message: `Version ${version} already exists`,
@@ -405,9 +442,10 @@ async function applyLinkedSnapshot(link: BotModLink, seenAt: Date, counts: BotMo
           modId: link.modId,
           version,
           downloadUrl,
-          notes: null,
+          notes: description,
           releasedAt: bot.uploadedAt || seenAt,
         });
+        await syncCatalogDescriptionFromBot(link.modId, version, description, 'always');
         createdModIds.add(link.modId);
         counts.created += 1;
         await stampLink(link, {
@@ -420,6 +458,9 @@ async function applyLinkedSnapshot(link: BotModLink, seenAt: Date, counts: BotMo
       } catch (error) {
         if (isUniqueConstraintError(error)) {
           counts.skipped += 1;
+          if (await syncCatalogDescriptionFromBot(link.modId, version, description, 'if-empty')) {
+            createdModIds.add(link.modId);
+          }
           await stampLink(link, {
             status: 'skipped',
             message: `Version ${version} already exists`,

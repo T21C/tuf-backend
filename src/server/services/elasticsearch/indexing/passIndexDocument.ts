@@ -24,12 +24,21 @@ function arr<T>(value: T[] | null | undefined): T[] {
   return Array.isArray(value) ? value : [];
 }
 
+function omitXaccuracy<T extends Record<string, unknown>>(row: T): Omit<T, 'xaccuracy'> {
+  const {xaccuracy: _xaccuracy, ...rest} = row;
+  return rest;
+}
+
 export function buildPassIndexDocument(pass: Pass): any {
-  const p = pass.toJSON() as any;
+  const p = omitXaccuracy(pass.toJSON() as Record<string, unknown>) as any;
   const level = p.level as Record<string, unknown> | null | undefined;
+  const xaccuracyRaw = pass.getDataValue('xaccuracy');
+  const xaccuracy =
+    xaccuracyRaw == null || xaccuracyRaw === '' ? null : Number(xaccuracyRaw);
 
   return {
     ...p,
+    xaccuracy: Number.isFinite(xaccuracy) ? xaccuracy : null,
     adofaiVersion: Number(p.adofaiVersion) || 2,
     isXPerfectMode: !!p.isXPerfectMode,
     isWrongJudgement: !!p.isWrongJudgement,
@@ -63,11 +72,11 @@ export function buildPassIndexDocument(pass: Pass): any {
         }
       : null,
     judgements: p.judgements
-      ? {
+      ? omitXaccuracy({
           ...plainRow(p.judgements as object),
           perfectMinus: Number((p.judgements as {perfectMinus?: unknown}).perfectMinus) || 0,
           perfectPlus: Number((p.judgements as {perfectPlus?: unknown}).perfectPlus) || 0,
-        }
+        })
       : null,
   };
 }

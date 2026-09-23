@@ -1,3 +1,5 @@
+import {DESCRIPTION_MAX} from './modFields.js';
+
 export const BOT_MOD_DIFF = {
   NOOP: 'noop',
   ADVANCE_URL: 'advance_url',
@@ -23,6 +25,13 @@ export function snapshotVersion(raw: unknown): string {
 
 export function snapshotDownloadUrl(raw: unknown): string {
   return String(raw ?? '').trim();
+}
+
+export function snapshotDescription(raw: unknown): string | null {
+  const text =
+    typeof raw === 'string' ? raw.trim() : raw == null ? '' : String(raw).trim();
+  if (!text) return null;
+  return text.slice(0, DESCRIPTION_MAX);
 }
 
 export type BotModLinkDiffInput = {

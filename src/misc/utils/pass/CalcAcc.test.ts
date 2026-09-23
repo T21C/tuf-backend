@@ -2,6 +2,7 @@ import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {
   calcAcc,
+  calcXAcc,
   emptyJudgements,
   getEffectiveTilecount,
   isAncient5405Pattern,
@@ -57,6 +58,19 @@ describe('CalcAcc xperfect weights', () => {
     xp.perfect = 100;
     assert.equal(isPureXPerfect(xp, true), true);
     assert.equal(isPureXPerfect(xp, false), false);
+
+    const mixedPerfectBand = emptyJudgements();
+    mixedPerfectBand.perfectMinus = 6;
+    mixedPerfectBand.perfect = 1620;
+    mixedPerfectBand.perfectPlus = 15;
+    assert.equal(calcAcc(mixedPerfectBand), 1);
+    assert.equal(isPureXPerfect(mixedPerfectBand, true), false);
+    assert.equal(calcXAcc(mixedPerfectBand), (1620 + 0.9 * 21) / 1641);
+
+    const allCenter = emptyJudgements();
+    allCenter.perfect = 1641;
+    assert.equal(calcXAcc(allCenter), 1);
+    assert.equal(calcXAcc(allCenter), calcAcc(allCenter));
   });
 });
 
