@@ -24,17 +24,16 @@ function arr<T>(value: T[] | null | undefined): T[] {
   return Array.isArray(value) ? value : [];
 }
 
-function omitXaccuracy<T extends Record<string, unknown>>(row: T): Omit<T, 'xaccuracy'> {
-  const {xaccuracy: _xaccuracy, ...rest} = row;
+function omitXaccuracy(row: any) {
+  const {xaccuracy: _xaccuracy, ...rest} = row || {};
   return rest;
 }
 
 export function buildPassIndexDocument(pass: Pass): any {
-  const p = omitXaccuracy(pass.toJSON() as Record<string, unknown>) as any;
-  const level = p.level as Record<string, unknown> | null | undefined;
+  const p = omitXaccuracy(pass.toJSON());
+  const level = p.level;
   const xaccuracyRaw = pass.getDataValue('xaccuracy');
-  const xaccuracy =
-    xaccuracyRaw == null || xaccuracyRaw === '' ? null : Number(xaccuracyRaw);
+  const xaccuracy = xaccuracyRaw == null ? null : Number(xaccuracyRaw);
 
   return {
     ...p,
@@ -47,35 +46,35 @@ export function buildPassIndexDocument(pass: Pass): any {
     videoLink: puaOrNull(p.videoLink),
     player: p.player
       ? {
-          ...plainRow(p.player as object),
-          name: pua((p.player as any).name),
-          username: (p.player as any).user?.username ?? null,
-          avatarUrl: passPlayerAvatarProxyUrl((p.player as any).id),
+          ...plainRow(p.player),
+          name: pua(p.player.name),
+          username: p.player.user?.username ?? null,
+          avatarUrl: passPlayerAvatarProxyUrl(p.player.id),
         }
       : null,
     level: level
       ? {
-          ...plainRow(level as object),
-          song: pua((level as any).song),
-          artist: pua((level as any).artist),
-          dlLink: puaOrNull((level as any).dlLink),
+          ...plainRow(level),
+          song: pua(level.song),
+          artist: pua(level.artist),
+          dlLink: puaOrNull(level.dlLink),
           // Match level-index PUA encoding so multi-word aliases survive whitespace tokenization.
-          aliases: arr<any>((level as any).aliases).map((a) => {
-            const row = plainRow(a as object) as Record<string, unknown>;
+          aliases: arr<any>(level.aliases).map((a) => {
+            const row = plainRow(a);
             return {
               ...row,
               originalValue:
                 row.originalValue != null ? pua(row.originalValue) : row.originalValue,
-              alias: pua((row as any).alias),
+              alias: pua(row.alias),
             };
           }),
         }
       : null,
     judgements: p.judgements
       ? omitXaccuracy({
-          ...plainRow(p.judgements as object),
-          perfectMinus: Number((p.judgements as {perfectMinus?: unknown}).perfectMinus) || 0,
-          perfectPlus: Number((p.judgements as {perfectPlus?: unknown}).perfectPlus) || 0,
+          ...plainRow(p.judgements),
+          perfectMinus: Number(p.judgements.perfectMinus) || 0,
+          perfectPlus: Number(p.judgements.perfectPlus) || 0,
         })
       : null,
   };

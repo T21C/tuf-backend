@@ -101,8 +101,7 @@ Judgement.init(
 );
 
 Judgement.prototype.toJSON = function toJSON() {
-  const values = this.get() as Record<string, unknown>;
-  const {xaccuracy: _xaccuracy, ...rest} = values;
+  const {xaccuracy: _xaccuracy, ...rest} = this.get() as any;
   return rest;
 };
 

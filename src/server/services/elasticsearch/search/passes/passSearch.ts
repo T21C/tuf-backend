@@ -352,15 +352,12 @@ async function searchPassesWithRegularSearch(
 
 function convertPassSearchHit(source: Record<string, any>): any {
   const {xaccuracy: _xaccuracy, ...rest} = source;
-  const judgements = rest.judgements
-    ? (() => {
-        const {xaccuracy: _jx, ...judgementRest} = rest.judgements as Record<string, unknown>;
-        return judgementRest;
-      })()
-    : rest.judgements;
+  if (rest.judgements && typeof rest.judgements === 'object') {
+    const {xaccuracy: _jx, ...judgementRest} = rest.judgements;
+    rest.judgements = judgementRest;
+  }
   return {
     ...rest,
-    judgements,
     vidTitle: convertFromPUA(source.vidTitle as string),
     videoLink: convertFromPUA(source.videoLink as string),
     player: source.player ? {
