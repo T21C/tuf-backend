@@ -10,7 +10,7 @@ export type AutoSubmissionDenialReason =
 
 type AutoSubmissionPolicyEnvironment = Partial<Pick<
   NodeJS.ProcessEnv,
-  'AUTO_SUBMISSION_ENABLED' | 'AUTO_SUBMISSION_TRUSTED_USER_IDS'
+  'AUTO_SUBMISSION_ENABLED' | 'AUTO_SUBMISSION_TRUSTED_USER_IDS' | 'AUTO_SUBMISSION_TESTER_AUTHORITY'
 >>;
 
 const uuidSchema = z.uuid();
@@ -45,11 +45,18 @@ export function parseTrustedUserIds(raw: string | undefined): {
 
 export function readAutoSubmissionPolicy(
   env: AutoSubmissionPolicyEnvironment = process.env,
-): { enabled: boolean; trustedUserIds: ReadonlySet<string> } {
+): { enabled: boolean; trustedUserIds: ReadonlySet<string>; testerAuthority: 'environment' | 'replay' } {
+  const authority = (env.AUTO_SUBMISSION_TESTER_AUTHORITY ?? 'environment').trim();
+  if (authority === 'replay') {
+    // The authenticated Replay service checks its current DB membership. TUF still
+    // verifies OAuth, account status and submission permissions at final registration.
+    return { enabled: parseEnabled(env.AUTO_SUBMISSION_ENABLED), trustedUserIds: new Set(), testerAuthority: 'replay' };
+  }
   const trusted = parseTrustedUserIds(env.AUTO_SUBMISSION_TRUSTED_USER_IDS);
   return {
-    enabled: parseEnabled(env.AUTO_SUBMISSION_ENABLED) && trusted.valid,
+    enabled: authority === 'environment' && parseEnabled(env.AUTO_SUBMISSION_ENABLED) && trusted.valid,
     trustedUserIds: trusted.ids,
+    testerAuthority: 'environment',
   };
 }
 
@@ -67,7 +74,7 @@ export function getAutoSubmissionEligibility(
       denial_reason: AUTO_SUBMISSION_DENIAL_REASONS.DISABLED,
     };
   }
-  if (!policy.trustedUserIds.has(userId.toLowerCase())) {
+  if (!uuidSchema.safeParse(userId).success || (policy.testerAuthority === 'environment' && !policy.trustedUserIds.has(userId.toLowerCase()))) {
     return {
       can_submit: false,
       denial_reason: AUTO_SUBMISSION_DENIAL_REASONS.TESTER_REQUIRED,

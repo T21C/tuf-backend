@@ -13,6 +13,7 @@ test('auto submission defaults off and an empty allowlist denies everyone', () =
   assert.deepEqual(readAutoSubmissionPolicy({}), {
     enabled: false,
     trustedUserIds: new Set(),
+    testerAuthority: 'environment',
   });
   assert.deepEqual(getAutoSubmissionEligibility(testerId, {}), {
     can_submit: false,
@@ -54,4 +55,12 @@ test('malformed enable values and UUID allowlists fail closed', () => {
     AUTO_SUBMISSION_ENABLED: '1',
     AUTO_SUBMISSION_TRUSTED_USER_IDS: 'not-a-uuid',
   }).enabled, false);
+});
+
+test('replay authority removes the duplicate tester list but retains the rollout switch', () => {
+  const env = { AUTO_SUBMISSION_ENABLED: 'true', AUTO_SUBMISSION_TESTER_AUTHORITY: 'replay', AUTO_SUBMISSION_TRUSTED_USER_IDS: 'obsolete' };
+  assert.deepEqual(getAutoSubmissionEligibility(testerId, env), { can_submit: true, denial_reason: null });
+  assert.equal(getAutoSubmissionEligibility('not-a-uuid', env).can_submit, false);
+  assert.equal(getAutoSubmissionEligibility(testerId, { ...env, AUTO_SUBMISSION_ENABLED: 'false' }).can_submit, false);
+  assert.equal(getAutoSubmissionEligibility(testerId, { ...env, AUTO_SUBMISSION_TESTER_AUTHORITY: 'typo' }).can_submit, false);
 });
