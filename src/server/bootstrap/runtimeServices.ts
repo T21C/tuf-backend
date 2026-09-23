@@ -115,6 +115,11 @@ export async function initializeRuntimeServices(): Promise<void> {
   );
   WeeklyScheduleFillCronService.startScheduledFill();
 
+  const { BotModsSyncCronService } = await import(
+    '@/server/services/mods/BotModsSyncCronService.js'
+  );
+  BotModsSyncCronService.startScheduledSync();
+
   const { initUploadKinds } = await import('@/server/services/upload/registerKinds.js');
   initUploadKinds();
 }

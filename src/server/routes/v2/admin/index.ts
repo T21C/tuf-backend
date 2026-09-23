@@ -14,6 +14,7 @@ import tournamentsRoutes from './tournaments.js';
 import oauthClientsRoutes from './oauthClients.js';
 import usefulLinksRoutes from './usefulLinks.js';
 import modsRoutes from './mods.js';
+import botModsRoutes from './botMods.js';
 import translationContributorsRoutes from './translationContributors.js';
 // Import other admin routes here
 
@@ -36,6 +37,7 @@ router.use('/tournaments', tournamentsRoutes);
 router.use('/oauth-clients', oauthClientsRoutes);
 router.use('/useful-links', usefulLinksRoutes);
 router.use('/mods', modsRoutes);
+router.use('/bot-mods', botModsRoutes);
 router.use('/translation-contributors', translationContributorsRoutes);
 
 router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {

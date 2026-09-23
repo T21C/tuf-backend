@@ -99,6 +99,8 @@ import ModTagAssignment from './misc/ModTagAssignment.js';
 import ModLike from './misc/ModLike.js';
 import ModDownloadUnique from './misc/ModDownloadUnique.js';
 import ModSlugRedirect from './misc/ModSlugRedirect.js';
+import BotMod from './misc/BotMod.js';
+import BotModLink from './misc/BotModLink.js';
 import TranslationContributor from './misc/TranslationContributor.js';
 // Create db object with models first
 export const db = {
@@ -205,6 +207,8 @@ export const db = {
     ModLike,
     ModDownloadUnique,
     ModSlugRedirect,
+    BotMod,
+    BotModLink,
     TranslationContributor,
   },
 };
