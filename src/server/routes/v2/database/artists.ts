@@ -3,7 +3,8 @@ import {Op} from 'sequelize';
 import {Auth} from '@/server/middleware/auth.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses404500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/index.js';
-import Artist from '@/models/artists/Artist.js';
+import Artist, { parseArtistVerificationState, ARTIST_VERIFICATION_STATES } from '@/models/artists/Artist.js';
+import { parseTufVerifiedFlag } from '@/models/verificationStates.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import ArtistLink from '@/models/artists/ArtistLink.js';
 import ArtistEvidence from '@/models/artists/ArtistEvidence.js';
@@ -33,10 +34,10 @@ router.get(
   ApiDoc({
     operationId: 'getArtists',
     summary: 'List artists',
-    description: 'Paginated, searchable list of artists. Query: page, offset, limit, search, sort.',
+    description: 'Paginated, searchable list of artists. Query: page, offset, limit, search, sort, verificationState, tufVerified.',
     tags: ['Database', 'Artists'],
     security: ['bearerAuth'],
-    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } } },
+    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } }, verificationState: { schema: { type: 'string' } }, tufVerified: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Paginated artists' }, 500: { schema: errorResponseSchema } },
   }),
   async (req: Request, res: Response) => {
@@ -46,7 +47,10 @@ router.get(
       search = '',
       sort = 'NAME_ASC',
       verificationState,
+      tufVerified,
     } = req.query;
+    const parsedVerificationState = parseArtistVerificationState(verificationState);
+    const tufVerifiedOnly = parseTufVerifiedFlag(tufVerified) === true;
 
     const searchString = (search as string).trim();
 
@@ -161,12 +165,17 @@ router.get(
       }
     }
 
-    // Apply verification state filter if specified
-    if (verificationState && allMatchingIds.length > 0) {
+    // Apply verification state / TUF Verified filters if specified
+    if ((parsedVerificationState || tufVerifiedOnly) && allMatchingIds.length > 0) {
       const filterWhere: any = {
         id: {[Op.in]: allMatchingIds},
       };
-      filterWhere.verificationState = verificationState;
+      if (parsedVerificationState) {
+        filterWhere.verificationState = parsedVerificationState;
+      }
+      if (tufVerifiedOnly) {
+        filterWhere.tufVerified = true;
+      }
       const filteredArtists = await Artist.findAll({
         where: filterWhere,
         attributes: ['id'],
@@ -222,9 +231,12 @@ router.get(
         hasMore: false
       });
     } else {
-      // No search - apply verification state filter if specified
-      if (verificationState) {
-        finalWhere.verificationState = verificationState;
+      // No search - apply verification / TUF Verified filters if specified
+      if (parsedVerificationState) {
+        finalWhere.verificationState = parsedVerificationState;
+      }
+      if (tufVerifiedOnly) {
+        finalWhere.tufVerified = true;
       }
       queryOptions.where = finalWhere;
       queryOptions.limit = limit;
@@ -376,7 +388,7 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
   let transaction: any;
   try {
     transaction = await sequelize.transaction();
-    let {name, verificationState, aliases} = req.body;
+    let {name, verificationState, tufVerified, aliases} = req.body;
 
     // Parse aliases if it's a JSON string (from FormData)
     if (typeof aliases === 'string') {
@@ -391,6 +403,19 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
     if (!name || typeof name !== 'string') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Name is required'});
+    }
+
+    const parsedVerificationState = parseArtistVerificationState(verificationState);
+    if (verificationState !== undefined && verificationState !== null && verificationState !== '' && !parsedVerificationState) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({
+        error: `Invalid verificationState. Allowed values: ${ARTIST_VERIFICATION_STATES.join(', ')}`,
+      });
+    }
+    const parsedTufVerified = parseTufVerifiedFlag(tufVerified);
+    if (tufVerified !== undefined && tufVerified !== null && tufVerified !== '' && parsedTufVerified === null) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({error: 'Invalid tufVerified. Allowed values: true, false'});
     }
 
     const trimmedName = name.trim();
@@ -456,7 +481,8 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
       const artist = await Artist.create({
         name: name.trim(),
         avatarUrl: cdnUrl || null,
-        verificationState: verificationState || 'unverified'
+        verificationState: parsedVerificationState || 'unverified',
+        tufVerified: parsedTufVerified === true,
       }, {transaction});
 
       // Add aliases if provided
@@ -534,14 +560,29 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
       return res.status(404).json({error: 'Artist not found'});
     }
 
-    const {name, verificationState, extraInfo} = req.body;
+    const {name, verificationState, tufVerified, extraInfo} = req.body;
 
     if (name && typeof name === 'string') {
       artist.name = name.trim();
     }
     // Avatar can only be changed via upload/delete endpoints
-    if (verificationState) {
-      artist.verificationState = verificationState;
+    if (verificationState !== undefined && verificationState !== null && verificationState !== '') {
+      const parsedVerificationState = parseArtistVerificationState(verificationState);
+      if (!parsedVerificationState) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({
+          error: `Invalid verificationState. Allowed values: ${ARTIST_VERIFICATION_STATES.join(', ')}`,
+        });
+      }
+      artist.verificationState = parsedVerificationState;
+    }
+    const parsedTufVerified = parseTufVerifiedFlag(tufVerified);
+    if (tufVerified !== undefined && tufVerified !== null && tufVerified !== '') {
+      if (parsedTufVerified === null) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({error: 'Invalid tufVerified. Allowed values: true, false'});
+      }
+      artist.tufVerified = parsedTufVerified;
     }
     if (extraInfo !== undefined) {
       artist.extraInfo = extraInfo === null || extraInfo === '' ? null : String(extraInfo).trim();

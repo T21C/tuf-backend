@@ -3,7 +3,8 @@ import {Op} from 'sequelize';
 import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/index.js';
-import Song from '@/models/songs/Song.js';
+import Song, { parseSongVerificationState, SONG_VERIFICATION_STATES } from '@/models/songs/Song.js';
+import { parseTufVerifiedFlag } from '@/models/verificationStates.js';
 import SongAlias from '@/models/songs/SongAlias.js';
 import SongLink from '@/models/songs/SongLink.js';
 import SongEvidence from '@/models/songs/SongEvidence.js';
@@ -37,10 +38,10 @@ router.get(
   ApiDoc({
     operationId: 'getSongs',
     summary: 'List songs',
-    description: 'Paginated, searchable song list. Query: page, offset, limit, search, artistId, sort, verificationState.',
+    description: 'Paginated, searchable song list. Query: page, offset, limit, search, artistId, sort, verificationState, tufVerified.',
     tags: ['Database', 'Songs'],
     security: ['bearerAuth'],
-    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, artistId: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } }, verificationState: { schema: { type: 'string' } } },
+    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, artistId: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } }, verificationState: { schema: { type: 'string' } }, tufVerified: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Songs list' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
@@ -51,7 +52,10 @@ router.get(
       artistId,
       sort = 'NAME_ASC',
       verificationState,
+      tufVerified,
     } = req.query;
+    const parsedVerificationState = parseSongVerificationState(verificationState);
+    const tufVerifiedOnly = parseTufVerifiedFlag(tufVerified) === true;
 
 
     const originalSearchString = (search as string).trim();
@@ -361,12 +365,17 @@ router.get(
       }
     }
 
-    // Apply verification state filter if specified
-    if (verificationState && allMatchingIds.length > 0) {
+    // Apply verification state / TUF Verified filters if specified
+    if ((parsedVerificationState || tufVerifiedOnly) && allMatchingIds.length > 0) {
       const filterWhere: any = {
         id: {[Op.in]: allMatchingIds},
       };
-      filterWhere.verificationState = verificationState;
+      if (parsedVerificationState) {
+        filterWhere.verificationState = parsedVerificationState;
+      }
+      if (tufVerifiedOnly) {
+        filterWhere.tufVerified = true;
+      }
       const filteredSongs = await Song.findAll({
         where: filterWhere,
         attributes: ['id'],
@@ -435,9 +444,12 @@ router.get(
         finalWhere.id = {[Op.in]: paginatedIds};
         queryOptions.where = finalWhere;
       } else {
-        // No filters at all - apply verification state if specified
-        if (verificationState) {
-          finalWhere.verificationState = verificationState;
+        // No ID list - apply verification / TUF Verified filters if specified
+        if (parsedVerificationState) {
+          finalWhere.verificationState = parsedVerificationState;
+        }
+        if (tufVerifiedOnly) {
+          finalWhere.tufVerified = true;
         }
         if (artistSongIds !== null) {
           finalWhere.id = {[Op.in]: artistSongIds};
@@ -629,26 +641,40 @@ router.post(
   ApiDoc({
     operationId: 'postSong',
     summary: 'Create song',
-    description: 'Create a song. Body: name, verificationState?, aliases?. Super admin.',
+    description: 'Create a song. Body: name, verificationState?, tufVerified?, aliases?. Super admin.',
     tags: ['Database', 'Songs'],
     security: ['bearerAuth'],
-    requestBody: { description: 'name, verificationState, aliases', schema: { type: 'object', properties: { name: { type: 'string' }, verificationState: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } } }, required: ['name'] }, required: true },
+    requestBody: { description: 'name, verificationState, tufVerified, aliases', schema: { type: 'object', properties: { name: { type: 'string' }, verificationState: { type: 'string' }, tufVerified: { type: 'boolean' }, aliases: { type: 'array', items: { type: 'string' } } }, required: ['name'] }, required: true },
     responses: { 200: { description: 'Song created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
   let transaction: any;
   try {
     transaction = await sequelize.transaction();
-    const {name, verificationState, aliases} = req.body;
+    const {name, verificationState, tufVerified, aliases} = req.body;
 
     if (!name || typeof name !== 'string') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Name is required'});
     }
 
+    const parsedVerificationState = parseSongVerificationState(verificationState);
+    if (verificationState !== undefined && verificationState !== null && verificationState !== '' && !parsedVerificationState) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({
+        error: `Invalid verificationState. Allowed values: ${SONG_VERIFICATION_STATES.join(', ')}`,
+      });
+    }
+    const parsedTufVerified = parseTufVerifiedFlag(tufVerified);
+    if (tufVerified !== undefined && tufVerified !== null && tufVerified !== '' && parsedTufVerified === null) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({error: 'Invalid tufVerified. Allowed values: true, false'});
+    }
+
     const song = await Song.create({
       name: name.trim(),
-      verificationState: verificationState || 'pending'
+      verificationState: parsedVerificationState ?? 'pending',
+      tufVerified: parsedTufVerified === true,
     }, {transaction});
 
     // Add aliases if provided
@@ -685,11 +711,11 @@ router.put(
   ApiDoc({
     operationId: 'putSong',
     summary: 'Update song',
-    description: 'Update song name, verificationState, extraInfo. Super admin.',
+    description: 'Update song name, verificationState, tufVerified, extraInfo. Super admin.',
     tags: ['Database', 'Songs'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
-    requestBody: { description: 'name, verificationState, extraInfo', schema: { type: 'object', properties: { name: { type: 'string' }, verificationState: { type: 'string' }, extraInfo: { type: 'string' } } }, required: true },
+    requestBody: { description: 'name, verificationState, tufVerified, extraInfo', schema: { type: 'object', properties: { name: { type: 'string' }, verificationState: { type: 'string' }, tufVerified: { type: 'boolean' }, extraInfo: { type: 'string' } } }, required: true },
     responses: { 200: { description: 'Song updated' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
@@ -702,13 +728,28 @@ router.put(
       return res.status(404).json({error: 'Song not found'});
     }
 
-    const {name, verificationState, extraInfo} = req.body;
+    const {name, verificationState, tufVerified, extraInfo} = req.body;
 
     if (name && typeof name === 'string') {
       song.name = name.trim();
     }
-    if (verificationState) {
-      song.verificationState = verificationState;
+    if (verificationState !== undefined && verificationState !== null && verificationState !== '') {
+      const parsedVerificationState = parseSongVerificationState(verificationState);
+      if (!parsedVerificationState) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({
+          error: `Invalid verificationState. Allowed values: ${SONG_VERIFICATION_STATES.join(', ')}`,
+        });
+      }
+      song.verificationState = parsedVerificationState;
+    }
+    const parsedTufVerified = parseTufVerifiedFlag(tufVerified);
+    if (tufVerified !== undefined && tufVerified !== null && tufVerified !== '') {
+      if (parsedTufVerified === null) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({error: 'Invalid tufVerified. Allowed values: true, false'});
+      }
+      song.tufVerified = parsedTufVerified;
     }
     if (extraInfo !== undefined) {
       song.extraInfo = extraInfo === null || extraInfo === '' ? null : String(extraInfo).trim();

@@ -106,7 +106,8 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
       attributes: [
         'id', 
         'name', 
-        'verificationState'
+        'verificationState',
+        'tufVerified',
       ],
       include: [
         { 
@@ -128,7 +129,8 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
                 'id', 
                 'name', 
                 'avatarUrl', 
-                'verificationState'
+                'verificationState',
+                'tufVerified',
               ],
               include: [{ 
                 model: ArtistAlias, 

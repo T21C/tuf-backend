@@ -73,6 +73,7 @@ export function buildLevelIndexDocument(level: Level): any {
       name: pua(a?.name),
       avatarUrl: a?.avatarUrl ?? null,
       verificationState: a?.verificationState ?? null,
+      tufVerified: a?.tufVerified === true,
       role: cr?.role ?? null,
       aliases: arr<any>(a?.aliases).map((al) => ({ alias: pua((plainRow(al as object) as any).alias ?? al) })),
     };
@@ -132,6 +133,7 @@ export function buildLevelIndexDocument(level: Level): any {
           id: songObject.id ?? null,
           name: pua(songObject.name),
           verificationState: songObject.verificationState ?? null,
+          tufVerified: songObject.tufVerified === true,
           aliases: arr<any>(songObject.aliases).map((al) => ({
             alias: pua((plainRow(al as object) as any).alias ?? al),
           })),

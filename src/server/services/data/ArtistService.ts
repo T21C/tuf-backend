@@ -860,7 +860,7 @@ class ArtistService {
    */
   public async getRelatedArtists(artistId: number): Promise<Artist[]> {
     const results = await sequelize.query(`
-      SELECT DISTINCT a.id, a.name, a.avatarUrl, a.verificationState
+      SELECT DISTINCT a.id, a.name, a.avatarUrl, a.verificationState, a.tufVerified
       FROM artist_relations_bidirectional ar
       INNER JOIN artists a ON a.id = ar.relatedArtistId
       WHERE ar.artistId = :artistId
@@ -874,7 +874,8 @@ class ArtistService {
       id: row.id,
       name: row.name,
       avatarUrl: row.avatarUrl,
-      verificationState: row.verificationState
+      verificationState: row.verificationState,
+      tufVerified: row.tufVerified === 1 || row.tufVerified === true,
     } as Artist));
   }
 
@@ -893,7 +894,8 @@ class ArtistService {
         a.id,
         a.name,
         a.avatarUrl,
-        a.verificationState
+        a.verificationState,
+        a.tufVerified
       FROM artist_relations_bidirectional ar
       INNER JOIN artists a ON a.id = ar.relatedArtistId
       WHERE ar.artistId IN (:artistIds)
@@ -915,7 +917,8 @@ class ArtistService {
         id: row.id,
         name: row.name,
         avatarUrl: row.avatarUrl,
-        verificationState: row.verificationState
+        verificationState: row.verificationState,
+        tufVerified: row.tufVerified === 1 || row.tufVerified === true,
       } as Artist;
 
       const relations = relationsMap.get(artistId) || [];

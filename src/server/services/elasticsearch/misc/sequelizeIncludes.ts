@@ -101,7 +101,7 @@ export const LEVEL_INCLUDES: Includeable[] = [
     model: Song,
     as: 'songObject',
     required: false,
-    attributes: ['id', 'name', 'verificationState'],
+    attributes: ['id', 'name', 'verificationState', 'tufVerified'],
     include: [
       {
         model: SongAlias,
@@ -116,7 +116,7 @@ export const LEVEL_INCLUDES: Includeable[] = [
           {
             model: Artist,
             as: 'artist',
-            attributes: ['id', 'name', 'avatarUrl', 'verificationState'],
+            attributes: ['id', 'name', 'avatarUrl', 'verificationState', 'tufVerified'],
             include: [
               {
                 model: ArtistAlias,

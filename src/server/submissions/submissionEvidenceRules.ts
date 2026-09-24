@@ -3,7 +3,7 @@ import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 
 /** Song DB states where a linked song does not require submission evidence. */
-export const SONG_VERIFICATION_NO_EVIDENCE = new Set<string>(['ysmod_only', 'allowed', 'tuf_verified']);
+export const SONG_VERIFICATION_NO_EVIDENCE = new Set<string>(['ysmod_only', 'allowed']);
 
 /**
  * Artist DB states where a new artist request (with existing artist id) does not require evidence.
@@ -12,7 +12,6 @@ export const ARTIST_VERIFICATION_NO_EVIDENCE = new Set<string>([
   'ysmod_only',
   'allowed',
   'mostly_allowed',
-  'tuf_verified',
 ]);
 
 /**
