@@ -18,17 +18,19 @@ type SongAttributes = {
   id: number;
   name: string;
   verificationState: SongVerificationState;
+  tufVerified: boolean;
   extraInfo: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
-type SongCreationAttributes = Optional<SongAttributes, 'id' | 'createdAt' | 'updatedAt'>;
+type SongCreationAttributes = Optional<SongAttributes, 'id' | 'tufVerified' | 'createdAt' | 'updatedAt'>;
 
 class Song extends Model<SongAttributes, SongCreationAttributes> {
   declare id: number;
   declare name: string;
   declare verificationState: SongAttributes['verificationState'];
+  declare tufVerified: boolean;
   declare extraInfo: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -58,6 +60,11 @@ Song.init(
       allowNull: false,
       defaultValue: 'pending',
     },
+    tufVerified: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     extraInfo: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -77,6 +84,7 @@ Song.init(
     indexes: [
       {fields: ['name']},
       {fields: ['verificationState']},
+      {fields: ['tufVerified']},
     ],
   },
 );

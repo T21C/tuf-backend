@@ -1,6 +1,8 @@
 /**
  * Canonical song/artist verification enums. Models, request tables, and
  * sequelize-free parsers (e.g. form DTO) must import from here so lists cannot drift.
+ * TUF Verified is a separate boolean column (`tufVerified`) on songs and artists,
+ * not a verificationState value.
  */
 
 export const SONG_VERIFICATION_STATES = [
@@ -9,7 +11,6 @@ export const SONG_VERIFICATION_STATES = [
   'conditional',
   'ysmod_only',
   'allowed',
-  'tuf_verified',
 ] as const;
 
 export type SongVerificationState = (typeof SONG_VERIFICATION_STATES)[number];
@@ -35,7 +36,6 @@ export const ARTIST_VERIFICATION_STATES = [
   'mostly_allowed',
   'allowed',
   'ysmod_only',
-  'tuf_verified',
 ] as const;
 
 export type ArtistVerificationState = (typeof ARTIST_VERIFICATION_STATES)[number];
@@ -50,4 +50,15 @@ export function parseArtistVerificationState(value: unknown): ArtistVerification
   if (typeof value !== 'string') return null;
   const trimmed = value.trim().toLowerCase();
   return isArtistVerificationState(trimmed) ? trimmed : null;
+}
+
+/** Query/body parser for the independent TUF Verified flag. */
+export function parseTufVerifiedFlag(value: unknown): boolean | null {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === 'true' || trimmed === '1') return true;
+  if (trimmed === 'false' || trimmed === '0') return false;
+  return null;
 }

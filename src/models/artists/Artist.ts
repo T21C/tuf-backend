@@ -19,18 +19,20 @@ type ArtistAttributes = {
   name: string;
   avatarUrl: string | null;
   verificationState: ArtistVerificationState;
+  tufVerified: boolean;
   extraInfo: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
-type ArtistCreationAttributes = Optional<ArtistAttributes, 'id' | 'createdAt' | 'updatedAt'>;
+type ArtistCreationAttributes = Optional<ArtistAttributes, 'id' | 'tufVerified' | 'createdAt' | 'updatedAt'>;
 
 class Artist extends Model<ArtistAttributes, ArtistCreationAttributes> {
   declare id: number;
   declare name: string;
   declare avatarUrl: string | null;
   declare verificationState: ArtistAttributes['verificationState'];
+  declare tufVerified: boolean;
   declare extraInfo: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -65,6 +67,11 @@ Artist.init(
       allowNull: false,
       defaultValue: 'unverified',
     },
+    tufVerified: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     extraInfo: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -84,6 +91,7 @@ Artist.init(
     indexes: [
       {fields: ['name']},
       {fields: ['verificationState']},
+      {fields: ['tufVerified']},
     ],
   },
 );

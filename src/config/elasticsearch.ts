@@ -158,6 +158,7 @@ export const levelMapping = {
             }
           },
           verificationState: { type: 'keyword' as const },
+          tufVerified: { type: 'boolean' as const },
           aliases: {
             type: 'nested' as const,
             properties: {
@@ -185,6 +186,7 @@ export const levelMapping = {
           },
           avatarUrl: { type: 'text' as const },
           verificationState: { type: 'keyword' as const },
+          tufVerified: { type: 'boolean' as const },
           role: { type: 'keyword' as const },
           aliases: {
             type: 'nested' as const,
@@ -213,6 +215,7 @@ export const levelMapping = {
           },
           avatarUrl: { type: 'text' as const },
           verificationState: { type: 'keyword' as const },
+          tufVerified: { type: 'boolean' as const },
           aliases: {
             type: 'nested' as const,
             properties: {
