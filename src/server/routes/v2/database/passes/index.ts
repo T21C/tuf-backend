@@ -44,12 +44,13 @@ export async function searchPasses(query: any, userPlayerId?: number, isSuperAdm
 import announcements from './announcements.js';
 import modification from './modification.js';
 import search from './search.js';
+import replayVisuals from './replayVisuals.js';
 
 router.use('/', announcements);
+router.use('/', replayVisuals);
 router.use('/', modification);
 router.use('/', search);
 
 export default router;
-
 
 
