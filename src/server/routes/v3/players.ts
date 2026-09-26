@@ -60,6 +60,14 @@ import {
   getProfileModulesApiPayload,
   saveProfileModulesForEntity,
 } from '@/server/services/profileCustomization/profileModulesService.js';
+import keyboardSetupRouter, {
+  patchMyPassKeyboardSetup,
+} from './playerKeyboardSetups.js';
+import {
+  getPlayerKeyboardSetups,
+  resolvePassBinds,
+} from '@/server/services/keyboards/keyboardSetupService.js';
+import {KeyboardSetupError} from '@/misc/utils/keyboards/types.js';
 import {
   coerceShowFollowerCount,
   followFieldsForProfile,
@@ -940,6 +948,24 @@ router.patch(
   },
 );
 
+router.use('/me/keyboard-setups', keyboardSetupRouter);
+
+router.patch(
+  '/me/passes/:passId/keyboard-setup',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'v3PatchPlayerMePassKeyboardSetup',
+    summary: 'Repoint a clear to a keyboard bind period',
+    tags: ['Database', 'Players', 'Keyboards', 'v3'],
+    security: ['bearerAuth'],
+    responses: {
+      200: {description: 'Updated pass bind override'},
+      ...standardErrorResponses404500,
+    },
+  }),
+  patchMyPassKeyboardSetup,
+);
+
 router.patch(
   '/me/profile-modules',
   Auth.user(),
@@ -1240,6 +1266,44 @@ router.patch(
   },
 );
 
+router.get(
+  '/:id([0-9]{1,20})/keyboard-setups',
+  ApiDoc({
+    operationId: 'v3GetPlayerKeyboardSetups',
+    summary: 'Get a player keyboard setup history',
+    description:
+      'Returns an empty rig list when the player does not currently show the keyboards profile module. Super admins receive the full history so pass editing can pick a layout.',
+    tags: ['Database', 'Players', 'Keyboards', 'v3'],
+    params: {id: idParamSpec},
+    responses: {
+      200: {description: 'Keyboard setups'},
+      ...standardErrorResponses404500,
+    },
+  }),
+  Auth.addUserToRequest(),
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({error: 'Invalid player id'});
+      }
+      const player = await Player.findByPk(id, {attributes: ['id']});
+      if (!player) return res.status(404).json({error: 'Player not found'});
+      const visibleOnly = !req.user?.isSuperAdmin;
+      return res.json(await getPlayerKeyboardSetups(id, {visibleOnly}));
+    } catch (error) {
+      if (error instanceof KeyboardSetupError) {
+        return res.status(error.status).json({error: error.message});
+      }
+      logger.error('[v3 GET /players/:id/keyboard-setups] failure', error);
+      return res.status(500).json({
+        error: 'Failed to fetch keyboard setups',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
 /**
  * Paginated passes list for a player. Split out from `/profile` because the
  * payload is large — levels, credits, judgements, and difficulty are all
@@ -1319,7 +1383,24 @@ router.get(
         bestPerLevel,
       });
 
-      return res.json({ total, passes, limit, offset });
+      const serialized = passes.map((pass) =>
+        typeof (pass as {toJSON?: () => Record<string, unknown>}).toJSON === 'function'
+          ? (pass as {toJSON: () => Record<string, unknown>}).toJSON()
+          : (pass as unknown as Record<string, unknown>),
+      );
+      const binds = await resolvePassBinds(
+        id,
+        serialized.map((pass) => ({
+          id: Number(pass.id),
+          keyCount: (pass.keyCount as number | null) ?? null,
+          vidUploadTime: (pass.vidUploadTime as Date | string | null) ?? null,
+        })),
+      );
+      for (const pass of serialized) {
+        pass.keyboardSetup = binds[Number(pass.id)] ?? null;
+      }
+
+      return res.json({ total, passes: serialized, limit, offset });
     } catch (error) {
       logger.error('[v3 /players/:id/passes] failure', error);
       return res.status(500).json({

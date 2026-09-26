@@ -1,6 +1,7 @@
 import { CronJob } from 'cron';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { shouldStartBilibiliProxyCron } from '@/misc/utils/data/bilibiliProxy.js';
+import { isProxyPoolDry, shouldStartBilibiliProxyCron } from '@/misc/utils/data/bilibiliProxy.js';
+import { getHealthyCount } from '@/server/services/media/bilibiliProxyPool.js';
 import {
   pullAndProbeNewBilibiliProxies,
   reprobeHealthyBilibiliProxies,
@@ -8,12 +9,14 @@ import {
 
 const LIST_CRON = '0 * * * *';
 const REPROBE_CRON = '*/15 * * * *';
+const DRY_REFRESH_COOLDOWN_MS = 2 * 60 * 1000;
 
 export class BilibiliProxyCronService {
   private static listJob: CronJob | null = null;
   private static probeJob: CronJob | null = null;
   private static listRunning = false;
   private static probeRunning = false;
+  private static lastDryPullAt = 0;
 
   static startScheduledRefresh(): void {
     if (!shouldStartBilibiliProxyCron(process.env)) {
@@ -34,6 +37,15 @@ export class BilibiliProxyCronService {
     void BilibiliProxyCronService.runListPull();
   }
 
+  static requestListRefreshIfDry(healthyCount: number): void {
+    if (!isProxyPoolDry(healthyCount)) return;
+    const now = Date.now();
+    if (now - BilibiliProxyCronService.lastDryPullAt < DRY_REFRESH_COOLDOWN_MS) return;
+    BilibiliProxyCronService.lastDryPullAt = now;
+    logger.info(`Bilibili proxy pool dry (${healthyCount}); pulling lists`);
+    void BilibiliProxyCronService.runListPull();
+  }
+
   private static async runListPull(): Promise<void> {
     if (BilibiliProxyCronService.listRunning) return;
     BilibiliProxyCronService.listRunning = true;
@@ -51,6 +63,7 @@ export class BilibiliProxyCronService {
     BilibiliProxyCronService.probeRunning = true;
     try {
       await reprobeHealthyBilibiliProxies();
+      BilibiliProxyCronService.requestListRefreshIfDry(await getHealthyCount());
     } catch (error) {
       logger.error('Bilibili proxy re-probe failed', error);
     } finally {
@@ -58,3 +71,4 @@ export class BilibiliProxyCronService {
     }
   }
 }
+

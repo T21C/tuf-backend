@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  applyProxyFail,
+  buildProxyWave,
+  isProxyPoolDry,
+  isProxyQuarantined,
   judgeBilibiliHtml,
+  mergeProxyLists,
   parseBilibiliViewHtml,
   parseProxyList,
   pickUnused,
+  PROXY_TIMEOUT_QUARANTINE_MS,
   resolveBilibiliFetchMode,
   shouldStartBilibiliProxyCron,
 } from './bilibiliProxy.js';
@@ -53,6 +59,42 @@ test('pickUnused skips excluded proxy ids for later waves', () => {
   assert.deepEqual(wave3, []);
 });
 
+test('first proxy wave pairs preferred with a second healthy peer', () => {
+  const pool = [
+    'socks4://183.173.37.60:7898',
+    'http://1.1.1.1:80',
+    'http://2.2.2.2:80',
+  ];
+  assert.deepEqual(
+    buildProxyWave({ healthyIds: pool, size: 2, preferredId: 'socks4://183.173.37.60:7898' }),
+    ['socks4://183.173.37.60:7898', 'http://1.1.1.1:80'],
+  );
+  assert.deepEqual(
+    buildProxyWave({
+      healthyIds: pool,
+      size: 2,
+      preferredId: 'socks4://183.173.37.60:7898',
+      exclude: new Set(['socks4://183.173.37.60:7898']),
+    }),
+    ['http://1.1.1.1:80', 'http://2.2.2.2:80'],
+  );
+});
+
+test('a timeout evicts immediately and quarantines so later success cannot re-add', () => {
+  const now = 1_000_000;
+  const timedOut = applyProxyFail({ failCount: 0, timeoutCount: 0, lastOk: now - 10 }, 'timeout', now);
+  assert.equal(timedOut.evict, true);
+  assert.equal(timedOut.timeoutCount, 1);
+  assert.equal(timedOut.quarantinedUntil, now + PROXY_TIMEOUT_QUARANTINE_MS);
+  assert.equal(isProxyQuarantined(timedOut.quarantinedUntil, now + 60_000), true);
+  assert.equal(isProxyQuarantined(timedOut.quarantinedUntil, now + PROXY_TIMEOUT_QUARANTINE_MS + 1), false);
+
+  const softFail = applyProxyFail({ failCount: 1, timeoutCount: 0 }, 'no_meta', now);
+  assert.equal(softFail.evict, false);
+  const third = applyProxyFail({ failCount: 2, timeoutCount: 0 }, 'waf412', now);
+  assert.equal(third.evict, true);
+});
+
 test('prod/staging fail closed when the healthy pool is empty', () => {
   assert.equal(
     resolveBilibiliFetchMode({ nodeEnv: 'production', healthyCount: 0 }),
@@ -85,11 +127,33 @@ socks5://8.8.8.8:1080
 127.0.0.1:8080
 10.0.0.5:80
 not-a-proxy
+1.1.1.1:80:US
+8.8.4.4:1080:CN
 `);
   assert.deepEqual(
     listed.map((row) => row.id),
+    ['http://113.204.79.230:9191', 'socks5://8.8.8.8:1080', 'http://8.8.4.4:1080'],
+  );
+});
+
+test('parseProxyList reads JSON provider payloads and mergeProxyLists keeps the union', () => {
+  const geonode = parseProxyList(
+    JSON.stringify({
+      data: [{ ip: '113.204.79.230', port: 9191, protocols: ['http'] }],
+    }),
+  );
+  const txt = parseProxyList('socks5://8.8.8.8:1080\nhttp://113.204.79.230:9191\n');
+  const merged = mergeProxyLists([geonode, txt]);
+  assert.deepEqual(
+    merged.map((row) => row.id),
     ['http://113.204.79.230:9191', 'socks5://8.8.8.8:1080'],
   );
+});
+
+test('proxy pool is dry at three or fewer healthy members', () => {
+  assert.equal(isProxyPoolDry(3), true);
+  assert.equal(isProxyPoolDry(0), true);
+  assert.equal(isProxyPoolDry(4), false);
 });
 
 test('cron stays off in tests and when explicitly disabled', () => {

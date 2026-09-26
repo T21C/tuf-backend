@@ -1,0 +1,4097 @@
+{
+  "geometries": [
+    {
+      "slug": "full-108",
+      "name": "108-key full size",
+      "formFactor": "full",
+      "keys": [
+        {
+          "code": "Escape",
+          "label": "Esc",
+          "x": 0,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F1",
+          "label": "F1",
+          "x": 2,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F2",
+          "label": "F2",
+          "x": 3,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F3",
+          "label": "F3",
+          "x": 4,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F4",
+          "label": "F4",
+          "x": 5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F5",
+          "label": "F5",
+          "x": 6.5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F6",
+          "label": "F6",
+          "x": 7.5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F7",
+          "label": "F7",
+          "x": 8.5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F8",
+          "label": "F8",
+          "x": 9.5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F9",
+          "label": "F9",
+          "x": 11,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F10",
+          "label": "F10",
+          "x": 12,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F11",
+          "label": "F11",
+          "x": 13,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F12",
+          "label": "F12",
+          "x": 14,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "PrintScreen",
+          "label": "Print\nScreen",
+          "x": 15.25,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ScrollLock",
+          "label": "Scroll\nLock",
+          "x": 16.25,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Pause",
+          "label": "Pause",
+          "x": 17.25,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AudioVolumeMute",
+          "label": "Mute",
+          "x": 18.5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AudioVolumeDown",
+          "label": "Vol −",
+          "x": 19.5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AudioVolumeUp",
+          "label": "Vol +",
+          "x": 20.5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Calculator",
+          "label": "Calc",
+          "x": 21.5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backquote",
+          "label": "`",
+          "x": 0,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit1",
+          "label": "1",
+          "x": 1,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit2",
+          "label": "2",
+          "x": 2,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit3",
+          "label": "3",
+          "x": 3,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit4",
+          "label": "4",
+          "x": 4,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit5",
+          "label": "5",
+          "x": 5,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit6",
+          "label": "6",
+          "x": 6,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit7",
+          "label": "7",
+          "x": 7,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit8",
+          "label": "8",
+          "x": 8,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit9",
+          "label": "9",
+          "x": 9,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit0",
+          "label": "0",
+          "x": 10,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Minus",
+          "label": "−",
+          "x": 11,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Equal",
+          "label": "=",
+          "x": 12,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backspace",
+          "label": "Backspace",
+          "x": 13,
+          "y": 1.2272727272727273,
+          "w": 2,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Insert",
+          "label": "Insert",
+          "x": 15.25,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Home",
+          "label": "Home",
+          "x": 16.25,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "PageUp",
+          "label": "PgUp",
+          "x": 17.25,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumLock",
+          "label": "Num\nLock",
+          "x": 18.5,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumpadDivide",
+          "label": "/",
+          "x": 19.5,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumpadMultiply",
+          "label": "×",
+          "x": 20.5,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumpadSubtract",
+          "label": "−",
+          "x": 21.5,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Tab",
+          "label": "Tab",
+          "x": 0,
+          "y": 2.227272727272727,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyQ",
+          "label": "Q",
+          "x": 1.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyW",
+          "label": "W",
+          "x": 2.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyE",
+          "label": "E",
+          "x": 3.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyR",
+          "label": "R",
+          "x": 4.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyT",
+          "label": "T",
+          "x": 5.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyY",
+          "label": "Y",
+          "x": 6.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyU",
+          "label": "U",
+          "x": 7.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyI",
+          "label": "I",
+          "x": 8.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyO",
+          "label": "O",
+          "x": 9.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyP",
+          "label": "P",
+          "x": 10.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "BracketLeft",
+          "label": "[",
+          "x": 11.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "BracketRight",
+          "label": "]",
+          "x": 12.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backslash",
+          "label": "₩",
+          "x": 13.5,
+          "y": 2.227272727272727,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Delete",
+          "label": "Delete",
+          "x": 15.25,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "End",
+          "label": "End",
+          "x": 16.25,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "PageDown",
+          "label": "PgDn",
+          "x": 17.25,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad7",
+          "label": "7",
+          "x": 18.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad8",
+          "label": "8",
+          "x": 19.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad9",
+          "label": "9",
+          "x": 20.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumpadAdd",
+          "label": "+",
+          "x": 21.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 2,
+          "bindable": true
+        },
+        {
+          "code": "CapsLock",
+          "label": "Caps Lock",
+          "x": 0,
+          "y": 3.227272727272727,
+          "w": 2,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyA",
+          "label": "A",
+          "x": 2,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyS",
+          "label": "S",
+          "x": 3,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyD",
+          "label": "D",
+          "x": 4,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyF",
+          "label": "F",
+          "x": 5,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyG",
+          "label": "G",
+          "x": 6,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyH",
+          "label": "H",
+          "x": 7,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyJ",
+          "label": "J",
+          "x": 8,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyK",
+          "label": "K",
+          "x": 9,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyL",
+          "label": "L",
+          "x": 10,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Semicolon",
+          "label": ";",
+          "x": 11,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Quote",
+          "label": "'",
+          "x": 12,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Enter",
+          "label": "Enter",
+          "x": 13,
+          "y": 3.227272727272727,
+          "w": 2,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad4",
+          "label": "4",
+          "x": 18.5,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad5",
+          "label": "5",
+          "x": 19.5,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad6",
+          "label": "6",
+          "x": 20.5,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ShiftLeft",
+          "label": "Shift",
+          "x": 0,
+          "y": 4.2272727272727275,
+          "w": 2.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyZ",
+          "label": "Z",
+          "x": 2.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyX",
+          "label": "X",
+          "x": 3.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyC",
+          "label": "C",
+          "x": 4.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyV",
+          "label": "V",
+          "x": 5.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyB",
+          "label": "B",
+          "x": 6.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyN",
+          "label": "N",
+          "x": 7.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyM",
+          "label": "M",
+          "x": 8.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Comma",
+          "label": ",",
+          "x": 9.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Period",
+          "label": ".",
+          "x": 10.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Slash",
+          "label": "/",
+          "x": 11.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ShiftRight",
+          "label": "Shift",
+          "x": 12.5,
+          "y": 4.2272727272727275,
+          "w": 2.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowUp",
+          "label": "↑",
+          "x": 16.25,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad1",
+          "label": "1",
+          "x": 18.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad2",
+          "label": "2",
+          "x": 19.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad3",
+          "label": "3",
+          "x": 20.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumpadEnter",
+          "label": "Enter",
+          "x": 21.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 2,
+          "bindable": true
+        },
+        {
+          "code": "ControlLeft",
+          "label": "Ctrl",
+          "x": 0,
+          "y": 5.2272727272727275,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "MetaLeft",
+          "label": "Win",
+          "x": 1.5,
+          "y": 5.2272727272727275,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AltLeft",
+          "label": "Alt",
+          "x": 3,
+          "y": 5.2272727272727275,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Space",
+          "label": "",
+          "x": 4.5,
+          "y": 5.2272727272727275,
+          "w": 5.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AltRight",
+          "label": "RAlt",
+          "x": 10,
+          "y": 5.2272727272727275,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "MetaRight",
+          "label": "Win",
+          "x": 11.5,
+          "y": 5.2272727272727275,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ContextMenu",
+          "label": "Menu",
+          "x": 13,
+          "y": 5.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ControlRight",
+          "label": "Ctrl",
+          "x": 14,
+          "y": 5.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowLeft",
+          "label": "←",
+          "x": 15.25,
+          "y": 5.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowDown",
+          "label": "↓",
+          "x": 16.25,
+          "y": 5.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowRight",
+          "label": "→",
+          "x": 17.25,
+          "y": 5.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad0",
+          "label": "0",
+          "x": 18.5,
+          "y": 5.2272727272727275,
+          "w": 2,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumpadDecimal",
+          "label": ".",
+          "x": 20.5,
+          "y": 5.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        }
+      ]
+    },
+    {
+      "slug": "tkl-80",
+      "name": "80% tenkeyless",
+      "formFactor": "tkl",
+      "keys": [
+        {
+          "code": "Escape",
+          "label": "Esc",
+          "x": 0,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F1",
+          "label": "F1",
+          "x": 2,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F2",
+          "label": "F2",
+          "x": 3,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F3",
+          "label": "F3",
+          "x": 4,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F4",
+          "label": "F4",
+          "x": 5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F5",
+          "label": "F5",
+          "x": 6.5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F6",
+          "label": "F6",
+          "x": 7.5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F7",
+          "label": "F7",
+          "x": 8.5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F8",
+          "label": "F8",
+          "x": 9.5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F9",
+          "label": "F9",
+          "x": 11,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F10",
+          "label": "F10",
+          "x": 12,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F11",
+          "label": "F11",
+          "x": 13,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F12",
+          "label": "F12",
+          "x": 14,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "PrintScreen",
+          "label": "Print\nScreen",
+          "x": 15.25,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ScrollLock",
+          "label": "Scroll\nLock",
+          "x": 16.25,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Pause",
+          "label": "Pause",
+          "x": 17.25,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backquote",
+          "label": "`",
+          "x": 0,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit1",
+          "label": "1",
+          "x": 1,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit2",
+          "label": "2",
+          "x": 2,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit3",
+          "label": "3",
+          "x": 3,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit4",
+          "label": "4",
+          "x": 4,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit5",
+          "label": "5",
+          "x": 5,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit6",
+          "label": "6",
+          "x": 6,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit7",
+          "label": "7",
+          "x": 7,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit8",
+          "label": "8",
+          "x": 8,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit9",
+          "label": "9",
+          "x": 9,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit0",
+          "label": "0",
+          "x": 10,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Minus",
+          "label": "−",
+          "x": 11,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Equal",
+          "label": "=",
+          "x": 12,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backspace",
+          "label": "Backspace",
+          "x": 13,
+          "y": 1.2272727272727273,
+          "w": 2,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Insert",
+          "label": "Insert",
+          "x": 15.25,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Home",
+          "label": "Home",
+          "x": 16.25,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "PageUp",
+          "label": "PgUp",
+          "x": 17.25,
+          "y": 1.2272727272727273,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Tab",
+          "label": "Tab",
+          "x": 0,
+          "y": 2.227272727272727,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyQ",
+          "label": "Q",
+          "x": 1.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyW",
+          "label": "W",
+          "x": 2.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyE",
+          "label": "E",
+          "x": 3.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyR",
+          "label": "R",
+          "x": 4.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyT",
+          "label": "T",
+          "x": 5.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyY",
+          "label": "Y",
+          "x": 6.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyU",
+          "label": "U",
+          "x": 7.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyI",
+          "label": "I",
+          "x": 8.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyO",
+          "label": "O",
+          "x": 9.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyP",
+          "label": "P",
+          "x": 10.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "BracketLeft",
+          "label": "[",
+          "x": 11.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "BracketRight",
+          "label": "]",
+          "x": 12.5,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backslash",
+          "label": "₩",
+          "x": 13.5,
+          "y": 2.227272727272727,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Delete",
+          "label": "Delete",
+          "x": 15.25,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "End",
+          "label": "End",
+          "x": 16.25,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "PageDown",
+          "label": "PgDn",
+          "x": 17.25,
+          "y": 2.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "CapsLock",
+          "label": "Caps Lock",
+          "x": 0,
+          "y": 3.227272727272727,
+          "w": 2,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyA",
+          "label": "A",
+          "x": 2,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyS",
+          "label": "S",
+          "x": 3,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyD",
+          "label": "D",
+          "x": 4,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyF",
+          "label": "F",
+          "x": 5,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyG",
+          "label": "G",
+          "x": 6,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyH",
+          "label": "H",
+          "x": 7,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyJ",
+          "label": "J",
+          "x": 8,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyK",
+          "label": "K",
+          "x": 9,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyL",
+          "label": "L",
+          "x": 10,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Semicolon",
+          "label": ";",
+          "x": 11,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Quote",
+          "label": "'",
+          "x": 12,
+          "y": 3.227272727272727,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Enter",
+          "label": "Enter",
+          "x": 13,
+          "y": 3.227272727272727,
+          "w": 2,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ShiftLeft",
+          "label": "Shift",
+          "x": 0,
+          "y": 4.2272727272727275,
+          "w": 2.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyZ",
+          "label": "Z",
+          "x": 2.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyX",
+          "label": "X",
+          "x": 3.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyC",
+          "label": "C",
+          "x": 4.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyV",
+          "label": "V",
+          "x": 5.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyB",
+          "label": "B",
+          "x": 6.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyN",
+          "label": "N",
+          "x": 7.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyM",
+          "label": "M",
+          "x": 8.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Comma",
+          "label": ",",
+          "x": 9.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Period",
+          "label": ".",
+          "x": 10.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Slash",
+          "label": "/",
+          "x": 11.5,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ShiftRight",
+          "label": "Shift",
+          "x": 12.5,
+          "y": 4.2272727272727275,
+          "w": 2.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowUp",
+          "label": "↑",
+          "x": 16.25,
+          "y": 4.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ControlLeft",
+          "label": "Ctrl",
+          "x": 0,
+          "y": 5.2272727272727275,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "MetaLeft",
+          "label": "Win",
+          "x": 1.5,
+          "y": 5.2272727272727275,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AltLeft",
+          "label": "Alt",
+          "x": 3,
+          "y": 5.2272727272727275,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Space",
+          "label": "",
+          "x": 4.5,
+          "y": 5.2272727272727275,
+          "w": 5.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AltRight",
+          "label": "RAlt",
+          "x": 10,
+          "y": 5.2272727272727275,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "MetaRight",
+          "label": "Win",
+          "x": 11.5,
+          "y": 5.2272727272727275,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ContextMenu",
+          "label": "Menu",
+          "x": 13,
+          "y": 5.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ControlRight",
+          "label": "Ctrl",
+          "x": 14,
+          "y": 5.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowLeft",
+          "label": "←",
+          "x": 15.25,
+          "y": 5.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowDown",
+          "label": "↓",
+          "x": 16.25,
+          "y": 5.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowRight",
+          "label": "→",
+          "x": 17.25,
+          "y": 5.2272727272727275,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        }
+      ]
+    },
+    {
+      "slug": "corsair-vanguard-pro-96",
+      "name": "Corsair Vanguard Pro 96",
+      "formFactor": "96",
+      "keys": [
+        {
+          "code": "Escape",
+          "label": "Esc",
+          "x": 0,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F1",
+          "label": "F1",
+          "x": 1,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F2",
+          "label": "F2",
+          "x": 2,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F3",
+          "label": "F3",
+          "x": 3,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F4",
+          "label": "F4",
+          "x": 4,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F5",
+          "label": "F5",
+          "x": 5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F6",
+          "label": "F6",
+          "x": 6,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F7",
+          "label": "F7",
+          "x": 7,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F8",
+          "label": "F8",
+          "x": 8,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F9",
+          "label": "F9",
+          "x": 9,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F10",
+          "label": "F10",
+          "x": 10,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F11",
+          "label": "F11",
+          "x": 11,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F12",
+          "label": "F12",
+          "x": 12,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "PrintScreen",
+          "label": "Print\nScreen",
+          "x": 13,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Delete",
+          "label": "Delete",
+          "x": 14,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "VanguardDisplay",
+          "label": "LCD",
+          "x": 15.25,
+          "y": 0,
+          "w": 2.75,
+          "h": 1,
+          "bindable": false,
+          "variant": "display"
+        },
+        {
+          "code": "VanguardDial",
+          "label": "●",
+          "x": 18.25,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": false,
+          "variant": "dial"
+        },
+        {
+          "code": "Backquote",
+          "label": "`",
+          "x": 0,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit1",
+          "label": "1",
+          "x": 1,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit2",
+          "label": "2",
+          "x": 2,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit3",
+          "label": "3",
+          "x": 3,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit4",
+          "label": "4",
+          "x": 4,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit5",
+          "label": "5",
+          "x": 5,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit6",
+          "label": "6",
+          "x": 6,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit7",
+          "label": "7",
+          "x": 7,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit8",
+          "label": "8",
+          "x": 8,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit9",
+          "label": "9",
+          "x": 9,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit0",
+          "label": "0",
+          "x": 10,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Minus",
+          "label": "−",
+          "x": 11,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Equal",
+          "label": "=",
+          "x": 12,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backspace",
+          "label": "Backspace",
+          "x": 13,
+          "y": 1.0454545454545454,
+          "w": 2,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumLock",
+          "label": "Num\nLock",
+          "x": 15.25,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumpadDivide",
+          "label": "/",
+          "x": 16.25,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumpadMultiply",
+          "label": "×",
+          "x": 17.25,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumpadSubtract",
+          "label": "−",
+          "x": 18.25,
+          "y": 1.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Tab",
+          "label": "Tab",
+          "x": 0,
+          "y": 2.0454545454545454,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyQ",
+          "label": "Q",
+          "x": 1.5,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyW",
+          "label": "W",
+          "x": 2.5,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyE",
+          "label": "E",
+          "x": 3.5,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyR",
+          "label": "R",
+          "x": 4.5,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyT",
+          "label": "T",
+          "x": 5.5,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyY",
+          "label": "Y",
+          "x": 6.5,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyU",
+          "label": "U",
+          "x": 7.5,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyI",
+          "label": "I",
+          "x": 8.5,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyO",
+          "label": "O",
+          "x": 9.5,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyP",
+          "label": "P",
+          "x": 10.5,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "BracketLeft",
+          "label": "[",
+          "x": 11.5,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "BracketRight",
+          "label": "]",
+          "x": 12.5,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backslash",
+          "label": "₩",
+          "x": 13.5,
+          "y": 2.0454545454545454,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad7",
+          "label": "7",
+          "x": 15.25,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad8",
+          "label": "8",
+          "x": 16.25,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad9",
+          "label": "9",
+          "x": 17.25,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumpadAdd",
+          "label": "+",
+          "x": 18.25,
+          "y": 2.0454545454545454,
+          "w": 1,
+          "h": 2,
+          "bindable": true
+        },
+        {
+          "code": "CapsLock",
+          "label": "Caps Lock",
+          "x": 0,
+          "y": 3.0454545454545454,
+          "w": 1.75,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyA",
+          "label": "A",
+          "x": 1.75,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyS",
+          "label": "S",
+          "x": 2.75,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyD",
+          "label": "D",
+          "x": 3.75,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyF",
+          "label": "F",
+          "x": 4.75,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyG",
+          "label": "G",
+          "x": 5.75,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyH",
+          "label": "H",
+          "x": 6.75,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyJ",
+          "label": "J",
+          "x": 7.75,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyK",
+          "label": "K",
+          "x": 8.75,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyL",
+          "label": "L",
+          "x": 9.75,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Semicolon",
+          "label": ";",
+          "x": 10.75,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Quote",
+          "label": "'",
+          "x": 11.75,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Enter",
+          "label": "Enter",
+          "x": 12.75,
+          "y": 3.0454545454545454,
+          "w": 2.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad4",
+          "label": "4",
+          "x": 15.25,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad5",
+          "label": "5",
+          "x": 16.25,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad6",
+          "label": "6",
+          "x": 17.25,
+          "y": 3.0454545454545454,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ShiftLeft",
+          "label": "Shift",
+          "x": 0,
+          "y": 4.045454545454546,
+          "w": 2.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyZ",
+          "label": "Z",
+          "x": 2.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyX",
+          "label": "X",
+          "x": 3.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyC",
+          "label": "C",
+          "x": 4.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyV",
+          "label": "V",
+          "x": 5.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyB",
+          "label": "B",
+          "x": 6.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyN",
+          "label": "N",
+          "x": 7.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyM",
+          "label": "M",
+          "x": 8.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Comma",
+          "label": ",",
+          "x": 9.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Period",
+          "label": ".",
+          "x": 10.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Slash",
+          "label": "/",
+          "x": 11.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ShiftRight",
+          "label": "Shift",
+          "x": 12.25,
+          "y": 4.045454545454546,
+          "w": 1.75,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowUp",
+          "label": "↑",
+          "x": 14.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true,
+          "offsetX": -0.125
+        },
+        {
+          "code": "Numpad1",
+          "label": "1",
+          "x": 15.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad2",
+          "label": "2",
+          "x": 16.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Numpad3",
+          "label": "3",
+          "x": 17.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumpadEnter",
+          "label": "Enter",
+          "x": 18.25,
+          "y": 4.045454545454546,
+          "w": 1,
+          "h": 2,
+          "bindable": true
+        },
+        {
+          "code": "ControlLeft",
+          "label": "Ctrl",
+          "x": 0,
+          "y": 5.045454545454546,
+          "w": 1.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "MetaLeft",
+          "label": "Win",
+          "x": 1.25,
+          "y": 5.045454545454546,
+          "w": 1.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AltLeft",
+          "label": "Alt",
+          "x": 2.5,
+          "y": 5.045454545454546,
+          "w": 1.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Space",
+          "label": "",
+          "x": 3.75,
+          "y": 5.045454545454546,
+          "w": 6.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AltRight",
+          "label": "RAlt",
+          "x": 10,
+          "y": 5.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Fn",
+          "label": "Fn",
+          "x": 11,
+          "y": 5.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ContextMenu",
+          "label": "Menu",
+          "x": 12,
+          "y": 5.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowLeft",
+          "label": "←",
+          "x": 13.25,
+          "y": 5.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true,
+          "offsetX": -0.125
+        },
+        {
+          "code": "ArrowDown",
+          "label": "↓",
+          "x": 14.25,
+          "y": 5.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true,
+          "offsetX": -0.125
+        },
+        {
+          "code": "ArrowRight",
+          "label": "→",
+          "x": 15.25,
+          "y": 5.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true,
+          "offsetX": -0.125
+        },
+        {
+          "code": "Numpad0",
+          "label": "0",
+          "x": 16.25,
+          "y": 5.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "NumpadDecimal",
+          "label": ".",
+          "x": 17.25,
+          "y": 5.045454545454546,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        }
+      ]
+    },
+    {
+      "slug": "niz-plum-84",
+      "name": "NiZ Plum 84",
+      "formFactor": "75",
+      "keys": [
+        {
+          "code": "Escape",
+          "label": "Esc",
+          "x": 0,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F1",
+          "label": "F1",
+          "x": 1,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F2",
+          "label": "F2",
+          "x": 2,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F3",
+          "label": "F3",
+          "x": 3,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F4",
+          "label": "F4",
+          "x": 4,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F5",
+          "label": "F5",
+          "x": 5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F6",
+          "label": "F6",
+          "x": 6,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F7",
+          "label": "F7",
+          "x": 7,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F8",
+          "label": "F8",
+          "x": 8,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F9",
+          "label": "F9",
+          "x": 9,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F10",
+          "label": "F10",
+          "x": 10,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F11",
+          "label": "F11",
+          "x": 11,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "F12",
+          "label": "F12",
+          "x": 12,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "PrintScreen",
+          "label": "Print\nScreen",
+          "x": 13,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ScrollLock",
+          "label": "Scroll\nLock",
+          "x": 14,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Delete",
+          "label": "Delete",
+          "x": 15,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backquote",
+          "label": "`",
+          "x": 0,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit1",
+          "label": "1",
+          "x": 1,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit2",
+          "label": "2",
+          "x": 2,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit3",
+          "label": "3",
+          "x": 3,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit4",
+          "label": "4",
+          "x": 4,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit5",
+          "label": "5",
+          "x": 5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit6",
+          "label": "6",
+          "x": 6,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit7",
+          "label": "7",
+          "x": 7,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit8",
+          "label": "8",
+          "x": 8,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit9",
+          "label": "9",
+          "x": 9,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit0",
+          "label": "0",
+          "x": 10,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Minus",
+          "label": "−",
+          "x": 11,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Equal",
+          "label": "=",
+          "x": 12,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backspace",
+          "label": "Backspace",
+          "x": 13,
+          "y": 1,
+          "w": 2,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Home",
+          "label": "Home",
+          "x": 15,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Tab",
+          "label": "Tab",
+          "x": 0,
+          "y": 2,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyQ",
+          "label": "Q",
+          "x": 1.5,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyW",
+          "label": "W",
+          "x": 2.5,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyE",
+          "label": "E",
+          "x": 3.5,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyR",
+          "label": "R",
+          "x": 4.5,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyT",
+          "label": "T",
+          "x": 5.5,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyY",
+          "label": "Y",
+          "x": 6.5,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyU",
+          "label": "U",
+          "x": 7.5,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyI",
+          "label": "I",
+          "x": 8.5,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyO",
+          "label": "O",
+          "x": 9.5,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyP",
+          "label": "P",
+          "x": 10.5,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "BracketLeft",
+          "label": "[",
+          "x": 11.5,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "BracketRight",
+          "label": "]",
+          "x": 12.5,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backslash",
+          "label": "₩",
+          "x": 13.5,
+          "y": 2,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "PageUp",
+          "label": "PgUp",
+          "x": 15,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "CapsLock",
+          "label": "Caps Lock",
+          "x": 0,
+          "y": 3,
+          "w": 1.75,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyA",
+          "label": "A",
+          "x": 1.75,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyS",
+          "label": "S",
+          "x": 2.75,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyD",
+          "label": "D",
+          "x": 3.75,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyF",
+          "label": "F",
+          "x": 4.75,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyG",
+          "label": "G",
+          "x": 5.75,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyH",
+          "label": "H",
+          "x": 6.75,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyJ",
+          "label": "J",
+          "x": 7.75,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyK",
+          "label": "K",
+          "x": 8.75,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyL",
+          "label": "L",
+          "x": 9.75,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Semicolon",
+          "label": ";",
+          "x": 10.75,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Quote",
+          "label": "'",
+          "x": 11.75,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Enter",
+          "label": "Enter",
+          "x": 12.75,
+          "y": 3,
+          "w": 2.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "PageDown",
+          "label": "PgDn",
+          "x": 15,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ShiftLeft",
+          "label": "Shift",
+          "x": 0,
+          "y": 4,
+          "w": 2.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyZ",
+          "label": "Z",
+          "x": 2.25,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyX",
+          "label": "X",
+          "x": 3.25,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyC",
+          "label": "C",
+          "x": 4.25,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyV",
+          "label": "V",
+          "x": 5.25,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyB",
+          "label": "B",
+          "x": 6.25,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyN",
+          "label": "N",
+          "x": 7.25,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyM",
+          "label": "M",
+          "x": 8.25,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Comma",
+          "label": ",",
+          "x": 9.25,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Period",
+          "label": ".",
+          "x": 10.25,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Slash",
+          "label": "/",
+          "x": 11.25,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ShiftRight",
+          "label": "Shift",
+          "x": 12.25,
+          "y": 4,
+          "w": 1.75,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowUp",
+          "label": "↑",
+          "x": 14,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "End",
+          "label": "End",
+          "x": 15,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ControlLeft",
+          "label": "Ctrl",
+          "x": 0,
+          "y": 5,
+          "w": 1.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "MetaLeft",
+          "label": "Win",
+          "x": 1.25,
+          "y": 5,
+          "w": 1.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AltLeft",
+          "label": "Alt",
+          "x": 2.5,
+          "y": 5,
+          "w": 1.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Space",
+          "label": "",
+          "x": 3.75,
+          "y": 5,
+          "w": 6.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AltRight",
+          "label": "RAlt",
+          "x": 10,
+          "y": 5,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Fn",
+          "label": "Fn",
+          "x": 11,
+          "y": 5,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ControlRight",
+          "label": "Ctrl",
+          "x": 12,
+          "y": 5,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowLeft",
+          "label": "←",
+          "x": 13,
+          "y": 5,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowDown",
+          "label": "↓",
+          "x": 14,
+          "y": 5,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowRight",
+          "label": "→",
+          "x": 15,
+          "y": 5,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        }
+      ]
+    },
+    {
+      "slug": "kemove-k68",
+      "name": "KEMOVE K68",
+      "formFactor": "65",
+      "keys": [
+        {
+          "code": "Escape",
+          "label": "Esc",
+          "x": 0,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit1",
+          "label": "1",
+          "x": 1,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit2",
+          "label": "2",
+          "x": 2,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit3",
+          "label": "3",
+          "x": 3,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit4",
+          "label": "4",
+          "x": 4,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit5",
+          "label": "5",
+          "x": 5,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit6",
+          "label": "6",
+          "x": 6,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit7",
+          "label": "7",
+          "x": 7,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit8",
+          "label": "8",
+          "x": 8,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit9",
+          "label": "9",
+          "x": 9,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Digit0",
+          "label": "0",
+          "x": 10,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Minus",
+          "label": "−",
+          "x": 11,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Equal",
+          "label": "=",
+          "x": 12,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backspace",
+          "label": "Backspace",
+          "x": 13,
+          "y": 0,
+          "w": 2,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Home",
+          "label": "Home",
+          "x": 15,
+          "y": 0,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Tab",
+          "label": "Tab",
+          "x": 0,
+          "y": 1,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyQ",
+          "label": "Q",
+          "x": 1.5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyW",
+          "label": "W",
+          "x": 2.5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyE",
+          "label": "E",
+          "x": 3.5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyR",
+          "label": "R",
+          "x": 4.5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyT",
+          "label": "T",
+          "x": 5.5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyY",
+          "label": "Y",
+          "x": 6.5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyU",
+          "label": "U",
+          "x": 7.5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyI",
+          "label": "I",
+          "x": 8.5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyO",
+          "label": "O",
+          "x": 9.5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyP",
+          "label": "P",
+          "x": 10.5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "BracketLeft",
+          "label": "[",
+          "x": 11.5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "BracketRight",
+          "label": "]",
+          "x": 12.5,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Backslash",
+          "label": "₩",
+          "x": 13.5,
+          "y": 1,
+          "w": 1.5,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "PageUp",
+          "label": "PgUp",
+          "x": 15,
+          "y": 1,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "CapsLock",
+          "label": "Caps Lock",
+          "x": 0,
+          "y": 2,
+          "w": 1.75,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyA",
+          "label": "A",
+          "x": 1.75,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyS",
+          "label": "S",
+          "x": 2.75,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyD",
+          "label": "D",
+          "x": 3.75,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyF",
+          "label": "F",
+          "x": 4.75,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyG",
+          "label": "G",
+          "x": 5.75,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyH",
+          "label": "H",
+          "x": 6.75,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyJ",
+          "label": "J",
+          "x": 7.75,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyK",
+          "label": "K",
+          "x": 8.75,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyL",
+          "label": "L",
+          "x": 9.75,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Semicolon",
+          "label": ";",
+          "x": 10.75,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Quote",
+          "label": "'",
+          "x": 11.75,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Enter",
+          "label": "Enter",
+          "x": 12.75,
+          "y": 2,
+          "w": 2.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "PageDown",
+          "label": "PgDn",
+          "x": 15,
+          "y": 2,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ShiftLeft",
+          "label": "Shift",
+          "x": 0,
+          "y": 3,
+          "w": 2.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyZ",
+          "label": "Z",
+          "x": 2.25,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyX",
+          "label": "X",
+          "x": 3.25,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyC",
+          "label": "C",
+          "x": 4.25,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyV",
+          "label": "V",
+          "x": 5.25,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyB",
+          "label": "B",
+          "x": 6.25,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyN",
+          "label": "N",
+          "x": 7.25,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "KeyM",
+          "label": "M",
+          "x": 8.25,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Comma",
+          "label": ",",
+          "x": 9.25,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Period",
+          "label": ".",
+          "x": 10.25,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Slash",
+          "label": "/",
+          "x": 11.25,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ShiftRight",
+          "label": "Shift",
+          "x": 12.25,
+          "y": 3,
+          "w": 1.75,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowUp",
+          "label": "↑",
+          "x": 14,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Delete",
+          "label": "Delete",
+          "x": 15,
+          "y": 3,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ControlLeft",
+          "label": "Ctrl",
+          "x": 0,
+          "y": 4,
+          "w": 1.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "MetaLeft",
+          "label": "Win",
+          "x": 1.25,
+          "y": 4,
+          "w": 1.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AltLeft",
+          "label": "Alt",
+          "x": 2.5,
+          "y": 4,
+          "w": 1.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Space",
+          "label": "",
+          "x": 3.75,
+          "y": 4,
+          "w": 6.25,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "AltRight",
+          "label": "RAlt",
+          "x": 10,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "Fn",
+          "label": "Fn",
+          "x": 11,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ControlRight",
+          "label": "Ctrl",
+          "x": 12,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowLeft",
+          "label": "←",
+          "x": 13,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowDown",
+          "label": "↓",
+          "x": 14,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        },
+        {
+          "code": "ArrowRight",
+          "label": "→",
+          "x": 15,
+          "y": 4,
+          "w": 1,
+          "h": 1,
+          "bindable": true
+        }
+      ]
+    }
+  ],
+  "products": [
+    {
+      "slugGeometry": "corsair-vanguard-pro-96",
+      "brand": "Corsair",
+      "model": "Vanguard Pro 96"
+    },
+    {
+      "slugGeometry": "niz-plum-84",
+      "brand": "NiZ",
+      "model": "Plum 84"
+    },
+    {
+      "slugGeometry": "kemove-k68",
+      "brand": "KEMOVE",
+      "model": "K68"
+    }
+  ],
+  "switches": [
+    {
+      "name": "Cherry MX Red",
+      "sensing": "mechanical"
+    },
+    {
+      "name": "Cherry MX Brown",
+      "sensing": "mechanical"
+    },
+    {
+      "name": "Gateron Yellow",
+      "sensing": "mechanical"
+    },
+    {
+      "name": "Gateron Magnetic Jade",
+      "sensing": "hall"
+    },
+    {
+      "name": "Wooting Lekker",
+      "sensing": "hall"
+    },
+    {
+      "name": "Kailh Box White",
+      "sensing": "mechanical"
+    },
+    {
+      "name": "Gateron Optical Red",
+      "sensing": "optical"
+    }
+  ]
+}

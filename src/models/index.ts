@@ -75,6 +75,18 @@ import PlacementReward from './tournaments/PlacementReward.js';
 import PlacementEntitlement from './tournaments/PlacementEntitlement.js';
 import EquippedCosmetic from './tournaments/EquippedCosmetic.js';
 import ProfileCustomizationPiece from './profile/ProfileCustomizationPiece.js';
+import {
+  KeyboardFormFactor,
+  KeyboardGeometry,
+  KeyboardProduct,
+  KeyboardSwitch,
+  KeyboardRig,
+  KeyboardBoardPeriod,
+  KeyboardBoardPeriodKey,
+  KeyboardLane,
+  KeyboardLanePeriod,
+  PassBindOverride,
+} from './keyboards/index.js';
 import OAuthClient from './oauth/OAuthClient.js';
 import OAuthGrant from './oauth/OAuthGrant.js';
 import OAuthAuthorizationCode from './oauth/OAuthAuthorizationCode.js';
@@ -183,6 +195,16 @@ export const db = {
     PlacementEntitlement,
     EquippedCosmetic,
     ProfileCustomizationPiece,
+    KeyboardFormFactor,
+    KeyboardGeometry,
+    KeyboardProduct,
+    KeyboardSwitch,
+    KeyboardRig,
+    KeyboardBoardPeriod,
+    KeyboardBoardPeriodKey,
+    KeyboardLane,
+    KeyboardLanePeriod,
+    PassBindOverride,
     OAuthClient,
     OAuthGrant,
     OAuthAuthorizationCode,

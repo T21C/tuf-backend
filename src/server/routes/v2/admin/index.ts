@@ -16,6 +16,7 @@ import usefulLinksRoutes from './usefulLinks.js';
 import modsRoutes from './mods.js';
 import botModsRoutes from './botMods.js';
 import translationContributorsRoutes from './translationContributors.js';
+import keyboardsRoutes from './keyboards.js';
 // Import other admin routes here
 
 const router: Router = Router();
@@ -39,6 +40,7 @@ router.use('/useful-links', usefulLinksRoutes);
 router.use('/mods', modsRoutes);
 router.use('/bot-mods', botModsRoutes);
 router.use('/translation-contributors', translationContributorsRoutes);
+router.use('/keyboards', keyboardsRoutes);
 
 router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
       return res.status(200).send({});

@@ -8,7 +8,7 @@ export const MAX_PROFILE_MODULE_ID_LENGTH = 64;
 export const PROFILE_ENTITY_KINDS = ['player', 'creator'] as const;
 export type ProfileEntityKind = (typeof PROFILE_ENTITY_KINDS)[number];
 
-export const FAVORITE_ITEM_KINDS = ['pass', 'level', 'pack', 'player'] as const;
+export const FAVORITE_ITEM_KINDS = ['pass', 'level', 'pack', 'player', 'creator'] as const;
 export type FavoriteItemKind = (typeof FAVORITE_ITEM_KINDS)[number];
 
 export const PLAYER_STOCK_MODULE_TYPES = [
@@ -27,16 +27,18 @@ export const CREATOR_STOCK_MODULE_TYPES = [
   'charts',
 ] as const;
 
-export const EXTRA_PROFILE_MODULE_TYPES = ['favorite'] as const;
+export const EXTRA_PROFILE_MODULE_TYPES = ['favorite', 'keyboards'] as const;
+export const PLAYER_EXTRA_MODULE_TYPES = ['favorite', 'keyboards'] as const;
+export const CREATOR_EXTRA_MODULE_TYPES = ['favorite'] as const;
 
 export const PLAYER_MODULE_TYPES = [
   ...PLAYER_STOCK_MODULE_TYPES,
-  ...EXTRA_PROFILE_MODULE_TYPES,
+  ...PLAYER_EXTRA_MODULE_TYPES,
 ] as const;
 
 export const CREATOR_MODULE_TYPES = [
   ...CREATOR_STOCK_MODULE_TYPES,
-  ...EXTRA_PROFILE_MODULE_TYPES,
+  ...CREATOR_EXTRA_MODULE_TYPES,
 ] as const;
 
 export type PlayerModuleType = (typeof PLAYER_MODULE_TYPES)[number];

@@ -24,6 +24,7 @@ import dotenv from 'dotenv';
 import { playerStatsQuery } from '@/server/services/elasticsearch/misc/playerStatsQuery.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { getRankedScoreRanksForHits } from '@/server/services/elasticsearch/search/players/playerSearch.js';
+import { resolvePassBinds } from '@/server/services/keyboards/keyboardSetupService.js';
 
 dotenv.config();
 
@@ -589,6 +590,21 @@ export class PlayerStatsService {
         rankedScoreRank,
       },
     };
+
+    if (pass.playerId) {
+      try {
+        const binds = await resolvePassBinds(pass.playerId, [
+          {
+            id: pass.id,
+            keyCount: pass.keyCount,
+            vidUploadTime: pass.vidUploadTime,
+          },
+        ]);
+        (response as {keyboardSetup?: unknown}).keyboardSetup = binds[pass.id] ?? null;
+      } catch (error) {
+        logger.warn('[PlayerStatsService] getPassDetails: keyboard bind failed', error);
+      }
+    }
 
     return response;
   }

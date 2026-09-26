@@ -15,6 +15,7 @@ import { initializeOAuthAsAssociations } from './oauth/associations.js';
 import { initializeNotificationAssociations } from './notifications/associations.js';
 import { initializeLevelCacheHooks } from './levels/hooks.js';
 import { initializeMiscAssociations } from './misc/associations.js';
+import { initializeKeyboardsAssociations } from './keyboards/index.js';
 
 export function initializeAssociations() {
   // Initialize all model associations by calling individual association functions
@@ -34,6 +35,7 @@ export function initializeAssociations() {
   initializeTournamentsAssociations();
   initializeOAuthAsAssociations();
   initializeMiscAssociations();
+  initializeKeyboardsAssociations();
 
   // Initialize cache hooks after associations
   initializeLevelCacheHooks();

@@ -2,20 +2,41 @@ import axios from 'axios';
 import { logger } from '@/server/services/core/LoggerService.js';
 import {
   DEFAULT_PROBE_BVID,
+  mergeProxyLists,
   parseProxyId,
   parseProxyList,
   PROXY_PROBE_CONCURRENCY,
+  type BilibiliProxyFailReason,
+  type BilibiliProxyProtocol,
   type BilibiliProxyRef,
 } from '@/misc/utils/data/bilibiliProxy.js';
 import { fetchBilibiliHtml } from '@/misc/utils/data/bilibiliProxyAxios.js';
-import { listHealthyIds } from '@/server/services/media/bilibiliProxyPool.js';
+import { isIdQuarantined, listHealthyIds } from '@/server/services/media/bilibiliProxyPool.js';
 import { probeProxyAgainstBvid } from '@/server/services/media/bilibiliProxyWaves.js';
 
-const LIST_URLS = [
-  'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=cn&proxy_format=protocolipport&format=text',
-  'https://hproxy.com/api/proxy-list?format=txt&country=CN',
-  'https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/countries/CN/data.txt',
-  'https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/countries/CN/data.txt',
+interface ProxyListSource {
+  url: string;
+  protocol?: BilibiliProxyProtocol;
+}
+
+const LIST_SOURCES: ProxyListSource[] = [
+  { url: 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=cn&proxy_format=protocolipport&format=text' },
+  { url: 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=CN&protocol=http&proxy_format=protocolipport&format=text', protocol: 'http' },
+  { url: 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=CN&protocol=socks4&proxy_format=protocolipport&format=text', protocol: 'socks4' },
+  { url: 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=CN&protocol=socks5&proxy_format=protocolipport&format=text', protocol: 'socks5' },
+  { url: 'https://www.proxy-list.download/api/v1/get?type=http&country=CN', protocol: 'http' },
+  { url: 'https://www.proxy-list.download/api/v1/get?type=https&country=CN', protocol: 'http' },
+  { url: 'https://www.proxy-list.download/api/v1/get?type=socks4&country=CN', protocol: 'socks4' },
+  { url: 'https://www.proxy-list.download/api/v1/get?type=socks5&country=CN', protocol: 'socks5' },
+  { url: 'https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc&country=CN&protocols=http%2Chttps%2Csocks4%2Csocks5' },
+  { url: 'https://hproxy.com/api/proxy-list?format=txt&country=CN' },
+  { url: 'https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/countries/CN/data.txt' },
+  { url: 'https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/countries/CN/data.json' },
+  { url: 'https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/countries/CN/data.txt' },
+  { url: 'https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/countries/CN/data.json' },
+  { url: 'https://raw.githubusercontent.com/zloi-user/hideip.me/main/http.txt', protocol: 'http' },
+  { url: 'https://raw.githubusercontent.com/zloi-user/hideip.me/main/socks4.txt', protocol: 'socks4' },
+  { url: 'https://raw.githubusercontent.com/zloi-user/hideip.me/main/socks5.txt', protocol: 'socks5' },
 ];
 
 function probeBvid(): string {
@@ -39,36 +60,62 @@ async function mapLimit<T>(
   await Promise.all(workers);
 }
 
-async function pullPublicProxyList(): Promise<BilibiliProxyRef[]> {
-  for (const url of LIST_URLS) {
-    try {
-      const response = await axios.get<string>(url, {
-        timeout: 20000,
-        responseType: 'text',
-        validateStatus: (status) => status >= 200 && status < 300,
-        headers: {
-          Accept: 'text/plain,*/*',
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        },
-        proxy: false,
-      });
-      const parsed = parseProxyList(String(response.data ?? ''));
-      if (parsed.length > 0) {
-        logger.info(`Bilibili proxy list: ${parsed.length} unique CN entries from ${url}`);
-        return parsed;
-      }
-      logger.warn(`Bilibili proxy list empty from ${url}`);
-    } catch (error) {
-      logger.warn(`Bilibili proxy list pull failed from ${url}`, error);
-    }
-  }
-  return [];
+function applyDefaultProtocol(
+  list: BilibiliProxyRef[],
+  protocol: BilibiliProxyProtocol | undefined,
+): BilibiliProxyRef[] {
+  if (!protocol) return list;
+  return list.map((proxy) => ({
+    ...proxy,
+    protocol,
+    id: `${protocol}://${proxy.host}:${proxy.port}`,
+  }));
 }
 
-async function htmlProbe(proxy: BilibiliProxyRef): Promise<boolean> {
+async function fetchProxyListBody(url: string): Promise<string | null> {
+  try {
+    const response = await axios.get<string>(url, {
+      timeout: 20000,
+      responseType: 'text',
+      validateStatus: (status) => status >= 200 && status < 300,
+      headers: {
+        Accept: 'text/plain,application/json,*/*',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      },
+      proxy: false,
+    });
+    return String(response.data ?? '');
+  } catch (error) {
+    logger.debug(`Bilibili proxy list pull failed from ${url}`, error);
+    return null;
+  }
+}
+
+async function pullPublicProxyList(): Promise<BilibiliProxyRef[]> {
+  const bodies = await Promise.all(LIST_SOURCES.map((source) => fetchProxyListBody(source.url)));
+  const parsedLists: BilibiliProxyRef[][] = [];
+  let sources = 0;
+  for (let i = 0; i < LIST_SOURCES.length; i++) {
+    const body = bodies[i];
+    if (body == null) continue;
+    const parsed = applyDefaultProtocol(parseProxyList(body), LIST_SOURCES[i].protocol);
+    if (parsed.length === 0) continue;
+    sources += 1;
+    parsedLists.push(parsed);
+  }
+  const merged = mergeProxyLists(parsedLists);
+  if (merged.length > 0) {
+    logger.info(
+      `Bilibili proxy list: ${merged.length} unique candidates from ${sources}/${LIST_SOURCES.length} sources`,
+    );
+  }
+  return merged;
+}
+
+async function htmlProbe(proxy: BilibiliProxyRef): Promise<true | BilibiliProxyFailReason> {
   const result = await fetchBilibiliHtml(probeBvid(), { proxy });
-  return 'html' in result;
+  return 'html' in result ? true : result.reason;
 }
 
 export async function pullAndProbeNewBilibiliProxies(): Promise<void> {
@@ -82,6 +129,7 @@ export async function pullAndProbeNewBilibiliProxies(): Promise<void> {
   logger.info(`Bilibili proxy probe: ${unknown.length} unknown of ${listed.length}`);
   let hits = 0;
   await mapLimit(unknown, PROXY_PROBE_CONCURRENCY, async (proxy) => {
+    if (await isIdQuarantined(proxy.id)) return;
     const ok = await probeProxyAgainstBvid(proxy, htmlProbe);
     if (ok) hits += 1;
   });
@@ -90,13 +138,9 @@ export async function pullAndProbeNewBilibiliProxies(): Promise<void> {
 
 export async function reprobeHealthyBilibiliProxies(): Promise<void> {
   const ids = await listHealthyIds();
-  logger.info(`Bilibili proxy re-probe: ${ids.length} healthy members`);
-  let kept = 0;
   await mapLimit(ids, PROXY_PROBE_CONCURRENCY, async (id) => {
     const proxy = parseProxyId(id);
     if (!proxy) return;
-    const ok = await probeProxyAgainstBvid(proxy, htmlProbe, { evictOnFail: true });
-    if (ok) kept += 1;
+    await probeProxyAgainstBvid(proxy, htmlProbe, { evictOnFail: true });
   });
-  logger.info(`Bilibili proxy re-probe finished: ${kept}/${ids.length} still healthy`);
 }
