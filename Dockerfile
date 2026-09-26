@@ -63,6 +63,7 @@ COPY --from=build --chown=tuf:tuf /app/dist ./dist
 COPY --chown=tuf:tuf .sequelizerc ./
 COPY --chown=tuf:tuf src/config/config.cjs ./src/config/config.cjs
 COPY --chown=tuf:tuf src/database/migrations ./src/database/migrations
+COPY --chown=tuf:tuf src/database/data ./src/database/data
 
 ARG GIT_SHA=
 ENV GIT_SHA=${GIT_SHA} \
