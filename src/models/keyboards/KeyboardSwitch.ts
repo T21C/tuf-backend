@@ -6,7 +6,7 @@ import {
   Model,
 } from 'sequelize';
 import {getSequelizeForModelGroup} from '@/config/db.js';
-import type {KeyboardSensing, KeyboardSwitchStem} from '@/misc/utils/keyboards/types.js';
+import type {KeyboardSwitchSensing, KeyboardSwitchStem} from '@/misc/utils/keyboards/types.js';
 
 const sequelize = getSequelizeForModelGroup('players');
 
@@ -16,7 +16,7 @@ class KeyboardSwitch extends Model<
 > {
   declare id: CreationOptional<number>;
   declare name: string;
-  declare sensing: KeyboardSensing | null;
+  declare sensing: KeyboardSwitchSensing | null;
   declare stem: CreationOptional<KeyboardSwitchStem | null>;
   declare baseColor: CreationOptional<string | null>;
   declare topColor: CreationOptional<string | null>;

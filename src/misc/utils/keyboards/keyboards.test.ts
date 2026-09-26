@@ -9,6 +9,7 @@ import {
   keySignature,
   matchRankerToPlayer,
   parseBoardSpecInput,
+  parseSwitchSensing,
   parseKeybindText,
   parseStoredGeometryKeys,
   parseSinceDate,
@@ -124,10 +125,12 @@ test('board spec stores optional stem, base, and top housing colors', () => {
     stemColor: '#E23B3B',
     baseColor: '#1A1A1A',
     topColor: '#334455',
+    baseOpacity: 0.4,
   });
   assert.equal(parsed.stemColor, '#e23b3b');
   assert.equal(parsed.baseColor, '#1a1a1a');
   assert.equal(parsed.topColor, '#334455');
+  assert.equal(parsed.baseOpacity, 0.4);
   assert.equal(parsed.productId, null);
 });
 
@@ -165,6 +168,44 @@ test('rapid trigger actuation is hall-only', () => {
   assert.equal(split.rapidTriggerActuationMm, null);
   assert.equal(split.rapidTriggerPressMm, 0.4);
   assert.equal(split.rapidTriggerReleaseMm, 0.2);
+});
+
+test('membrane sensing strips switch-modifiable board fields', () => {
+  const switchField = BOARD_SPEC_FIELDS.find((field) => field.id === 'switch');
+  const actuation = BOARD_SPEC_FIELDS.find((field) => field.id === 'actuationMm');
+  assert.ok(switchField && actuation);
+  assert.equal(specFieldVisible(switchField, {sensing: 'mechanical'}), true);
+  assert.equal(specFieldVisible(actuation, {sensing: 'hall'}), true);
+  assert.equal(specFieldVisible(switchField, {sensing: 'membrane'}), false);
+  assert.equal(specFieldVisible(actuation, {sensing: 'membrane'}), false);
+  const parsed = parseBoardSpecInput({
+    geometryId: 1,
+    sensing: 'membrane',
+    switchId: 4,
+    customSwitch: 'foam dome',
+    actuationMm: 2,
+    stemColor: '#e23b3b',
+    baseColor: '#1a1a1a',
+    topColor: '#334455',
+    baseOpacity: 0.4,
+    rapidTriggerSplit: true,
+    rapidTriggerActuationMm: 1.2,
+    rapidTriggerPressMm: 0.4,
+    rapidTriggerReleaseMm: 0.2,
+    keyOverrides: [{code: 'KeyA', socketEmpty: true}],
+  });
+  assert.equal(parsed.sensing, 'membrane');
+  assert.equal(parsed.switchId, null);
+  assert.equal(parsed.customSwitch, null);
+  assert.equal(parsed.actuationMm, null);
+  assert.equal(parsed.stemColor, null);
+  assert.equal(parsed.baseColor, null);
+  assert.equal(parsed.topColor, null);
+  assert.equal(parsed.baseOpacity, null);
+  assert.equal(parsed.rapidTriggerSplit, false);
+  assert.equal(parsed.rapidTriggerActuationMm, null);
+  assert.deepEqual(parsed.keyOverrides, []);
+  assert.throws(() => parseSwitchSensing('membrane'), KeyboardSetupError);
 });
 
 test('KLE import maps known legends to HID codes', () => {

@@ -1,7 +1,10 @@
 export const KEYBOARD_FORM_FACTORS = ['full', 'tkl', '96', '75', '65', 'other'] as const;
 export type KeyboardFormFactor = string;
 
-export const KEYBOARD_SENSING_TYPES = ['mechanical', 'optical', 'hall', 'other'] as const;
+export const KEYBOARD_SWITCH_SENSING_TYPES = ['mechanical', 'optical', 'hall', 'other'] as const;
+export type KeyboardSwitchSensing = (typeof KEYBOARD_SWITCH_SENSING_TYPES)[number];
+
+export const KEYBOARD_SENSING_TYPES = ['mechanical', 'optical', 'hall', 'membrane', 'other'] as const;
 export type KeyboardSensing = (typeof KEYBOARD_SENSING_TYPES)[number];
 
 export const KEYBOARD_SWITCH_STEMS = ['linear', 'tactile', 'clicky', 'optical', 'magnetic'] as const;
@@ -64,6 +67,7 @@ export type BoardSpecInput = {
   stemColor?: string | null;
   baseColor?: string | null;
   topColor?: string | null;
+  baseOpacity?: number | null;
   keyOverrides?: BoardKeyOverrideInput[];
 };
 

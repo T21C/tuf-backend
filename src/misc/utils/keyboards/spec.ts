@@ -1,11 +1,13 @@
 import {
   KEYBOARD_SENSING_TYPES,
+  KEYBOARD_SWITCH_SENSING_TYPES,
   KeyboardSetupError,
   MAX_KEYBIND_NOTE_LENGTH,
   MAX_KEYBOARD_NAME_LENGTH,
   type BoardKeyOverrideInput,
   type BoardSpecInput,
   type KeyboardSensing,
+  type KeyboardSwitchSensing,
 } from './types.js';
 
 export type SpecFieldId =
@@ -30,8 +32,8 @@ export type SpecFieldDef = {
 
 export const BOARD_SPEC_FIELDS: SpecFieldDef[] = [
   {id: 'sensing'},
-  {id: 'switch'},
-  {id: 'actuationMm'},
+  {id: 'switch', when: (spec) => spec.sensing !== 'membrane'},
+  {id: 'actuationMm', when: (spec) => spec.sensing !== 'membrane'},
   {
     id: 'rapidTriggerActuationMm',
     when: (spec) => spec.sensing === 'hall' && !spec.rapidTriggerSplit,
@@ -95,12 +97,32 @@ function parseSensing(raw: unknown): KeyboardSensing | null {
   return raw as KeyboardSensing;
 }
 
+export function parseSwitchSensing(raw: unknown): KeyboardSwitchSensing | null {
+  if (raw == null || raw === '') return null;
+  if (
+    typeof raw !== 'string' ||
+    !KEYBOARD_SWITCH_SENSING_TYPES.includes(raw as KeyboardSwitchSensing)
+  ) {
+    throw new KeyboardSetupError(400, 'Invalid sensing type');
+  }
+  return raw as KeyboardSwitchSensing;
+}
+
 function parseOptionalColor(raw: unknown, field: string): string | null {
   if (raw == null || raw === '') return null;
   if (typeof raw !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(raw)) {
     throw new KeyboardSetupError(400, `${field} must be a #RRGGBB value`);
   }
   return raw.toLowerCase();
+}
+
+function parseOptionalOpacity(raw: unknown, field: string): number | null {
+  if (raw == null || raw === '') return null;
+  const value = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new KeyboardSetupError(400, `${field} must be between 0 and 1`);
+  }
+  return Math.round(value * 100) / 100;
 }
 
 export function parseBoardKeyOverrides(raw: unknown): BoardKeyOverrideInput[] {
@@ -163,6 +185,7 @@ export function parseBoardSpecInput(raw: unknown): BoardSpecInput {
     stemColor: parseOptionalColor(rec.stemColor, 'stemColor'),
     baseColor: parseOptionalColor(rec.baseColor, 'baseColor'),
     topColor: parseOptionalColor(rec.topColor, 'topColor'),
+    baseOpacity: parseOptionalOpacity(rec.baseOpacity, 'baseOpacity'),
     keyOverrides: parseBoardKeyOverrides(rec.keyOverrides),
   };
   return sanitizeBoardSpec(spec);
@@ -170,6 +193,21 @@ export function parseBoardSpecInput(raw: unknown): BoardSpecInput {
 
 export function sanitizeBoardSpec(spec: BoardSpecInput): BoardSpecInput {
   const next = {...spec};
+  if (next.sensing === 'membrane') {
+    next.switchId = null;
+    next.customSwitch = null;
+    next.actuationMm = null;
+    next.stemColor = null;
+    next.baseColor = null;
+    next.topColor = null;
+    next.baseOpacity = null;
+    next.rapidTriggerSplit = false;
+    next.rapidTriggerActuationMm = null;
+    next.rapidTriggerPressMm = null;
+    next.rapidTriggerReleaseMm = null;
+    next.keyOverrides = [];
+    return next;
+  }
   if (next.sensing !== 'hall') {
     next.rapidTriggerSplit = false;
     next.rapidTriggerActuationMm = null;

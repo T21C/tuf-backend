@@ -31,6 +31,7 @@ import {
   findPeriodAt,
   keySignature,
   parseBoardSpecInput,
+  parseSwitchSensing,
   parseKeysArray,
   parseSinceDate,
   playerHasKeyboardsModule,
@@ -40,6 +41,7 @@ import {
   isUntilAuto,
   periodCoversDate,
   type BoardSpecInput,
+  type KeyboardSwitchSensing,
   type KeyboardSwitchStem,
   type StoredGeometryKey,
 } from '@/misc/utils/keyboards/index.js';
@@ -186,6 +188,7 @@ function serializeBoardPeriod(row: KeyboardBoardPeriod & {
     stemColor: row.stemColor,
     baseColor: row.baseColor,
     topColor: row.topColor,
+    baseOpacity: row.baseOpacity == null ? null : Number(row.baseOpacity),
     geometry: row.geometry ? serializeGeometry(row.geometry) : null,
     product: row.product ? serializeProduct(row.product) : null,
     switch: row.switch ? serializeSwitch(row.switch) : null,
@@ -696,6 +699,7 @@ async function writeBoardPeriod(opts: {
     stemColor: readySpec?.stemColor ?? null,
     baseColor: readySpec?.baseColor ?? null,
     topColor: readySpec?.topColor ?? null,
+    baseOpacity: readySpec?.baseOpacity ?? null,
   };
 
   let row: KeyboardBoardPeriod;
@@ -1466,8 +1470,7 @@ export async function createSwitchRow(raw: {
   if (!name) throw new KeyboardSetupError(400, 'name is required');
   let sensing = null;
   if (raw.sensing != null && raw.sensing !== '') {
-    const spec = parseBoardSpecInput({geometryId: 1, sensing: raw.sensing});
-    sensing = spec.sensing;
+    sensing = parseSwitchSensing(raw.sensing);
   }
   try {
     const row = await KeyboardSwitch.create({
@@ -1493,7 +1496,7 @@ export async function updateSwitchRow(id: number, raw: Record<string, unknown>) 
   if (!row) throw new KeyboardSetupError(404, 'Switch not found');
   const patch: Partial<{
     name: string;
-    sensing: BoardSpecInput['sensing'];
+    sensing: KeyboardSwitchSensing | null;
     stem: KeyboardSwitchStem | null;
     baseColor: string | null;
     topColor: string | null;
@@ -1506,8 +1509,7 @@ export async function updateSwitchRow(id: number, raw: Record<string, unknown>) 
     patch.name = name;
   }
   if ('sensing' in raw) {
-    const spec = parseBoardSpecInput({geometryId: 1, sensing: raw.sensing});
-    patch.sensing = spec.sensing;
+    patch.sensing = parseSwitchSensing(raw.sensing);
   }
   if ('stem' in raw) patch.stem = parseSwitchStem(raw.stem);
   if ('baseColor' in raw) patch.baseColor = parseSwitchColor(raw.baseColor);
