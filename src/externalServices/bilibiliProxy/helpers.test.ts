@@ -13,7 +13,7 @@ import {
   PROXY_TIMEOUT_QUARANTINE_MS,
   resolveBilibiliFetchMode,
   shouldStartBilibiliProxyCron,
-} from './bilibiliProxy.js';
+} from './helpers.js';
 
 const HEALTHY_HTML = `<!doctype html>
 <html>

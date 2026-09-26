@@ -7,7 +7,7 @@ import {
   pickUnused,
   type BilibiliProxyFailReason,
   type BilibiliProxyRef,
-} from '@/misc/utils/data/bilibiliProxy.js';
+} from './helpers.js';
 
 const OK_KEY = 'bilibili:proxies:ok';
 const META_KEY = 'bilibili:proxies:meta';

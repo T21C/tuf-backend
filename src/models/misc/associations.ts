@@ -12,6 +12,7 @@ import ModLike from './ModLike.js';
 import ModSlugRedirect from './ModSlugRedirect.js';
 import BotMod from './BotMod.js';
 import BotModLink from './BotModLink.js';
+import BotModRelease from './BotModRelease.js';
 
 export function initializeMiscAssociations() {
   Mod.hasMany(ModAssignee, {
@@ -103,6 +104,19 @@ export function initializeMiscAssociations() {
   ModSlugRedirect.belongsTo(Mod, {
     foreignKey: 'modId',
     as: 'mod',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  BotMod.hasMany(BotModRelease, {
+    foreignKey: 'botId',
+    as: 'releases',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+  BotModRelease.belongsTo(BotMod, {
+    foreignKey: 'botId',
+    as: 'botMod',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   });

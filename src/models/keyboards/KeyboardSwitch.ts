@@ -19,6 +19,7 @@ class KeyboardSwitch extends Model<
   declare sensing: KeyboardSensing | null;
   declare stem: CreationOptional<KeyboardSwitchStem | null>;
   declare baseColor: CreationOptional<string | null>;
+  declare topColor: CreationOptional<string | null>;
   declare stemColor: CreationOptional<string | null>;
   declare baseOpacity: CreationOptional<number | null>;
   declare createdAt: CreationOptional<Date>;
@@ -35,6 +36,7 @@ KeyboardSwitch.init(
     },
     stem: {type: DataTypes.STRING(16), allowNull: true},
     baseColor: {type: DataTypes.STRING(7), allowNull: true},
+    topColor: {type: DataTypes.STRING(7), allowNull: true},
     stemColor: {type: DataTypes.STRING(7), allowNull: true},
     baseOpacity: {type: DataTypes.DECIMAL(3, 2), allowNull: true},
     createdAt: {type: DataTypes.DATE, allowNull: false},

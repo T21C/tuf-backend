@@ -25,7 +25,7 @@ export interface ProbeResult {
 }
 
 /** Probe identifier used as map key in the agent and in log metadata. */
-export type ProbeName = 'database' | 'mainServer' | 'cdn' | 'cdc' | 'nginx';
+export type ProbeName = 'database' | 'mainServer' | 'cdn' | 'cdc' | 'bilibiliProxy' | 'nginx';
 
 /** Function signature every probe module exports as `runProbe`. */
 export type ProbeFn = (timeoutMs: number) => Promise<ProbeResult>;

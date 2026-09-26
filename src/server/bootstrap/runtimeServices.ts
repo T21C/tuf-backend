@@ -120,13 +120,6 @@ export async function initializeRuntimeServices(): Promise<void> {
   );
   BotModsSyncCronService.startScheduledSync();
 
-  if (redis.isConnected()) {
-    const { BilibiliProxyCronService } = await import(
-      '@/server/services/media/BilibiliProxyCronService.js'
-    );
-    BilibiliProxyCronService.startScheduledRefresh();
-  }
-
   const { initUploadKinds } = await import('@/server/services/upload/registerKinds.js');
   initUploadKinds();
 }

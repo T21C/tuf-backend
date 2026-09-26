@@ -4,4 +4,5 @@ export { runProbe as dbProbe } from './dbProbe.js';
 export { makeMainServerProbe } from './mainServerProbe.js';
 export { makeCdnProbe } from './cdnProbe.js';
 export { makeCdcProbe } from './cdcProbe.js';
+export { makeBilibiliProxyProbe } from './bilibiliProxyProbe.js';
 export { makeNginxProbe } from './nginxProbe.js';

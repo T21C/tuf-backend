@@ -4,8 +4,8 @@ import {
   parseProxyId,
   type BilibiliProxyFailReason,
   type BilibiliProxyRef,
-} from '@/misc/utils/data/bilibiliProxy.js';
-import { isAbortError } from '@/misc/utils/data/bilibiliProxyAxios.js';
+} from './helpers.js';
+import { isAbortError } from './axios.js';
 import {
   demoteProxy,
   evictProxy,
@@ -14,7 +14,7 @@ import {
   listHealthyIds,
   markProxyFail,
   markProxyOk,
-} from '@/server/services/media/bilibiliProxyPool.js';
+} from './pool.js';
 
 export async function raceProxyWaves<T>(
   attempt: (

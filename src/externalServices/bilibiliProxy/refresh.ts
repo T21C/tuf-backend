@@ -9,10 +9,10 @@ import {
   type BilibiliProxyFailReason,
   type BilibiliProxyProtocol,
   type BilibiliProxyRef,
-} from '@/misc/utils/data/bilibiliProxy.js';
-import { fetchBilibiliHtml } from '@/misc/utils/data/bilibiliProxyAxios.js';
-import { isIdQuarantined, listHealthyIds } from '@/server/services/media/bilibiliProxyPool.js';
-import { probeProxyAgainstBvid } from '@/server/services/media/bilibiliProxyWaves.js';
+} from './helpers.js';
+import { fetchBilibiliHtml } from './axios.js';
+import { isIdQuarantined, listHealthyIds } from './pool.js';
+import { probeProxyAgainstBvid } from './waves.js';
 
 interface ProxyListSource {
   url: string;

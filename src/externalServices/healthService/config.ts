@@ -40,6 +40,14 @@ function defaultCdcUrl(): string {
   return `http://localhost:${port}/health`;
 }
 
+function defaultBilibiliProxyUrl(): string {
+  if (process.env.HEALTH_BILIBILI_PROXY_URL !== undefined) {
+    return process.env.HEALTH_BILIBILI_PROXY_URL;
+  }
+  const port = envInt('BILIBILI_PROXY_PORT', 3892);
+  return `http://localhost:${port}/health`;
+}
+
 /** Centralized, env-driven config for the standalone health service. */
 export const HEALTH_CONFIG = {
   port: envInt('HEALTH_PORT', 3883),
@@ -52,6 +60,7 @@ export const HEALTH_CONFIG = {
   mainServerUrl: defaultMainServerUrl(),
   cdnUrl: defaultCdnUrl(),
   cdcUrl: defaultCdcUrl(),
+  bilibiliProxyUrl: defaultBilibiliProxyUrl(),
   /** When unset the nginx probe is skipped entirely. */
   nginxUrl: envString('HEALTH_NGINX_URL', ''),
   /**

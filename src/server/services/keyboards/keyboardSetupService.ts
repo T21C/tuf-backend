@@ -124,6 +124,7 @@ function serializeSwitch(row: KeyboardSwitch) {
     sensing: row.sensing,
     stem: row.stem,
     baseColor: row.baseColor,
+    topColor: row.topColor,
     stemColor: row.stemColor,
     baseOpacity: row.baseOpacity == null ? null : Number(row.baseOpacity),
   };
@@ -182,6 +183,9 @@ function serializeBoardPeriod(row: KeyboardBoardPeriod & {
     rapidTriggerReleaseMm: mm(row.rapidTriggerReleaseMm),
     colorway: row.colorway,
     note: row.note,
+    stemColor: row.stemColor,
+    baseColor: row.baseColor,
+    topColor: row.topColor,
     geometry: row.geometry ? serializeGeometry(row.geometry) : null,
     product: row.product ? serializeProduct(row.product) : null,
     switch: row.switch ? serializeSwitch(row.switch) : null,
@@ -689,6 +693,9 @@ async function writeBoardPeriod(opts: {
     rapidTriggerReleaseMm: readySpec?.rapidTriggerReleaseMm ?? null,
     colorway: readySpec?.colorway ?? null,
     note: readySpec?.note ?? null,
+    stemColor: readySpec?.stemColor ?? null,
+    baseColor: readySpec?.baseColor ?? null,
+    topColor: readySpec?.topColor ?? null,
   };
 
   let row: KeyboardBoardPeriod;
@@ -1451,6 +1458,7 @@ export async function createSwitchRow(raw: {
   sensing?: unknown;
   stem?: unknown;
   baseColor?: unknown;
+  topColor?: unknown;
   stemColor?: unknown;
   baseOpacity?: unknown;
 }) {
@@ -1467,6 +1475,7 @@ export async function createSwitchRow(raw: {
       sensing,
       stem: parseSwitchStem(raw.stem),
       baseColor: parseSwitchColor(raw.baseColor),
+      topColor: parseSwitchColor(raw.topColor),
       stemColor: parseSwitchColor(raw.stemColor),
       baseOpacity: parseBaseOpacity(raw.baseOpacity),
     });
@@ -1487,6 +1496,7 @@ export async function updateSwitchRow(id: number, raw: Record<string, unknown>) 
     sensing: BoardSpecInput['sensing'];
     stem: KeyboardSwitchStem | null;
     baseColor: string | null;
+    topColor: string | null;
     stemColor: string | null;
     baseOpacity: number | null;
   }> = {};
@@ -1501,6 +1511,7 @@ export async function updateSwitchRow(id: number, raw: Record<string, unknown>) 
   }
   if ('stem' in raw) patch.stem = parseSwitchStem(raw.stem);
   if ('baseColor' in raw) patch.baseColor = parseSwitchColor(raw.baseColor);
+  if ('topColor' in raw) patch.topColor = parseSwitchColor(raw.topColor);
   if ('stemColor' in raw) patch.stemColor = parseSwitchColor(raw.stemColor);
   if ('baseOpacity' in raw) patch.baseOpacity = parseBaseOpacity(raw.baseOpacity);
   await row.update(patch);

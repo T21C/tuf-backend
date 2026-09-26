@@ -3,6 +3,7 @@ import {Op, type WhereOptions} from 'sequelize';
 import {getSequelizeForModelGroup} from '@/config/db.js';
 import BotMod from '@/models/misc/BotMod.js';
 import BotModLink from '@/models/misc/BotModLink.js';
+import BotModRelease from '@/models/misc/BotModRelease.js';
 import Mod from '@/models/misc/Mod.js';
 import ModVersion from '@/models/misc/ModVersion.js';
 import {logger} from '@/server/services/core/LoggerService.js';
@@ -12,11 +13,19 @@ import {indexCatalogMod} from './modSearchIndex.js';
 import {normalizeVersionLabel} from './modSlug.js';
 import {
   BOT_MOD_DIFF,
-  decideBotModLinkAction,
+  decideBotModGate,
+  decideBotModReleaseAction,
   snapshotDescription,
   snapshotDownloadUrl,
   snapshotVersion,
 } from './botModDiff.js';
+import {
+  botModIdFromName,
+  groupFeedMods,
+  type BotModFeedRelease,
+  type BotModFeedRow,
+  type GroupedBotModFeed,
+} from './botModIdentity.js';
 
 export const DEFAULT_BOT_MODS_URL = 'https://bot.adofai.gg/api/mods/';
 const FETCH_TIMEOUT_MS = 30_000;
@@ -24,7 +33,6 @@ const NAME_MAX = 512;
 const USERNAME_MAX = 64;
 const DISCORD_ID_MAX = 32;
 const MONGO_ID_MAX = 32;
-const BOT_ID_MAX = 64;
 const LIST_DEFAULT_LIMIT = 200;
 const LIST_MAX_LIMIT = 500;
 
@@ -60,6 +68,7 @@ export type SerializedBotMod = {
   isDuplicate: boolean;
   lastSeenAt: string | null;
   missingSince: string | null;
+  releases: Array<{version: string; uploadedAt: string | null}>;
   link: SerializedBotModLink | null;
 };
 
@@ -102,7 +111,7 @@ function asBoolean(raw: unknown): boolean {
 
 export function parseBotModId(raw: unknown): string | null {
   const id = String(raw ?? '').trim();
-  if (!id || id.length > BOT_ID_MAX) return null;
+  if (!id || id.length > NAME_MAX) return null;
   return id;
 }
 
@@ -171,6 +180,17 @@ export function serializeBotMod(row: BotMod): SerializedBotMod {
     isDuplicate: Boolean(row.isDuplicate),
     lastSeenAt: iso(row.lastSeenAt),
     missingSince: iso(row.missingSince),
+    releases: [...(row.releases ?? [])]
+      .sort((a, b) => {
+        const left = a.uploadedAt instanceof Date ? a.uploadedAt.getTime() : 0;
+        const right = b.uploadedAt instanceof Date ? b.uploadedAt.getTime() : 0;
+        if (left !== right) return right - left;
+        return b.version.localeCompare(a.version);
+      })
+      .map((release) => ({
+        version: release.version,
+        uploadedAt: iso(release.uploadedAt),
+      })),
     link: link
       ? {
           modId: link.modId,
@@ -191,40 +211,24 @@ function isProblemRow(row: SerializedBotMod): boolean {
   if (row.isDuplicate) return false;
   if (row.missingSince) return true;
   if (row.ignoreUpdate) return true;
-  if (!snapshotVersion(row.version)) return true;
+  const hasVersion =
+    Boolean(snapshotVersion(row.version)) || row.releases.some((release) => snapshotVersion(release.version));
+  if (!hasVersion) return true;
   if (row.link?.lastSyncStatus === 'error') return true;
   return false;
 }
 
-type ParsedFeedItem = {
-  id: string;
-  sourceMongoId: string | null;
-  name: string;
-  version: string | null;
-  parsedDownload: string | null;
-  download: string | null;
-  description: string | null;
-  cachedUsername: string;
-  creatorDiscordId: string;
-  uploadedAt: Date | null;
-  ignoreUpdate: boolean;
-  hideFromSearch: boolean;
-  lastSeenAt: Date;
-  missingSince: null;
-  updatedAt: Date;
-};
-
-function parseFeedItem(raw: unknown, seenAt: Date): ParsedFeedItem | null {
+function parseFeedItem(raw: unknown, seenAt: Date): BotModFeedRow | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const src = raw as Record<string, unknown>;
-  const id = parseBotModId(src.id);
-  if (!id) return null;
+  const name = clip(src.name, NAME_MAX);
+  if (!name) return null;
   const parsedDownload = snapshotDownloadUrl(src.parsedDownload) || snapshotDownloadUrl(src.download) || null;
   const download = snapshotDownloadUrl(src.download) || null;
   return {
-    id,
+    id: botModIdFromName(name),
     sourceMongoId: clip(src._id, MONGO_ID_MAX) || null,
-    name: clip(src.name, NAME_MAX) || id,
+    name,
     version: snapshotVersion(src.version) || null,
     parsedDownload,
     download,
@@ -320,6 +324,47 @@ async function syncCatalogDescriptionFromBot(
   return changed;
 }
 
+function releaseUploadedTime(value: Date | null | undefined): number {
+  if (!(value instanceof Date)) return Number.NEGATIVE_INFINITY;
+  const time = value.getTime();
+  return Number.isNaN(time) ? Number.NEGATIVE_INFINITY : time;
+}
+
+function releasesForBot(bot: BotMod): BotModFeedRelease[] {
+  const stored = Array.isArray(bot.releases) ? bot.releases : [];
+  if (stored.length > 0) {
+    return stored
+      .map((release) => ({
+        botId: bot.id,
+        version: snapshotVersion(release.version),
+        parsedDownload: snapshotDownloadUrl(release.parsedDownload),
+        download: snapshotDownloadUrl(release.download) || null,
+        description: snapshotDescription(release.description),
+        uploadedAt: release.uploadedAt,
+      }))
+      .filter((release) => release.version && release.parsedDownload)
+      .sort((a, b) => {
+        const delta = releaseUploadedTime(a.uploadedAt) - releaseUploadedTime(b.uploadedAt);
+        if (delta !== 0) return delta;
+        return a.version.localeCompare(b.version);
+      });
+  }
+
+  const version = snapshotVersion(bot.version);
+  const parsedDownload = snapshotDownloadUrl(bot.parsedDownload);
+  if (!version || !parsedDownload) return [];
+  return [
+    {
+      botId: bot.id,
+      version,
+      parsedDownload,
+      download: snapshotDownloadUrl(bot.download) || null,
+      description: snapshotDescription(bot.description),
+      uploadedAt: bot.uploadedAt,
+    },
+  ];
+}
+
 async function applyLinkedSnapshot(link: BotModLink, seenAt: Date, counts: BotModsSyncCounts, createdModIds: Set<number>): Promise<void> {
   const bot = link.botMod;
   if (!bot) {
@@ -333,157 +378,193 @@ async function applyLinkedSnapshot(link: BotModLink, seenAt: Date, counts: BotMo
     return;
   }
 
-  const version = snapshotVersion(bot.version);
-  const downloadUrl = snapshotDownloadUrl(bot.parsedDownload);
-  const description = snapshotDescription(bot.description);
-  let catalogHasVersion = false;
-  if (version) {
-    const existing = await ModVersion.findOne({
-      where: {modId: link.modId, version: normalizeVersionLabel(version)},
-    });
-    catalogHasVersion = Boolean(existing);
-  }
-
-  const action = decideBotModLinkAction({
+  const gate = decideBotModGate({
     enabled: Boolean(link.enabled),
     ignoreUpdate: Boolean(bot.ignoreUpdate),
     isDuplicate: Boolean(bot.isDuplicate),
     missing: Boolean(bot.missingSince),
-    version: bot.version,
-    parsedDownload: bot.parsedDownload,
-    lastAppliedVersion: link.lastAppliedVersion,
-    lastAppliedDownloadUrl: link.lastAppliedDownloadUrl,
-    catalogHasVersion,
   });
+  if (gate === BOT_MOD_DIFF.DISABLED) return;
+  if (gate === BOT_MOD_DIFF.DUPLICATE) {
+    counts.ignored += 1;
+    await stampLink(link, {
+      status: 'duplicate',
+      message: 'Marked as duplicate',
+      at: seenAt,
+      keepCursor: true,
+    });
+    return;
+  }
+  if (gate === BOT_MOD_DIFF.IGNORE_UPDATE) {
+    counts.ignored += 1;
+    await stampLink(link, {
+      status: 'ignored',
+      message: 'Bot marked ignoreUpdate',
+      at: seenAt,
+      keepCursor: true,
+    });
+    return;
+  }
+  if (gate === BOT_MOD_DIFF.MISSING) {
+    await stampLink(link, {
+      status: 'missing',
+      message: 'Not present in the latest feed',
+      at: seenAt,
+      keepCursor: true,
+    });
+    return;
+  }
 
-  switch (action.kind) {
-    case BOT_MOD_DIFF.NOOP:
+  const releases = releasesForBot(bot);
+  const catalogRows = await ModVersion.findAll({
+    where: {modId: link.modId},
+    attributes: ['version'],
+  });
+  const catalogVersions = new Set(catalogRows.map((row) => normalizeVersionLabel(row.version)));
+
+  let cursorVersion = snapshotVersion(link.lastAppliedVersion);
+  let cursorUrl = snapshotDownloadUrl(link.lastAppliedDownloadUrl);
+  let cursorTouched = false;
+  const createdVersions: string[] = [];
+  const skippedVersions: string[] = [];
+  const advancedVersions: string[] = [];
+  const errors: string[] = [];
+
+  const rememberCursor = (version: string, downloadUrl: string) => {
+    cursorVersion = version;
+    cursorUrl = downloadUrl;
+    cursorTouched = true;
+  };
+
+  if (releases.length === 0) {
+    const action = decideBotModReleaseAction({
+      version: bot.version,
+      parsedDownload: bot.parsedDownload,
+      lastAppliedVersion: cursorVersion,
+      lastAppliedDownloadUrl: cursorUrl,
+      catalogHasVersion: false,
+    });
+    counts.errors += 1;
+    await stampLink(link, {
+      status: 'error',
+      message: action.kind === BOT_MOD_DIFF.MISSING_DOWNLOAD ? 'Missing download URL' : 'Empty version',
+      at: seenAt,
+      keepCursor: true,
+    });
+    return;
+  }
+
+  for (const release of releases) {
+    const version = release.version;
+    const downloadUrl = release.parsedDownload;
+    const description = release.description;
+    const catalogKey = normalizeVersionLabel(version);
+    const action = decideBotModReleaseAction({
+      version,
+      parsedDownload: downloadUrl,
+      lastAppliedVersion: cursorVersion,
+      lastAppliedDownloadUrl: cursorUrl,
+      catalogHasVersion: catalogVersions.has(catalogKey),
+    });
+
+    if (action.kind === BOT_MOD_DIFF.NOOP) {
       counts.unchanged += 1;
       if (await syncCatalogDescriptionFromBot(link.modId, version, description, 'if-empty')) {
         createdModIds.add(link.modId);
       }
-      await stampLink(link, {status: 'ok', message: null, at: seenAt, keepCursor: true});
-      return;
-    case BOT_MOD_DIFF.ADVANCE_URL:
-      counts.advanced += 1;
-      if (await syncCatalogDescriptionFromBot(link.modId, version, description, 'if-empty')) {
-        createdModIds.add(link.modId);
-      }
-      await stampLink(link, {
-        status: 'ok',
-        message: 'Download URL changed for the same version',
-        at: seenAt,
-        version,
-        url: downloadUrl,
-      });
-      return;
-    case BOT_MOD_DIFF.SKIP_EXISTING:
-      counts.skipped += 1;
-      if (await syncCatalogDescriptionFromBot(link.modId, version, description, 'if-empty')) {
-        createdModIds.add(link.modId);
-      }
-      await stampLink(link, {
-        status: 'skipped',
-        message: `Version ${version} already exists`,
-        at: seenAt,
-        version,
-        url: downloadUrl,
-      });
-      return;
-    case BOT_MOD_DIFF.EMPTY_VERSION:
-      counts.errors += 1;
-      await stampLink(link, {
-        status: 'error',
-        message: 'Empty version',
-        at: seenAt,
-        keepCursor: true,
-      });
-      return;
-    case BOT_MOD_DIFF.MISSING_DOWNLOAD:
-      counts.errors += 1;
-      await stampLink(link, {
-        status: 'error',
-        message: 'Missing download URL',
-        at: seenAt,
-        keepCursor: true,
-      });
-      return;
-    case BOT_MOD_DIFF.DUPLICATE:
-      counts.ignored += 1;
-      await stampLink(link, {
-        status: 'duplicate',
-        message: 'Marked as duplicate',
-        at: seenAt,
-        keepCursor: true,
-      });
-      return;
-    case BOT_MOD_DIFF.IGNORE_UPDATE:
-      counts.ignored += 1;
-      await stampLink(link, {
-        status: 'ignored',
-        message: 'Bot marked ignoreUpdate',
-        at: seenAt,
-        keepCursor: true,
-      });
-      return;
-    case BOT_MOD_DIFF.MISSING:
-      await stampLink(link, {
-        status: 'missing',
-        message: 'Not present in the latest feed',
-        at: seenAt,
-        keepCursor: true,
-      });
-      return;
-    case BOT_MOD_DIFF.DISABLED:
-      return;
-    case BOT_MOD_DIFF.CREATE_RELEASE: {
-      try {
-        await createModVersion({
-          modId: link.modId,
-          version,
-          downloadUrl,
-          notes: description,
-          releasedAt: bot.uploadedAt || seenAt,
-        });
-        await syncCatalogDescriptionFromBot(link.modId, version, description, 'always');
-        createdModIds.add(link.modId);
-        counts.created += 1;
-        await stampLink(link, {
-          status: 'created',
-          message: `Created release ${version}`,
-          at: seenAt,
-          version,
-          url: downloadUrl,
-        });
-      } catch (error) {
-        if (isUniqueConstraintError(error)) {
-          counts.skipped += 1;
-          if (await syncCatalogDescriptionFromBot(link.modId, version, description, 'if-empty')) {
-            createdModIds.add(link.modId);
-          }
-          await stampLink(link, {
-            status: 'skipped',
-            message: `Version ${version} already exists`,
-            at: seenAt,
-            version,
-            url: downloadUrl,
-          });
-          return;
-        }
-        counts.errors += 1;
-        logger.error('Bot mod auto-release failed', {botId: bot.id, modId: link.modId, error});
-        await stampLink(link, {
-          status: 'error',
-          message: errorMessage(error),
-          at: seenAt,
-          keepCursor: true,
-        });
-      }
-      return;
+      rememberCursor(version, downloadUrl);
+      continue;
     }
-    default:
-      return;
+    if (action.kind === BOT_MOD_DIFF.ADVANCE_URL) {
+      counts.advanced += 1;
+      advancedVersions.push(version);
+      if (await syncCatalogDescriptionFromBot(link.modId, version, description, 'if-empty')) {
+        createdModIds.add(link.modId);
+      }
+      rememberCursor(version, downloadUrl);
+      continue;
+    }
+    if (action.kind === BOT_MOD_DIFF.SKIP_EXISTING) {
+      counts.skipped += 1;
+      skippedVersions.push(version);
+      if (await syncCatalogDescriptionFromBot(link.modId, version, description, 'if-empty')) {
+        createdModIds.add(link.modId);
+      }
+      rememberCursor(version, downloadUrl);
+      continue;
+    }
+    if (action.kind === BOT_MOD_DIFF.EMPTY_VERSION) {
+      counts.errors += 1;
+      errors.push('Empty version');
+      continue;
+    }
+    if (action.kind === BOT_MOD_DIFF.MISSING_DOWNLOAD) {
+      counts.errors += 1;
+      errors.push(`${version}: missing download URL`);
+      continue;
+    }
+    if (action.kind !== BOT_MOD_DIFF.CREATE_RELEASE) continue;
+
+    try {
+      await createModVersion({
+        modId: link.modId,
+        version,
+        downloadUrl,
+        notes: description,
+        releasedAt: release.uploadedAt || seenAt,
+      });
+      catalogVersions.add(catalogKey);
+      if (await syncCatalogDescriptionFromBot(link.modId, version, description, 'always')) {
+        createdModIds.add(link.modId);
+      }
+      createdModIds.add(link.modId);
+      counts.created += 1;
+      createdVersions.push(version);
+      rememberCursor(version, downloadUrl);
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        catalogVersions.add(catalogKey);
+        counts.skipped += 1;
+        skippedVersions.push(version);
+        if (await syncCatalogDescriptionFromBot(link.modId, version, description, 'if-empty')) {
+          createdModIds.add(link.modId);
+        }
+        rememberCursor(version, downloadUrl);
+        continue;
+      }
+      counts.errors += 1;
+      errors.push(`${version}: ${errorMessage(error)}`);
+      logger.error('Bot mod auto-release failed', {botId: bot.id, name: bot.name, modId: link.modId, error});
+    }
   }
+
+  const messageParts = [
+    createdVersions.length ? `Created release ${createdVersions.join(', ')}` : '',
+    errors.join('; '),
+  ].filter(Boolean);
+  let status = 'ok';
+  let message: string | null = null;
+  if (errors.length) {
+    status = 'error';
+    message = messageParts.join('; ') || 'Release sync failed';
+  } else if (createdVersions.length) {
+    status = 'created';
+    message = `Created release ${createdVersions.join(', ')}`;
+  } else if (advancedVersions.length) {
+    message = 'Download URL changed for the same version';
+  } else if (skippedVersions.length) {
+    status = 'skipped';
+    message = `Version ${skippedVersions.join(', ')} already exists`;
+  }
+
+  await stampLink(link, {
+    status,
+    message,
+    at: seenAt,
+    keepCursor: !cursorTouched,
+    version: cursorTouched ? cursorVersion : undefined,
+    url: cursorTouched ? cursorUrl : undefined,
+  });
 }
 
 async function reindexCreatedMods(createdModIds: Set<number>): Promise<void> {
@@ -519,6 +600,66 @@ async function applyLinkNow(link: BotModLink): Promise<void> {
   await reindexCreatedMods(createdModIds);
 }
 
+function feedRow(group: GroupedBotModFeed): BotModFeedRow {
+  return {
+    id: group.id,
+    sourceMongoId: group.sourceMongoId,
+    name: group.name,
+    version: group.version,
+    parsedDownload: group.parsedDownload,
+    download: group.download,
+    description: group.description,
+    cachedUsername: group.cachedUsername,
+    creatorDiscordId: group.creatorDiscordId,
+    uploadedAt: group.uploadedAt,
+    ignoreUpdate: group.ignoreUpdate,
+    hideFromSearch: group.hideFromSearch,
+    lastSeenAt: group.lastSeenAt,
+    missingSince: group.missingSince,
+    updatedAt: group.updatedAt,
+  };
+}
+
+async function replaceBotModReleases(groups: GroupedBotModFeed[]): Promise<void> {
+  const rows = groups.flatMap((group) => group.releases);
+  for (const group of groups) {
+    const versions = group.releases.map((release) => release.version);
+    await BotModRelease.destroy({
+      where: versions.length
+        ? {botId: group.id, version: {[Op.notIn]: versions}}
+        : {botId: group.id},
+    });
+  }
+  if (rows.length === 0) return;
+  await BotModRelease.bulkCreate(rows, {
+    updateOnDuplicate: ['parsedDownload', 'download', 'description', 'uploadedAt', 'updatedAt'],
+  });
+}
+
+const botModDetailInclude = [
+  {
+    model: BotModLink,
+    as: 'link' as const,
+    include: [{model: Mod, as: 'mod' as const, attributes: ['id', 'name', 'slug'], required: false}],
+  },
+  {model: BotModRelease, as: 'releases' as const, required: false},
+];
+
+const linkedBotInclude = [
+  {
+    model: BotMod,
+    as: 'botMod' as const,
+    required: true,
+    include: [{model: BotModRelease, as: 'releases' as const, required: false}],
+  },
+];
+
+async function resolveBotMod(key: string): Promise<BotMod | null> {
+  const byId = await BotMod.findByPk(key);
+  if (byId) return byId;
+  return BotMod.findOne({where: {name: clip(key, NAME_MAX)}});
+}
+
 async function runBotModsSyncOnce(): Promise<BotModsSyncResult> {
   const seenAt = new Date();
   const url = botModsFeedUrl();
@@ -527,21 +668,18 @@ async function runBotModsSyncOnce(): Promise<BotModsSyncResult> {
     throw new Error('Bot mods feed was empty');
   }
 
-  const parsed: ParsedFeedItem[] = [];
-  const seenIds: string[] = [];
-  const seen = new Set<string>();
+  const parsed: BotModFeedRow[] = [];
   for (const item of feed) {
     const row = parseFeedItem(item, seenAt);
-    if (!row || seen.has(row.id)) continue;
-    seen.add(row.id);
-    seenIds.push(row.id);
-    parsed.push(row);
+    if (row) parsed.push(row);
   }
-  if (parsed.length === 0) {
+  const grouped = groupFeedMods(parsed);
+  if (grouped.length === 0) {
     throw new Error('Bot mods feed had no usable rows');
   }
+  const seenIds = grouped.map((row) => row.id);
 
-  await BotMod.bulkCreate(parsed, {
+  await BotMod.bulkCreate(grouped.map(feedRow), {
     updateOnDuplicate: [
       'sourceMongoId',
       'name',
@@ -560,6 +698,8 @@ async function runBotModsSyncOnce(): Promise<BotModsSyncResult> {
     ],
   });
 
+  await replaceBotModReleases(grouped);
+
   const [missingCount] = await BotMod.update(
     {missingSince: seenAt},
     {
@@ -572,7 +712,7 @@ async function runBotModsSyncOnce(): Promise<BotModsSyncResult> {
 
   const counts: BotModsSyncCounts = {
     fetched: feed.length,
-    upserted: parsed.length,
+    upserted: grouped.length,
     missing: missingCount,
     created: 0,
     skipped: 0,
@@ -584,7 +724,14 @@ async function runBotModsSyncOnce(): Promise<BotModsSyncResult> {
 
   const links = await BotModLink.findAll({
     where: {enabled: true},
-    include: [{model: BotMod, as: 'botMod', required: true}],
+    include: [
+      {
+        model: BotMod,
+        as: 'botMod',
+        required: true,
+        include: [{model: BotModRelease, as: 'releases', required: false}],
+      },
+    ],
   });
   const createdModIds = new Set<number>();
   for (const link of links) {
@@ -644,6 +791,7 @@ export async function listBotMods(options: {
         required: Boolean(options.modId),
         include: [{model: Mod, as: 'mod', attributes: ['id', 'name', 'slug'], required: false}],
       },
+      {model: BotModRelease, as: 'releases', required: false},
     ],
     order: [
       ['name', 'ASC'],
@@ -669,12 +817,13 @@ export async function listBotMods(options: {
   };
 }
 
-export async function linkBotModToCatalog(botId: string, modId: number): Promise<SerializedBotMod> {
-  const bot = await BotMod.findByPk(botId);
-  if (!bot) throw clientError('Unknown bot mod id. Run a sync first.', 404);
+export async function linkBotModToCatalog(key: string, modId: number): Promise<SerializedBotMod> {
+  const bot = await resolveBotMod(key);
+  if (!bot) throw clientError('Unknown bot mod. Run a sync first.', 404);
   if (bot.isDuplicate) throw clientError('This scraped entry is marked as a duplicate', 400);
   const mod = await Mod.findByPk(modId);
   if (!mod) throw clientError('Mod not found', 404);
+  const botId = bot.id;
 
   const transaction = await sequelize.transaction();
   try {
@@ -703,64 +852,42 @@ export async function linkBotModToCatalog(botId: string, modId: number): Promise
 
   const link = await BotModLink.findOne({
     where: {botId},
-    include: [{model: BotMod, as: 'botMod', required: true}],
+    include: linkedBotInclude,
   });
   if (link) {
     await applyLinkNow(link);
   }
 
-  const reloaded = await BotMod.findByPk(botId, {
-    include: [
-      {
-        model: BotModLink,
-        as: 'link',
-        include: [{model: Mod, as: 'mod', attributes: ['id', 'name', 'slug']}],
-      },
-    ],
-  });
-  if (!reloaded) throw clientError('Unknown bot mod id. Run a sync first.', 404);
+  const reloaded = await BotMod.findByPk(botId, {include: botModDetailInclude});
+  if (!reloaded) throw clientError('Unknown bot mod. Run a sync first.', 404);
   return serializeBotMod(reloaded);
 }
 
-export async function unlinkBotMod(botId: string): Promise<void> {
-  const deleted = await BotModLink.destroy({where: {botId}});
+export async function unlinkBotMod(key: string): Promise<void> {
+  const bot = await resolveBotMod(key);
+  if (!bot) throw clientError('Unknown bot mod', 404);
+  const deleted = await BotModLink.destroy({where: {botId: bot.id}});
   if (deleted === 0) throw clientError('Bot mod is not linked', 404);
 }
 
-export async function setBotModLinkEnabled(botId: string, enabled: boolean): Promise<SerializedBotMod> {
-  const link = await BotModLink.findOne({where: {botId}});
+export async function setBotModLinkEnabled(key: string, enabled: boolean): Promise<SerializedBotMod> {
+  const bot = await resolveBotMod(key);
+  if (!bot) throw clientError('Unknown bot mod', 404);
+  const link = await BotModLink.findOne({where: {botId: bot.id}});
   if (!link) throw clientError('Bot mod is not linked', 404);
   await link.update({enabled});
-  const reloaded = await BotMod.findByPk(botId, {
-    include: [
-      {
-        model: BotModLink,
-        as: 'link',
-        include: [{model: Mod, as: 'mod', attributes: ['id', 'name', 'slug']}],
-      },
-    ],
-  });
-  if (!reloaded) throw clientError('Unknown bot mod id', 404);
-  return serializeBotMod(reloaded);
+  return loadSerializedBotMod(bot.id);
 }
 
 async function loadSerializedBotMod(botId: string): Promise<SerializedBotMod> {
-  const reloaded = await BotMod.findByPk(botId, {
-    include: [
-      {
-        model: BotModLink,
-        as: 'link',
-        include: [{model: Mod, as: 'mod', attributes: ['id', 'name', 'slug']}],
-      },
-    ],
-  });
-  if (!reloaded) throw clientError('Unknown bot mod id', 404);
+  const reloaded = await BotMod.findByPk(botId, {include: botModDetailInclude});
+  if (!reloaded) throw clientError('Unknown bot mod', 404);
   return serializeBotMod(reloaded);
 }
 
-export async function setBotModDuplicate(botId: string, isDuplicate: boolean): Promise<SerializedBotMod> {
-  const bot = await BotMod.findByPk(botId);
-  if (!bot) throw clientError('Unknown bot mod id', 404);
+export async function setBotModDuplicate(key: string, isDuplicate: boolean): Promise<SerializedBotMod> {
+  const bot = await resolveBotMod(key);
+  if (!bot) throw clientError('Unknown bot mod', 404);
   await bot.update({isDuplicate});
-  return loadSerializedBotMod(botId);
+  return loadSerializedBotMod(bot.id);
 }

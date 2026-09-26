@@ -61,6 +61,9 @@ export type BoardSpecInput = {
   rapidTriggerReleaseMm?: number | null;
   colorway?: string | null;
   note?: string | null;
+  stemColor?: string | null;
+  baseColor?: string | null;
+  topColor?: string | null;
   keyOverrides?: BoardKeyOverrideInput[];
 };
 

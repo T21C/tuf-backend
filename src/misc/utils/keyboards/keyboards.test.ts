@@ -10,6 +10,7 @@ import {
   matchRankerToPlayer,
   parseBoardSpecInput,
   parseKeybindText,
+  parseStoredGeometryKeys,
   parseSinceDate,
   playerHasKeyboardsModule,
   specFieldVisible,
@@ -116,6 +117,20 @@ test('manual until is exclusive and overlapping ranges are rejected', () => {
   );
 });
 
+test('board spec stores optional stem, base, and top housing colors', () => {
+  const parsed = parseBoardSpecInput({
+    geometryId: 1,
+    sensing: 'mechanical',
+    stemColor: '#E23B3B',
+    baseColor: '#1A1A1A',
+    topColor: '#334455',
+  });
+  assert.equal(parsed.stemColor, '#e23b3b');
+  assert.equal(parsed.baseColor, '#1a1a1a');
+  assert.equal(parsed.topColor, '#334455');
+  assert.equal(parsed.productId, null);
+});
+
 test('rapid trigger actuation is hall-only', () => {
   const rt = BOARD_SPEC_FIELDS.find((field) => field.id === 'rapidTriggerActuationMm');
   const press = BOARD_SPEC_FIELDS.find((field) => field.id === 'rapidTriggerPressMm');
@@ -167,6 +182,26 @@ test('KLE y offset shifts every following row', () => {
   assert.equal(keys[1].y, 1.5);
   assert.equal(keys[2].y, 2.5);
   assert.equal(keys[3].y, 3.5);
+});
+
+test('KLE split spacebar keeps both keys on Space', () => {
+  const keys = importKleRaw([
+    [
+      {w: 1.25}, 'Ctrl',
+      {w: 1.25}, 'Win',
+      {w: 1.25}, 'Alt',
+      {w: 2.25}, '',
+      {w: 2.75}, '',
+      {w: 1.25}, 'Alt',
+      {w: 1.25}, 'Fn',
+      {w: 1.25}, 'Ctrl',
+    ],
+  ]);
+  const spaces = keys.filter((key) => key.code === 'Space');
+  assert.equal(spaces.length, 2);
+  assert.deepEqual(spaces.map((key) => key.bindable), [true, true]);
+  assert.deepEqual(spaces.map((key) => key.w), [2.25, 2.75]);
+  assert.equal(parseStoredGeometryKeys(keys).filter((key) => key.code === 'Space').length, 2);
 });
 
 test('KLE empty legend is the spacebar', () => {

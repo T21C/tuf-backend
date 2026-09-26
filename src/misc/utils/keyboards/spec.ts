@@ -95,6 +95,14 @@ function parseSensing(raw: unknown): KeyboardSensing | null {
   return raw as KeyboardSensing;
 }
 
+function parseOptionalColor(raw: unknown, field: string): string | null {
+  if (raw == null || raw === '') return null;
+  if (typeof raw !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(raw)) {
+    throw new KeyboardSetupError(400, `${field} must be a #RRGGBB value`);
+  }
+  return raw.toLowerCase();
+}
+
 export function parseBoardKeyOverrides(raw: unknown): BoardKeyOverrideInput[] {
   if (raw == null) return [];
   if (!Array.isArray(raw)) {
@@ -152,6 +160,9 @@ export function parseBoardSpecInput(raw: unknown): BoardSpecInput {
     rapidTriggerReleaseMm: parseOptionalMm(rec.rapidTriggerReleaseMm, 'rapidTriggerReleaseMm'),
     colorway: parseOptionalString(rec.colorway, 'colorway', MAX_KEYBOARD_NAME_LENGTH),
     note: parseOptionalString(rec.note, 'note', MAX_KEYBIND_NOTE_LENGTH),
+    stemColor: parseOptionalColor(rec.stemColor, 'stemColor'),
+    baseColor: parseOptionalColor(rec.baseColor, 'baseColor'),
+    topColor: parseOptionalColor(rec.topColor, 'topColor'),
     keyOverrides: parseBoardKeyOverrides(rec.keyOverrides),
   };
   return sanitizeBoardSpec(spec);
