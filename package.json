@@ -31,6 +31,8 @@
     "thumbnail-worker": "cross-env NODE_ENV=development tsx watch src/externalServices/thumbnailWorker/app.ts",
     "thumbnail-worker:prod": "cross-env NODE_ENV=production node dist/externalServices/thumbnailWorker/app.js",
     "thumbnail-worker:smoke": "cross-env NODE_ENV=production node dist/externalServices/thumbnailWorker/smoke.js",
+    "bilibili-proxy": "cross-env NODE_ENV=development tsx watch src/externalServices/bilibiliProxy/app.ts",
+    "bilibili-proxy:prod": "cross-env NODE_ENV=production node dist/externalServices/bilibiliProxy/app.js",
     "reconcile:es": "cross-env tsx src/misc/scripts/reconcileElasticsearch.ts",
     "backfill:leaderboard-ranks": "cross-env tsx src/misc/scripts/backfillLeaderboardRankHistory.ts",
     "backfill:analysis-by-tag": "cross-env tsx src/misc/scripts/backfillAnalysisByTag.ts",

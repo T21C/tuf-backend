@@ -9,7 +9,9 @@ import {
   keySignature,
   matchRankerToPlayer,
   parseBoardSpecInput,
+  parseSwitchSensing,
   parseKeybindText,
+  parseStoredGeometryKeys,
   parseSinceDate,
   playerHasKeyboardsModule,
   specFieldVisible,
@@ -116,6 +118,22 @@ test('manual until is exclusive and overlapping ranges are rejected', () => {
   );
 });
 
+test('board spec stores optional stem, base, and top housing colors', () => {
+  const parsed = parseBoardSpecInput({
+    geometryId: 1,
+    sensing: 'mechanical',
+    stemColor: '#E23B3B',
+    baseColor: '#1A1A1A',
+    topColor: '#334455',
+    baseOpacity: 0.4,
+  });
+  assert.equal(parsed.stemColor, '#e23b3b');
+  assert.equal(parsed.baseColor, '#1a1a1a');
+  assert.equal(parsed.topColor, '#334455');
+  assert.equal(parsed.baseOpacity, 0.4);
+  assert.equal(parsed.productId, null);
+});
+
 test('rapid trigger actuation is hall-only', () => {
   const rt = BOARD_SPEC_FIELDS.find((field) => field.id === 'rapidTriggerActuationMm');
   const press = BOARD_SPEC_FIELDS.find((field) => field.id === 'rapidTriggerPressMm');
@@ -152,6 +170,44 @@ test('rapid trigger actuation is hall-only', () => {
   assert.equal(split.rapidTriggerReleaseMm, 0.2);
 });
 
+test('membrane sensing strips switch-modifiable board fields', () => {
+  const switchField = BOARD_SPEC_FIELDS.find((field) => field.id === 'switch');
+  const actuation = BOARD_SPEC_FIELDS.find((field) => field.id === 'actuationMm');
+  assert.ok(switchField && actuation);
+  assert.equal(specFieldVisible(switchField, {sensing: 'mechanical'}), true);
+  assert.equal(specFieldVisible(actuation, {sensing: 'hall'}), true);
+  assert.equal(specFieldVisible(switchField, {sensing: 'membrane'}), false);
+  assert.equal(specFieldVisible(actuation, {sensing: 'membrane'}), false);
+  const parsed = parseBoardSpecInput({
+    geometryId: 1,
+    sensing: 'membrane',
+    switchId: 4,
+    customSwitch: 'foam dome',
+    actuationMm: 2,
+    stemColor: '#e23b3b',
+    baseColor: '#1a1a1a',
+    topColor: '#334455',
+    baseOpacity: 0.4,
+    rapidTriggerSplit: true,
+    rapidTriggerActuationMm: 1.2,
+    rapidTriggerPressMm: 0.4,
+    rapidTriggerReleaseMm: 0.2,
+    keyOverrides: [{code: 'KeyA', socketEmpty: true}],
+  });
+  assert.equal(parsed.sensing, 'membrane');
+  assert.equal(parsed.switchId, null);
+  assert.equal(parsed.customSwitch, null);
+  assert.equal(parsed.actuationMm, null);
+  assert.equal(parsed.stemColor, null);
+  assert.equal(parsed.baseColor, null);
+  assert.equal(parsed.topColor, null);
+  assert.equal(parsed.baseOpacity, null);
+  assert.equal(parsed.rapidTriggerSplit, false);
+  assert.equal(parsed.rapidTriggerActuationMm, null);
+  assert.deepEqual(parsed.keyOverrides, []);
+  assert.throws(() => parseSwitchSensing('membrane'), KeyboardSetupError);
+});
+
 test('KLE import maps known legends to HID codes', () => {
   const keys = importKleRaw([['Esc', {w: 2}, 'Backspace'], ['A', 'B']]);
   assert.equal(keys[0].code, 'Escape');
@@ -167,6 +223,26 @@ test('KLE y offset shifts every following row', () => {
   assert.equal(keys[1].y, 1.5);
   assert.equal(keys[2].y, 2.5);
   assert.equal(keys[3].y, 3.5);
+});
+
+test('KLE split spacebar keeps both keys on Space', () => {
+  const keys = importKleRaw([
+    [
+      {w: 1.25}, 'Ctrl',
+      {w: 1.25}, 'Win',
+      {w: 1.25}, 'Alt',
+      {w: 2.25}, '',
+      {w: 2.75}, '',
+      {w: 1.25}, 'Alt',
+      {w: 1.25}, 'Fn',
+      {w: 1.25}, 'Ctrl',
+    ],
+  ]);
+  const spaces = keys.filter((key) => key.code === 'Space');
+  assert.equal(spaces.length, 2);
+  assert.deepEqual(spaces.map((key) => key.bindable), [true, true]);
+  assert.deepEqual(spaces.map((key) => key.w), [2.25, 2.75]);
+  assert.equal(parseStoredGeometryKeys(keys).filter((key) => key.code === 'Space').length, 2);
 });
 
 test('KLE empty legend is the spacebar', () => {

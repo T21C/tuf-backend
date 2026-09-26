@@ -10,7 +10,7 @@ import {
   proxyAgentUrl,
   type BilibiliProxyFailReason,
   type BilibiliProxyRef,
-} from '@/misc/utils/data/bilibiliProxy.js';
+} from './helpers.js';
 
 const TLS_OFF = { rejectUnauthorized: false } as const;
 
@@ -86,15 +86,13 @@ export function classifyProxyFetchError(error: unknown): BilibiliProxyFailReason
   return 'timeout';
 }
 
-const ENABLE_BILIBILI_LOGGING = process.env.BILIBILI_PROXY_LOGGING === 'true';
-
 function logProxyRequest(
   kind: 'html' | 'cover',
   url: string,
   proxy: BilibiliProxyRef,
   detail: string,
 ): void {
-  if (!ENABLE_BILIBILI_LOGGING) return;
+  if (process.env.BILIBILI_PROXY_LOGGING !== 'true') return;
   logger.debug(`Bilibili proxy ${kind} via ${proxy.id}: GET ${url} ${detail}`);
 }
 

@@ -31,6 +31,7 @@ import {
   findPeriodAt,
   keySignature,
   parseBoardSpecInput,
+  parseSwitchSensing,
   parseKeysArray,
   parseSinceDate,
   playerHasKeyboardsModule,
@@ -40,6 +41,7 @@ import {
   isUntilAuto,
   periodCoversDate,
   type BoardSpecInput,
+  type KeyboardSwitchSensing,
   type KeyboardSwitchStem,
   type StoredGeometryKey,
 } from '@/misc/utils/keyboards/index.js';
@@ -124,6 +126,7 @@ function serializeSwitch(row: KeyboardSwitch) {
     sensing: row.sensing,
     stem: row.stem,
     baseColor: row.baseColor,
+    topColor: row.topColor,
     stemColor: row.stemColor,
     baseOpacity: row.baseOpacity == null ? null : Number(row.baseOpacity),
   };
@@ -182,6 +185,10 @@ function serializeBoardPeriod(row: KeyboardBoardPeriod & {
     rapidTriggerReleaseMm: mm(row.rapidTriggerReleaseMm),
     colorway: row.colorway,
     note: row.note,
+    stemColor: row.stemColor,
+    baseColor: row.baseColor,
+    topColor: row.topColor,
+    baseOpacity: row.baseOpacity == null ? null : Number(row.baseOpacity),
     geometry: row.geometry ? serializeGeometry(row.geometry) : null,
     product: row.product ? serializeProduct(row.product) : null,
     switch: row.switch ? serializeSwitch(row.switch) : null,
@@ -689,6 +696,10 @@ async function writeBoardPeriod(opts: {
     rapidTriggerReleaseMm: readySpec?.rapidTriggerReleaseMm ?? null,
     colorway: readySpec?.colorway ?? null,
     note: readySpec?.note ?? null,
+    stemColor: readySpec?.stemColor ?? null,
+    baseColor: readySpec?.baseColor ?? null,
+    topColor: readySpec?.topColor ?? null,
+    baseOpacity: readySpec?.baseOpacity ?? null,
   };
 
   let row: KeyboardBoardPeriod;
@@ -1451,6 +1462,7 @@ export async function createSwitchRow(raw: {
   sensing?: unknown;
   stem?: unknown;
   baseColor?: unknown;
+  topColor?: unknown;
   stemColor?: unknown;
   baseOpacity?: unknown;
 }) {
@@ -1458,8 +1470,7 @@ export async function createSwitchRow(raw: {
   if (!name) throw new KeyboardSetupError(400, 'name is required');
   let sensing = null;
   if (raw.sensing != null && raw.sensing !== '') {
-    const spec = parseBoardSpecInput({geometryId: 1, sensing: raw.sensing});
-    sensing = spec.sensing;
+    sensing = parseSwitchSensing(raw.sensing);
   }
   try {
     const row = await KeyboardSwitch.create({
@@ -1467,6 +1478,7 @@ export async function createSwitchRow(raw: {
       sensing,
       stem: parseSwitchStem(raw.stem),
       baseColor: parseSwitchColor(raw.baseColor),
+      topColor: parseSwitchColor(raw.topColor),
       stemColor: parseSwitchColor(raw.stemColor),
       baseOpacity: parseBaseOpacity(raw.baseOpacity),
     });
@@ -1484,9 +1496,10 @@ export async function updateSwitchRow(id: number, raw: Record<string, unknown>) 
   if (!row) throw new KeyboardSetupError(404, 'Switch not found');
   const patch: Partial<{
     name: string;
-    sensing: BoardSpecInput['sensing'];
+    sensing: KeyboardSwitchSensing | null;
     stem: KeyboardSwitchStem | null;
     baseColor: string | null;
+    topColor: string | null;
     stemColor: string | null;
     baseOpacity: number | null;
   }> = {};
@@ -1496,11 +1509,11 @@ export async function updateSwitchRow(id: number, raw: Record<string, unknown>) 
     patch.name = name;
   }
   if ('sensing' in raw) {
-    const spec = parseBoardSpecInput({geometryId: 1, sensing: raw.sensing});
-    patch.sensing = spec.sensing;
+    patch.sensing = parseSwitchSensing(raw.sensing);
   }
   if ('stem' in raw) patch.stem = parseSwitchStem(raw.stem);
   if ('baseColor' in raw) patch.baseColor = parseSwitchColor(raw.baseColor);
+  if ('topColor' in raw) patch.topColor = parseSwitchColor(raw.topColor);
   if ('stemColor' in raw) patch.stemColor = parseSwitchColor(raw.stemColor);
   if ('baseOpacity' in raw) patch.baseOpacity = parseBaseOpacity(raw.baseOpacity);
   await row.update(patch);

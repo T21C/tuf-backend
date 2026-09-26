@@ -4,6 +4,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { HEALTH_CONFIG } from './config.js';
 import {
   dbProbe,
+  makeBilibiliProxyProbe,
   makeCdcProbe,
   makeCdnProbe,
   makeMainServerProbe,
@@ -17,10 +18,10 @@ import { runLatencyMinuteSamplerTick } from './latencyMinuteSampler.js';
 type OverallStatus = 'online' | 'degraded' | 'offline';
 
 /**
- * Probes whose failure can drive `offline`. Other probes (cdn, cdc, nginx) are
- * informational and may at most downgrade the overall status from `online` to
- * `degraded`, so adding them never breaks pre-existing alerting on the legacy
- * `checks` map.
+ * Probes whose failure can drive `offline`. Other probes (cdn, cdc, nginx,
+ * bilibiliProxy) are informational and may at most downgrade the overall status
+ * from `online` to `degraded`, so adding them never breaks pre-existing alerting
+ * on the legacy `checks` map.
  */
 const REQUIRED_PROBES: ReadonlyArray<ProbeName> = ['database', 'mainServer'];
 
@@ -52,6 +53,7 @@ export class HealthService {
       { name: 'mainServer', run: makeMainServerProbe(HEALTH_CONFIG.mainServerUrl) },
       { name: 'cdn', run: makeCdnProbe(HEALTH_CONFIG.cdnUrl) },
       { name: 'cdc', run: makeCdcProbe(HEALTH_CONFIG.cdcUrl) },
+      { name: 'bilibiliProxy', run: makeBilibiliProxyProbe(HEALTH_CONFIG.bilibiliProxyUrl || undefined) },
       { name: 'nginx', run: makeNginxProbe(HEALTH_CONFIG.nginxUrl || undefined) },
     ];
     this.setupRoutes();
@@ -166,7 +168,7 @@ export class HealthService {
 
   /**
    * Legacy `checks` map shape: only the two keys the original implementation
-   * exposed (`database`, `mainServer`). New probes (cdn, cdc, nginx) are
+   * exposed (`database`, `mainServer`). New probes (cdn, cdc, nginx, bilibiliProxy) are
    * surfaced solely under `details.probes` so the legacy contract is byte-for-byte preserved.
    */
   private buildLegacyChecksMap(): { database: boolean; mainServer: boolean } {
@@ -233,6 +235,7 @@ export class HealthService {
           mainServerUrl: HEALTH_CONFIG.mainServerUrl,
           cdnUrl: HEALTH_CONFIG.cdnUrl,
           cdcUrl: HEALTH_CONFIG.cdcUrl,
+          bilibiliProxyUrl: HEALTH_CONFIG.bilibiliProxyUrl || null,
           nginxUrl: HEALTH_CONFIG.nginxUrl || null,
           probeIntervalMs: HEALTH_CONFIG.probeIntervalMs,
           latencySamplerIntervalMs: HEALTH_CONFIG.latencySamplerIntervalMs,
@@ -268,13 +271,20 @@ export class HealthService {
         this.isRunning = true;
         this.startTime = new Date();
         const enabled = this.probes
-          .map((p) => (p.name === 'nginx' && !HEALTH_CONFIG.nginxUrl ? `${p.name}(skipped)` : p.name))
+          .map((p) => {
+            if (p.name === 'nginx' && !HEALTH_CONFIG.nginxUrl) return `${p.name}(skipped)`;
+            if (p.name === 'bilibiliProxy' && !HEALTH_CONFIG.bilibiliProxyUrl) {
+              return `${p.name}(skipped)`;
+            }
+            return p.name;
+          })
           .join(', ');
         logger.info(`[health] listening on ${HEALTH_CONFIG.bindAddress}:${this.port} (probes: ${enabled})`, {
           port: this.port,
           mainServerUrl: HEALTH_CONFIG.mainServerUrl,
           cdnUrl: HEALTH_CONFIG.cdnUrl,
           cdcUrl: HEALTH_CONFIG.cdcUrl,
+          bilibiliProxyUrl: HEALTH_CONFIG.bilibiliProxyUrl || null,
           nginxUrl: HEALTH_CONFIG.nginxUrl || null,
           intervalMs: HEALTH_CONFIG.probeIntervalMs,
           latencySamplerIntervalMs: HEALTH_CONFIG.latencySamplerIntervalMs,

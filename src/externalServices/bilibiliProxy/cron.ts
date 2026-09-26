@@ -1,11 +1,11 @@
 import { CronJob } from 'cron';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { isProxyPoolDry, shouldStartBilibiliProxyCron } from '@/misc/utils/data/bilibiliProxy.js';
-import { getHealthyCount } from '@/server/services/media/bilibiliProxyPool.js';
+import { isProxyPoolDry, shouldStartBilibiliProxyCron } from './helpers.js';
+import { getHealthyCount } from './pool.js';
 import {
   pullAndProbeNewBilibiliProxies,
   reprobeHealthyBilibiliProxies,
-} from '@/server/services/media/bilibiliProxyRefresh.js';
+} from './refresh.js';
 
 const LIST_CRON = '0 * * * *';
 const REPROBE_CRON = '*/15 * * * *';

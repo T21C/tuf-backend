@@ -34,6 +34,10 @@ class KeyboardBoardPeriod extends Model<
   declare rapidTriggerReleaseMm: number | null;
   declare colorway: string | null;
   declare note: string | null;
+  declare stemColor: string | null;
+  declare baseColor: string | null;
+  declare topColor: string | null;
+  declare baseOpacity: number | null;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -51,7 +55,7 @@ KeyboardBoardPeriod.init(
     customBrand: {type: DataTypes.STRING(120), allowNull: true},
     customModel: {type: DataTypes.STRING(120), allowNull: true},
     sensing: {
-      type: DataTypes.ENUM('mechanical', 'optical', 'hall', 'other'),
+      type: DataTypes.ENUM('mechanical', 'optical', 'hall', 'membrane', 'other'),
       allowNull: true,
     },
     switchId: {type: DataTypes.INTEGER, allowNull: true},
@@ -63,6 +67,10 @@ KeyboardBoardPeriod.init(
     rapidTriggerReleaseMm: {type: DataTypes.DECIMAL(4, 2), allowNull: true},
     colorway: {type: DataTypes.STRING(120), allowNull: true},
     note: {type: DataTypes.STRING(500), allowNull: true},
+    stemColor: {type: DataTypes.STRING(7), allowNull: true},
+    baseColor: {type: DataTypes.STRING(7), allowNull: true},
+    topColor: {type: DataTypes.STRING(7), allowNull: true},
+    baseOpacity: {type: DataTypes.DECIMAL(3, 2), allowNull: true},
     createdAt: {type: DataTypes.DATE, allowNull: false},
     updatedAt: {type: DataTypes.DATE, allowNull: false},
   },

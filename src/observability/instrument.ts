@@ -10,7 +10,9 @@ dotenv.config();
 
 if (!process.env.SENTRY_SERVER_NAME?.trim()) {
   const entry = process.argv[1] || '';
-  process.env.SENTRY_SERVER_NAME = entry.includes('cdnService') ? 'cdn' : 'api';
+  if (entry.includes('cdnService')) process.env.SENTRY_SERVER_NAME = 'cdn';
+  else if (entry.includes('bilibiliProxy')) process.env.SENTRY_SERVER_NAME = 'bilibili-proxy';
+  else process.env.SENTRY_SERVER_NAME = 'api';
 }
 
 initSentry();

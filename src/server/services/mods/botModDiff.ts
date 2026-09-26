@@ -46,12 +46,22 @@ export type BotModLinkDiffInput = {
   catalogHasVersion: boolean;
 };
 
-export function decideBotModLinkAction(input: BotModLinkDiffInput): {kind: BotModDiffKind} {
-  if (input.missing) return {kind: BOT_MOD_DIFF.MISSING};
-  if (!input.enabled) return {kind: BOT_MOD_DIFF.DISABLED};
-  if (input.isDuplicate) return {kind: BOT_MOD_DIFF.DUPLICATE};
-  if (input.ignoreUpdate) return {kind: BOT_MOD_DIFF.IGNORE_UPDATE};
+export function decideBotModGate(
+  input: Pick<BotModLinkDiffInput, 'enabled' | 'ignoreUpdate' | 'isDuplicate' | 'missing'>,
+): BotModDiffKind | null {
+  if (input.missing) return BOT_MOD_DIFF.MISSING;
+  if (!input.enabled) return BOT_MOD_DIFF.DISABLED;
+  if (input.isDuplicate) return BOT_MOD_DIFF.DUPLICATE;
+  if (input.ignoreUpdate) return BOT_MOD_DIFF.IGNORE_UPDATE;
+  return null;
+}
 
+export function decideBotModReleaseAction(
+  input: Pick<
+    BotModLinkDiffInput,
+    'version' | 'parsedDownload' | 'lastAppliedVersion' | 'lastAppliedDownloadUrl' | 'catalogHasVersion'
+  >,
+): {kind: BotModDiffKind} {
   const version = snapshotVersion(input.version);
   if (!version) return {kind: BOT_MOD_DIFF.EMPTY_VERSION};
 
@@ -70,4 +80,10 @@ export function decideBotModLinkAction(input: BotModLinkDiffInput): {kind: BotMo
   }
 
   return {kind: BOT_MOD_DIFF.CREATE_RELEASE};
+}
+
+export function decideBotModLinkAction(input: BotModLinkDiffInput): {kind: BotModDiffKind} {
+  const gate = decideBotModGate(input);
+  if (gate) return {kind: gate};
+  return decideBotModReleaseAction(input);
 }

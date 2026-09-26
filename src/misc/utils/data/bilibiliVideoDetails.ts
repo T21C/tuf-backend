@@ -1,29 +1,13 @@
+import axios from 'axios';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { extractBilibiliBvId } from '@/misc/utils/data/videoLinkParts.js';
 import type { VideoDetails } from '@/misc/utils/data/videoDetailTypes.js';
-import {
-  BILIBILI_REQUEST_HEADERS,
-  isArchiveCover,
-  normalizePicUrl,
-  parseBilibiliViewHtml,
-  resolveBilibiliFetchMode,
-  type BilibiliViewData,
-} from '@/misc/utils/data/bilibiliProxy.js';
-import {
-  fetchBilibiliHtml,
-  fetchBilibiliImage,
-} from '@/misc/utils/data/bilibiliProxyAxios.js';
-import { getHealthyCount } from '@/server/services/media/bilibiliProxyPool.js';
-import { raceProxyWaves } from '@/server/services/media/bilibiliProxyWaves.js';
-import { BilibiliProxyCronService } from '@/server/services/media/BilibiliProxyCronService.js';
+import { BILIBILI_REQUEST_HEADERS } from '@/externalServices/bilibiliProxy/helpers.js';
 
 export { BILIBILI_REQUEST_HEADERS };
 
-type BilibiliData = BilibiliViewData;
-
-const VIEW_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
-const VIEW_NULL_TTL_MS = 1000 * 60 * 5;
-const viewCache = new Map<string, { data: BilibiliData | null; expiresAt: number }>();
+const BVID_PATTERN = /^BV[a-zA-Z0-9]+$/;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 const ownUrlEnv =
   process.env.NODE_ENV === 'production'
@@ -34,9 +18,8 @@ const ownUrlEnv =
         ? process.env.DEV_URL
         : 'http://localhost:3002';
 
-function embedFromView(data: BilibiliData): string | null {
-  if (!data.bvid) return null;
-  return `https://player.bilibili.com/player.html?isOutside=true&aid=${data.aid}&bvid=${data.bvid}&cid=${data.cid}&p=1&autoplay=0`;
+function proxyBaseUrl(): string {
+  return (process.env.LOCAL_BILIBILI_PROXY_URL || 'http://127.0.0.1:3892').replace(/\/$/, '');
 }
 
 function publicCoverUrl(bvid: string): string {
@@ -44,75 +27,20 @@ function publicCoverUrl(bvid: string): string {
   return `${base}/v2/media/bilibili-cover?bvid=${encodeURIComponent(bvid)}`;
 }
 
-async function fetchMode() {
-  const disabled = process.env.BILIBILI_PROXY_DISABLED === '1';
-  const nodeEnv = process.env.NODE_ENV;
-  if (disabled || (nodeEnv !== 'production' && nodeEnv !== 'staging')) {
-    return resolveBilibiliFetchMode({ nodeEnv, disabled, healthyCount: 0 });
-  }
-  const healthyCount = await getHealthyCount();
-  BilibiliProxyCronService.requestListRefreshIfDry(healthyCount);
-  return resolveBilibiliFetchMode({
-    nodeEnv,
-    disabled,
-    healthyCount,
-  });
+interface ProxyVideoDetails {
+  title: string;
+  channelName: string;
+  timestamp: string;
+  embed: string | null;
 }
 
-async function loadViewFromPage(bvid: string): Promise<BilibiliData | null> {
-  const mode = await fetchMode();
-  if (mode === 'fail_closed') {
-    logger.warn(`Bilibili proxy pool empty; fail closed for ${bvid}`);
-    return null;
-  }
-
-  if (mode === 'direct') {
-    const result = await fetchBilibiliHtml(bvid, { proxy: null, timeoutMs: 10000 });
-    if ('reason' in result) return null;
-    return parseBilibiliViewHtml(bvid, result.html);
-  }
-
-  const won = await raceProxyWaves<BilibiliData>(
-    async (proxy, signal) => {
-      const result = await fetchBilibiliHtml(bvid, { proxy, signal });
-      if ('reason' in result) return result;
-      const parsed = parseBilibiliViewHtml(bvid, result.html);
-      if (!parsed) return { reason: 'no_meta' as const, proxyOk: true };
-      return { value: parsed };
-    },
-    { logLabel: `html ${bvid}` },
-  );
-
-  if (!won) return null;
-
-  won.value.viaProxyId = won.proxy.id;
-  return won.value;
-}
-
-async function loadView(bvid: string): Promise<BilibiliData | null> {
-  const now = Date.now();
-  const cached = viewCache.get(bvid);
-  if (cached && now < cached.expiresAt) return cached.data;
-
-  const data = await loadViewFromPage(bvid);
-  viewCache.set(bvid, {
-    data,
-    expiresAt: now + (data ? VIEW_CACHE_TTL_MS : VIEW_NULL_TTL_MS),
-  });
-  return data;
-}
-
-function toDetails(data: BilibiliData): VideoDetails | null {
-  const pic = normalizePicUrl(data.pic);
-  if (!pic || !isArchiveCover(pic) || !data.bvid) return null;
-  const date = new Date(Number(data.pubdate) * 1000);
-  if (Number.isNaN(date.getTime())) return null;
+function toVideoDetails(bvid: string, data: ProxyVideoDetails): VideoDetails {
   return {
     title: data.title,
-    channelName: data.owner?.name || '',
-    timestamp: date.toISOString(),
-    image: publicCoverUrl(data.bvid),
-    embed: embedFromView(data),
+    channelName: data.channelName,
+    timestamp: data.timestamp,
+    image: publicCoverUrl(bvid),
+    embed: data.embed,
     channelId: null,
   };
 }
@@ -122,9 +50,14 @@ export async function getBilibiliVideoDetails(url: string): Promise<VideoDetails
   const bvid = extractBilibiliBvId(url);
   if (!bvid) return null;
   try {
-    const data = await loadView(bvid);
-    if (!data) return null;
-    return toDetails(data);
+    const response = await axios.get<ProxyVideoDetails>(`${proxyBaseUrl()}/video-details`, {
+      params: { bvid },
+      timeout: REQUEST_TIMEOUT_MS,
+      validateStatus: (status) => status === 200 || status === 404,
+      proxy: false,
+    });
+    if (response.status === 404 || !response.data) return null;
+    return toVideoDetails(bvid, response.data);
   } catch (error) {
     logger.warn(`Error fetching Bilibili video details for link ${url}:`, error);
     return null;
@@ -142,38 +75,25 @@ export async function downloadBilibiliCover(url: string): Promise<Buffer | null>
 export async function downloadBilibiliCoverByBvid(
   bvid: string,
 ): Promise<{ buffer: Buffer; contentType: string } | null> {
-  if (!/^BV[a-zA-Z0-9]+$/.test(bvid)) return null;
-  const data = await loadView(bvid);
-  const pic = data?.pic ? normalizePicUrl(data.pic) : null;
-  if (!pic || !isArchiveCover(pic)) return null;
-
-  const mode = await fetchMode();
-  if (mode === 'fail_closed') {
-    logger.warn(`Bilibili proxy pool empty; fail closed cover for ${bvid}`);
+  if (!BVID_PATTERN.test(bvid)) return null;
+  try {
+    const response = await axios.get<ArrayBuffer>(`${proxyBaseUrl()}/cover`, {
+      params: { bvid },
+      timeout: REQUEST_TIMEOUT_MS,
+      responseType: 'arraybuffer',
+      validateStatus: (status) => status === 200 || status === 404,
+      proxy: false,
+    });
+    if (response.status === 404) return null;
+    const contentType = String(response.headers['content-type'] || '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase() || 'image/jpeg';
+    const buffer = Buffer.from(response.data);
+    if (buffer.length === 0) return null;
+    return { buffer, contentType };
+  } catch (error) {
+    logger.warn(`Error downloading Bilibili cover for ${bvid}:`, error);
     return null;
   }
-
-  if (mode === 'direct') {
-    const result = await fetchBilibiliImage(pic, { proxy: null, timeoutMs: 10000 });
-    if ('reason' in result) {
-      logger.warn(`Error downloading Bilibili cover for ${bvid}: ${result.reason}`);
-      return null;
-    }
-    return result;
-  }
-
-  const won = await raceProxyWaves<{ buffer: Buffer; contentType: string }>(
-    async (proxy, signal) => {
-      const result = await fetchBilibiliImage(pic, { proxy, signal });
-      if ('reason' in result) return result;
-      return { value: result };
-    },
-    { preferredId: data?.viaProxyId ?? null, logLabel: `cover ${bvid}`, skipCoverLosers: true },
-  );
-
-  if (!won) {
-    logger.warn(`Error downloading Bilibili cover for ${bvid}: all proxy waves empty`);
-    return null;
-  }
-  return won.value;
 }

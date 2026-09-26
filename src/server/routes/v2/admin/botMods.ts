@@ -91,7 +91,7 @@ router.put(
   async (req: Request, res: Response) => {
     try {
       const botId = parseBotModId(req.params.botId);
-      if (!botId) return res.status(400).json({error: 'Invalid bot mod id'});
+      if (!botId) return res.status(400).json({error: 'Invalid bot mod'});
       const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
       const modId = parseCatalogModId(body.modId);
       if (!modId) return res.status(400).json({error: 'modId is required'});
@@ -116,7 +116,7 @@ router.patch(
   async (req: Request, res: Response) => {
     try {
       const botId = parseBotModId(req.params.botId);
-      if (!botId) return res.status(400).json({error: 'Invalid bot mod id'});
+      if (!botId) return res.status(400).json({error: 'Invalid bot mod'});
       const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
       if (typeof body.enabled !== 'boolean') {
         return res.status(400).json({error: 'enabled must be a boolean'});
@@ -142,7 +142,7 @@ router.delete(
   async (req: Request, res: Response) => {
     try {
       const botId = parseBotModId(req.params.botId);
-      if (!botId) return res.status(400).json({error: 'Invalid bot mod id'});
+      if (!botId) return res.status(400).json({error: 'Invalid bot mod'});
       await unlinkBotMod(botId);
       return res.json({ok: true});
     } catch (error) {
@@ -164,7 +164,7 @@ router.patch(
   async (req: Request, res: Response) => {
     try {
       const botId = parseBotModId(req.params.botId);
-      if (!botId) return res.status(400).json({error: 'Invalid bot mod id'});
+      if (!botId) return res.status(400).json({error: 'Invalid bot mod'});
       const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
       if (typeof body.isDuplicate !== 'boolean') {
         return res.status(400).json({error: 'isDuplicate must be a boolean'});

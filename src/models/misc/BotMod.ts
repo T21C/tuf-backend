@@ -7,6 +7,7 @@ import {
 } from 'sequelize';
 import {getSequelizeForModelGroup} from '@/config/db.js';
 import type BotModLink from './BotModLink.js';
+import type BotModRelease from './BotModRelease.js';
 
 const sequelize = getSequelizeForModelGroup('admin');
 
@@ -29,6 +30,7 @@ class BotMod extends Model<InferAttributes<BotMod>, InferCreationAttributes<BotM
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
   declare link?: BotModLink | null;
+  declare releases?: BotModRelease[];
 }
 
 BotMod.init(
@@ -110,6 +112,7 @@ BotMod.init(
     sequelize,
     tableName: 'bot_mods',
     indexes: [
+      {unique: true, fields: ['name'], name: 'bot_mods_name_unique'},
       {fields: ['missingSince'], name: 'idx_bot_mods_missing_since'},
       {fields: ['isDuplicate'], name: 'idx_bot_mods_is_duplicate'},
     ],

@@ -99,14 +99,16 @@ function candidatesForLine(line: string): string[] {
 }
 
 function unusedCandidate(legends: string[], used: Set<string>): string | null {
+  const matches: string[] = [];
   for (let index = legends.length - 1; index >= 0; index -= 1) {
     for (const code of candidatesForLine(legends[index])) {
+      if (!matches.includes(code)) matches.push(code);
       if (!used.has(code)) return code;
       const twin = TWIN_CODE[code];
       if (twin && !used.has(twin)) return twin;
     }
   }
-  return null;
+  return matches[0] ?? null;
 }
 
 function displayLabel(legends: string[]): string {
@@ -160,11 +162,7 @@ function assignKleCodes(items: PendingKey[], overrides: string[] | undefined): v
   for (const item of items) {
     if (item.assigned) continue;
     if (!item.legends.length) {
-      if (!used.has('Space')) claim(item, 'Space', true);
-      else {
-        custom += 1;
-        claim(item, `Custom${custom}`, false);
-      }
+      claim(item, 'Space', true);
       continue;
     }
     claimResolved(item);
@@ -264,7 +262,6 @@ export function parseStoredGeometryKeys(raw: unknown): StoredGeometryKey[] {
     throw new KeyboardSetupError(400, 'Geometry keys are required');
   }
   const keys: StoredGeometryKey[] = [];
-  const seen = new Set<string>();
   for (const item of raw) {
     if (!isRecord(item)) {
       throw new KeyboardSetupError(400, 'Each geometry key must be an object');
@@ -273,10 +270,6 @@ export function parseStoredGeometryKeys(raw: unknown): StoredGeometryKey[] {
       throw new KeyboardSetupError(400, 'Geometry key is missing a code');
     }
     const code = item.code.trim();
-    if (seen.has(code)) {
-      throw new KeyboardSetupError(400, `Duplicate key code ${code}`);
-    }
-    seen.add(code);
     const x = Number(item.x);
     const y = Number(item.y);
     const w = item.w == null ? 1 : Number(item.w);
