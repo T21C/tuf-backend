@@ -131,7 +131,7 @@ export async function markProxyOk(proxy: BilibiliProxyRef): Promise<void> {
     const now = Date.now();
     const prev = (await readMeta(client, proxy.id)) ?? emptyMeta(proxy.protocol);
     if (isProxyQuarantined(prev.quarantinedUntil, now)) {
-      logger.warn(
+      logger.debug(
         `Bilibili proxy ${proxy.id} still quarantined until ${new Date(prev.quarantinedUntil ?? 0).toISOString()}; not re-adding after success`,
       );
       return;
@@ -182,7 +182,7 @@ export async function markProxyFail(
       await client.zRem(OK_KEY, proxy.id);
       if (reason === 'timeout') {
         skipProxyForCover(proxy.id, now);
-        logger.warn(
+        logger.debug(
           `Bilibili proxy evicted ${proxy.id} after timeout; quarantined until ${new Date(next.quarantinedUntil ?? now).toISOString()}`,
         );
       }
