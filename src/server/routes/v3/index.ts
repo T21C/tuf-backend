@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import playersRouter from './players.js';
+import keyboardsRouter from './keyboards.js';
 import creatorsRouter from './creators.js';
 import levelsModificationRouter from './levels/modification.js';
 import levelsTeamRouter from './levels/team.js';
@@ -12,6 +13,7 @@ import preferencesRouter from './preferences.js';
 const router: Router = Router();
 
 router.use('/players', playersRouter);
+router.use('/keyboards', keyboardsRouter);
 router.use('/creators', creatorsRouter);
 router.use('/profile-customization', profileCustomizationRouter);
 router.use('/levels', levelsModificationRouter);

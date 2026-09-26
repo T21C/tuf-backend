@@ -15,6 +15,7 @@ import {
 } from '@/misc/utils/data/bilibiliProxyAxios.js';
 import { getHealthyCount } from '@/server/services/media/bilibiliProxyPool.js';
 import { raceProxyWaves } from '@/server/services/media/bilibiliProxyWaves.js';
+import { BilibiliProxyCronService } from '@/server/services/media/BilibiliProxyCronService.js';
 
 export { BILIBILI_REQUEST_HEADERS };
 
@@ -49,10 +50,12 @@ async function fetchMode() {
   if (disabled || (nodeEnv !== 'production' && nodeEnv !== 'staging')) {
     return resolveBilibiliFetchMode({ nodeEnv, disabled, healthyCount: 0 });
   }
+  const healthyCount = await getHealthyCount();
+  BilibiliProxyCronService.requestListRefreshIfDry(healthyCount);
   return resolveBilibiliFetchMode({
     nodeEnv,
     disabled,
-    healthyCount: await getHealthyCount(),
+    healthyCount,
   });
 }
 
@@ -65,10 +68,7 @@ async function loadViewFromPage(bvid: string): Promise<BilibiliData | null> {
 
   if (mode === 'direct') {
     const result = await fetchBilibiliHtml(bvid, { proxy: null, timeoutMs: 10000 });
-    if ('reason' in result) {
-      logger.warn(`Bilibili video page failed for ${bvid}: ${result.reason}`);
-      return null;
-    }
+    if ('reason' in result) return null;
     return parseBilibiliViewHtml(bvid, result.html);
   }
 
@@ -83,10 +83,7 @@ async function loadViewFromPage(bvid: string): Promise<BilibiliData | null> {
     { logLabel: `html ${bvid}` },
   );
 
-  if (!won) {
-    logger.warn(`Bilibili video page failed for ${bvid}: all proxy waves empty`);
-    return null;
-  }
+  if (!won) return null;
 
   won.value.viaProxyId = won.proxy.id;
   return won.value;
@@ -171,7 +168,7 @@ export async function downloadBilibiliCoverByBvid(
       if ('reason' in result) return result;
       return { value: result };
     },
-    { preferredId: data?.viaProxyId ?? null, logLabel: `cover ${bvid}` },
+    { preferredId: data?.viaProxyId ?? null, logLabel: `cover ${bvid}`, skipCoverLosers: true },
   );
 
   if (!won) {

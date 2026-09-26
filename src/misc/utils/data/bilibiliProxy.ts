@@ -34,7 +34,13 @@ export const DEFAULT_PROBE_BVID = 'BV1zCtq61Eoi';
 export const DEFAULT_WAVE_TIMEOUT_MS = 8000;
 export const PROXY_WAVE_SIZES = [2, 4, 8] as const;
 export const PROXY_FAIL_EVICT_AFTER = 3;
-export const PROXY_PROBE_CONCURRENCY = 8;
+export const PROXY_PROBE_CONCURRENCY = 12;
+/** Pull lists again when the healthy set is this size or smaller. */
+export const PROXY_POOL_DRY_THRESHOLD = 3;
+/** Drop a proxy from the healthy set on the first request timeout. */
+export const PROXY_TIMEOUT_EVICT_AFTER = 1;
+/** HTML/probe success must not re-add a proxy that just timed out. */
+export const PROXY_TIMEOUT_QUARANTINE_MS = 60 * 60 * 1000;
 
 export type BilibiliFetchMode = 'direct' | 'proxy' | 'fail_closed';
 
@@ -60,6 +66,10 @@ export function shouldStartBilibiliProxyCron(env: {
   return env.NODE_ENV === 'production' || env.NODE_ENV === 'staging';
 }
 
+export function isProxyPoolDry(healthyCount: number): boolean {
+  return healthyCount <= PROXY_POOL_DRY_THRESHOLD;
+}
+
 export function pickUnused(
   ids: readonly string[],
   n: number,
@@ -73,6 +83,66 @@ export function pickUnused(
     if (out.length >= n) break;
   }
   return out;
+}
+
+/** First wave includes preferred (if still healthy) plus unused peers so a timeout does not stall alone. */
+export function buildProxyWave(opts: {
+  healthyIds: readonly string[];
+  size: number;
+  exclude?: ReadonlySet<string>;
+  preferredId?: string | null;
+}): string[] {
+  const exclude = new Set(opts.exclude);
+  const out: string[] = [];
+  if (
+    opts.preferredId &&
+    !exclude.has(opts.preferredId) &&
+    opts.healthyIds.includes(opts.preferredId)
+  ) {
+    out.push(opts.preferredId);
+    exclude.add(opts.preferredId);
+  }
+  out.push(...pickUnused(opts.healthyIds, opts.size - out.length, exclude));
+  return out;
+}
+
+export function isProxyQuarantined(quarantinedUntil: number | null | undefined, now: number): boolean {
+  return typeof quarantinedUntil === 'number' && quarantinedUntil > now;
+}
+
+export function shouldEvictAfterFail(reason: BilibiliProxyFailReason, counts: {
+  failCount: number;
+  timeoutCount: number;
+}): boolean {
+  if (reason === 'timeout') return counts.timeoutCount >= PROXY_TIMEOUT_EVICT_AFTER;
+  return counts.failCount >= PROXY_FAIL_EVICT_AFTER;
+}
+
+export function applyProxyFail(
+  prev: { failCount?: number; timeoutCount?: number; lastOk?: number | null },
+  reason: BilibiliProxyFailReason,
+  now: number,
+): {
+  failCount: number;
+  timeoutCount: number;
+  lastFail: number;
+  lastFailReason: BilibiliProxyFailReason;
+  lastOk: number | null;
+  quarantinedUntil: number | null;
+  evict: boolean;
+} {
+  const failCount = (prev.failCount || 0) + 1;
+  const timeoutCount = reason === 'timeout' ? (prev.timeoutCount || 0) + 1 : prev.timeoutCount || 0;
+  const evict = shouldEvictAfterFail(reason, { failCount, timeoutCount });
+  return {
+    failCount,
+    timeoutCount,
+    lastFail: now,
+    lastFailReason: reason,
+    lastOk: prev.lastOk ?? null,
+    quarantinedUntil: reason === 'timeout' ? now + PROXY_TIMEOUT_QUARANTINE_MS : null,
+    evict,
+  };
 }
 
 export function judgeBilibiliHtml(html: string | null | undefined): BilibiliProxyFailReason | 'ok' {
@@ -177,28 +247,26 @@ function isPublicIpv4(host: string): boolean {
   return true;
 }
 
+const IPV4_PROXY_SOURCE =
+  '(?:(https?|socks4a?|socks5h?|socks):\\/\\/)?(\\d{1,3}(?:\\.\\d{1,3}){3}):(\\d{1,5})(?::([A-Za-z]{2,3}))?';
+
+function isCnCountryTag(tag: string | undefined): boolean {
+  if (!tag) return true;
+  const upper = tag.toUpperCase();
+  return upper === 'CN' || upper === 'CHN';
+}
+
 export function parseProxyEntry(raw: string): BilibiliProxyRef | null {
   const line = raw.trim();
   if (!line || line.startsWith('#') || line.startsWith('[')) return null;
 
-  const token = line.split(/[\s,;]+/)[0] ?? '';
-  const hostPort = token.includes('://') ? token : `http://${token}`;
-  let url: URL;
-  try {
-    url = new URL(hostPort);
-  } catch {
-    const bits = token.split(':');
-    if (bits.length < 2) return null;
-    try {
-      url = new URL(`http://${bits[0]}:${bits[1]}`);
-    } catch {
-      return null;
-    }
-  }
+  const tagged = new RegExp(IPV4_PROXY_SOURCE, 'i').exec(line);
+  if (!tagged) return null;
+  if (!isCnCountryTag(tagged[4])) return null;
 
-  const protocol = normalizeProtocol(url.protocol);
-  const host = url.hostname;
-  const port = Number(url.port);
+  const protocol = normalizeProtocol(tagged[1] || 'http');
+  const host = tagged[2];
+  const port = Number(tagged[3]);
   if (!protocol || !host || !Number.isInteger(port) || port < 1 || port > 65535) return null;
   if (!isPublicIpv4(host)) return null;
 
@@ -210,14 +278,71 @@ export function parseProxyEntry(raw: string): BilibiliProxyRef | null {
   };
 }
 
+function addParsedProxy(out: BilibiliProxyRef[], seen: Set<string>, raw: string): void {
+  const parsed = parseProxyEntry(raw);
+  if (!parsed || seen.has(parsed.id)) return;
+  seen.add(parsed.id);
+  out.push(parsed);
+}
+
+function collectProxiesFromJson(value: unknown, out: BilibiliProxyRef[], seen: Set<string>): void {
+  if (typeof value === 'string') {
+    addParsedProxy(out, seen, value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectProxiesFromJson(item, out, seen);
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+
+  const rec = value as Record<string, unknown>;
+  const ip = typeof rec.ip === 'string' ? rec.ip : typeof rec.host === 'string' ? rec.host : null;
+  const port = rec.port;
+  if (ip && (typeof port === 'number' || typeof port === 'string')) {
+    const protoRaw = Array.isArray(rec.protocols)
+      ? String(rec.protocols[0] ?? 'http')
+      : typeof rec.protocol === 'string'
+        ? rec.protocol
+        : typeof rec.type === 'string'
+          ? rec.type
+          : 'http';
+    addParsedProxy(out, seen, `${protoRaw}://${ip}:${port}`);
+  }
+  for (const nested of Object.values(rec)) collectProxiesFromJson(nested, out, seen);
+}
+
 export function parseProxyList(text: string): BilibiliProxyRef[] {
   const seen = new Set<string>();
   const out: BilibiliProxyRef[] = [];
-  for (const line of text.split(/\r?\n/)) {
-    const parsed = parseProxyEntry(line);
-    if (!parsed || seen.has(parsed.id)) continue;
-    seen.add(parsed.id);
-    out.push(parsed);
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      collectProxiesFromJson(JSON.parse(trimmed), out, seen);
+    } catch {
+      // Fall through to regex scan of the raw body.
+    }
+  }
+  const scanner = new RegExp(IPV4_PROXY_SOURCE, 'gi');
+  for (const match of text.matchAll(scanner)) {
+    const country = match[4];
+    const raw = country
+      ? `${match[1] ? `${match[1]}://` : ''}${match[2]}:${match[3]}:${country}`
+      : `${match[1] ? `${match[1]}://` : ''}${match[2]}:${match[3]}`;
+    addParsedProxy(out, seen, raw);
+  }
+  return out;
+}
+
+export function mergeProxyLists(lists: readonly BilibiliProxyRef[][]): BilibiliProxyRef[] {
+  const seen = new Set<string>();
+  const out: BilibiliProxyRef[] = [];
+  for (const list of lists) {
+    for (const proxy of list) {
+      if (seen.has(proxy.id)) continue;
+      seen.add(proxy.id);
+      out.push(proxy);
+    }
   }
   return out;
 }

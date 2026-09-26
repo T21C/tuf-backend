@@ -27,16 +27,18 @@ export const CREATOR_STOCK_MODULE_TYPES = [
   'charts',
 ] as const;
 
-export const EXTRA_PROFILE_MODULE_TYPES = ['favorite'] as const;
+export const EXTRA_PROFILE_MODULE_TYPES = ['favorite', 'keyboards'] as const;
+export const PLAYER_EXTRA_MODULE_TYPES = ['favorite', 'keyboards'] as const;
+export const CREATOR_EXTRA_MODULE_TYPES = ['favorite'] as const;
 
 export const PLAYER_MODULE_TYPES = [
   ...PLAYER_STOCK_MODULE_TYPES,
-  ...EXTRA_PROFILE_MODULE_TYPES,
+  ...PLAYER_EXTRA_MODULE_TYPES,
 ] as const;
 
 export const CREATOR_MODULE_TYPES = [
   ...CREATOR_STOCK_MODULE_TYPES,
-  ...EXTRA_PROFILE_MODULE_TYPES,
+  ...CREATOR_EXTRA_MODULE_TYPES,
 ] as const;
 
 export type PlayerModuleType = (typeof PLAYER_MODULE_TYPES)[number];

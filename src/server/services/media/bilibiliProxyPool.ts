@@ -1,24 +1,31 @@
 import { redis } from '@/server/services/core/RedisService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import {
+  applyProxyFail,
+  isProxyQuarantined,
   parseProxyId,
   pickUnused,
-  PROXY_FAIL_EVICT_AFTER,
+  type BilibiliProxyFailReason,
   type BilibiliProxyRef,
 } from '@/misc/utils/data/bilibiliProxy.js';
 
 const OK_KEY = 'bilibili:proxies:ok';
 const META_KEY = 'bilibili:proxies:meta';
+const COVER_SKIP_MS = 15 * 60 * 1000;
+const coverSkipUntil = new Map<string, number>();
 
 interface ProxyMeta {
   protocol: BilibiliProxyRef['protocol'];
   lastOk: number | null;
   lastFail: number | null;
   failCount: number;
+  timeoutCount?: number;
+  lastFailReason?: BilibiliProxyFailReason | null;
+  quarantinedUntil?: number | null;
 }
 
 function emptyMeta(protocol: BilibiliProxyRef['protocol']): ProxyMeta {
-  return { protocol, lastOk: null, lastFail: null, failCount: 0 };
+  return { protocol, lastOk: null, lastFail: null, failCount: 0, timeoutCount: 0 };
 }
 
 async function redisClient(): Promise<any | null> {
@@ -40,6 +47,20 @@ async function readMeta(client: any, id: string): Promise<ProxyMeta | null> {
 
 async function writeMeta(client: any, id: string, meta: ProxyMeta): Promise<void> {
   await client.hSet(META_KEY, id, JSON.stringify(meta));
+}
+
+export function skipProxyForCover(id: string, now = Date.now()): void {
+  coverSkipUntil.set(id, now + COVER_SKIP_MS);
+}
+
+export function isSkippedForCover(id: string, now = Date.now()): boolean {
+  const until = coverSkipUntil.get(id);
+  if (until == null) return false;
+  if (until <= now) {
+    coverSkipUntil.delete(id);
+    return false;
+  }
+  return true;
 }
 
 export async function getHealthyCount(): Promise<number> {
@@ -92,43 +113,96 @@ export async function getProxyById(id: string): Promise<BilibiliProxyRef | null>
   }
 }
 
+export async function isIdQuarantined(id: string, now = Date.now()): Promise<boolean> {
+  try {
+    const client = await redisClient();
+    if (!client) return false;
+    const meta = await readMeta(client, id);
+    return isProxyQuarantined(meta?.quarantinedUntil, now);
+  } catch {
+    return false;
+  }
+}
+
 export async function markProxyOk(proxy: BilibiliProxyRef): Promise<void> {
   try {
     const client = await redisClient();
     if (!client) return;
     const now = Date.now();
     const prev = (await readMeta(client, proxy.id)) ?? emptyMeta(proxy.protocol);
+    if (isProxyQuarantined(prev.quarantinedUntil, now)) {
+      logger.warn(
+        `Bilibili proxy ${proxy.id} still quarantined until ${new Date(prev.quarantinedUntil ?? 0).toISOString()}; not re-adding after success`,
+      );
+      return;
+    }
     await client.zAdd(OK_KEY, { score: now, value: proxy.id });
     await writeMeta(client, proxy.id, {
       protocol: proxy.protocol,
       lastOk: now,
       lastFail: prev.lastFail,
       failCount: 0,
+      timeoutCount: 0,
+      lastFailReason: null,
+      quarantinedUntil: null,
     });
   } catch (error) {
     logger.warn(`Bilibili proxy pool: markOk failed for ${proxy.id}`, error);
   }
 }
 
-export async function markProxyFail(proxy: BilibiliProxyRef): Promise<void> {
+export async function markProxyFail(
+  proxy: BilibiliProxyRef,
+  reason: BilibiliProxyFailReason = 'no_meta',
+): Promise<void> {
   try {
     const client = await redisClient();
     if (!client) return;
     const now = Date.now();
     const prev = (await readMeta(client, proxy.id)) ?? emptyMeta(proxy.protocol);
-    const failCount = (prev.failCount || 0) + 1;
-    const meta: ProxyMeta = {
+    const next = applyProxyFail(
+      {
+        failCount: prev.failCount,
+        timeoutCount: prev.timeoutCount,
+        lastOk: prev.lastOk,
+      },
+      reason,
+      now,
+    );
+    await writeMeta(client, proxy.id, {
       protocol: proxy.protocol,
-      lastOk: prev.lastOk,
-      lastFail: now,
-      failCount,
-    };
-    await writeMeta(client, proxy.id, meta);
-    if (failCount >= PROXY_FAIL_EVICT_AFTER) {
+      lastOk: next.lastOk,
+      lastFail: next.lastFail,
+      failCount: next.failCount,
+      timeoutCount: next.timeoutCount,
+      lastFailReason: next.lastFailReason,
+      quarantinedUntil: next.quarantinedUntil ?? prev.quarantinedUntil ?? null,
+    });
+    if (next.evict) {
       await client.zRem(OK_KEY, proxy.id);
+      if (reason === 'timeout') {
+        skipProxyForCover(proxy.id, now);
+        logger.warn(
+          `Bilibili proxy evicted ${proxy.id} after timeout; quarantined until ${new Date(next.quarantinedUntil ?? now).toISOString()}`,
+        );
+      }
     }
   } catch (error) {
     logger.warn(`Bilibili proxy pool: markFail failed for ${proxy.id}`, error);
+  }
+}
+
+/** Keep in the pool but send to the back so a racing timeout does not stay preferred. */
+export async function demoteProxy(proxy: BilibiliProxyRef): Promise<void> {
+  skipProxyForCover(proxy.id);
+  try {
+    const client = await redisClient();
+    if (!client) return;
+    const score = await client.zScore(OK_KEY, proxy.id);
+    if (score == null) return;
+    await client.zAdd(OK_KEY, { score: 1, value: proxy.id });
+  } catch (error) {
+    logger.warn(`Bilibili proxy pool: demote failed for ${proxy.id}`, error);
   }
 }
 
