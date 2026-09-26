@@ -7,6 +7,8 @@ import {
   ProfileModulesError,
   assertModuleCountAllowed,
   createStockLayout,
+  isFavoriteCreatorHidden,
+  isFavoriteEntityHidden,
   isFavoriteLevelHidden,
   isFavoritePackHidden,
   isFavoritePassHidden,
@@ -98,6 +100,7 @@ test('parse favorite items and cap', () => {
               {kind: 'level', id: 1},
               {kind: 'pass', id: 2},
               {kind: 'pack', id: 'Ab12Cd34'},
+              {kind: 'creator', id: 9},
               {kind: 'level', id: 1},
             ],
           },
@@ -110,6 +113,7 @@ test('parse favorite items and cap', () => {
     {kind: 'level', id: 1},
     {kind: 'pass', id: 2},
     {kind: 'pack', id: 'Ab12Cd34'},
+    {kind: 'creator', id: 9},
   ]);
 
   const tooMany = Array.from({length: MAX_FAVORITE_ITEMS + 1}, (_, i) => ({
@@ -268,6 +272,12 @@ test('hide flags for favorite entities', () => {
 
   assert.equal(isFavoritePlayerHidden({isBanned: true}), true);
   assert.equal(isFavoritePlayerHidden({isBanned: false}), false);
+
+  assert.equal(isFavoriteCreatorHidden(null), true);
+  assert.equal(isFavoriteCreatorHidden({id: 0}), true);
+  assert.equal(isFavoriteCreatorHidden({id: 4}), false);
+  assert.equal(isFavoriteEntityHidden('creator', {id: 4}), false);
+  assert.equal(isFavoriteEntityHidden('creator', null), true);
   assert.equal(
     isFavoritePassHidden({
       isDeleted: false,

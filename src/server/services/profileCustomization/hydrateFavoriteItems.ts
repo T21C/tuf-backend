@@ -7,13 +7,17 @@ import User from '@/models/auth/User.js';
 import Judgement from '@/models/passes/Judgement.js';
 import LevelPack from '@/models/packs/LevelPack.js';
 import Difficulty from '@/models/levels/Difficulty.js';
-import type {FavoriteItem, FavoriteItemKind} from '@/misc/utils/profileModules/index.js';
 import {
+  isFavoriteCreatorHidden,
   isFavoriteLevelHidden,
   isFavoritePackHidden,
   isFavoritePassHidden,
   isFavoritePlayerHidden,
+  type FavoriteItem,
+  type FavoriteItemKind,
 } from '@/misc/utils/profileModules/index.js';
+import {maskStellarPublicEsDoc} from '@/misc/utils/subscriptions/tufStellarPublicGate.js';
+import {fetchCreatorsForBulkIndex} from '@/server/services/elasticsearch/fetching/creatorFetch.js';
 
 export type HydratedFavoriteItem = {
   kind: FavoriteItemKind;
@@ -22,6 +26,7 @@ export type HydratedFavoriteItem = {
   level?: Record<string, unknown>;
   pack?: Record<string, unknown>;
   player?: Record<string, unknown>;
+  creator?: Record<string, unknown>;
 };
 
 function plain(row: {get?: (opts: {plain: boolean}) => unknown} | Record<string, unknown> | null): Record<string, unknown> | null {
@@ -59,8 +64,9 @@ export async function hydrateFavoriteItems(items: FavoriteItem[]): Promise<Hydra
   const levelIds = idsOfKind(items, 'level');
   const packCodes = packLinkCodesOf(items);
   const playerIds = idsOfKind(items, 'player');
+  const creatorIds = idsOfKind(items, 'creator');
 
-  const [passes, levels, packs, players] = await Promise.all([
+  const [passes, levels, packs, players, creatorDocs] = await Promise.all([
     passIds.length
       ? Pass.findAll({
           where: {id: {[Op.in]: passIds}},
@@ -158,6 +164,7 @@ export async function hydrateFavoriteItems(items: FavoriteItem[]): Promise<Hydra
           ],
         })
       : Promise.resolve([]),
+    creatorIds.length ? fetchCreatorsForBulkIndex(creatorIds) : Promise.resolve([]),
   ]);
 
   const passById = new Map<number, Record<string, unknown>>();
@@ -208,6 +215,13 @@ export async function hydrateFavoriteItems(items: FavoriteItem[]): Promise<Hydra
     });
   }
 
+  const creatorById = new Map<number, Record<string, unknown>>();
+  for (const prepared of creatorDocs) {
+    const data = maskStellarPublicEsDoc(prepared.document);
+    if (!data || isFavoriteCreatorHidden(data)) continue;
+    creatorById.set(Number(prepared.id), data);
+  }
+
   const out: HydratedFavoriteItem[] = [];
   for (const item of items) {
     if (item.kind === 'pass') {
@@ -225,11 +239,16 @@ export async function hydrateFavoriteItems(items: FavoriteItem[]): Promise<Hydra
       const pack = packByLinkCode.get(item.id);
       if (!pack) continue;
       out.push({kind: 'pack', id: item.id, pack});
-    } else {
+    } else if (item.kind === 'player') {
       if (typeof item.id !== 'number') continue;
       const player = playerById.get(item.id);
       if (!player) continue;
       out.push({kind: 'player', id: item.id, player});
+    } else if (item.kind === 'creator') {
+      if (typeof item.id !== 'number') continue;
+      const creator = creatorById.get(item.id);
+      if (!creator) continue;
+      out.push({kind: 'creator', id: item.id, creator});
     }
   }
   return out;

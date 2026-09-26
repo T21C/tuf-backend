@@ -8,7 +8,7 @@ export const MAX_PROFILE_MODULE_ID_LENGTH = 64;
 export const PROFILE_ENTITY_KINDS = ['player', 'creator'] as const;
 export type ProfileEntityKind = (typeof PROFILE_ENTITY_KINDS)[number];
 
-export const FAVORITE_ITEM_KINDS = ['pass', 'level', 'pack', 'player'] as const;
+export const FAVORITE_ITEM_KINDS = ['pass', 'level', 'pack', 'player', 'creator'] as const;
 export type FavoriteItemKind = (typeof FAVORITE_ITEM_KINDS)[number];
 
 export const PLAYER_STOCK_MODULE_TYPES = [
