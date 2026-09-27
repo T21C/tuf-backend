@@ -206,7 +206,7 @@ router.get(
     operationId: 'v3GetLeaderboard',
     summary: 'Player leaderboard (v3)',
     description:
-      'Elasticsearch-backed leaderboard. Supports sort, numeric range filters, country filter, player moderation flag filter (`flagField` + `flagMode`), text/Discord query (`pid:playerId`/`#discordId`/`@username`), and optional `following=true` (authenticated) to restrict to players the viewer follows. Returns `maxFields` aggregations for UI filter ceilings.',
+      'Elasticsearch-backed leaderboard. Supports sort, numeric range filters, country filter, ranked-score rank range (`filters.rankedScoreRank` as `[min, max]` 1-based inclusive placement among non-banned players with at least one clear), player moderation flag filter (`flagField` + `flagMode`), text/Discord query (`pid:playerId`/`#discordId`/`@username`), and optional `following=true` (authenticated) to restrict to players the viewer follows. Returns `maxFields` aggregations for UI filter ceilings, including `rankedPopulation` (same pass-holding population as the default list).',
     tags: ['Database', 'Leaderboard', 'v3'],
     query: {
       sortBy: { schema: { type: 'string' } },
