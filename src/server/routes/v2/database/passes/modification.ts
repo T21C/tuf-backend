@@ -10,7 +10,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import sequelize from '@/config/db.js';
 import { updateWorldsFirstFlags, updateWorldsFirstPPStatus } from './index.js';
-import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
+import { safeTransactionRollback, sanitizeTextInput, validateFeelingRating } from '@/misc/utils/Utility.js';
 import { optionalReasonFromBody } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 import { IJudgements, unwrapJudgements } from '@/misc/utils/pass/CalcAcc.js';
 import { isWrongJudgementFromChart } from '@/misc/utils/pass/wrongJudgementSync.js';
@@ -808,6 +808,10 @@ router.patch(
       if (!sanitized) {
         await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'feelingRating cannot be empty' });
+      }
+      if (sanitized.length > 60 || !validateFeelingRating(sanitized)) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Invalid feeling rating' });
       }
 
       const pass = await Pass.findOne({
