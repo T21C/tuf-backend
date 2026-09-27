@@ -1,6 +1,15 @@
 import client, { playerIndexName } from '@/config/elasticsearch.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { applyIdsFilter, rangeOnField, termField } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
+import {
+  clampRankRange,
+  intersectRankedScoreFilters,
+  parseNumericRange,
+  parseRankedScoreRankRange,
+  rankedScoreWindowForClampedRange,
+  type RankedScoreWindow,
+  type ScoreRangeBounds,
+} from '@/server/services/elasticsearch/search/players/rankedScoreRankWindow.js';
 
 export type PlayerFlagField = 'isBanned' | 'isSubmissionsPaused' | 'isRatingBanned';
 export type PlayerFlagMode = 'show' | 'hide' | 'only';
@@ -20,7 +29,7 @@ export interface PlayerSearchOptions {
   flagMode?: PlayerFlagMode;
   /** @deprecated Use `flagField` + `flagMode`. Kept for backward compatibility. */
   showBanned?: PlayerFlagMode;
-  /** Range filters (numeric metrics + `country` exact match). */
+  /** Range filters (numeric metrics, `country` exact match, optional `rankedScoreRank` `[min, max]`). */
   filters?: Record<string, [number, number] | string>;
   /** Sort key (see mapping below). */
   sortBy?: string;
@@ -199,7 +208,162 @@ function buildTextShould(text: string): any[] {
   ];
 }
 
-function buildPlayerQuery(options: PlayerSearchOptions): any {
+const ES_MAX_RESULT_WINDOW = 10000;
+const RANK_WINDOW_CACHE_TTL_MS = 15_000;
+
+type RankWindowCacheEntry = {expiresAt: number; value: RankedScoreWindow};
+const rankWindowCache = new Map<string, RankWindowCacheEntry>();
+
+function getCachedRankWindow(key: string): RankedScoreWindow | undefined {
+  const hit = rankWindowCache.get(key);
+  if (!hit) return undefined;
+  if (hit.expiresAt < Date.now()) {
+    rankWindowCache.delete(key);
+    return undefined;
+  }
+  return hit.value;
+}
+
+function setCachedRankWindow(key: string, value: RankedScoreWindow): void {
+  rankWindowCache.set(key, {expiresAt: Date.now() + RANK_WINDOW_CACHE_TTL_MS, value});
+  if (rankWindowCache.size <= 64) return;
+  const oldest = rankWindowCache.keys().next().value;
+  if (oldest != null) rankWindowCache.delete(oldest);
+}
+
+/** Same eligibility as the live leaderboard list: not banned and at least one clear. */
+function leaderboardRankBaseFilter(): Record<string, unknown>[] {
+  return [
+    {term: {isBanned: false}},
+    {range: {totalPasses: {gt: 0}}},
+  ];
+}
+
+function leaderboardRankQuery(extraFilter: Record<string, unknown>[] = []): Record<string, unknown> {
+  return {
+    bool: {
+      filter: [...leaderboardRankBaseFilter(), ...extraFilter],
+    },
+  };
+}
+
+async function countLeaderboardRankPopulation(): Promise<number> {
+  const response = await client.count({
+    index: playerIndexName,
+    query: leaderboardRankQuery(),
+  });
+  return response.count ?? 0;
+}
+
+async function rankedScoreAtPosition(position: number, population: number): Promise<number | null> {
+  if (position < 1 || position > population) return null;
+
+  if (position <= ES_MAX_RESULT_WINDOW) {
+    const response = await client.search({
+      index: playerIndexName,
+      query: leaderboardRankQuery(),
+      sort: [{rankedScore: 'desc'}, {id: 'desc'}],
+      from: position - 1,
+      size: 1,
+      _source: ['rankedScore'],
+      track_total_hits: false,
+    });
+    const src = response.hits.hits[0]?._source as {rankedScore?: number} | undefined;
+    const score = Number(src?.rankedScore);
+    return Number.isFinite(score) ? score : null;
+  }
+
+  return rankedScoreAtPositionByBinarySearch(position);
+}
+
+async function rankedScoreAtPositionByBinarySearch(position: number): Promise<number | null> {
+  const extents = await client.search({
+    index: playerIndexName,
+    size: 0,
+    track_total_hits: false,
+    query: leaderboardRankQuery(),
+    aggs: {
+      minScore: {min: {field: 'rankedScore'}},
+      maxScore: {max: {field: 'rankedScore'}},
+    },
+  });
+  const aggs = (extents as any).aggregations || {};
+  const minScore = Number(aggs.minScore?.value);
+  const maxScore = Number(aggs.maxScore?.value);
+  if (!Number.isFinite(minScore) || !Number.isFinite(maxScore)) return null;
+  if (minScore === maxScore) return minScore;
+
+  let lo = minScore;
+  let hi = maxScore;
+  for (let i = 0; i < 64; i++) {
+    const mid = lo + (hi - lo) / 2;
+    const greater = await client.count({
+      index: playerIndexName,
+      query: leaderboardRankQuery([{range: {rankedScore: {gt: mid}}}]),
+    });
+    if ((greater.count ?? 0) >= position) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+
+  const snap = await client.search({
+    index: playerIndexName,
+    query: leaderboardRankQuery([{range: {rankedScore: {lte: hi}}}]),
+    sort: [{rankedScore: 'desc'}, {id: 'desc'}],
+    size: 1,
+    _source: ['rankedScore'],
+    track_total_hits: false,
+  });
+  const src = snap.hits.hits[0]?._source as {rankedScore?: number} | undefined;
+  const score = Number(src?.rankedScore);
+  return Number.isFinite(score) ? score : null;
+}
+
+async function computeRankedScoreWindow(minRank: number, maxRank: number): Promise<RankedScoreWindow> {
+  const population = await countLeaderboardRankPopulation();
+  const clamped = clampRankRange(minRank, maxRank, population);
+  if (clamped.kind === 'empty') return {type: 'empty'};
+  if (clamped.kind === 'all') return {type: 'all'};
+
+  const [atMax, atMinMinusOne] = await Promise.all([
+    rankedScoreAtPosition(clamped.max, population),
+    clamped.min > 1 ? rankedScoreAtPosition(clamped.min - 1, population) : Promise.resolve(null),
+  ]);
+  return rankedScoreWindowForClampedRange(clamped, {atMax, atMinMinusOne});
+}
+
+type RankedScoreFilterResolution =
+  | {kind: 'pass-through'}
+  | {kind: 'empty'}
+  | {kind: 'override'; bounds: ScoreRangeBounds};
+
+async function resolveRankedScoreRankFilter(
+  filters: PlayerSearchOptions['filters'],
+): Promise<RankedScoreFilterResolution> {
+  const parsed = parseRankedScoreRankRange(filters?.rankedScoreRank);
+  if (!parsed) return {kind: 'pass-through'};
+
+  const cacheKey = `passes:${parsed.min}:${parsed.max}`;
+  let rankWindow = getCachedRankWindow(cacheKey);
+  if (!rankWindow) {
+    rankWindow = await computeRankedScoreWindow(parsed.min, parsed.max);
+    setCachedRankWindow(cacheKey, rankWindow);
+  }
+
+  const statRange = parseNumericRange(filters?.rankedScore);
+  const merged = intersectRankedScoreFilters(rankWindow, statRange);
+  if (merged.empty) return {kind: 'empty'};
+  if (rankWindow.type === 'all') return {kind: 'pass-through'};
+  if (!merged.bounds) return {kind: 'pass-through'};
+  return {kind: 'override', bounds: merged.bounds};
+}
+
+function buildPlayerQuery(
+  options: PlayerSearchOptions,
+  rankOverride?: ScoreRangeBounds | null,
+): any {
   const must: any[] = [];
   const should: any[] = [];
   const filter: any[] = [];
@@ -242,10 +406,12 @@ function buildPlayerQuery(options: PlayerSearchOptions): any {
 
   if (options.filters) {
     for (const [key, value] of Object.entries(options.filters)) {
+      if (key === 'rankedScoreRank') continue;
       if (key === 'country' && typeof value === 'string' && value.length > 0) {
         filter.push(termField('country', value));
         continue;
       }
+      if (key === 'rankedScore' && rankOverride) continue;
       if (NUMERIC_FILTER_FIELDS.has(key) && Array.isArray(value) && value.length === 2) {
         const [min, max] = value;
         if (Number.isFinite(min) && Number.isFinite(max)) {
@@ -253,6 +419,11 @@ function buildPlayerQuery(options: PlayerSearchOptions): any {
         }
       }
     }
+  }
+
+  if (rankOverride) {
+    filter.push(termField('isBanned', false));
+    filter.push(rangeOnField('rankedScore', rankOverride));
   }
 
   const query: any = { bool: {} };
@@ -302,7 +473,21 @@ export async function searchPlayers(options: PlayerSearchOptions): Promise<Playe
     const offset = Math.max(0, Number(options.offset) || 0);
     const limit = Math.min(100, Math.max(1, Number(options.limit) || 30));
 
-    const query = buildPlayerQuery(options);
+    const rankResolution = await resolveRankedScoreRankFilter(options.filters);
+    if (rankResolution.kind === 'empty') {
+      return {hits: [], total: 0, offset, limit};
+    }
+    if (rankResolution.kind === 'override') {
+      const {field, mode} = parsePlayerFlagFilter(options);
+      if (field === 'isBanned' && mode === 'only') {
+        return {hits: [], total: 0, offset, limit};
+      }
+    }
+
+    const query = buildPlayerQuery(
+      options,
+      rankResolution.kind === 'override' ? rankResolution.bounds : null,
+    );
     const sort = buildPlayerSort(options);
 
     const response = await client.search({
@@ -459,34 +644,43 @@ export async function getRankedScoreRanksForHits(
 
 /**
  * Max-value aggregations used as filter ceilings on the leaderboard UI.
+ * `rankedPopulation` is the number of non-banned players with at least one clear
+ * (the same set the live leaderboard lists when there is no search query).
  */
 export async function getPlayerMaxFields(): Promise<Record<string, number>> {
   try {
-    const response = await client.search({
-      index: playerIndexName,
-      size: 0,
-      track_total_hits: false,
-      aggs: {
-        maxRankedScore: { max: { field: 'rankedScore' } },
-        maxTotalScoreV2: { max: { field: 'totalScoreV2' } },
-        maxGeneralScore: { max: { field: 'generalScore' } },
-        maxPpScore: { max: { field: 'ppScore' } },
-        maxWfScore: { max: { field: 'wfScore' } },
-        maxWfPPScore: { max: { field: 'wfPPScore' } },
-        maxScore12K: { max: { field: 'score12K' } },
-        maxAverageXacc: { max: { field: 'averageXacc' } },
-        maxTotalPasses: { max: { field: 'totalPasses' } },
-        maxUniversalPassCount: { max: { field: 'universalPassCount' } },
-        maxWorldsFirstCount: { max: { field: 'worldsFirstCount' } },
-        maxWorldsFirstPPCount: { max: { field: 'worldsFirstPPCount' } },
-      },
-    });
+    const [response, rankedPopulation] = await Promise.all([
+      client.search({
+        index: playerIndexName,
+        size: 0,
+        track_total_hits: false,
+        aggs: {
+          maxRankedScore: { max: { field: 'rankedScore' } },
+          maxTotalScoreV2: { max: { field: 'totalScoreV2' } },
+          maxGeneralScore: { max: { field: 'generalScore' } },
+          maxPpScore: { max: { field: 'ppScore' } },
+          maxWfScore: { max: { field: 'wfScore' } },
+          maxWfPPScore: { max: { field: 'wfPPScore' } },
+          maxScore12K: { max: { field: 'score12K' } },
+          maxAverageXacc: { max: { field: 'averageXacc' } },
+          maxTotalPasses: { max: { field: 'totalPasses' } },
+          maxUniversalPassCount: { max: { field: 'universalPassCount' } },
+          maxWorldsFirstCount: { max: { field: 'worldsFirstCount' } },
+          maxWorldsFirstPPCount: { max: { field: 'worldsFirstPPCount' } },
+        },
+      }),
+      countLeaderboardRankPopulation().catch((error) => {
+        logger.error('Error counting ranked population:', error);
+        return 0;
+      }),
+    ]);
     const aggs = (response as any).aggregations || {};
     const out: Record<string, number> = {};
     for (const key of Object.keys(aggs)) {
       const val = aggs[key]?.value;
       out[key] = typeof val === 'number' && Number.isFinite(val) ? val : 0;
     }
+    out.rankedPopulation = rankedPopulation;
     return out;
   } catch (error) {
     logger.error('Error fetching player max fields:', error);
