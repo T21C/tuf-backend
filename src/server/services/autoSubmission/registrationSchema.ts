@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { validateFeelingRating } from '@/misc/utils/Utility.js';
+import { validateFeelingRating } from '@/misc/utils/feelingRating.js';
 
 const count = z.number().int().min(0).max(10_000_000);
 export const registrationSchema = z.object({
