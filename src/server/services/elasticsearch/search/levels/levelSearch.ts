@@ -538,6 +538,8 @@ export function convertLevelSearchHit(source: Record<string, any>, diffs: Diffic
     team: convertFromPUA(source.team as string),
     videoLink: convertFromPUA(source.videoLink as string),
     dlLink: convertFromPUA(source.dlLink as string),
+    publicComments: source.publicComments != null ? convertFromPUA(source.publicComments as string) : null,
+    description: source.description != null ? convertFromPUA(source.description as string) : null,
     workshopLink: source.workshopLink != null ? convertFromPUA(source.workshopLink as string) : null,
     notes: source.notes != null ? convertFromPUA(source.notes as string) : null,
     legacyDllink: convertFromPUA(source.legacyDllink as string),

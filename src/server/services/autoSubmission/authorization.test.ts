@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 // Keep these tests independent of local or CI secrets before importing app modules.
 process.env.JWT_SECRET = 'auto-submission-test-only-jwt-secret';
 process.env.OAUTH_JWT_SECRET = 'auto-submission-test-only-oauth-jwt-secret';
+process.env.CDN_URL = 'https://localhost:3001';
 
 const [
   {default: User},
