@@ -1,5 +1,6 @@
 /**
- * Subtract in-game midspin Perfects from legacy-era passes and set
+ * Subtract in-game midspin Perfects from legacy-era passes, set Perfect to
+ * achievable minus non-perfects on mixed clears, and set
  * MIDSPIN_PERFECTS_REMOVED. Dry-run by default; write a skip CSV.
  *
  * Prerequisite: chart reparse so levels.tilecount is in-game count and midspinCount is populated.
@@ -27,7 +28,7 @@ import {computePassScoreV2} from '@/misc/utils/pass/scoreService.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import {hasDomesticCdnFile} from '@/misc/utils/Utility.js';
-import {tilecount as judgementHitCount, unwrapJudgements} from '@/misc/utils/pass/CalcAcc.js';
+import {cloneJudgements, tilecount as judgementHitCount, unwrapJudgements} from '@/misc/utils/pass/CalcAcc.js';
 import {
   applyMidspinPerfectDecrement,
   classifyMidspinRewrite,
@@ -108,6 +109,7 @@ async function clampMidspinPerfects(options: CliOptions): Promise<boolean> {
     matched: 0,
     processed: 0,
     subtracted: 0,
+    setPerfects: 0,
     flagOnly: 0,
     silent: 0,
     csvSkip: 0,
@@ -174,6 +176,7 @@ async function clampMidspinPerfects(options: CliOptions): Promise<boolean> {
           hasCdnDownload: hasDomesticCdnFile(level.dlLink),
           midspinCount: (level as {midspinCount?: unknown}).midspinCount,
           tilecount: (level as {tilecount?: unknown}).tilecount,
+          autoTileCount: (level as {autoTileCount?: unknown}).autoTileCount,
           judgements,
         });
 
@@ -203,6 +206,41 @@ async function clampMidspinPerfects(options: CliOptions): Promise<boolean> {
           logger.info(`Pass ${pass.id} (level ${pass.levelId}): set MIDSPIN_PERFECTS_REMOVED (no count change)`);
           if (options.apply) {
             await pass.update({passMetaFlags: passMetaFlagsToDb(nextFlags)});
+            touchedPassIds.push(pass.id);
+            if (pass.playerId) touchedPlayerIds.add(pass.playerId);
+          }
+          continue;
+        }
+
+        if (classification.action === 'set_perfects') {
+          const nextJudgements = cloneJudgements(judgements);
+          nextJudgements.perfect = classification.perfect;
+          const nextFlags = addPassMetaFlag(pass.passMetaFlags, passMetaFlags.MIDSPIN_PERFECTS_REMOVED);
+          const {accuracy: newAcc, scoreV2: newScore} = computePassScoreV2(
+            {
+              speed: pass.speed ?? 1,
+              judgements: nextJudgements,
+              isNoHoldTap: pass.isNoHoldTap ?? false,
+            },
+            level,
+          );
+          stats.setPerfects++;
+          logger.info(
+            `Pass ${pass.id} (level ${pass.levelId}): perfect ${unwrapJudgements(judgements).perfect} -> ${classification.perfect}` +
+              ` (derived from non-perfects)` +
+              `, accuracy ${(pass.accuracy ?? 0).toFixed(4)} -> ${newAcc.toFixed(4)}` +
+              `, score ${(pass.scoreV2 ?? 0).toFixed(2)} -> ${newScore.toFixed(2)}`,
+          );
+          if (options.apply) {
+            await judgements.update({
+              perfect: nextJudgements.perfect,
+              accuracy: newAcc,
+            });
+            await pass.update({
+              accuracy: newAcc,
+              scoreV2: newScore,
+              passMetaFlags: passMetaFlagsToDb(nextFlags),
+            });
             touchedPassIds.push(pass.id);
             if (pass.playerId) touchedPlayerIds.add(pass.playerId);
           }
@@ -305,6 +343,7 @@ async function clampMidspinPerfects(options: CliOptions): Promise<boolean> {
   logger.info(`  Matched:     ${stats.matched}`);
   logger.info(`  Processed:   ${stats.processed}`);
   logger.info(`  Subtracted:  ${stats.subtracted}`);
+  logger.info(`  Set perfects: ${stats.setPerfects}`);
   logger.info(`  Flag only:   ${stats.flagOnly}`);
   logger.info(`  Silent skip: ${stats.silent}`);
   logger.info(`  CSV skip:    ${stats.csvSkip}`);
@@ -330,7 +369,7 @@ const program = new Command();
 
 program
   .name('clamp-midspin-perfects')
-  .description('Subtract midspin Perfects from v2 / pre-3.4.0 passes and set MIDSPIN_PERFECTS_REMOVED')
+  .description('Subtract midspin Perfects from v2 / pre-3.4.0 passes, derive Perfect on mixed clears, and set MIDSPIN_PERFECTS_REMOVED')
   .option('--apply', 'Write judgement, flag, accuracy, and score changes', false)
   .option('--reindex', 'Reindex affected passes and players after apply', true)
   .option('--out-csv <path>', 'CSV of skipped passes', 'midspin-perfect-skips.csv')
@@ -345,7 +384,7 @@ program
   .option('-l, --limit <number>', 'Maximum passes to process')
   .option('-b, --batch-size <number>', 'Passes per fetch batch', (v) => parseInt(v, 10), 200)
   .option('--include-deleted', 'Include deleted passes', false)
-  .option('--include-flagged', 'Scan rows that already have MIDSPIN_PERFECTS_REMOVED', false)
+  .option('--include-flagged', 'Scan rows that already have MIDSPIN_PERFECTS_REMOVED', true)
   .action(async (opts) => {
     let ok = false;
     try {
@@ -364,7 +403,7 @@ program
         batchSize:
           Number.isFinite(opts.batchSize) && opts.batchSize > 0 ? opts.batchSize : 200,
         includeDeleted: Boolean(opts.includeDeleted),
-        includeFlagged: Boolean(opts.includeFlagged),
+        includeFlagged: opts.includeFlagged !== false,
       });
     } catch (error) {
       logger.error('Script failed:', error);

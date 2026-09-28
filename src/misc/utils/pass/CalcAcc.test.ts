@@ -1,6 +1,7 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applyDerivedPerfects,
   calcAcc,
   calcXAcc,
   emptyJudgements,
@@ -8,6 +9,7 @@ import {
   isAncient5405Pattern,
   isPureXPerfect,
   isWrongJudgement,
+  nonPerfectHitCount,
   tilecount,
 } from './CalcAcc.js';
 
@@ -103,5 +105,101 @@ describe('isWrongJudgement', () => {
     j.earlyDouble = 12;
     j.lateDouble = 3;
     assert.equal(isWrongJudgement(j, {tilecount: 100}), false);
+  });
+});
+
+describe('applyDerivedPerfects', () => {
+  it('sets perfects to achievable minus non-perfects (typo mixed clear)', () => {
+    const j = emptyJudgements();
+    j.perfect = 4960;
+    j.ePerfect = 40;
+    j.lateSingle = 10;
+    const r = applyDerivedPerfects({judgements: j, tilecount: 4900, autoTileCount: 0});
+    assert.equal(r.applied, true);
+    assert.equal(r.perfect, 4850);
+    assert.equal(r.judgements.perfect, 4850);
+    assert.equal(r.judgements.ePerfect, 40);
+    assert.equal(r.judgements.lateSingle, 10);
+    assert.equal(nonPerfectHitCount(r.judgements), 50);
+  });
+
+  it('matches the exact legacy rewrite residual of 4950 + 50 with 100 midspins', () => {
+    const j = emptyJudgements();
+    j.perfect = 4950;
+    j.earlySingle = 20;
+    j.lPerfect = 30;
+    const r = applyDerivedPerfects({judgements: j, tilecount: 4900});
+    assert.equal(r.applied, true);
+    assert.equal(r.judgements.perfect, 4850);
+  });
+
+  it('still applies when stored perfects already equal the function', () => {
+    const j = emptyJudgements();
+    j.perfect = 4850;
+    j.ePerfect = 50;
+    const r = applyDerivedPerfects({judgements: j, tilecount: 4900});
+    assert.equal(r.applied, true);
+    assert.equal(r.judgements.perfect, 4850);
+  });
+
+  it('leaves pure perfects to the midspin subtract path', () => {
+    const j = emptyJudgements();
+    j.perfect = 5000;
+    const r = applyDerivedPerfects({judgements: j, tilecount: 4900});
+    assert.equal(r.applied, false);
+    assert.equal(r.skippedReason, 'nonperfects_zero');
+    assert.equal(r.judgements.perfect, 5000);
+  });
+
+  it('does not apply when non-perfects exceed achievable', () => {
+    const j = emptyJudgements();
+    j.perfect = 10;
+    j.ePerfect = 5000;
+    const r = applyDerivedPerfects({judgements: j, tilecount: 4900});
+    assert.equal(r.applied, false);
+    assert.equal(r.skippedReason, 'would_go_negative');
+    assert.equal(r.judgements.perfect, 10);
+  });
+
+  it('does not rewrite the ancient 5-40-5 placeholder', () => {
+    const ancient = emptyJudgements();
+    ancient.ePerfect = 5;
+    ancient.perfect = 40;
+    ancient.lPerfect = 5;
+    const r = applyDerivedPerfects({judgements: ancient, tilecount: 40});
+    assert.equal(r.applied, false);
+    assert.equal(r.skippedReason, 'ancient_5405');
+    assert.equal(r.judgements.perfect, 40);
+  });
+
+  it('excludes doubles from the non-perfect sum', () => {
+    const j = emptyJudgements();
+    j.perfect = 4960;
+    j.ePerfect = 50;
+    j.earlyDouble = 80;
+    j.lateDouble = 20;
+    const r = applyDerivedPerfects({judgements: j, tilecount: 4900});
+    assert.equal(r.applied, true);
+    assert.equal(r.judgements.perfect, 4850);
+    assert.equal(r.judgements.earlyDouble, 80);
+    assert.equal(nonPerfectHitCount(j), 50);
+  });
+
+  it('subtracts auto tiles from achievable', () => {
+    const j = emptyJudgements();
+    j.perfect = 4960;
+    j.lPerfect = 50;
+    const r = applyDerivedPerfects({judgements: j, tilecount: 5000, autoTileCount: 100});
+    assert.equal(r.applied, true);
+    assert.equal(r.judgements.perfect, 4850);
+  });
+
+  it('skips when tilecount is missing', () => {
+    const j = emptyJudgements();
+    j.perfect = 100;
+    j.ePerfect = 5;
+    const r = applyDerivedPerfects({judgements: j, tilecount: null});
+    assert.equal(r.applied, false);
+    assert.equal(r.skippedReason, 'achievable_missing');
   });
 });

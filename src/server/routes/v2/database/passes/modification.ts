@@ -193,6 +193,8 @@ router.put(
           isXPerfectMode: resolvedXPerfectMode,
           passMetaFlags: pass.passMetaFlags,
           midspinCount: (levelData as { midspinCount?: unknown } | null)?.midspinCount,
+          tilecount: (levelData as { tilecount?: unknown } | null)?.tilecount,
+          autoTileCount: (levelData as { autoTileCount?: unknown } | null)?.autoTileCount,
         });
         logger.debug('updatedJudgements', prepared.judgements);
 

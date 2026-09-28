@@ -95,6 +95,91 @@ export function tilecount(inp: IJudgements | unknown): number {
 }
 
 /**
+ * Tilecount buckets other than center Perfect. Excludes too-early / too-late.
+ * These are the only durable judgement counts; Perfect is derived from them.
+ */
+export function nonPerfectHitCount(inp: IJudgements | unknown): number {
+  const j = unwrapJudgements(inp);
+  return (
+    j.earlySingle +
+    j.ePerfect +
+    j.perfectMinus +
+    j.perfectPlus +
+    j.lPerfect +
+    j.lateSingle
+  );
+}
+
+export type DerivePerfectsSkipReason =
+  | 'achievable_missing'
+  | 'nonperfects_zero'
+  | 'would_go_negative'
+  | 'ancient_5405'
+  | null;
+
+export type DerivePerfectsResult = {
+  judgements: IJudgements;
+  applied: boolean;
+  skippedReason: DerivePerfectsSkipReason;
+  perfect: number;
+};
+
+/**
+ * `perfects = achievable - nonPerfects`. A pass cannot exceed the chart's
+ * maximum judgement count, so typed Perfect is overwritten when non-perfects
+ * exist. Does not subtract midspins; achievable already excludes them.
+ */
+export function applyDerivedPerfects(params: {
+  judgements: IJudgements | unknown;
+  tilecount: unknown;
+  autoTileCount?: unknown;
+}): DerivePerfectsResult {
+  const judgements = cloneJudgements(params.judgements);
+  if (isAncient5405Pattern(judgements)) {
+    return {
+      judgements,
+      applied: false,
+      skippedReason: 'ancient_5405',
+      perfect: judgements.perfect,
+    };
+  }
+  const achievable = getEffectiveTilecount(params.tilecount, params.autoTileCount);
+  if (achievable == null || achievable <= 0) {
+    return {
+      judgements,
+      applied: false,
+      skippedReason: 'achievable_missing',
+      perfect: judgements.perfect,
+    };
+  }
+  const nonPerfects = nonPerfectHitCount(judgements);
+  if (nonPerfects <= 0) {
+    return {
+      judgements,
+      applied: false,
+      skippedReason: 'nonperfects_zero',
+      perfect: judgements.perfect,
+    };
+  }
+  const next = achievable - nonPerfects;
+  if (next < 0) {
+    return {
+      judgements,
+      applied: false,
+      skippedReason: 'would_go_negative',
+      perfect: judgements.perfect,
+    };
+  }
+  judgements.perfect = next;
+  return {
+    judgements,
+    applied: true,
+    skippedReason: null,
+    perfect: next,
+  };
+}
+
+/**
  * Achievable manual judgements: persisted tilecount minus auto-play tiles.
  * Returns null when tilecount is missing or not a finite number.
  */

@@ -9,6 +9,8 @@ import type { RegistrationInput } from './registrationSchema.js';
 export type AutoSubmissionLevelScoreContext = LevelScoreContextSource & {
   /** Current official chart analysis stored on the level row. */
   midspinCount?: unknown;
+  tilecount?: unknown;
+  autoTileCount?: unknown;
 };
 
 /**
@@ -40,6 +42,8 @@ export function prepareAutoSubmissionResult(
     isXPerfectMode: validation.is_x_perfect_mode,
     passMetaFlags: 0,
     midspinCount: level.midspinCount,
+    tilecount: level.tilecount,
+    autoTileCount: level.autoTileCount,
   });
   const score = computePassScoreV2({
     speed: validation.speed,

@@ -162,7 +162,7 @@ describe('classifyMidspinRewrite', () => {
         hasCdnDownload: true,
         midspinCount: 0,
         tilecount: 100,
-        judgements: baseJudgements({perfect: 80, ePerfect: 10, lPerfect: 5}),
+        judgements: baseJudgements({perfect: 85, ePerfect: 10, lPerfect: 5}),
       }).action,
       'flag_only',
     );
@@ -175,6 +175,47 @@ describe('classifyMidspinRewrite', () => {
         judgements: baseJudgements({perfect: 100}),
       }).action,
       'flag_only',
+    );
+  });
+
+  it('sets perfects from non-perfects on inexact mixed clears', () => {
+    assert.deepEqual(
+      classifyMidspinRewrite({
+        adofaiVersion: ADOFAI_VERSION.PRE_3_4_0,
+        hasCdnDownload: true,
+        midspinCount: 100,
+        tilecount: 4900,
+        judgements: baseJudgements({perfect: 4960, ePerfect: 50}),
+      }),
+      {action: 'set_perfects', perfect: 4850},
+    );
+  });
+
+  it('sets perfects on mixed clears even when the rewrite bit is already set', () => {
+    assert.deepEqual(
+      classifyMidspinRewrite({
+        adofaiVersion: ADOFAI_VERSION.PRE_3_4_0,
+        passMetaFlags: passMetaFlags.MIDSPIN_PERFECTS_REMOVED,
+        hasCdnDownload: false,
+        midspinCount: 100,
+        tilecount: 4900,
+        judgements: baseJudgements({perfect: 4860, ePerfect: 50}),
+      }),
+      {action: 'set_perfects', perfect: 4850},
+    );
+  });
+
+  it('silently skips flagged mixed clears that already match the function', () => {
+    assert.deepEqual(
+      classifyMidspinRewrite({
+        adofaiVersion: ADOFAI_VERSION.PRE_3_4_0,
+        passMetaFlags: passMetaFlags.MIDSPIN_PERFECTS_REMOVED,
+        hasCdnDownload: true,
+        midspinCount: 100,
+        tilecount: 4900,
+        judgements: baseJudgements({perfect: 4850, ePerfect: 50}),
+      }),
+      {action: 'skip_silent', reason: 'already_applied'},
     );
   });
 

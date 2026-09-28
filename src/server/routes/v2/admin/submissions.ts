@@ -1134,6 +1134,8 @@ router.put(
           isXPerfectMode: !!flags.isXPerfectMode,
           passMetaFlags: flags.passMetaFlags,
           midspinCount: (level as { midspinCount?: unknown }).midspinCount,
+          tilecount: (level as { tilecount?: unknown }).tilecount,
+          autoTileCount: (level as { autoTileCount?: unknown }).autoTileCount,
         });
         await judgements.update({ ...prepared.judgements }, { transaction });
         await flags.update(

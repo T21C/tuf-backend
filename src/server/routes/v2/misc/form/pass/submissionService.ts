@@ -105,6 +105,8 @@ export async function createPassSubmission(
       isXPerfectMode: sanitized.isXPerfectMode,
       passMetaFlags: 0,
       midspinCount: (level as { midspinCount?: unknown }).midspinCount,
+      tilecount: (level as { tilecount?: unknown }).tilecount,
+      autoTileCount: (level as { autoTileCount?: unknown }).autoTileCount,
     });
     await assertNoDuplicatePassSubmission(sanitized, prepared, transaction);
     await assertNoDuplicatePass(sanitized, prepared, transaction);

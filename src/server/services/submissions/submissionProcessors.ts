@@ -583,6 +583,8 @@ async function approvePassSubmission(
     isXPerfectMode: !!flags.isXPerfectMode,
     passMetaFlags: flags.passMetaFlags,
     midspinCount: (level as { midspinCount?: unknown }).midspinCount,
+    tilecount: (level as { tilecount?: unknown }).tilecount,
+    autoTileCount: (level as { autoTileCount?: unknown }).autoTileCount,
   });
   const judgementData = prepared.judgements;
   const speed = submission.speed || 1;

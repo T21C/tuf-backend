@@ -83,6 +83,24 @@ test('maps competitive XPerfect and split counts without a legacy decrement', ()
   assert.equal(Number.isFinite(result.scoreV2), true);
 });
 
+test('derives perfects from non-perfects when chart tilecount is supplied', () => {
+  const result = prepareAutoSubmissionResult(validation({
+    is_adofai_v2: false,
+    adofai_version: 2,
+    judgments: [0, 0, 0, 50, 4960, 0, 0, 0, 0],
+  }), {
+    ...scoreContext,
+    midspinCount: 100,
+    tilecount: 4900,
+    autoTileCount: 0,
+  });
+  assert.equal(result.judgements.perfect, 4850);
+  assert.equal(result.judgements.ePerfect, 50);
+  assert.equal(result.midspinDecrement.applied, false);
+  assert.equal(result.midspinDecrement.skippedReason, 'already_applied');
+  assert.notEqual(result.passMetaFlags, '0');
+});
+
 test('XPerfect accuracy treats minus/plus as perfect when other buckets exist', () => {
   const result = prepareAutoSubmissionResult(validation({
     is_adofai_v2: false,

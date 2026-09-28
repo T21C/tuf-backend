@@ -1,4 +1,11 @@
-import { cloneJudgements, isAncient5405Pattern, tilecount as judgementHitCount, unwrapJudgements, type IJudgements } from './CalcAcc.js';
+import {
+  applyDerivedPerfects,
+  cloneJudgements,
+  isAncient5405Pattern,
+  tilecount as judgementHitCount,
+  unwrapJudgements,
+  type IJudgements,
+} from './CalcAcc.js';
 import { isLegacyAdofaiVersion } from './adofaiVersion.js';
 import {
   addPassMetaFlag,
@@ -236,7 +243,8 @@ export type MidspinRewriteClassification =
   | {action: 'skip_silent'; reason: MidspinRewriteSkipSilentReason}
   | {action: 'skip_csv'; reason: MidspinRewriteSkipCsvReason}
   | {action: 'flag_only'}
-  | {action: 'subtract'};
+  | {action: 'subtract'}
+  | {action: 'set_perfects'; perfect: number};
 
 /** Bulk rewrite decision: env-free; caller supplies CDN presence. */
 export function classifyMidspinRewrite(params: {
@@ -245,13 +253,34 @@ export function classifyMidspinRewrite(params: {
   hasCdnDownload: boolean;
   midspinCount: unknown;
   tilecount: unknown;
+  autoTileCount?: unknown;
   judgements: unknown;
 }): MidspinRewriteClassification {
-  if (hasPassMetaFlag(params.passMetaFlags, passMetaFlags.MIDSPIN_PERFECTS_REMOVED)) {
-    return {action: 'skip_silent', reason: 'already_applied'};
-  }
   if (!isLegacyAdofaiVersion(params.adofaiVersion)) {
     return {action: 'skip_silent', reason: 'latest_era'};
+  }
+  if (isAncient5405Pattern(params.judgements)) {
+    return {action: 'skip_csv', reason: 'ancient_5405'};
+  }
+
+  const derived = applyDerivedPerfects({
+    judgements: params.judgements,
+    tilecount: params.tilecount,
+    autoTileCount: params.autoTileCount,
+  });
+  if (derived.applied) {
+    const current = unwrapJudgements(params.judgements).perfect;
+    if (current !== derived.perfect) {
+      return {action: 'set_perfects', perfect: derived.perfect};
+    }
+    if (hasPassMetaFlag(params.passMetaFlags, passMetaFlags.MIDSPIN_PERFECTS_REMOVED)) {
+      return {action: 'skip_silent', reason: 'already_applied'};
+    }
+    return {action: 'flag_only'};
+  }
+
+  if (hasPassMetaFlag(params.passMetaFlags, passMetaFlags.MIDSPIN_PERFECTS_REMOVED)) {
+    return {action: 'skip_silent', reason: 'already_applied'};
   }
   if (!params.hasCdnDownload) {
     return {action: 'skip_csv', reason: 'no_download'};
@@ -259,9 +288,6 @@ export function classifyMidspinRewrite(params: {
   const midspin = midspinInt(params.midspinCount);
   if (midspin == null) {
     return {action: 'skip_csv', reason: 'midspin_null'};
-  }
-  if (isAncient5405Pattern(params.judgements)) {
-    return {action: 'skip_csv', reason: 'ancient_5405'};
   }
 
   const hits = judgementHitCount(params.judgements);
