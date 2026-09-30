@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validateFeelingRating } from '@/misc/utils/feelingRating.js';
 
 const count = z.number().int().min(0).max(10_000_000);
 export const registrationSchema = z.object({
@@ -7,6 +8,7 @@ export const registrationSchema = z.object({
   grant_id: z.uuid(),
   level_id: z.number().int().positive(),
   current_file_id: z.string().min(1).max(256),
+  feeling_rating: z.string().trim().min(1).max(60).refine(validateFeelingRating).nullable().optional(),
   validation: z.object({
     validation_contract_version: z.literal(2),
     validation_status: z.enum(['skipped_trusted_tester', 'validated']),

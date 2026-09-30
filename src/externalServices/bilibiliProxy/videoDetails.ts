@@ -1,4 +1,5 @@
 import { logger } from '@/server/services/core/LoggerService.js';
+import { redis } from '@/server/services/core/RedisService.js';
 import {
   isArchiveCover,
   normalizePicUrl,
@@ -20,9 +21,15 @@ export interface BilibiliVideoDetailsPayload {
   embed: string | null;
 }
 
-const VIEW_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
-const VIEW_NULL_TTL_MS = 1000 * 60 * 5;
-const viewCache = new Map<string, { data: BilibiliViewData | null; expiresAt: number }>();
+const VIEW_CACHE_TTL_SEC = 60 * 60 * 24;
+const VIEW_NULL_TTL_SEC = 60 * 5;
+const VIEW_KEY_PREFIX = 'bilibili:view:';
+
+interface CachedView {
+  data: BilibiliViewData | null;
+}
+
+const viewInflight = new Map<string, Promise<BilibiliViewData | null>>();
 
 function embedFromView(data: BilibiliViewData): string | null {
   if (!data.bvid) return null;
@@ -74,17 +81,43 @@ async function loadViewFromPage(bvid: string): Promise<BilibiliViewData | null> 
   return won.value;
 }
 
-async function loadView(bvid: string): Promise<BilibiliViewData | null> {
-  const now = Date.now();
-  const cached = viewCache.get(bvid);
-  if (cached && now < cached.expiresAt) return cached.data;
+function viewCacheKey(bvid: string): string {
+  return `${VIEW_KEY_PREFIX}${bvid}`;
+}
 
-  const data = await loadViewFromPage(bvid);
-  viewCache.set(bvid, {
-    data,
-    expiresAt: now + (data ? VIEW_CACHE_TTL_MS : VIEW_NULL_TTL_MS),
+function isCachedView(value: unknown): value is CachedView {
+  if (!value || typeof value !== 'object' || !('data' in value)) return false;
+  const data = (value as CachedView).data;
+  if (data == null) return true;
+  return typeof data.bvid === 'string' && typeof data.pic === 'string' && typeof data.title === 'string';
+}
+
+async function readCachedView(bvid: string): Promise<BilibiliViewData | null | undefined> {
+  const cached = await redis.get<CachedView>(viewCacheKey(bvid));
+  if (!isCachedView(cached)) return undefined;
+  return cached.data;
+}
+
+async function writeCachedView(bvid: string, data: BilibiliViewData | null): Promise<void> {
+  await redis.set(viewCacheKey(bvid), { data }, data ? VIEW_CACHE_TTL_SEC : VIEW_NULL_TTL_SEC);
+}
+
+async function loadView(bvid: string): Promise<BilibiliViewData | null> {
+  const pending = viewInflight.get(bvid);
+  if (pending) return pending;
+
+  const promise = (async () => {
+    const cached = await readCachedView(bvid);
+    if (cached !== undefined) return cached;
+    const data = await loadViewFromPage(bvid);
+    await writeCachedView(bvid, data);
+    return data;
+  })().finally(() => {
+    viewInflight.delete(bvid);
   });
-  return data;
+
+  viewInflight.set(bvid, promise);
+  return promise;
 }
 
 function toDetails(data: BilibiliViewData): BilibiliVideoDetailsPayload | null {

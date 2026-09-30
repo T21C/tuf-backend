@@ -38,6 +38,16 @@ test('eligibility uses names and official PGU type, not database IDs', () => {
   assert.equal(eligibleDifficulty('SPECIAL', 'P1'), false);
 });
 
+test('accepts a subjective rating on new registrations and keeps legacy requests compatible', () => {
+  assert.equal(registrationSchema.safeParse(input).success, true);
+  for (const feeling_rating of ['G5', 'G5-G6', 'G5-6', 'U1', '17~18+', 'Q2+']) {
+    assert.equal(registrationSchema.safeParse({...input, feeling_rating}).success, true);
+  }
+  for (const feeling_rating of ['', 'G21', 'G5 extra', 'x'.repeat(61)]) {
+    assert.equal(registrationSchema.safeParse({...input, feeling_rating}).success, false);
+  }
+});
+
 test('accepts complete result-v2 evidence while preserving the nine judgment slots', () => {
   assert.equal(registrationSchema.safeParse(input).success, true);
   assert.equal(registrationSchema.safeParse({...input, owner_id: 'not-an-owner'}).success, false);

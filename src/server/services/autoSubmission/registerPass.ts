@@ -22,6 +22,7 @@ export async function registerAutoSubmission(input: RegistrationInput): Promise<
     run_id: input.run_id,
     owner_id: input.owner_id,
     level_id: input.level_id,
+    ...(input.feeling_rating ? { feeling_rating: input.feeling_rating } : {}),
     validation: input.validation,
   })).digest('hex');
   return sequelize.transaction(async transaction => {
@@ -71,7 +72,7 @@ export async function registerAutoSubmission(input: RegistrationInput): Promise<
       passMetaFlags: result.passMetaFlags,
       submissionSource: 'auto_submission',
       autoSubmissionRunId: input.run_id,
-      feelingRating: null,
+      feelingRating: input.feeling_rating ?? null,
       expectedRating: null,
       accuracy: result.accuracy,
       scoreV2: result.scoreV2,

@@ -167,6 +167,11 @@ function decodePic(raw: string): string {
   return decoded.replace(/@[^/?#]+$/, '');
 }
 
+/** Force a fresh sequential string so a regex capture cannot keep the source page alive. */
+function detachString(value: string): string {
+  return Buffer.from(value, 'utf8').toString('utf8');
+}
+
 export function normalizePicUrl(pic: string): string | null {
   const trimmed = pic.trim();
   if (!trimmed) return null;
@@ -215,13 +220,13 @@ export function parseBilibiliViewHtml(bvid: string, html: string): BilibiliViewD
   const cid = slice.match(/"cid":(\d+)/)?.[1] ?? '';
 
   return {
-    aid,
-    bvid,
-    cid,
+    aid: detachString(aid),
+    bvid: detachString(bvid),
+    cid: detachString(cid),
     pubdate,
-    pic,
-    title,
-    owner: { name: ownerName, face: '' },
+    pic: detachString(pic),
+    title: detachString(title),
+    owner: { name: detachString(ownerName), face: '' },
   };
 }
 
