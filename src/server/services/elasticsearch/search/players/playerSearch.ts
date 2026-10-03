@@ -687,3 +687,52 @@ export async function getPlayerMaxFields(): Promise<Record<string, number>> {
     return {};
   }
 }
+
+const PLAYER_ID_FILTER_CAP = 10_000;
+
+/**
+ * Resolve player IDs matching text search within a known id set (pending submission queue).
+ * Returns an empty list when the query has no player text clauses, so a constrained id set
+ * is never treated as match-all.
+ */
+export async function searchPlayerIdsInSet(
+  query: string,
+  playerIds: number[],
+): Promise<number[]> {
+  const unique = [...new Set(playerIds)].filter((id) => Number.isFinite(id) && id > 0);
+  const trimmed = String(query ?? '').trim();
+  if (unique.length === 0 || !trimmed) {
+    return [];
+  }
+
+  const esQuery = buildPlayerQuery(
+    {
+      rawQuery: trimmed.length > 255 ? trimmed.slice(0, 255) : trimmed,
+      ids: unique,
+      requireHasPasses: false,
+      flagMode: 'show',
+    },
+    null,
+  );
+  if (!esQuery?.bool?.should?.length && !esQuery?.bool?.must?.length) {
+    return [];
+  }
+
+  const size = Math.min(unique.length, PLAYER_ID_FILTER_CAP);
+  try {
+    const response = await client.search({
+      index: playerIndexName,
+      query: esQuery,
+      from: 0,
+      size,
+      _source: false,
+      track_total_hits: false,
+    });
+    return response.hits.hits
+      .map((hit) => parseInt(String(hit._id), 10))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  } catch (error) {
+    logger.error('Error in searchPlayerIdsInSet:', error);
+    throw error;
+  }
+}

@@ -27,7 +27,7 @@ export type ClientPreferencesPayload = {
   [CLIENT_PREFERENCE_KEYS.INBOX_PUSH_NUDGE_DISMISSED]?: true;
   [CLIENT_PREFERENCE_KEYS.SUBMISSIONS_CDN_TOS_AGREED]?: true;
   [CLIENT_PREFERENCE_KEYS.SUBMISSIONS_PASS_RULES_READ]?: true;
-  [CLIENT_PREFERENCE_KEYS.APP_LANGUAGE]?: string;
+  [CLIENT_PREFERENCE_KEYS.APP_LANGUAGE]?: string | null;
   [CLIENT_PREFERENCE_KEYS.NAV_DROPDOWN_CLICK_MODE]?: 'cycle' | 'pin';
   [CLIENT_PREFERENCE_KEYS.SUBMISSION_MINIMAL_MOTION]?: boolean;
   [CLIENT_PREFERENCE_KEYS.SUBMISSION_DISABLE_MASCOTS]?: boolean;
@@ -115,6 +115,10 @@ export function sanitizeClientPreferencePatch(
     }
 
     if (key === CLIENT_PREFERENCE_KEYS.APP_LANGUAGE) {
+      if (raw === null) {
+        patch[CLIENT_PREFERENCE_KEYS.APP_LANGUAGE] = null;
+        continue;
+      }
       const code = normalizeSiteLanguage(raw);
       if (!isConfiguredSiteLanguage(code)) {
         throw new ClientPreferenceError('appLanguage is not a configured site language');
@@ -171,6 +175,9 @@ export function normalizeStoredClientPreferences(
     if (!ALLOWED_CLIENT_PREFERENCE_KEYS.has(key)) continue;
     try {
       const piece = sanitizeClientPreferencePatch({[key]: value});
+      if (key === CLIENT_PREFERENCE_KEYS.APP_LANGUAGE && piece[CLIENT_PREFERENCE_KEYS.APP_LANGUAGE] == null) {
+        continue;
+      }
       Object.assign(cleaned, piece);
     } catch {
       /* skip invalid value for this key */
@@ -190,6 +197,10 @@ export function mergeClientPreferences(
       if (value === true) {
         (next as Record<string, unknown>)[key] = true;
       }
+      continue;
+    }
+    if (key === CLIENT_PREFERENCE_KEYS.APP_LANGUAGE && value == null) {
+      delete next[CLIENT_PREFERENCE_KEYS.APP_LANGUAGE];
       continue;
     }
     (next as Record<string, unknown>)[key] = value;

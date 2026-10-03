@@ -7,6 +7,7 @@ import path from 'path';
 import { logger } from '@/server/services/core/LoggerService.js';
 import multer from 'multer';
 import { withUtf8Filenames } from '@/misc/utils/multipartFilename.js';
+import { multipartFieldLimits } from '@/config/multerFieldLimits.js';
 import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
 import {
     extractAll as archiveExtractAll,
@@ -22,9 +23,9 @@ import {listTranslationContributorsByLanguage} from '@/server/services/translati
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
+  limits: multipartFieldLimits({
     fileSize: 50 * 1024 * 1024 // 50MB limit
-  }
+  })
 });
 
 const router: Router = express.Router();

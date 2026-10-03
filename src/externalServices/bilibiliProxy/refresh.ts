@@ -6,6 +6,7 @@ import {
   parseProxyId,
   parseProxyList,
   PROXY_PROBE_CONCURRENCY,
+  withDeadline,
   type BilibiliProxyFailReason,
   type BilibiliProxyProtocol,
   type BilibiliProxyRef,
@@ -15,28 +16,25 @@ import { isIdQuarantined, listHealthyIds } from './pool.js';
 import { probeProxyAgainstBvid } from './waves.js';
 
 interface ProxyListSource {
+  name: string;
   url: string;
   protocol?: BilibiliProxyProtocol;
 }
 
+const LIST_FETCH_TIMEOUT_MS = 20_000;
+
 const LIST_SOURCES: ProxyListSource[] = [
-  { url: 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=cn&proxy_format=protocolipport&format=text' },
-  { url: 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=CN&protocol=http&proxy_format=protocolipport&format=text', protocol: 'http' },
-  { url: 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=CN&protocol=socks4&proxy_format=protocolipport&format=text', protocol: 'socks4' },
-  { url: 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=CN&protocol=socks5&proxy_format=protocolipport&format=text', protocol: 'socks5' },
-  { url: 'https://www.proxy-list.download/api/v1/get?type=http&country=CN', protocol: 'http' },
-  { url: 'https://www.proxy-list.download/api/v1/get?type=https&country=CN', protocol: 'http' },
-  { url: 'https://www.proxy-list.download/api/v1/get?type=socks4&country=CN', protocol: 'socks4' },
-  { url: 'https://www.proxy-list.download/api/v1/get?type=socks5&country=CN', protocol: 'socks5' },
-  { url: 'https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc&country=CN&protocols=http%2Chttps%2Csocks4%2Csocks5' },
-  { url: 'https://hproxy.com/api/proxy-list?format=txt&country=CN' },
-  { url: 'https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/countries/CN/data.txt' },
-  { url: 'https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/countries/CN/data.json' },
-  { url: 'https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/countries/CN/data.txt' },
-  { url: 'https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/countries/CN/data.json' },
-  { url: 'https://raw.githubusercontent.com/zloi-user/hideip.me/main/http.txt', protocol: 'http' },
-  { url: 'https://raw.githubusercontent.com/zloi-user/hideip.me/main/socks4.txt', protocol: 'socks4' },
-  { url: 'https://raw.githubusercontent.com/zloi-user/hideip.me/main/socks5.txt', protocol: 'socks5' },
+  { name: 'proxyscrape', url: 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=cn&proxy_format=protocolipport&format=text' },
+  { name: 'proxyscrape-http', url: 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=CN&protocol=http&proxy_format=protocolipport&format=text', protocol: 'http' },
+  { name: 'proxyscrape-socks4', url: 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=CN&protocol=socks4&proxy_format=protocolipport&format=text', protocol: 'socks4' },
+  { name: 'proxyscrape-socks5', url: 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&country=CN&protocol=socks5&proxy_format=protocolipport&format=text', protocol: 'socks5' },
+  { name: 'geonode', url: 'https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc&country=CN&protocols=http%2Chttps%2Csocks4%2Csocks5' },
+  { name: 'hproxy', url: 'https://hproxy.com/api/proxy-list?format=txt&country=CN' },
+  { name: 'proxifly', url: 'https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/countries/CN/data.txt' },
+  { name: 'proxifly-json', url: 'https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/countries/CN/data.json' },
+  { name: 'hideip-http', url: 'https://raw.githubusercontent.com/zloi-user/hideip.me/main/http.txt', protocol: 'http' },
+  { name: 'hideip-socks4', url: 'https://raw.githubusercontent.com/zloi-user/hideip.me/main/socks4.txt', protocol: 'socks4' },
+  { name: 'hideip-socks5', url: 'https://raw.githubusercontent.com/zloi-user/hideip.me/main/socks5.txt', protocol: 'socks5' },
 ];
 
 function probeBvid(): string {
@@ -72,12 +70,14 @@ function applyDefaultProtocol(
   }));
 }
 
-async function fetchProxyListBody(url: string): Promise<string | null> {
+async function fetchProxyListBody(url: string): Promise<{ body: string | null; detail: string }> {
+  const deadline = withDeadline(LIST_FETCH_TIMEOUT_MS);
   try {
     const response = await axios.get<string>(url, {
-      timeout: 20000,
+      timeout: LIST_FETCH_TIMEOUT_MS,
+      signal: deadline.signal,
       responseType: 'text',
-      validateStatus: (status) => status >= 200 && status < 300,
+      validateStatus: () => true,
       headers: {
         Accept: 'text/plain,application/json,*/*',
         'User-Agent':
@@ -85,31 +85,43 @@ async function fetchProxyListBody(url: string): Promise<string | null> {
       },
       proxy: false,
     });
-    return String(response.data ?? '');
+    if (response.status < 200 || response.status >= 300) {
+      return { body: null, detail: `http ${response.status}` };
+    }
+    return { body: String(response.data ?? ''), detail: 'ok' };
   } catch (error) {
-    logger.debug(`Bilibili proxy list pull failed from ${url}`, error);
-    return null;
+    if (deadline.timedOut()) return { body: null, detail: 'timeout' };
+    const message = error instanceof Error ? error.message : String(error);
+    return { body: null, detail: message.slice(0, 120) };
+  } finally {
+    deadline.stop();
   }
 }
 
 async function pullPublicProxyList(): Promise<BilibiliProxyRef[]> {
   const bodies = await Promise.all(LIST_SOURCES.map((source) => fetchProxyListBody(source.url)));
   const parsedLists: BilibiliProxyRef[][] = [];
+  const failures: string[] = [];
   let sources = 0;
   for (let i = 0; i < LIST_SOURCES.length; i++) {
-    const body = bodies[i];
-    if (body == null) continue;
-    const parsed = applyDefaultProtocol(parseProxyList(body), LIST_SOURCES[i].protocol);
-    if (parsed.length === 0) continue;
+    const fetched = bodies[i];
+    if (!fetched || fetched.body == null) {
+      failures.push(`${LIST_SOURCES[i].name} ${fetched?.detail ?? 'failed'}`);
+      continue;
+    }
+    const parsed = applyDefaultProtocol(parseProxyList(fetched.body), LIST_SOURCES[i].protocol);
+    if (parsed.length === 0) {
+      failures.push(`${LIST_SOURCES[i].name} 0 parsed`);
+      continue;
+    }
     sources += 1;
     parsedLists.push(parsed);
   }
   const merged = mergeProxyLists(parsedLists);
-  if (merged.length > 0) {
-    logger.info(
-      `Bilibili proxy list: ${merged.length} unique candidates from ${sources}/${LIST_SOURCES.length} sources`,
-    );
-  }
+  const failureNote = failures.length > 0 ? `; failed ${failures.join(', ')}` : '';
+  logger.info(
+    `Bilibili proxy list: ${merged.length} unique candidates from ${sources}/${LIST_SOURCES.length} sources${failureNote}`,
+  );
   return merged;
 }
 

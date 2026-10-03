@@ -29,8 +29,17 @@ function omitXaccuracy(row: any) {
   return rest;
 }
 
+function omitPassIndexPrivate(row: any) {
+  const {
+    xaccuracy: _xaccuracy,
+    isDuplicateOverridden: _isDuplicateOverridden,
+    ...rest
+  } = row || {};
+  return rest;
+}
+
 export function buildPassIndexDocument(pass: Pass): any {
-  const p = omitXaccuracy(pass.toJSON());
+  const p = omitPassIndexPrivate(pass.toJSON());
   const level = p.level;
   const xaccuracyRaw = pass.getDataValue('xaccuracy');
   const xaccuracy = xaccuracyRaw == null ? null : Number(xaccuracyRaw);

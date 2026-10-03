@@ -47,7 +47,10 @@ export class BilibiliProxyCronService {
   }
 
   private static async runListPull(): Promise<void> {
-    if (BilibiliProxyCronService.listRunning) return;
+    if (BilibiliProxyCronService.listRunning) {
+      logger.info('Bilibili proxy list pull already running');
+      return;
+    }
     BilibiliProxyCronService.listRunning = true;
     try {
       await pullAndProbeNewBilibiliProxies();

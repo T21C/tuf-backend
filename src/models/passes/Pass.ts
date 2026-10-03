@@ -9,7 +9,7 @@ const sequelize = getSequelizeForModelGroup('passes');
 type PassAttributes = IPass;
 type PassCreationAttributes = Optional<
   PassAttributes,
-  'id' | 'createdAt' | 'updatedAt' | 'isWrongJudgement'
+  'id' | 'createdAt' | 'updatedAt' | 'isWrongJudgement' | 'isDuplicateOverridden'
 >;
 
 class Pass
@@ -40,6 +40,7 @@ class Pass
   declare isDeleted: boolean | null;
   declare isAnnounced: boolean | null;
   declare isDuplicate: boolean | null;
+  declare isDuplicateOverridden: boolean;
   declare isAdofaiV2: boolean | null;
   declare adofaiVersion: number;
   declare passMetaFlags: bigint | number | string;
@@ -187,6 +188,12 @@ Pass.init(
       allowNull: true,
       defaultValue: false,
       comment: 'Indicates if this pass is a duplicate clear of another level',
+    },
+    isDuplicateOverridden: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      comment: 'Admin changed isDuplicate; skip chart-link duplicate guesses',
     },
     isAdofaiV2: {
       type: DataTypes.BOOLEAN,

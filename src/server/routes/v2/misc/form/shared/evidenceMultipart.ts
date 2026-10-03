@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
 
+import { multipartFieldLimits } from '@/config/multerFieldLimits.js';
 import { WORKSPACE_ROOT } from '@/server/services/core/WorkspaceService.js';
 
 /**
@@ -31,7 +32,7 @@ export const evidenceMultipart = multer({
       cb(null, `${crypto.randomUUID()}-${path.basename(file.originalname)}`);
     },
   }),
-  limits: { fileSize: MAX_EVIDENCE_BYTES, files: MAX_EVIDENCE_FILES },
+  limits: multipartFieldLimits({ fileSize: MAX_EVIDENCE_BYTES, files: MAX_EVIDENCE_FILES }),
 }).array('evidence', MAX_EVIDENCE_FILES);
 
 export const EVIDENCE_LIMITS = {

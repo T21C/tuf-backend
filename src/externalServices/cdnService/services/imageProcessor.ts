@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
-import type { Sharp } from 'sharp';
+import type { Metadata, Sharp } from 'sharp';
 import gifResize from '@gumlet/gif-resize';
 import { IMAGE_TYPES, ImageType } from '../config.js';
 
@@ -19,7 +19,7 @@ export function normalizeRasterOutputExt(extWithDot: string): RasterOutputExt {
 }
 
 /** Prefer the on-disk extension; fall back to Sharp-detected format when missing. */
-export function resolveRasterOutputExt(filePath: string, metadata?: sharp.Metadata): RasterOutputExt {
+export function resolveRasterOutputExt(filePath: string, metadata?: Metadata): RasterOutputExt {
     const fromPath = path.extname(filePath);
     if (fromPath) {
         return normalizeRasterOutputExt(fromPath);

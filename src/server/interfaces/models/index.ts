@@ -151,6 +151,7 @@ export interface IPass extends IBaseModel {
   isDeleted: boolean | null;
   isHidden: boolean | null;
   isDuplicate: boolean | null;
+  isDuplicateOverridden?: boolean;
   isAdofaiV2: boolean | null;
   adofaiVersion: number;
   passMetaFlags?: bigint | number | string;
