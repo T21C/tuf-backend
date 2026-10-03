@@ -48,12 +48,13 @@ import {getSequelizeForModelGroup} from '@/config/db.js';
 import {hasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import {permissionFlags} from '@/config/constants.js';
 import {respondMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
+import {multipartFieldLimits} from '@/config/multerFieldLimits.js';
 
 
 const router: Router = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {fileSize: 10 * 1024 * 1024},
+  limits: multipartFieldLimits({fileSize: 10 * 1024 * 1024}),
 });
 
 const rewardService = PlacementRewardService.getInstance();

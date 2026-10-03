@@ -6,6 +6,7 @@ import {BackupService} from '@/server/services/core/BackupService.js';
 import multer from 'multer';
 import os from 'os';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { multipartFieldLimits } from '@/config/multerFieldLimits.js';
 
 const router: Router = Router();
 const backupService = new BackupService();
@@ -13,10 +14,10 @@ const backupService = new BackupService();
 // Configure multer for file uploads
 const upload = multer({
   dest: os.tmpdir(),
-  limits: {
+  limits: multipartFieldLimits({
     fileSize: 1024 * 1024 * 500, // 500MB limit
     files: 1,
-  },
+  }),
 });
 
 // Initialize backup schedules

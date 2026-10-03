@@ -15,6 +15,10 @@ import { eligibleDifficulty, type RegistrationInput } from './registrationSchema
 import { requireSubmissionAuthorization } from './authorization.js';
 import { prepareAutoSubmissionResult } from './resultPreparation.js';
 import { isWrongJudgementFromChart } from '@/misc/utils/pass/wrongJudgementSync.js';
+import {
+  applyChartLinkDuplicateGuess,
+  reindexChartLinkDuplicateChanges,
+} from '@/server/services/passes/chartLinkDuplicateGuess.js';
 
 /** A pass and its idempotency receipt commit together, including on HTTP response loss. */
 export async function registerAutoSubmission(input: RegistrationInput): Promise<number> {
@@ -25,7 +29,7 @@ export async function registerAutoSubmission(input: RegistrationInput): Promise<
     ...(input.feeling_rating ? { feeling_rating: input.feeling_rating } : {}),
     validation: input.validation,
   })).digest('hex');
-  return sequelize.transaction(async transaction => {
+  const outcome = await sequelize.transaction(async transaction => {
     const user = await User.findByPk(input.owner_id, {
       transaction,
       lock: transaction.LOCK.UPDATE,
@@ -36,7 +40,13 @@ export async function registerAutoSubmission(input: RegistrationInput): Promise<
       if (existing.ownerId !== input.owner_id || existing.requestHash !== requestHash) {
         throw formError.conflict('Run was already registered with different evidence');
       }
-      return existing.passId;
+      return {
+        passId: existing.passId,
+        playerId: null as number | null,
+        markedPassIds: [] as number[],
+        markNewPass: false,
+        created: false,
+      };
     }
     await requireSubmissionAuthorization(input.owner_id, input.grant_id, transaction);
     if (!user || user.status !== 'active' || user.deletionScheduledAt) {
@@ -56,6 +66,12 @@ export async function registerAutoSubmission(input: RegistrationInput): Promise<
     if (level.fileId !== input.current_file_id) throw formError.conflict('level_revision_changed');
     const result = prepareAutoSubmissionResult(input.validation, level);
     const keyFlags = deriveKeyFlags(input.validation.key_count);
+    const duplicateGuess = await applyChartLinkDuplicateGuess({
+      playerId: user.playerId,
+      levelId: level.id,
+      scoreV2: result.scoreV2,
+      transaction,
+    });
     const pass = await Pass.create({
       levelId: level.id,
       playerId: user.playerId,
@@ -78,6 +94,7 @@ export async function registerAutoSubmission(input: RegistrationInput): Promise<
       scoreV2: result.scoreV2,
       isAnnounced: false,
       isDeleted: false,
+      isDuplicate: duplicateGuess.markNewPass,
       isWrongJudgement: isWrongJudgementFromChart(result.judgements, level),
     }, { transaction });
     const now = new Date();
@@ -95,6 +112,19 @@ export async function registerAutoSubmission(input: RegistrationInput): Promise<
       requestHash,
       validation: input.validation,
     }, { transaction });
-    return pass.id;
+    return {
+      passId: pass.id,
+      playerId: user.playerId,
+      markedPassIds: duplicateGuess.markedPassIds,
+      markNewPass: duplicateGuess.markNewPass,
+      created: true,
+    };
   });
+  if (outcome.created && (outcome.markNewPass || outcome.markedPassIds.length > 0)) {
+    await reindexChartLinkDuplicateChanges(
+      outcome.playerId,
+      outcome.markNewPass ? [outcome.passId, ...outcome.markedPassIds] : outcome.markedPassIds,
+    );
+  }
+  return outcome.passId;
 }

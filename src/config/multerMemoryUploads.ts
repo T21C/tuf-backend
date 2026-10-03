@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 import multer from 'multer';
 import type { FileFilterCallback } from 'multer';
+import { multipartFieldLimits } from '@/config/multerFieldLimits.js';
 
 /**
  * MIME types for in-memory uploads that are processed by the CDN image pipeline.
@@ -30,7 +31,7 @@ export const cdnImageMimeFilter = (
 function createMemoryCdnImageMulter(fileSizeBytes: number) {
   return multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: fileSizeBytes },
+    limits: multipartFieldLimits({ fileSize: fileSizeBytes }),
     fileFilter: cdnImageMimeFilter,
   });
 }

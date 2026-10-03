@@ -253,12 +253,38 @@ function isPublicIpv4(host: string): boolean {
 }
 
 const IPV4_PROXY_SOURCE =
-  '(?:(https?|socks4a?|socks5h?|socks):\\/\\/)?(\\d{1,3}(?:\\.\\d{1,3}){3}):(\\d{1,5})(?::([A-Za-z]{2,3}))?';
+  '(?:(https?|socks4a?|socks5h?|socks):\\/\\/)?(\\d{1,3}(?:\\.\\d{1,3}){3}):(\\d{1,5})(?::([A-Za-z]{2,}(?:[ .\'-][A-Za-z]+)*))?';
 
 function isCnCountryTag(tag: string | undefined): boolean {
   if (!tag) return true;
-  const upper = tag.toUpperCase();
-  return upper === 'CN' || upper === 'CHN';
+  const upper = tag.trim().toUpperCase();
+  return upper === 'CN' || upper === 'CHN' || upper === 'CHINA';
+}
+
+/** Wall-clock deadline. Axios does not time out a custom agent while TCP connect is still pending. */
+export function withDeadline(
+  timeoutMs: number,
+  parent?: AbortSignal,
+): { signal: AbortSignal; stop: () => void; timedOut: () => boolean } {
+  const controller = new AbortController();
+  let didTimeout = false;
+  const timer = setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, timeoutMs);
+  const onParent = () => controller.abort();
+  if (parent) {
+    if (parent.aborted) controller.abort();
+    else parent.addEventListener('abort', onParent, { once: true });
+  }
+  return {
+    signal: controller.signal,
+    stop: () => {
+      clearTimeout(timer);
+      parent?.removeEventListener('abort', onParent);
+    },
+    timedOut: () => didTimeout,
+  };
 }
 
 export function parseProxyEntry(raw: string): BilibiliProxyRef | null {

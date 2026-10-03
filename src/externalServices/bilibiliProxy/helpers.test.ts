@@ -13,6 +13,7 @@ import {
   PROXY_TIMEOUT_QUARANTINE_MS,
   resolveBilibiliFetchMode,
   shouldStartBilibiliProxyCron,
+  withDeadline,
 } from './helpers.js';
 
 const HEALTHY_HTML = `<!doctype html>
@@ -116,6 +117,34 @@ test('prod/staging fail closed when the healthy pool is empty', () => {
     resolveBilibiliFetchMode({ nodeEnv: 'production', disabled: true, healthyCount: 0 }),
     'direct',
   );
+});
+
+test('parseProxyList keeps a full China label and drops other country names', () => {
+  const listed = parseProxyList(`
+183.6.57.161:5678:China
+1.2.3.4:8080:Indonesia
+8.8.4.4:1080:CN
+1.1.1.1:80:US
+`);
+  assert.deepEqual(
+    listed.map((row) => row.id),
+    ['http://183.6.57.161:5678', 'http://8.8.4.4:1080'],
+  );
+});
+
+test('withDeadline aborts when the timer fires and stays quiet when stopped', async () => {
+  const pending = withDeadline(50);
+  if (!pending.signal.aborted) {
+    await new Promise<void>((resolve) => pending.signal.addEventListener('abort', () => resolve()));
+  }
+  assert.equal(pending.timedOut(), true);
+  pending.stop();
+
+  const early = withDeadline(5_000);
+  early.stop();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(early.timedOut(), false);
+  assert.equal(early.signal.aborted, false);
 });
 
 test('parseProxyList dedupes public host:port lines and ignores private addresses', () => {

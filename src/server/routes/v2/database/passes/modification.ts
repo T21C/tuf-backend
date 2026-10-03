@@ -270,6 +270,10 @@ router.put(
             playerId: playerId || pass.playerId,
             isAnnounced: isAnnounced !== undefined ? isAnnounced : pass.isAnnounced,
             isDuplicate: isDuplicate !== undefined ? isDuplicate : pass.isDuplicate,
+            isDuplicateOverridden:
+              isDuplicate !== undefined && Boolean(isDuplicate) !== Boolean(pass.isDuplicate)
+                ? true
+                : pass.isDuplicateOverridden,
             isAdofaiV2: prepared.isAdofaiV2,
             adofaiVersion: resolvedAdofaiVersion,
             isXPerfectMode: prepared.isXPerfectMode,
@@ -318,6 +322,10 @@ router.put(
             playerId: playerId || pass.playerId,
             isAnnounced: isAnnounced !== undefined ? isAnnounced : pass.isAnnounced,
             isDuplicate: isDuplicate !== undefined ? isDuplicate : pass.isDuplicate,
+            isDuplicateOverridden:
+              isDuplicate !== undefined && Boolean(isDuplicate) !== Boolean(pass.isDuplicate)
+                ? true
+                : pass.isDuplicateOverridden,
             isAdofaiV2: isAdofaiV2 !== undefined ? isAdofaiV2 : pass.isAdofaiV2,
             isWrongJudgement: isWrongJudgementFromChart(
               pass.judgements,

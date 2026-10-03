@@ -5,6 +5,7 @@ import {randomUUID} from 'crypto';
 import type {NextFunction, Request, Response} from 'express';
 import multer from 'multer';
 import {withUtf8Filenames} from '@/misc/utils/multipartFilename.js';
+import {multipartFieldLimits} from '@/config/multerFieldLimits.js';
 import {MOD_ZIP_MAX_BYTES} from '@/server/services/mods/modZipLimits.js';
 
 const storage = multer.diskStorage({
@@ -17,7 +18,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: {fileSize: MOD_ZIP_MAX_BYTES},
+  limits: multipartFieldLimits({fileSize: MOD_ZIP_MAX_BYTES}),
 });
 
 const uploadSingle = withUtf8Filenames(upload.single('file'));

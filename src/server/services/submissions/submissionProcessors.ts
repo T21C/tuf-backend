@@ -32,6 +32,10 @@ import Creator from '@/models/credits/Creator.js';
 import LevelCredit, {nextLevelCreditSortOrder} from '@/models/levels/LevelCredit.js';
 import User from '@/models/auth/User.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import {
+  applyChartLinkDuplicateGuess,
+  reindexChartLinkDuplicateChanges,
+} from '@/server/services/passes/chartLinkDuplicateGuess.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
 import cdnService from '@/server/services/core/CdnService.js';
@@ -544,7 +548,13 @@ async function approvePassSubmission(
   submissionId: number,
   transaction: Transaction,
   actorId?: string | null,
-): Promise<{ newPass: Pass; createdRatingId: number | null; assignedPlayerId: number | null; levelId: number | null }> {
+): Promise<{
+  newPass: Pass;
+  createdRatingId: number | null;
+  assignedPlayerId: number | null;
+  levelId: number | null;
+  markedDuplicatePassIds: number[];
+}> {
   const submission = await PassSubmission.findByPk(submissionId, {
     include: [
       { model: Level, as: 'level', include: [{ model: Difficulty, as: 'difficulty' }] },
@@ -612,6 +622,13 @@ async function approvePassSubmission(
       ? deriveKeyFlags(submissionKeyCount)
       : { is12K: flags.is12K || false, is16K: flags.is16K || false };
 
+  const duplicateGuess = await applyChartLinkDuplicateGuess({
+    playerId: submission.assignedPlayerId,
+    levelId: submission.levelId,
+    scoreV2,
+    transaction,
+  });
+
   const pass = await Pass.create({
     levelId: submission.levelId,
     playerId: submission.assignedPlayerId,
@@ -633,6 +650,7 @@ async function approvePassSubmission(
     scoreV2,
     isAnnounced: false,
     isDeleted: false,
+    isDuplicate: duplicateGuess.markNewPass,
     isWrongJudgement: isWrongJudgementFromChart(judgementData, level),
   }, { transaction });
 
@@ -715,6 +733,7 @@ async function approvePassSubmission(
     createdRatingId,
     assignedPlayerId: submission.assignedPlayerId,
     levelId: submission.levelId,
+    markedDuplicatePassIds: duplicateGuess.markedPassIds,
   };
 }
 
@@ -737,7 +756,7 @@ async function processPassApprove(
     if (submission.isLocked) throw new Error('Submission is locked');
 
     await onStep('createPass');
-    const { newPass, createdRatingId, assignedPlayerId, levelId } = await approvePassSubmission(
+    const { newPass, createdRatingId, assignedPlayerId, levelId, markedDuplicatePassIds } = await approvePassSubmission(
       submission.id,
       transaction,
       actorId,
@@ -766,6 +785,9 @@ async function processPassApprove(
         passId: newPass.id,
         error: indexError instanceof Error ? indexError.message : String(indexError),
       });
+    }
+    if (newPass.isDuplicate || markedDuplicatePassIds.length > 0) {
+      await reindexChartLinkDuplicateChanges(assignedPlayerId, markedDuplicatePassIds);
     }
 
     if (createdRatingId && levelId) {

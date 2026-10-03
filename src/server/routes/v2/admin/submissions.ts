@@ -1291,6 +1291,7 @@ router.put(
 );
 
 // Auto-approve pass submissions
+/* DISABLED
 router.post(
   '/auto-approve/passes',
   Auth.superAdmin(),
@@ -1341,6 +1342,7 @@ router.post(
     }
   },
 );
+*/
 
 
 // Add endpoint to update profiles

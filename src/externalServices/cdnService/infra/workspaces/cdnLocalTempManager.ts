@@ -6,6 +6,7 @@ import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../../config.js';
 import { MOD_ZIP_MAX_BYTES } from '@/server/services/mods/modZipLimits.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { withUtf8Filenames, decodeMultipartFilename } from '@/misc/utils/multipartFilename.js';
+import { multipartFieldLimits } from '@/config/multerFieldLimits.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -207,30 +208,30 @@ export class CdnLocalTempManager {
     // busboy's latin-1 default (see `multipartFilename.ts`).
     public upload = withUtf8Filenames(multer({
         storage: this.storage,
-        limits: {
+        limits: multipartFieldLimits({
             fileSize: CDN_CONFIG.maxFileSize
-        }
+        })
     }).single('file'));
 
     public zipUpload = withUtf8Filenames(multer({
         storage: this.storage,
-        limits: {
+        limits: multipartFieldLimits({
             fileSize: CDN_CONFIG.maxZipFileSize,
-        },
+        }),
     }).single('file'));
 
     public modZipUpload = withUtf8Filenames(multer({
         storage: this.storage,
-        limits: {
+        limits: multipartFieldLimits({
             fileSize: MOD_ZIP_MAX_BYTES,
-        },
+        }),
     }).single('file'));
 
     public imageUpload = withUtf8Filenames(multer({
         storage: this.imageStorage,
-        limits: {
+        limits: multipartFieldLimits({
             fileSize: CDN_CONFIG.maxImageSize
-        },
+        }),
         fileFilter: (req, file, cb) => {
             const imageType = (req.params.type || '').toUpperCase() as ImageType;
             if (!IMAGE_TYPES[imageType]) {

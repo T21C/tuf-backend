@@ -8,6 +8,7 @@ import {
   DEFAULT_WAVE_TIMEOUT_MS,
   judgeBilibiliHtml,
   proxyAgentUrl,
+  withDeadline,
   type BilibiliProxyFailReason,
   type BilibiliProxyRef,
 } from './helpers.js';
@@ -86,6 +87,14 @@ export function classifyProxyFetchError(error: unknown): BilibiliProxyFailReason
   return 'timeout';
 }
 
+function destroyAgent(agent: { destroy?: () => void } | undefined): void {
+  try {
+    agent?.destroy?.();
+  } catch {
+    // The socket may already be closed by the abort.
+  }
+}
+
 function logProxyRequest(
   kind: 'html' | 'cover',
   url: string,
@@ -93,7 +102,7 @@ function logProxyRequest(
   detail: string,
 ): void {
   if (process.env.BILIBILI_PROXY_LOGGING !== 'true') return;
-  logger.debug(`Bilibili proxy ${kind} via ${proxy.id}: GET ${url} ${detail}`);
+  logger.info(`Bilibili proxy ${kind} via ${proxy.id}: GET ${url} ${detail}`);
 }
 
 export async function fetchBilibiliHtml(
@@ -102,23 +111,22 @@ export async function fetchBilibiliHtml(
 ): Promise<{ html: string } | { reason: BilibiliProxyFailReason }> {
   const timeoutMs = opts.timeoutMs ?? getBilibiliWaveTimeoutMs();
   const url = `https://www.bilibili.com/video/${encodeURIComponent(bvid)}/`;
+  const deadline = withDeadline(timeoutMs, opts.signal);
   if (opts.proxy) {
     logProxyRequest('html', url, opts.proxy, `timeout=${timeoutMs}ms`);
   }
+  const config = bilibiliAxiosConfig({
+    timeoutMs,
+    proxy: opts.proxy,
+    signal: deadline.signal,
+    responseType: 'text',
+    headers: {
+      ...BILIBILI_REQUEST_HEADERS,
+      Accept: 'text/html,application/xhtml+xml',
+    },
+  });
   try {
-    const response = await axios.get<string>(
-      url,
-      bilibiliAxiosConfig({
-        timeoutMs,
-        proxy: opts.proxy,
-        signal: opts.signal,
-        responseType: 'text',
-        headers: {
-          ...BILIBILI_REQUEST_HEADERS,
-          Accept: 'text/html,application/xhtml+xml',
-        },
-      }),
-    );
+    const response = await axios.get<string>(url, config);
     const html = typeof response.data === 'string' ? response.data : '';
     if (response.status === 412) {
       if (opts.proxy) logProxyRequest('html', url, opts.proxy, `-> ${response.status} waf412 bytes=${html.length}`);
@@ -133,6 +141,10 @@ export async function fetchBilibiliHtml(
     if (judged !== 'ok') return { reason: judged };
     return { html };
   } catch (error) {
+    if (deadline.timedOut()) {
+      if (opts.proxy) logProxyRequest('html', url, opts.proxy, 'failed timeout');
+      return { reason: 'timeout' };
+    }
     if (isAbortError(error)) {
       if (opts.proxy) logProxyRequest('html', url, opts.proxy, 'aborted');
       throw error;
@@ -140,6 +152,9 @@ export async function fetchBilibiliHtml(
     const reason = classifyProxyFetchError(error);
     if (opts.proxy) logProxyRequest('html', url, opts.proxy, `failed ${reason}`);
     return { reason };
+  } finally {
+    deadline.stop();
+    destroyAgent(config.httpsAgent as { destroy?: () => void } | undefined);
   }
 }
 
@@ -148,21 +163,20 @@ export async function fetchBilibiliImage(
   opts: { proxy?: BilibiliProxyRef | null; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<{ buffer: Buffer; contentType: string } | { reason: BilibiliProxyFailReason }> {
   const timeoutMs = opts.timeoutMs ?? getBilibiliWaveTimeoutMs();
+  const deadline = withDeadline(timeoutMs, opts.signal);
   if (opts.proxy) {
     logProxyRequest('cover', url, opts.proxy, `timeout=${timeoutMs}ms`);
   }
+  const config = bilibiliAxiosConfig({
+    timeoutMs,
+    proxy: opts.proxy,
+    signal: deadline.signal,
+    responseType: 'arraybuffer',
+    headers: BILIBILI_REQUEST_HEADERS,
+    maxContentLength: 10 * 1024 * 1024,
+  });
   try {
-    const response: AxiosResponse<ArrayBuffer> = await axios.get<ArrayBuffer>(
-      url,
-      bilibiliAxiosConfig({
-        timeoutMs,
-        proxy: opts.proxy,
-        signal: opts.signal,
-        responseType: 'arraybuffer',
-        headers: BILIBILI_REQUEST_HEADERS,
-        maxContentLength: 10 * 1024 * 1024,
-      }),
-    );
+    const response: AxiosResponse<ArrayBuffer> = await axios.get<ArrayBuffer>(url, config);
     const contentType = String(response.headers['content-type'] || '')
       .split(';')[0]
       .trim()
@@ -193,6 +207,10 @@ export async function fetchBilibiliImage(
     }
     return { buffer, contentType };
   } catch (error) {
+    if (deadline.timedOut()) {
+      if (opts.proxy) logProxyRequest('cover', url, opts.proxy, 'failed timeout');
+      return { reason: 'timeout' };
+    }
     if (isAbortError(error)) {
       if (opts.proxy) logProxyRequest('cover', url, opts.proxy, 'aborted');
       throw error;
@@ -200,5 +218,8 @@ export async function fetchBilibiliImage(
     const reason = classifyProxyFetchError(error);
     if (opts.proxy) logProxyRequest('cover', url, opts.proxy, `failed ${reason}`);
     return { reason };
+  } finally {
+    deadline.stop();
+    destroyAgent(config.httpsAgent as { destroy?: () => void } | undefined);
   }
 }
