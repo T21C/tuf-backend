@@ -77,6 +77,15 @@ test('appLanguage normalizes us to en and rejects unknown codes', () => {
   );
 });
 
+test('appLanguage null clears the stored override', () => {
+  const patch = sanitizeClientPreferencePatch({appLanguage: null});
+  assert.equal(patch.appLanguage, null);
+  const merged = mergeClientPreferences({appLanguage: 'kr'}, patch);
+  assert.equal(merged.appLanguage, undefined);
+  const stored = normalizeStoredClientPreferences({appLanguage: null});
+  assert.deepEqual(stored, {});
+});
+
 test('dropdownClickMode only allows cycle or pin', () => {
   assert.equal(
     sanitizeClientPreferencePatch({

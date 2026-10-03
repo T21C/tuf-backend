@@ -13,6 +13,7 @@ import { isTufStellarFeatureEnabled, isYoutubeChannelLinkingEnabled } from '@/co
 import { getClientPreferences } from '@/server/services/auth/ClientPreferenceService.js';
 import { youtubeChannelService } from '@/server/services/accounts/YouTubeChannelService.js';
 import { profileModulesAuthCaps } from '@/misc/utils/profileModules/catalog.js';
+import { siteLanguageForCountry } from '@/config/siteLanguages.js';
 
 /**
  * Full auth profile payload used by GET /auth/profile/me and GET /auth/session.
@@ -79,6 +80,7 @@ export async function buildAuthProfileUser(userId: string) {
     })),
     youtubeChannels,
     clientPreferences,
+    suggestedAppLanguage: siteLanguageForCountry(player?.country),
   };
 }
 

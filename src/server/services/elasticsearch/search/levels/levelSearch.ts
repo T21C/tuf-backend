@@ -328,12 +328,13 @@ export async function searchLevelIds(
 /**
  * Resolve level IDs matching text search within a known id set (e.g. pending rating queue).
  * Bypasses {@link searchLevels}' public page `limit` cap of 100 — uses size up to the set length
- * (max {@link LEVEL_ID_FILTER_CAP}). Always requires `toRate: true` and restricts via `ids` query.
+ * (max {@link LEVEL_ID_FILTER_CAP}). Restricts via `ids` query. Rating queues pass
+ * `requireToRate` (default true); pass-submission search sets it false so rated charts still match.
  */
 export async function searchLevelIdsInSet(
   query: string,
   levelIds: number[],
-  filters: { excludeAliases?: boolean | string } = {},
+  filters: { excludeAliases?: boolean | string; requireToRate?: boolean } = {},
 ): Promise<number[]> {
   const unique = [...new Set(levelIds)].filter((id) => id != null && id > 0);
   if (unique.length === 0) {
@@ -350,12 +351,15 @@ export async function searchLevelIdsInSet(
     q = q.substring(0, 255);
   }
 
+  const requireToRate = filters.requireToRate !== false;
   const must: any[] = [
     idsQuery(unique),
-    termField('toRate', true),
     termField('isDeleted', false),
-    termField('isHidden', false),
   ];
+  if (requireToRate) {
+    must.push(termField('toRate', true));
+    must.push(termField('isHidden', false));
+  }
   const should: any[] = [];
 
   const searchGroups = parseSearchQueryWithPUA(q.trim(), false);

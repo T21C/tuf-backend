@@ -55,6 +55,10 @@ import { SubmissionJobService } from '@/server/services/submissions/SubmissionJo
 import type { SubmissionAction, SubmissionKind } from '@/server/services/submissions/submissionJobTypes.js';
 import { optionalReasonFromBody } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 import { youtubeChannelService } from '@/server/services/accounts/YouTubeChannelService.js';
+import {
+  searchPendingLevelSubmissionIds,
+  searchPendingPassSubmissionIds,
+} from '@/server/services/submissions/submissionQueueSearch.js';
 
 const router: Router = Router();
 
@@ -577,6 +581,31 @@ router.get(
   }
 );
 
+router.get(
+  '/levels/pending/search',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminLevelSubmissionsPendingSearch',
+    summary: 'Search pending level submissions',
+    description:
+      'Returns pending level submission ids matching q. Elasticsearch resolves linked creators and submitter players; song, artist, team, and submission-only fields are matched in the database.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    query: { q: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Matching pending level submission ids' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const q = typeof req.query.q === 'string' ? req.query.q : '';
+      const ids = await searchPendingLevelSubmissionIds(q);
+      return res.json({ ids });
+    } catch (error) {
+      logger.error('Error searching pending level submissions:', error);
+      return res.status(500).json({ error: 'Failed to search pending level submissions' });
+    }
+  },
+);
+
 // Get all pass submissions
 router.get(
   '/passes',
@@ -684,6 +713,31 @@ router.get(
         .json({error: 'Failed to fetch pending pass submissions'});
     }
   }
+);
+
+router.get(
+  '/passes/pending/search',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminPassSubmissionsPendingSearch',
+    summary: 'Search pending pass submissions',
+    description:
+      'Returns pending pass submission ids matching q. Elasticsearch resolves linked levels and players; pass-only fields are matched in the database.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    query: { q: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Matching pending pass submission ids' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const q = typeof req.query.q === 'string' ? req.query.q : '';
+      const ids = await searchPendingPassSubmissionIds(q);
+      return res.json({ ids });
+    } catch (error) {
+      logger.error('Error searching pending pass submissions:', error);
+      return res.status(500).json({ error: 'Failed to search pending pass submissions' });
+    }
+  },
 );
 
 router.get(

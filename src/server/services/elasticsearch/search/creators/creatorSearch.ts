@@ -309,3 +309,48 @@ export async function getCreatorMaxFields(): Promise<Record<string, number>> {
     return {};
   }
 }
+
+const CREATOR_ID_FILTER_CAP = 10_000;
+
+/**
+ * Resolve creator IDs matching text search within a known id set (pending submission queue).
+ * Returns an empty list when the query has no creator text clauses, so a constrained id set
+ * is never treated as match-all.
+ */
+export async function searchCreatorIdsInSet(
+  query: string,
+  creatorIds: number[],
+): Promise<number[]> {
+  const unique = [...new Set(creatorIds)].filter((id) => Number.isFinite(id) && id > 0);
+  const trimmed = String(query ?? '').trim();
+  if (unique.length === 0 || !trimmed) {
+    return [];
+  }
+
+  const esQuery = await buildCreatorQuery({
+    rawQuery: trimmed.length > 255 ? trimmed.slice(0, 255) : trimmed,
+    ids: unique,
+    requireHasCharts: false,
+  });
+  if (!esQuery?.bool?.should?.length && !esQuery?.bool?.must?.length) {
+    return [];
+  }
+
+  const size = Math.min(unique.length, CREATOR_ID_FILTER_CAP);
+  try {
+    const response = await client.search({
+      index: creatorIndexName,
+      query: esQuery,
+      from: 0,
+      size,
+      _source: false,
+      track_total_hits: false,
+    });
+    return response.hits.hits
+      .map((hit) => parseInt(String(hit._id), 10))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  } catch (error) {
+    logger.error('Error in searchCreatorIdsInSet:', error);
+    throw error;
+  }
+}
