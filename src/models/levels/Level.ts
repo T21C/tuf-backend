@@ -34,6 +34,7 @@ class Level
   declare diffId: number;
   declare baseScore: number | null;
   declare ppBaseScore: number | null;
+  declare ppDiffId: number | null;
   declare previousBaseScore: number | null;
   declare clears: number;
   declare likes: number;
@@ -65,6 +66,7 @@ class Level
   declare passes?: IPass[];
   declare difficulty: IDifficulty;
   declare previousDifficulty?: IDifficulty;
+  declare ppDifficulty?: IDifficulty;
   declare levelCreators?: ICreator[];
   declare levelCredits?: LevelCredit[];
   declare aliases?: LevelAlias[] | null;
@@ -125,6 +127,15 @@ Level.init(
       type: DataTypes.DOUBLE,
       allowNull: true,
       defaultValue: null,
+    },
+    ppDiffId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+      references: {
+        model: 'difficulties',
+        key: 'id',
+      },
     },
     previousBaseScore: {
       type: DataTypes.DOUBLE,

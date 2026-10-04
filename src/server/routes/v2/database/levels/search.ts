@@ -42,6 +42,7 @@ import {
 } from '@/misc/utils/data/curationOrdering.js';
 import { parseFacetQueryString } from '@/misc/utils/search/facetQuery.js';
 import { annotateLevelsWithLikeState } from '@/misc/utils/data/levelLikeState.js';
+import { annotateLevelsWithClearState, fetchClearSets, flagsFromClearSets } from '@/misc/utils/data/levelClearState.js';
 import { sortLevelCredits } from '@/misc/utils/Utility.js';
 import {
   isRandomSortParam,
@@ -84,6 +85,7 @@ router.get(
       limit: { schema: { type: 'integer' } },
       byCreatorId: { description: 'Filter to levels this creator charted or VFXed (excludes special thanks)', schema: { type: 'string' } },
       withLikeState: { description: 'Annotate each result with isLiked for the current user (requires auth)', schema: { type: 'boolean' } },
+      withClearState: { description: 'Annotate each result with isCleared / isPurePerfect / isPureXPerfect for the current player (requires auth)', schema: { type: 'boolean' } },
     },
     responses: { 200: { description: 'Paginated level list' }, ...standardErrorResponses500 },
   }),
@@ -104,6 +106,7 @@ router.get(
       facetQuery,
       onlyMyLikes,
       withLikeState,
+      withClearState,
       byCreatorId,
     } = req.query;
 
@@ -209,6 +212,10 @@ router.get(
       } else if (withLikeState === 'true') {
         results = await annotateLevelsWithLikeState(results, req.user.id);
       }
+    }
+
+    if (withClearState === 'true' && req.user?.playerId && results.length > 0) {
+      results = await annotateLevelsWithClearState(results, req.user.playerId);
     }
 
     return res.json({
@@ -650,6 +657,36 @@ router.get(
   } catch (error) {
     logger.error('Error checking if level is liked:', error);
     return res.status(500).json({ error: 'Failed to check if level is liked' });
+  }
+});
+
+router.get(
+  '/:id([0-9]{1,20})/clearState',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getLevelClearState',
+    summary: 'Get viewer clear state for a level',
+    description:
+      'Returns whether the current player has cleared the level, and whether any clear is a pure perfect or pure x-perfect. Uncached; by-id search is role-cached and must not embed this.',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Clear status' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.id);
+    if (isNaN(levelId) || !Number.isInteger(levelId) || levelId <= 0) {
+      return res.status(400).json({ error: 'Invalid level ID' });
+    }
+    if (!req.user?.playerId) {
+      return res.json({ isCleared: false, isPurePerfect: false, isPureXPerfect: false });
+    }
+    const sets = await fetchClearSets(req.user.playerId, [levelId]);
+    return res.json(flagsFromClearSets(levelId, sets));
+  } catch (error) {
+    logger.error('Error checking level clear state:', error);
+    return res.status(500).json({ error: 'Failed to check level clear state' });
   }
 });
 

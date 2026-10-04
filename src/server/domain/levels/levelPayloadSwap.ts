@@ -14,6 +14,7 @@ export const LEVEL_PAYLOAD_SWAP_FIELDS = [
   'diffId',
   'baseScore',
   'ppBaseScore',
+  'ppDiffId',
   'previousBaseScore',
   'videoLink',
   'dlLink',

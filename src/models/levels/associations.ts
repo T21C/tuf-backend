@@ -43,6 +43,16 @@ export function initializeLevelsAssociations() {
     as: 'previousLevels',
   });
 
+  Level.belongsTo(Difficulty, {
+    foreignKey: 'ppDiffId',
+    as: 'ppDifficulty',
+  });
+
+  Difficulty.hasMany(Level, {
+    foreignKey: 'ppDiffId',
+    as: 'ppLevels',
+  });
+
   // Level <-> Pass associations
   Level.hasMany(Pass, {
     foreignKey: 'levelId',

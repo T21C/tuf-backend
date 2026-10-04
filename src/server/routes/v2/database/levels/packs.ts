@@ -17,9 +17,7 @@ import { multerMemoryCdnImage5Mb as upload } from '@/config/multerMemoryUploads.
 import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError, respondWithCdnError } from '@/server/services/core/CdnService.js';
 import { jobProgressService } from '@/server/services/core/JobProgressService.js';
-import Pass from '@/models/passes/Pass.js';
-import Judgement from '@/models/passes/Judgement.js';
-import { isPureXPerfect } from '@/misc/utils/pass/CalcAcc.js';
+import { fetchClearSets, flagsFromClearSets } from '@/misc/utils/data/levelClearState.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
@@ -835,55 +833,13 @@ router.get(
     const linkCode = pack!.linkCode ?? null;
 
     const [clearSets, { flatItemsMerged: mergedFlat }] = await Promise.all([
-      req.user
-        ? Pass.findAll({
-            where: { playerId: req.user.playerId, isDeleted: false },
-            attributes: ['levelId', 'accuracy', 'isXPerfectMode'],
-            include: [{
-              model: Judgement,
-              as: 'judgements',
-              attributes: [
-                'earlyDouble',
-                'earlySingle',
-                'ePerfect',
-                'perfectMinus',
-                'perfect',
-                'perfectPlus',
-                'lPerfect',
-                'lateSingle',
-                'lateDouble',
-              ],
-              required: false,
-            }],
-          }).then((passes) => {
-            const cleared = new Set<number>();
-            const purePerfect = new Set<number>();
-            const pureXPerfect = new Set<number>();
-            for (const pass of passes) {
-              if (pass.levelId == null) continue;
-              cleared.add(pass.levelId);
-              if (Number(pass.accuracy) >= 1 - 1e-9) {
-                purePerfect.add(pass.levelId);
-              }
-              if (isPureXPerfect(pass.judgements, pass.isXPerfectMode)) {
-                pureXPerfect.add(pass.levelId);
-              }
-            }
-            return { cleared, purePerfect, pureXPerfect };
-          })
-        : Promise.resolve({
-            cleared: new Set<number>(),
-            purePerfect: new Set<number>(),
-            pureXPerfect: new Set<number>(),
-          }),
+      fetchClearSets(req.user?.playerId),
       resolvePackItemsWithStackedCache(resolvedPackId, linkCode, []),
     ]);
 
     const itemsWithClears = mergedFlat.map((item: any) => ({
       ...item,
-      isCleared: clearSets.cleared.has(item.levelId || 0),
-      isPurePerfect: clearSets.purePerfect.has(item.levelId || 0),
-      isPureXPerfect: clearSets.pureXPerfect.has(item.levelId || 0),
+      ...flagsFromClearSets(item.levelId, clearSets),
     }));
 
     const items = await annotateReferencedLevelsWithLikeState(

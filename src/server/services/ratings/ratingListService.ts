@@ -15,7 +15,6 @@ import { getOrFetchCacheLayer } from '@/server/middleware/stackedCacheLayers.js'
 import { logger } from '@/server/services/core/LoggerService.js';
 import {
   isUniversalRatingProposal,
-  lowDiffFilterForRequestBands,
   requestPguBand,
   includeRequestBandsFromFlags,
   type RequestPguBand,
@@ -48,7 +47,7 @@ export interface RatingListQuery {
   rankReady: boolean;
   vote: VoteFilter;
   excludeUniversals: boolean;
-  /** When set, keep only these request bands (P=lowDiff, U=universal proposal, G=rest). */
+  /** When set, keep only these request bands from the proposal string. */
   includeRequestBands?: RequestPguBand[] | null;
   userId: string | null;
   levelIdsFilter: number[] | null;
@@ -450,22 +449,13 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
     };
   }
 
-  let lowDiff = params.lowDiff;
-  if (includeBandSet && includeBandSet.size < 3) {
-    lowDiff = lowDiffFilterForRequestBands(
-      includeBandSet.has('P'),
-      includeBandSet.has('G'),
-      includeBandSet.has('U'),
-    );
-  }
-
   const ratingWhere: Record<string, unknown> = { confirmedAt: null };
   if (searchIds) {
     ratingWhere.levelId = { [Op.in]: searchIds };
   }
-  if (lowDiff === 'hide') {
+  if (params.lowDiff === 'hide') {
     ratingWhere.lowDiff = false;
-  } else if (lowDiff === 'only') {
+  } else if (params.lowDiff === 'only') {
     ratingWhere.lowDiff = true;
   }
 
@@ -601,11 +591,7 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
   if (bandFiltered && includeBandSet) {
     const filtered = ratings.filter((row) => {
       const level = row.level as { rerateNum?: string | null } | undefined;
-      const band = requestPguBand(
-        level?.rerateNum,
-        row.requesterFR,
-        Boolean(row.lowDiff)
-      );
+      const band = requestPguBand(level?.rerateNum, row.requesterFR);
       return includeBandSet.has(band);
     });
     total = filtered.length;

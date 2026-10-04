@@ -49,6 +49,7 @@ import { logLevelMetadataUpdateHook } from '@/server/routes/v2/webhooks/misc.js'
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import { TAG_GROUP_INCLUDE } from '@/server/services/data/levelTagGroupService.js';
 import { getSongDisplayName, getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import { resolvePpDiffId } from '@/misc/utils/data/ppDifficulty.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import {executePermanentLevelDeleteWithSideEffects} from '@/server/domain/levels/levelPermanentDelete.js';
@@ -658,6 +659,18 @@ router.put(
       }
     }
   }
+  if (
+    req.body.ppDiffId !== undefined &&
+    req.body.ppDiffId !== null &&
+    req.body.ppDiffId !== ''
+  ) {
+    const parsedPpDiffId = Number(req.body.ppDiffId);
+    if (isNaN(parsedPpDiffId) || !isFinite(parsedPpDiffId)) {
+      return res.status(400).json({
+        error: 'Invalid value for ppDiffId: must be a valid number',
+      });
+    }
+  }
 
   if (req.body.description !== undefined) {
     try {
@@ -838,6 +851,15 @@ router.put(
     updateData.previousDiffId = previousDiffId;
     updateData.baseScore = baseScore;
     updateData.ppBaseScore = Number(req.body.ppBaseScore) || 0;
+    const ppDifficulties = await Difficulty.findAll({
+      attributes: ['id', 'baseScore', 'sortOrder', 'type'],
+      transaction,
+    });
+    updateData.ppDiffId = resolvePpDiffId(
+      updateData.ppBaseScore,
+      req.body.ppDiffId,
+      ppDifficulties,
+    );
     updateData.previousBaseScore = previousBaseScore;
     updateData.videoLink = sanitizeTextInput(req.body.videoLink);
     updateData.dlLink = sanitizeTextInput(req.body.dlLink);

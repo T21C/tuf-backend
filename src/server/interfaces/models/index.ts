@@ -73,6 +73,7 @@ export interface ILevel extends IBaseModel {
   diffId: number;
   baseScore: number | null;
   ppBaseScore: number | null;
+  ppDiffId?: number | null;
   previousBaseScore: number | null;
   clears: number;
   likes: number;
