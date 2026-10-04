@@ -41,8 +41,27 @@ import {listModTags, replaceModTags} from '@/server/services/mods/modTags.js';
 import {mergeMods} from '@/server/services/mods/modMerge.js';
 import ModTag from '@/models/misc/ModTag.js';
 import ModVersion from '@/models/misc/ModVersion.js';
+import {fetchGithubReleaseAssets} from '@/server/services/mods/modGithubAssets.js';
+import {parseGithubComUrl} from '@/server/services/mods/modFields.js';
 
 const router: Router = Router();
+
+router.post(
+  '/:id([0-9]{1,20})/github-release-assets',
+  Auth.superAdmin(),
+  ApiDoc({operationId: 'adminModGithubAssets', summary: 'Find ZIP assets and platform suggestions in a GitHub release',
+    tags: ['Admin', 'Mods'], security: ['bearerAuth'], responses: {200: {description: 'Release ZIP assets'}}}),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = parseGithubComUrl(req.body?.githubUrl);
+      if (!parsed.ok) return res.status(400).json({error: parsed.error});
+      if (!await Mod.findByPk(req.params.id)) return res.status(404).json({error: 'Mod not found'});
+      return res.json(await fetchGithubReleaseAssets(parsed.value));
+    } catch (error) {
+      return respondReleaseError(res, error, 'Failed to load GitHub assets', 'GitHub release assets failed:');
+    }
+  },
+);
 
 function respondReleaseError(
   res: Response,

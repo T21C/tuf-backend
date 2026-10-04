@@ -219,7 +219,30 @@ void test('parseModReleaseBody requires zip or GitHub and rejects both', () => {
     version: '1.0',
     downloadUrl: 'https://cdn.discordapp.com/attachments/1/2/a.zip',
   });
-  assert.equal(discord.ok, false);
+  assert.equal(discord.ok, true);
+});
+
+void test('release ZIP URLs support common and platform-only downloads', () => {
+  for (const body of [
+    {version: '1.0', downloadUrl: 'https://example.com/mod.zip'},
+    {version: '1.0', downloadUrl: '', platformDownloadUrls: {windows: 'https://example.com/win.zip', macos: 'https://example.com/mac.zip'}},
+    {version: '1.0', githubUrl: 'https://github.com/a/b/releases/tag/v1', downloadUrl: 'https://github.com/a/b/releases/download/v1/mod.zip'},
+  ]) assert.equal(parseModReleaseBody(body).ok, true);
+  const cleared = parseModReleaseBody({platformDownloadUrls: null}, {partial: true});
+  assert.equal(cleared.ok, true);
+  if (cleared.ok) assert.equal(cleared.value.platformDownloadUrls, null);
+  assert.equal(parseModReleaseBody({notes: 'metadata only'}, {partial: true}).ok, true);
+});
+
+void test('release ZIP URLs reject invalid links, platforms and uploaded/external mixtures', () => {
+  for (const url of ['http://example.com/mod.zip', 'https://example.com/page', 'javascript:alert(1)', 'https://u:p@example.com/mod.zip']) {
+    assert.equal(parseModReleaseBody({version: '1.0', downloadUrl: url}).ok, false);
+  }
+  for (const platformDownloadUrls of [[], 'bad', {android: 'https://example.com/a.zip'}, {linux: 42}, {macos: 'https://example.com/page'}]) {
+    assert.equal(parseModReleaseBody({version: '1.0', platformDownloadUrls}).ok, false);
+  }
+  assert.equal(parseModReleaseBody({version: '1.0', platformDownloadUrls: {}}).ok, false);
+  assert.equal(parseModReleaseBody({version: '1.0', downloadUrl: 'https://example.com/a.zip'}, {hasFile: true}).ok, false);
 });
 
 void test('parseModPatch updates hidden and projectUrl but rejects imageUrl', () => {

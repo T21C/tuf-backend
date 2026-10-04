@@ -19,6 +19,8 @@ import {
 } from '@/server/services/mods/modIcon.js';
 import {respondWithCdnError} from '@/server/services/core/CdnService.js';
 import ModVersion from '@/models/misc/ModVersion.js';
+import {fetchGithubReleaseAssets} from '@/server/services/mods/modGithubAssets.js';
+import {parseGithubComUrl} from '@/server/services/mods/modFields.js';
 import {
   createReleaseFromParsed,
   removeModRelease,
@@ -27,6 +29,27 @@ import {
 } from '@/server/services/mods/modRelease.js';
 
 const router: Router = Router();
+
+router.post(
+  '/:id([0-9]{1,20})/github-release-assets',
+  Auth.user(),
+  requireCsrfForCookieAuth,
+  ApiDoc({operationId: 'developerModGithubAssets', summary: 'Find ZIP assets and platform suggestions for an assigned mod',
+    tags: ['Developers', 'Mods'], security: ['bearerAuth'], responses: {200: {description: 'Release ZIP assets'}}}),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as {id: string}).id;
+      if (!await userCanEditMod(Number(req.params.id), userId)) {
+        return res.status(403).json({error: 'Not allowed to edit this mod'});
+      }
+      const parsed = parseGithubComUrl(req.body?.githubUrl);
+      if (!parsed.ok) return res.status(400).json({error: parsed.error});
+      return res.json(await fetchGithubReleaseAssets(parsed.value));
+    } catch (error) {
+      return respondDeveloperReleaseError(res, error, 'Failed to load GitHub assets', 'Developer GitHub assets failed:');
+    }
+  },
+);
 
 router.get(
   '/',
