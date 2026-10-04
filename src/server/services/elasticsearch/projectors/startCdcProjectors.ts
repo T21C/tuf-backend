@@ -153,6 +153,7 @@ function levelCdcChangeRequiresPassReindex(
     'diffId',
     'baseScore',
     'ppBaseScore',
+    'ppDiffId',
     'song',
     'artist',
     'suffix',

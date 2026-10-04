@@ -113,6 +113,8 @@ export function pruneMysqlReferencedLevelForPack(
     _packViewMinimal: true,
     id: level.id,
     diffId: level.diffId,
+    ppDiffId: level.ppDiffId ?? null,
+    ppBaseScore: level.ppBaseScore ?? null,
     tilecount: level.tilecount,
     bpm: level.bpm,
     levelLengthInMs: level.levelLengthInMs,

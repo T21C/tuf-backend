@@ -241,6 +241,7 @@ export const levelMapping = {
       },
       teamId: { type: 'integer' as const },
       diffId: { type: 'integer' as const },
+      ppDiffId: { type: 'integer' as const },
       baseScore: { type: 'float' as const },
       ppBaseScore: { type: 'float' as const },
       previousBaseScore: { type: 'float' as const },
@@ -554,7 +555,9 @@ export const passMapping = {
             },
           },
           baseScore: { type: 'float' as const },
+          ppBaseScore: { type: 'float' as const },
           diffId: { type: 'integer' as const },
+          ppDiffId: { type: 'integer' as const },
           difficulty: {
             properties: {
               id: { type: 'integer' as const },

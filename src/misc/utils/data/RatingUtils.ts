@@ -1,5 +1,6 @@
 import Difficulty from '@/models/levels/Difficulty.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
+import { parseQRange } from '@/misc/utils/data/communityTagEligibility.js';
 
 // Cache for difficulties to avoid repeated DB queries
 let difficultyCache: {
@@ -212,30 +213,50 @@ export function isUniversalRatingProposal(
   return isUniversalFeelingRating(ratingProposalString(rerateNum, requesterFR));
 }
 
+const BAND_RANK: Record<RequestPguBand, number> = { P: 0, G: 1, U: 2 };
+
+function highestRequestBand(bands: RequestPguBand[]): RequestPguBand {
+  let best: RequestPguBand | null = null;
+  for (const band of bands) {
+    if (best === null || BAND_RANK[band] > BAND_RANK[best]) best = band;
+  }
+  return best ?? 'G';
+}
+
+/** P/G/U letter, Q-bucket label, or legacy 1–21.x number; unrecognized tokens are skipped. */
+function bandFromRequestToken(token: string): RequestPguBand | null {
+  const t = stripTrailingPlus(token.trim());
+  if (!t) return null;
+  const q = parseQRange(t);
+  if (q) return q.letter;
+  const pgu = t.match(/^([PGU])([1-9]|1[0-9]|20)$/i);
+  if (pgu?.[1]) return pgu[1].toUpperCase() as RequestPguBand;
+  const legacy = legacyFeelingValue(t);
+  if (legacy !== null) return legacy >= UNIVERSAL_LEGACY_FLOOR ? 'U' : 'P';
+  return null;
+}
+
 /**
- * Bucket a rating request the same way zen/list filters do:
- * U = universal proposal, P = lowDiff / planetary request, G = the rest.
+ * Bucket a rating request for zen/list filters from the proposal string only
+ * (rerateNum, else requesterFR). Q labels map to their letter; ranges take the
+ * highest resolved endpoint (U > G > P). Unrecognized / empty text is G.
  */
 export function requestPguBand(
   rerateNum: string | null | undefined,
   requesterFR: string | null | undefined,
-  lowDiff?: boolean,
 ): RequestPguBand {
-  if (isUniversalRatingProposal(rerateNum, requesterFR)) return 'U';
   const primary = ratingProposalString(rerateNum, requesterFR);
-  if (lowDiff || /^[pP]\d/.test(primary)) return 'P';
-  return 'G';
-}
+  if (!primary) return 'G';
 
-/** SQL/list `lowDiff` approximation for an include-set of request bands. */
-export function lowDiffFilterForRequestBands(
-  includeP: boolean,
-  includeG: boolean,
-  includeU: boolean,
-): 'show' | 'hide' | 'only' {
-  if (includeP && !includeG && !includeU) return 'only';
-  if (!includeP) return 'hide';
-  return 'show';
+  const wholeQ = parseQRange(primary);
+  if (wholeQ) return wholeQ.letter;
+
+  const bands: RequestPguBand[] = [];
+  for (const part of parseRatingRange(primary, new Set())) {
+    const band = bandFromRequestToken(part);
+    if (band) bands.push(band);
+  }
+  return highestRequestBand(bands);
 }
 
 /** Null means all three bands (no extra filter). Empty array means hide everything. */
