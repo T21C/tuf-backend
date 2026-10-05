@@ -6,6 +6,9 @@ import cdnService, {CdnError} from '@/server/services/core/CdnService.js';
 import {isCdnUrl} from '@/misc/utils/Utility.js';
 import {assertModZipFilename} from './modZipValidate.js';
 import {createModVersion, deleteModVersion, updateModVersion} from './modCreate.js';
+import type {ModReleaseFields} from './modFields.js';
+import type {PlatformDownloadUrls} from './modPlatformDownloads.js';
+import {resolveExternalReleaseUrls} from './modReleaseDownloads.js';
 
 export {CdnError};
 
@@ -54,7 +57,7 @@ export async function resolveReleaseDownloadUrl(options: {
   file?: Express.Multer.File | null;
   githubUrl?: string;
   previousUrl?: string;
-}): Promise<{downloadUrl: string; uploadedUrl?: string}> {
+}): Promise<{downloadUrl: string; uploadedUrl?: string; platformDownloadUrls?: PlatformDownloadUrls | null}> {
   if (options.file) {
     const downloadUrl = await uploadModZipFromRequest(options.file);
     return {downloadUrl, uploadedUrl: downloadUrl};
@@ -80,13 +83,15 @@ export async function createModRelease(options: {
   notes: string | null;
   releasedAt: Date;
   downloadUrl: string;
+  githubUrl?: string | null;
+  platformDownloadUrls?: PlatformDownloadUrls | null;
 }): Promise<ModVersion> {
   return createModVersion(options);
 }
 
 export async function updateModRelease(
   versionRow: ModVersion,
-  patch: Partial<{version: string; downloadUrl: string; notes: string | null; releasedAt: Date}>,
+  patch: Partial<ModReleaseFields>,
 ): Promise<ModVersion> {
   const previousUrl = versionRow.downloadUrl;
   const updated = await updateModVersion(versionRow, patch);
@@ -105,15 +110,14 @@ export async function removeModRelease(versionRow: ModVersion): Promise<void> {
 
 export async function createReleaseFromParsed(
   modId: number,
-  parsed: {version?: string; notes?: string | null; releasedAt?: Date; githubUrl?: string},
+  parsed: Partial<ModReleaseFields>,
   file?: Express.Multer.File | null,
 ): Promise<ModVersion> {
   let uploadedUrl: string | undefined;
   try {
-    const resolved = await resolveReleaseDownloadUrl({
-      file,
-      githubUrl: parsed.githubUrl,
-    });
+    const resolved = file
+      ? await resolveReleaseDownloadUrl({file})
+      : await resolveExternalReleaseUrls(parsed);
     uploadedUrl = resolved.uploadedUrl;
     return await createModRelease({
       modId,
@@ -121,6 +125,8 @@ export async function createReleaseFromParsed(
       notes: parsed.notes ?? null,
       releasedAt: parsed.releasedAt || new Date(),
       downloadUrl: resolved.downloadUrl,
+      githubUrl: file ? null : parsed.githubUrl ?? null,
+      platformDownloadUrls: 'platformDownloadUrls' in resolved ? resolved.platformDownloadUrls : null,
     });
   } catch (error) {
     if (uploadedUrl) await deleteStoredModZip(uploadedUrl);
@@ -130,26 +136,26 @@ export async function createReleaseFromParsed(
 
 export async function updateReleaseFromParsed(
   versionRow: ModVersion,
-  parsed: {version?: string; notes?: string | null; releasedAt?: Date; githubUrl?: string},
+  parsed: Partial<ModReleaseFields>,
   file?: Express.Multer.File | null,
 ): Promise<ModVersion> {
   let uploadedUrl: string | undefined;
   try {
-    const patch: Partial<{version: string; downloadUrl: string; notes: string | null; releasedAt: Date}> = {};
+    const patch: Partial<ModReleaseFields> = {};
     if (parsed.version !== undefined) patch.version = parsed.version;
     if (parsed.notes !== undefined) patch.notes = parsed.notes;
     if (parsed.releasedAt !== undefined) patch.releasedAt = parsed.releasedAt;
-    if (file || parsed.githubUrl) {
+    if (file || parsed.githubUrl !== undefined || parsed.downloadUrl !== undefined || parsed.platformDownloadUrls !== undefined) {
       if (isCdnUrl(versionRow.downloadUrl)) {
         throw releaseClientError('Hosted zip releases cannot change source');
       }
-      const resolved = await resolveReleaseDownloadUrl({
-        file,
-        githubUrl: parsed.githubUrl,
-        previousUrl: versionRow.downloadUrl,
-      });
+      const resolved = file
+        ? await resolveReleaseDownloadUrl({file})
+        : await resolveExternalReleaseUrls(parsed, versionRow);
       uploadedUrl = resolved.uploadedUrl;
       patch.downloadUrl = resolved.downloadUrl;
+      patch.githubUrl = file ? null : parsed.githubUrl !== undefined ? parsed.githubUrl : versionRow.githubUrl;
+      patch.platformDownloadUrls = 'platformDownloadUrls' in resolved ? resolved.platformDownloadUrls : null;
     }
     return await updateModRelease(versionRow, patch);
   } catch (error) {

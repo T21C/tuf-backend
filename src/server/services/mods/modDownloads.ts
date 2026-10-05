@@ -23,7 +23,13 @@ export async function recordUniqueModDownload(options: {
     transaction: options.transaction,
   });
 
-  const [row, created] = await ModDownloadUnique.findOrCreate({
+  // MySQL findOrCreate opens implicit transactions whose gap locks can deadlock
+  // when several platform links are requested for the same mod/IP/day.
+  // Without an outer transaction, let the unique index arbitrate concurrent inserts.
+  const findOrCreate = options.transaction
+    ? ModDownloadUnique.findOrCreate.bind(ModDownloadUnique)
+    : ModDownloadUnique.findCreateFind.bind(ModDownloadUnique);
+  const [row, created] = await findOrCreate({
     where: {modId: options.modId, ipHash, dayDate},
     defaults: {modId: options.modId, ipHash, dayDate},
     transaction: options.transaction,
