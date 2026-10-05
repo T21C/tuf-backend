@@ -62,6 +62,7 @@ import { resolveLevelCreatedAtFromVideoLink } from '@/misc/utils/data/levelCreat
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { broadcastRatingUpsert } from '@/server/services/ratings/ratingListService.js';
+import { ensureOpenRating } from '@/server/services/ratings/openRatingService.js';
 import { syncVoteWeightsForLevel } from '@/server/services/data/communityTagVoteService.js';
 import type { SubmissionQueuePayload } from './submissionJobTypes.js';
 
@@ -698,18 +699,24 @@ async function approvePassSubmission(
     if (difficulty.name.includes('UQ')) {
       reqFr = `vote (${submission.feelingDifficulty ?? ''})`;
     }
-    const newRating = await Rating.create(
-      { levelId: submission.levelId, lowDiff: false, requesterFR: submission.feelingDifficulty?.substring(0, 60) || 'cleared' },
-      { transaction },
+    const open = await ensureOpenRating(
+      submission.levelId,
+      {
+        lowDiff: false,
+        requesterFR: submission.feelingDifficulty?.substring(0, 60) || 'cleared',
+      },
+      transaction,
     );
-    createdRatingId = newRating.id;
-    await Level.update({
-      toRate: true,
-      previousDiffId: level.diffId,
-      previousBaseScore: level.baseScore || difficulty.baseScore || 0,
-      rerateNum: reqFr.substring(0, 60) || '',
-      rerateReason: 'cleared',
-    }, { where: { id: submission.levelId }, transaction });
+    if (open.created) {
+      createdRatingId = open.rating.id;
+      await Level.update({
+        toRate: true,
+        previousDiffId: level.diffId,
+        previousBaseScore: level.baseScore || difficulty.baseScore || 0,
+        rerateNum: reqFr.substring(0, 60) || '',
+        rerateReason: 'cleared',
+      }, { where: { id: submission.levelId }, transaction });
+    }
   }
 
   await notifyPassSubmissionOutcome({

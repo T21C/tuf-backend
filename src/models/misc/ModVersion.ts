@@ -8,6 +8,7 @@ import {
 } from 'sequelize';
 import {getSequelizeForModelGroup} from '@/config/db.js';
 import type Mod from './Mod.js';
+import type {PlatformDownloadUrls} from '@/server/services/mods/modPlatformDownloads.js';
 
 const sequelize = getSequelizeForModelGroup('admin');
 
@@ -16,6 +17,8 @@ class ModVersion extends Model<InferAttributes<ModVersion>, InferCreationAttribu
   declare modId: ForeignKey<Mod['id']>;
   declare version: string;
   declare downloadUrl: string;
+  declare githubUrl: CreationOptional<string | null>;
+  declare platformDownloadUrls: CreationOptional<PlatformDownloadUrls | null>;
   declare notes: CreationOptional<string | null>;
   declare releasedAt: Date;
   declare createdAt: CreationOptional<Date>;
@@ -46,6 +49,8 @@ ModVersion.init(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    githubUrl: {type: DataTypes.TEXT, allowNull: true},
+    platformDownloadUrls: {type: DataTypes.JSON, allowNull: true},
     releasedAt: {
       type: DataTypes.DATE,
       allowNull: false,

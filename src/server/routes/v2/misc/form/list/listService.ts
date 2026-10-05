@@ -6,6 +6,7 @@ import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {escapeForMySQL} from '@/misc/utils/data/searchHelpers.js';
 import {getArtistDisplayName, getSongDisplayName} from '@/misc/utils/data/levelHelpers.js';
+import {asHttpUrl, enrichSubmissionLinks} from './submissionLinks.js';
 
 export type SubmissionKind = 'pass' | 'level';
 export type SubmissionStatus = 'pending' | 'approved' | 'declined';
@@ -21,9 +22,13 @@ export type MySubmissionDto = {
   title: string;
   artist: string | null;
   href: string | null;
+  passHref: string | null;
+  workshopLink: string | null;
+  downloadLink: string | null;
   extra: {
     levelId?: number;
     difficulty?: {name: string; icon: string; color: string} | null;
+    publishedDifficulty?: {name: string; icon: string; color: string} | null;
     scoreV2?: number | null;
     accuracy?: number | null;
     speed?: number | null;
@@ -259,6 +264,9 @@ function mapPassDto(row: PassSubmission): MySubmissionDto {
     title: passTitle(level),
     artist: passArtist(level),
     href: json.levelId ? `/levels/${json.levelId}` : null,
+    passHref: null,
+    workshopLink: null,
+    downloadLink: null,
     extra: {
       levelId: json.levelId,
       difficulty,
@@ -282,6 +290,9 @@ function mapLevelDto(row: LevelSubmission): MySubmissionDto {
     title,
     artist: json.artist || null,
     href: null,
+    passHref: null,
+    workshopLink: asHttpUrl(json.wsLink),
+    downloadLink: asHttpUrl(json.directDL),
     extra: {
       charter: json.charter || null,
       requestedDiff: json.diff || null,
@@ -356,8 +367,10 @@ async function listSingleType(params: ListMySubmissionsParams): Promise<ListMySu
       limit,
       offset,
     });
+    const results = rows.map(mapPassDto);
+    await enrichSubmissionLinks(results, userId);
     return {
-      results: rows.map(mapPassDto),
+      results,
       total: count,
       page,
       limit,
@@ -371,8 +384,10 @@ async function listSingleType(params: ListMySubmissionsParams): Promise<ListMySu
     limit,
     offset,
   });
+  const results = rows.map(mapLevelDto);
+  await enrichSubmissionLinks(results, userId);
   return {
-    results: rows.map(mapLevelDto),
+    results,
     total: count,
     page,
     limit,
@@ -409,6 +424,7 @@ export async function listMySubmissions(
     if (dto) results.push(dto);
   }
 
+  await enrichSubmissionLinks(results, userId);
   return {
     results,
     total: merged.length,

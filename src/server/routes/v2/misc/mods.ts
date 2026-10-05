@@ -25,6 +25,7 @@ import {parseModReportBody, sendModReport} from '@/server/services/mods/modRepor
 import {logger} from '@/server/services/core/LoggerService.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
+import {parseModPlatform, selectModDownloadUrl} from '@/server/services/mods/modPlatformDownloads.js';
 
 const router: Router = Router();
 
@@ -104,17 +105,20 @@ router.get(
   '/:slug/download',
   ApiDoc({
     operationId: 'downloadLatestMod',
-    summary: 'Redirect to the latest mod download URL',
+    summary: 'Redirect to the latest mod ZIP; optional platform=windows|macos|linux',
     tags: ['Misc'],
     responses: {302: {description: 'Redirect'}},
   }),
   async (req: Request, res: Response) => {
     try {
+      const platform = parseModPlatform(req.query.platform);
+      if (platform === null) return res.status(400).json({error: 'Invalid platform; use windows, macos, or linux'});
       const mod = await resolvePublicMod(req, res);
       if (!mod) return;
       const latest = await latestModVersion(mod.id);
-      const url = latest?.downloadUrl || mod.downloadUrl;
-      if (!url) return res.status(404).json({error: 'Download not found'});
+      const url = selectModDownloadUrl(latest ?? mod, platform);
+      if (!url) return res.status(platform ? 404 : 400).json({error: platform
+        ? 'Download not found for this platform' : 'Specify platform=windows, macos, or linux'});
       await recordUniqueModDownload({modId: mod.id, ip: parseClientIp(req)});
       return res.redirect(302, url);
     } catch (error) {
@@ -234,7 +238,7 @@ router.get(
   '/:slug/:version/download',
   ApiDoc({
     operationId: 'downloadModVersion',
-    summary: 'Redirect to a specific mod version download URL',
+    summary: 'Redirect to a specific mod ZIP; optional platform=windows|macos|linux',
     tags: ['Misc'],
     responses: {302: {description: 'Redirect'}},
   }),
@@ -245,8 +249,13 @@ router.get(
       const version = decodeURIComponent(String(req.params.version || ''));
       const row = await findModVersion(mod.id, version);
       if (!row) return res.status(404).json({error: 'Version not found'});
+      const platform = parseModPlatform(req.query.platform);
+      if (platform === null) return res.status(400).json({error: 'Invalid platform; use windows, macos, or linux'});
+      const url = selectModDownloadUrl(row, platform);
+      if (!url) return res.status(platform ? 404 : 400).json({error: platform
+        ? 'Download not found for this platform' : 'Specify platform=windows, macos, or linux'});
       await recordUniqueModDownload({modId: mod.id, ip: parseClientIp(req)});
-      return res.redirect(302, row.downloadUrl);
+      return res.redirect(302, url);
     } catch (error) {
       return respondMysqlClientError(res, error, 'Failed to download mod version', {
         logLabel: 'Download mod version failed:',

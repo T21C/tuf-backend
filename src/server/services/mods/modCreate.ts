@@ -4,6 +4,7 @@ import ModVersion from '@/models/misc/ModVersion.js';
 import type {ModCreateFields} from './modFields.js';
 import {allocateAvailableModSlug, rememberSlugRedirect, syncModLatestFromVersions} from './modCatalog.js';
 import {normalizeVersionLabel} from './modSlug.js';
+import type {PlatformDownloadUrls} from './modPlatformDownloads.js';
 
 const sequelize = getSequelizeForModelGroup('admin');
 
@@ -82,6 +83,8 @@ export async function createModVersion(options: {
   downloadUrl: string;
   notes: string | null;
   releasedAt: Date;
+  githubUrl?: string | null;
+  platformDownloadUrls?: PlatformDownloadUrls | null;
 }): Promise<ModVersion> {
   const transaction = await sequelize.transaction();
   try {
@@ -92,6 +95,8 @@ export async function createModVersion(options: {
         downloadUrl: options.downloadUrl,
         notes: options.notes,
         releasedAt: options.releasedAt,
+        githubUrl: options.githubUrl ?? null,
+        platformDownloadUrls: options.platformDownloadUrls ?? null,
       },
       {transaction},
     );
@@ -106,7 +111,7 @@ export async function createModVersion(options: {
 
 export async function updateModVersion(
   versionRow: ModVersion,
-  patch: Partial<{version: string; downloadUrl: string; notes: string | null; releasedAt: Date}>,
+  patch: Partial<{version: string; downloadUrl: string; notes: string | null; releasedAt: Date; githubUrl: string | null; platformDownloadUrls: PlatformDownloadUrls | null}>,
 ): Promise<ModVersion> {
   const transaction = await sequelize.transaction();
   try {

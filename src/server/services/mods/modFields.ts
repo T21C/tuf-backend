@@ -1,4 +1,5 @@
 import {isGithubComUrl} from './modReleaseImportClassify.js';
+import {MOD_PLATFORMS, type PlatformDownloadUrls} from './modPlatformDownloads.js';
 
 export const NAME_MAX = 512;
 export const USERNAME_MAX = 64;
@@ -456,8 +457,20 @@ export type ModReleaseFields = {
   version: string;
   notes: string | null;
   releasedAt: Date;
-  githubUrl?: string;
+  githubUrl?: string | null;
+  downloadUrl?: string;
+  platformDownloadUrls?: PlatformDownloadUrls | null;
 };
+
+export function parseModZipUrl(raw: unknown, label = 'downloadUrl'): ParseResult<string> {
+  const parsed = parseHttpUrl(raw, label);
+  if (!parsed.ok) return parsed;
+  const url = new URL(parsed.value);
+  if (url.protocol !== 'https:' || !/\.zip$/i.test(url.pathname)) {
+    return {ok: false, error: `${label} must be an HTTPS ZIP URL`};
+  }
+  return parsed;
+}
 
 export function parseModReleaseBody(
   body: unknown,
@@ -469,9 +482,9 @@ export function parseModReleaseBody(
   const src = body as Record<string, unknown>;
   const partial = Boolean(options?.partial);
   const hasFile = Boolean(options?.hasFile);
-  const githubRaw = src.githubUrl ?? src.downloadUrl;
+  const githubRaw = src.githubUrl;
   const hasGithub = githubRaw !== undefined && githubRaw !== null && String(githubRaw).trim() !== '';
-  if (hasFile && hasGithub) {
+  if (hasFile && (hasGithub || src.downloadUrl !== undefined || src.platformDownloadUrls !== undefined)) {
     return {ok: false, error: 'Provide either a zip or a GitHub URL'};
   }
 
@@ -482,11 +495,41 @@ export function parseModReleaseBody(
     if (!version.ok) return version;
     value.version = version.value;
   }
-  if (!hasFile && (!partial || hasGithub || src.githubUrl !== undefined || src.downloadUrl !== undefined)) {
-    if (!partial || hasGithub) {
+  if (!hasFile && src.githubUrl !== undefined) {
+    if (hasGithub) {
       const githubUrl = parseGithubComUrl(githubRaw, 'githubUrl');
       if (!githubUrl.ok) return githubUrl;
       value.githubUrl = githubUrl.value;
+    } else {
+      value.githubUrl = null;
+    }
+  }
+  if (!hasFile && src.downloadUrl !== undefined) {
+    if (src.downloadUrl === '' || src.downloadUrl === null) value.downloadUrl = '';
+    else {
+      const url = parseModZipUrl(src.downloadUrl);
+      if (!url.ok) return url;
+      value.downloadUrl = url.value;
+    }
+  }
+  if (!hasFile && src.platformDownloadUrls !== undefined) {
+    const raw = src.platformDownloadUrls;
+    if (raw === null) value.platformDownloadUrls = null;
+    else {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return {ok: false, error: 'platformDownloadUrls must be an object'};
+      }
+      const urls: PlatformDownloadUrls = {};
+      for (const [platform, entry] of Object.entries(raw)) {
+        if (!(MOD_PLATFORMS as readonly string[]).includes(platform)) {
+          return {ok: false, error: 'Unsupported download platform'};
+        }
+        if (entry === '' || entry === null) continue;
+        const url = parseModZipUrl(entry, `${platform} downloadUrl`);
+        if (!url.ok) return url;
+        urls[platform as keyof PlatformDownloadUrls] = url.value;
+      }
+      value.platformDownloadUrls = Object.keys(urls).length ? urls : null;
     }
   }
   if (!partial || src.notes !== undefined) {
@@ -500,8 +543,8 @@ export function parseModReleaseBody(
     if (releasedAt.value) value.releasedAt = releasedAt.value;
   }
 
-  if (!partial && !hasFile && !value.githubUrl) {
-    return {ok: false, error: 'githubUrl is required'};
+  if (!partial && !hasFile && !value.githubUrl && !value.downloadUrl && !value.platformDownloadUrls) {
+    return {ok: false, error: 'Provide a ZIP URL, platform ZIP URLs, or a GitHub release URL'};
   }
   if (partial && !hasFile && Object.keys(value).length === 0) {
     return {ok: false, error: 'No fields to update'};
@@ -556,4 +599,3 @@ export function parseMergeBody(body: unknown): ParseResult<{sourceModId: number}
   if (!sourceModId.ok) return {ok: false, error: 'sourceModId is required'};
   return {ok: true, value: {sourceModId: sourceModId.value}};
 }
-

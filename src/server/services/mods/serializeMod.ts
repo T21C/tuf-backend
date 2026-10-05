@@ -8,11 +8,14 @@ import {getFileIdFromCdnUrl, isCdnUrl} from '@/misc/utils/Utility.js';
 import {isGithubComUrl} from './modReleaseImportClassify.js';
 import {displayNameFromModZipMetadata} from './modZipValidate.js';
 import {listModVersions} from './modCatalog.js';
+import type {PlatformDownloadUrls} from './modPlatformDownloads.js';
 
 export type SerializedModVersion = {
   id: number;
   version: string;
   downloadUrl: string;
+  githubUrl: string | null;
+  platformDownloadUrls: PlatformDownloadUrls | null;
   notes: string | null;
   releasedAt: Date;
   source: 'hosted' | 'github' | 'external';
@@ -50,9 +53,11 @@ export function serializeModVersion(row: ModVersion): SerializedModVersion {
     id: row.id,
     version: row.version,
     downloadUrl: row.downloadUrl,
+    githubUrl: row.githubUrl ?? null,
+    platformDownloadUrls: row.platformDownloadUrls ?? null,
     notes: row.notes ?? null,
     releasedAt: row.releasedAt,
-    source: isCdnUrl(row.downloadUrl) ? 'hosted' : isGithubComUrl(row.downloadUrl) ? 'github' : 'external',
+    source: isCdnUrl(row.downloadUrl) ? 'hosted' : row.githubUrl || isGithubComUrl(row.downloadUrl) ? 'github' : 'external',
   };
 }
 

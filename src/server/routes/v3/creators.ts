@@ -18,6 +18,7 @@ import {
   getCreatorMaxFields,
   CreatorSearchOptions,
 } from '@/server/services/elasticsearch/search/creators/creatorSearch.js';
+import { normalizeSortValues, type SortValue } from '@/server/services/elasticsearch/search/tools/leaderboardAroundQuery.js';
 import { parseFacetQueryString, type FacetQueryV1 } from '@/misc/utils/search/facetQuery.js';
 import { parseCreatorCurationCountQuery } from '@/misc/utils/search/creatorCurationCountQuery.js';
 import { CreatorStatsService } from '@/server/services/core/CreatorStatsService.js';
@@ -132,6 +133,15 @@ function parseLimit(raw: unknown, fallback = DEFAULT_LIMIT): number {
 function parseOffset(raw: unknown): number {
   const n = parseInt(String(raw ?? ''), 10);
   return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function parseAroundCursor(raw: unknown): SortValue[] | null {
+  if (typeof raw !== 'string' || raw.trim().length === 0) return null;
+  try {
+    return normalizeSortValues(JSON.parse(raw));
+  } catch {
+    return null;
+  }
 }
 
 function parseFilters(raw: unknown): Record<string, any> | undefined {
@@ -333,6 +343,132 @@ router.get(
       logger.error('[v3 /creators/leaderboard] failure', error);
       return res.status(500).json({
         error: 'Failed to fetch creator leaderboard',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.get(
+  '/leaderboard/around',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'v3GetCreatorLeaderboardAround',
+    summary: 'Creator leaderboard window around the viewer (v3)',
+    description:
+      'Same filters and sort as the creator leaderboard. Returns a short window centered on the authenticated user\'s linked creator, or the next page before/after a sort cursor. `found` is false when that creator is outside the current result set.',
+    tags: ['Database', 'Creators', 'v3'],
+    query: {
+      sortBy: { schema: { type: 'string' } },
+      order: { schema: { type: 'string' } },
+      query: { schema: { type: 'string' } },
+      filters: { schema: { type: 'string' } },
+      facetQuery: { description: 'Facet filter JSON v1 (curationTypes only)', schema: { type: 'string' } },
+      following: { schema: { type: 'string' } },
+      direction: { schema: { type: 'string' } },
+      cursor: { schema: { type: 'string' } },
+      limit: { schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: 'Leaderboard window or page' },
+      400: { schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      const creatorId = Number(req.user.creatorId);
+      if (!Number.isFinite(creatorId) || creatorId <= 0) {
+        return res.json({ found: false, reason: 'unlinked' });
+      }
+
+      const directionRaw = typeof req.query.direction === 'string' ? req.query.direction : '';
+      const direction = directionRaw === 'before' || directionRaw === 'after' ? directionRaw : undefined;
+      if (directionRaw && !direction) {
+        return res.status(400).json({ error: 'Invalid direction. Use before or after.' });
+      }
+      const cursor = parseAroundCursor(req.query.cursor);
+      if (direction && !cursor) {
+        return res.status(400).json({ error: 'cursor is required when direction is set' });
+      }
+
+      const sortBy = (req.query.sortBy as string) || 'chartsTotal';
+      const order = ((req.query.order as string) || 'desc').toLowerCase();
+      const rawQuery = (req.query.query as string) || undefined;
+      const filters = parseFilters(req.query.filters);
+      const facetResult = parseCreatorFacetQueryParam(req.query.facetQuery);
+      if ('error' in facetResult) {
+        return res.status(400).json({ error: facetResult.error });
+      }
+
+      if (!validCreatorSortOptions.includes(sortBy)) {
+        return res.status(400).json({
+          error: `Invalid sortBy option. Valid options are: ${validCreatorSortOptions.join(', ')}`,
+        });
+      }
+
+      const hasActiveQuery = creatorLeaderboardHasActiveQuery(rawQuery, facetResult.facetQueryV1);
+      const followingFilter = await resolveFollowingLeaderboardFilter(
+        req.query.following,
+        req.user.id,
+        'creator',
+      );
+      if (followingFilter.active && followingFilter.unauthorized) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      if (followingFilter.active && followingFilter.mode === 'only' && followingFilter.ids.length === 0) {
+        return res.json({ found: false, reason: 'filtered-out' });
+      }
+
+      const options: CreatorSearchOptions = {
+        rawQuery,
+        sortBy,
+        order: order === 'asc' ? 'asc' : 'desc',
+        filters,
+        facetQueryV1: facetResult.facetQueryV1,
+        requireHasCharts: !hasActiveQuery,
+        ids: followingFilter.active && followingFilter.ids.length > 0 ? followingFilter.ids : undefined,
+        idsMode: followingFilter.active && followingFilter.mode === 'hide' ? 'exclude' : undefined,
+      };
+
+      const located = await elasticsearchService.locateCreators(options, {
+        anchorId: creatorId,
+        direction,
+        cursor,
+        limit: direction ? parseLimit(req.query.limit) : undefined,
+      });
+
+      if (!located.found) {
+        return res.json({ found: false, reason: 'filtered-out' });
+      }
+
+      if (located.mode === 'page') {
+        return res.json({
+          results: located.hits,
+          hasMore: located.hasMore,
+          cursor: located.cursor,
+        });
+      }
+
+      return res.json({
+        found: true,
+        index: located.index,
+        total: located.total,
+        startIndex: located.startIndex,
+        results: located.hits,
+        hasBefore: located.hasBefore,
+        hasAfter: located.hasAfter,
+        beforeCursor: located.beforeCursor,
+        afterCursor: located.afterCursor,
+      });
+    } catch (error) {
+      logger.error('[v3 /creators/leaderboard/around] failure', error);
+      return res.status(500).json({
+        error: 'Failed to locate creator leaderboard placement',
         details: error instanceof Error ? error.message : String(error),
       });
     }
