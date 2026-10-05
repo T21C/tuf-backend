@@ -451,7 +451,7 @@ const TIEBREAK_ON_RANKED_SCORE = new Set([
   'averageXacc',
 ]);
 
-function buildPlayerSort(options: PlayerSearchOptions): any[] {
+export function buildPlayerSort(options: PlayerSearchOptions): any[] {
   const order = options.order === 'asc' ? 'asc' : 'desc';
   const mapped = options.sortBy ? PLAYER_SORT_FIELD_MAP[options.sortBy] : undefined;
 
@@ -468,32 +468,40 @@ function buildPlayerSort(options: PlayerSearchOptions): any[] {
   return sort;
 }
 
+export async function preparePlayerLeaderboardSearch(options: PlayerSearchOptions): Promise<
+  | { empty: true }
+  | { empty: false; query: any; sort: any[] }
+> {
+  const rankResolution = await resolveRankedScoreRankFilter(options.filters);
+  if (rankResolution.kind === 'empty') return { empty: true };
+  if (rankResolution.kind === 'override') {
+    const { field, mode } = parsePlayerFlagFilter(options);
+    if (field === 'isBanned' && mode === 'only') return { empty: true };
+  }
+  return {
+    empty: false,
+    query: buildPlayerQuery(
+      options,
+      rankResolution.kind === 'override' ? rankResolution.bounds : null,
+    ),
+    sort: buildPlayerSort(options),
+  };
+}
+
 export async function searchPlayers(options: PlayerSearchOptions): Promise<PlayerSearchResult> {
   try {
     const offset = Math.max(0, Number(options.offset) || 0);
     const limit = Math.min(100, Math.max(1, Number(options.limit) || 30));
 
-    const rankResolution = await resolveRankedScoreRankFilter(options.filters);
-    if (rankResolution.kind === 'empty') {
+    const prepared = await preparePlayerLeaderboardSearch(options);
+    if (prepared.empty) {
       return {hits: [], total: 0, offset, limit};
     }
-    if (rankResolution.kind === 'override') {
-      const {field, mode} = parsePlayerFlagFilter(options);
-      if (field === 'isBanned' && mode === 'only') {
-        return {hits: [], total: 0, offset, limit};
-      }
-    }
-
-    const query = buildPlayerQuery(
-      options,
-      rankResolution.kind === 'override' ? rankResolution.bounds : null,
-    );
-    const sort = buildPlayerSort(options);
 
     const response = await client.search({
       index: playerIndexName,
-      query,
-      sort,
+      query: prepared.query,
+      sort: prepared.sort,
       from: offset,
       size: limit,
       track_total_hits: true,

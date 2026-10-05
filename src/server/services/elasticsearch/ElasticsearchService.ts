@@ -21,8 +21,13 @@ import ModAssignee from '@/models/misc/ModAssignee.js';
 import Tournament from '@/models/tournaments/Tournament.js';
 import { searchLevels as runLevelSearch, searchLevelIds as runSearchLevelIds } from './search/levels/levelSearch.js';
 import { searchPasses as runPassSearch } from './search/passes/passSearch.js';
-import { searchPlayers as runPlayerSearch, PlayerSearchOptions, PlayerSearchResult } from './search/players/playerSearch.js';
-import { searchCreators as runCreatorSearch, hydrateCreatorUsers, CreatorSearchOptions, CreatorSearchResult } from './search/creators/creatorSearch.js';
+import { searchPlayers as runPlayerSearch, preparePlayerLeaderboardSearch, PlayerSearchOptions, PlayerSearchResult } from './search/players/playerSearch.js';
+import { searchCreators as runCreatorSearch, prepareCreatorLeaderboardSearch, hydrateCreatorUsers, CreatorSearchOptions, CreatorSearchResult } from './search/creators/creatorSearch.js';
+import {
+  searchIndexAround,
+  type AroundResult,
+} from './search/tools/leaderboardAround.js';
+import type { SortValue } from './search/tools/leaderboardAroundQuery.js';
 import { searchMods as runModSearch, type ModSearchOptions, type ModSearchResult } from './search/mods/modSearch.js';
 import { searchTournaments as runTournamentSearch, type TournamentSearchOptions, type TournamentSearchResult } from './search/tournaments/tournamentSearch.js';
 import { ARTIST_REINDEX_DEBOUNCE_MS, BATCH_SIZE, FULL_REINDEX_PAGE_SIZE, MAX_BATCH_SIZE } from './misc/constants.js';
@@ -619,6 +624,22 @@ class ElasticsearchService {
     return { ...r, hits: maskStellarPublicEsHits(r.hits) };
   }
 
+  public async locatePlayers(
+    options: PlayerSearchOptions,
+    around: { anchorId: number; direction?: 'before' | 'after'; cursor?: SortValue[] | null; limit?: number },
+  ): Promise<AroundResult> {
+    const prepared = await preparePlayerLeaderboardSearch(options);
+    if (prepared.empty) return { found: false };
+    const result = await searchIndexAround({
+      index: playerIndexName,
+      query: prepared.query,
+      sort: prepared.sort,
+      ...around,
+    });
+    if (!result.found) return result;
+    return { ...result, hits: maskStellarPublicEsHits(result.hits) };
+  }
+
   /**
    * Fetch a single player document by id from Elasticsearch. Returns null when missing.
    */
@@ -786,6 +807,22 @@ class ElasticsearchService {
   public async searchCreators(options: CreatorSearchOptions): Promise<CreatorSearchResult> {
     const r = await runCreatorSearch(options);
     return { ...r, hits: maskStellarPublicEsHits(r.hits) };
+  }
+
+  public async locateCreators(
+    options: CreatorSearchOptions,
+    around: { anchorId: number; direction?: 'before' | 'after'; cursor?: SortValue[] | null; limit?: number },
+  ): Promise<AroundResult> {
+    const prepared = await prepareCreatorLeaderboardSearch(options);
+    const result = await searchIndexAround({
+      index: creatorIndexName,
+      query: prepared.query,
+      sort: prepared.sort,
+      ...around,
+    });
+    if (!result.found) return result;
+    const hits = await hydrateCreatorUsers(result.hits);
+    return { ...result, hits: maskStellarPublicEsHits(hits) };
   }
 
   /**

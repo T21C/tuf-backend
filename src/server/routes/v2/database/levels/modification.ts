@@ -45,6 +45,7 @@ import {
   freezeAndUpsertRating,
   invalidateRatingAccuracyCache,
 } from '@/server/services/ratings/ratingAccuracyService.js';
+import {ensureOpenRating} from '@/server/services/ratings/openRatingService.js';
 import { logLevelMetadataUpdateHook } from '@/server/routes/v2/webhooks/misc.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import { TAG_GROUP_INCLUDE } from '@/server/services/data/levelTagGroupService.js';
@@ -248,32 +249,20 @@ const handleRatingChanges = async (
     req.body.toRate !== level.toRate
   ) {
     if (req.body.toRate) {
-      // Create new rating if toRate is being set to true
-      const existingRating = await Rating.findOne({
-        where: {
-          levelId: level.id,
-          confirmedAt: null,
+      const lowDiff = req.body.rerateNum
+        ? /^[pP]\d/.test(req.body.rerateNum)
+        : false;
+
+      await ensureOpenRating(
+        level.id,
+        {
+          lowDiff,
+          requesterFR: '',
+          averageDifficultyId: null,
+          communityDifficultyId: null,
         },
         transaction,
-      });
-
-      if (!existingRating) {
-        const lowDiff = req.body.rerateNum
-          ? /^[pP]\d/.test(req.body.rerateNum)
-          : false;
-
-        await Rating.create(
-          {
-            levelId: level.id,
-            lowDiff,
-            requesterFR: '',
-            averageDifficultyId: null,
-            communityDifficultyId: null,
-            confirmedAt: null,
-          },
-          {transaction},
-        );
-      }
+      );
       return {settledRatingId: null};
     }
 

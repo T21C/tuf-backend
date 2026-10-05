@@ -185,7 +185,7 @@ async function buildCreatorQuery(options: CreatorSearchOptions): Promise<any> {
   return query;
 }
 
-function buildCreatorSort(options: CreatorSearchOptions): any[] {
+export function buildCreatorSort(options: CreatorSearchOptions): any[] {
   const order = options.order === 'asc' ? 'asc' : 'desc';
   const mapped = options.sortBy ? CREATOR_SORT_FIELD_MAP[options.sortBy] : undefined;
 
@@ -247,13 +247,24 @@ export async function hydrateCreatorUsers(sources: any[]): Promise<any[]> {
   });
 }
 
+export async function prepareCreatorLeaderboardSearch(options: CreatorSearchOptions): Promise<
+  { empty: false; query: any; sort: any[] }
+> {
+  return {
+    empty: false,
+    query: await buildCreatorQuery(options),
+    sort: buildCreatorSort(options),
+  };
+}
+
 export async function searchCreators(options: CreatorSearchOptions): Promise<CreatorSearchResult> {
   try {
     const offset = Math.max(0, Number(options.offset) || 0);
     const limit = Math.min(100, Math.max(1, Number(options.limit) || 30));
 
-    const query = await buildCreatorQuery(options);
-    const sort = buildCreatorSort(options);
+    const prepared = await prepareCreatorLeaderboardSearch(options);
+    const query = prepared.query;
+    const sort = prepared.sort;
 
     const response = await client.search({
       index: creatorIndexName,

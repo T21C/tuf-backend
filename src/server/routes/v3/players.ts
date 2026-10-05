@@ -17,6 +17,7 @@ import {
   parsePlayerFlagFilter,
   PlayerSearchOptions,
 } from '@/server/services/elasticsearch/search/players/playerSearch.js';
+import { normalizeSortValues, type SortValue } from '@/server/services/elasticsearch/search/tools/leaderboardAroundQuery.js';
 import { PlayerStatsService, viewerMayRevealHiddenPasses } from '@/server/services/core/PlayerStatsService.js';
 import { computePlayerFunFacts } from '@/server/services/stats/playerFunFacts.js';
 import { logger } from '@/server/services/core/LoggerService.js';
@@ -113,6 +114,23 @@ function parseLimit(raw: unknown, fallback = DEFAULT_LIMIT): number {
 function parseOffset(raw: unknown): number {
   const n = parseInt(String(raw ?? ''), 10);
   return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function parseAroundCursor(raw: unknown): SortValue[] | null {
+  if (typeof raw !== 'string' || raw.trim().length === 0) return null;
+  try {
+    return normalizeSortValues(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function withPlayerRanks(hits: any[], ranks: number[]) {
+  return hits.map((doc, i) => ({
+    ...doc,
+    rankedScoreRank: ranks[i],
+    rank: ranks[i],
+  }));
 }
 
 function parseFilters(raw: unknown): Record<string, any> | undefined {
@@ -302,12 +320,7 @@ router.get(
       // filter" instead of the global rank. Batched parallel count queries are cheap
       // enough (≤ page size, default 30) that we always use them.
       const rankedScoreRanks = await getRankedScoreRanksForHits(hits);
-
-      const resultsWithRank = hits.map((doc: any, i: number) => ({
-        ...doc,
-        rankedScoreRank: rankedScoreRanks[i],
-        rank: rankedScoreRanks[i],
-      }));
+      const resultsWithRank = withPlayerRanks(hits, rankedScoreRanks);
 
       return res.json({
         count: total,
@@ -321,6 +334,143 @@ router.get(
       logger.error('[v3 /players/leaderboard] failure', error);
       return res.status(500).json({
         error: 'Failed to fetch leaderboard',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+/**
+ * Window around the signed-in player's row in the current leaderboard query.
+ * `direction=before|after` plus `cursor` pages away from that window.
+ */
+router.get(
+  '/leaderboard/around',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'v3GetLeaderboardAround',
+    summary: 'Player leaderboard window around the viewer (v3)',
+    description:
+      'Same filters and sort as the player leaderboard. Returns a short window centered on the authenticated user\'s linked player, or the next page before/after a sort cursor. `found` is false when that player is outside the current result set.',
+    tags: ['Database', 'Leaderboard', 'v3'],
+    query: {
+      sortBy: { schema: { type: 'string' } },
+      order: { schema: { type: 'string' } },
+      showBanned: { schema: { type: 'string' } },
+      flagField: { schema: { type: 'string' } },
+      flagMode: { schema: { type: 'string' } },
+      query: { schema: { type: 'string' } },
+      filters: { schema: { type: 'string' } },
+      following: { schema: { type: 'string' } },
+      direction: { schema: { type: 'string' } },
+      cursor: { schema: { type: 'string' } },
+      limit: { schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: 'Leaderboard window or page' },
+      400: { schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      const playerId = Number(req.user.playerId);
+      if (!Number.isFinite(playerId) || playerId <= 0) {
+        return res.json({ found: false, reason: 'unlinked' });
+      }
+
+      const directionRaw = typeof req.query.direction === 'string' ? req.query.direction : '';
+      const direction = directionRaw === 'before' || directionRaw === 'after' ? directionRaw : undefined;
+      if (directionRaw && !direction) {
+        return res.status(400).json({ error: 'Invalid direction. Use before or after.' });
+      }
+      const cursor = parseAroundCursor(req.query.cursor);
+      if (direction && !cursor) {
+        return res.status(400).json({ error: 'cursor is required when direction is set' });
+      }
+
+      const sortBy = (req.query.sortBy as string) || 'rankedScore';
+      const order = ((req.query.order as string) || 'desc').toLowerCase();
+      const { field: flagField, mode: flagMode } = parsePlayerFlagFilter({
+        flagField: req.query.flagField,
+        flagMode: req.query.flagMode,
+        showBanned: req.query.showBanned,
+        defaultMode: 'show',
+      });
+      const rawQuery = (req.query.query as string) || undefined;
+      const filters = parseFilters(req.query.filters);
+
+      if (!validSortOptions.includes(sortBy)) {
+        return res.status(400).json({
+          error: `Invalid sortBy option. Valid options are: ${validSortOptions.join(', ')}`,
+        });
+      }
+
+      const followingFilter = await resolveFollowingLeaderboardFilter(
+        req.query.following,
+        req.user.id,
+        'player',
+      );
+      if (followingFilter.active && followingFilter.unauthorized) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      if (followingFilter.active && followingFilter.mode === 'only' && followingFilter.ids.length === 0) {
+        return res.json({ found: false, reason: 'filtered-out' });
+      }
+
+      const options: PlayerSearchOptions = {
+        rawQuery,
+        sortBy,
+        order: order === 'asc' ? 'asc' : 'desc',
+        flagField,
+        flagMode,
+        filters,
+        requireHasPasses: !rawQuery,
+        ids: followingFilter.active && followingFilter.ids.length > 0 ? followingFilter.ids : undefined,
+        idsMode: followingFilter.active && followingFilter.mode === 'hide' ? 'exclude' : undefined,
+      };
+
+      const located = await elasticsearchService.locatePlayers(options, {
+        anchorId: playerId,
+        direction,
+        cursor,
+        limit: direction ? parseLimit(req.query.limit) : undefined,
+      });
+
+      if (!located.found) {
+        return res.json({ found: false, reason: 'filtered-out' });
+      }
+
+      const ranks = await getRankedScoreRanksForHits(located.hits);
+      const results = withPlayerRanks(located.hits, ranks);
+
+      if (located.mode === 'page') {
+        return res.json({
+          results,
+          hasMore: located.hasMore,
+          cursor: located.cursor,
+        });
+      }
+
+      return res.json({
+        found: true,
+        index: located.index,
+        total: located.total,
+        startIndex: located.startIndex,
+        results,
+        hasBefore: located.hasBefore,
+        hasAfter: located.hasAfter,
+        beforeCursor: located.beforeCursor,
+        afterCursor: located.afterCursor,
+      });
+    } catch (error) {
+      logger.error('[v3 /players/leaderboard/around] failure', error);
+      return res.status(500).json({
+        error: 'Failed to locate leaderboard placement',
         details: error instanceof Error ? error.message : String(error),
       });
     }
