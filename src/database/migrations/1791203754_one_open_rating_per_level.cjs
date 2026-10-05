@@ -300,16 +300,10 @@ module.exports = {
       throw error;
     }
 
-    // ALTER TABLE implicit-commits on MySQL, so it stays outside the DML transaction.
-    const hasOpenLevelId = await tableColumnExists(sequelize, 'ratings', 'openLevelId');
-    if (!hasOpenLevelId) {
-      await sequelize.query(
-        `ALTER TABLE ratings
-           ADD COLUMN openLevelId INT
-             GENERATED ALWAYS AS (IF(confirmedAt IS NULL, levelId, NULL)) STORED`,
-      );
-    }
-
+    // A stored generated column on levelId cannot be added while ratings_ibfk_4
+    // is ON DELETE/UPDATE CASCADE (MySQL error 1215). A functional unique index
+    // enforces the same "one open rating per level" rule and leaves that FK in place.
+    // Confirmed rows store NULL in the index, and MySQL allows many NULLs.
     const hasUnique = await indexExists(
       sequelize,
       'ratings',
@@ -318,31 +312,27 @@ module.exports = {
     if (!hasUnique) {
       await sequelize.query(
         `ALTER TABLE ratings
-           ADD UNIQUE KEY ratings_one_open_per_level (openLevelId)`,
+           ADD UNIQUE KEY ratings_one_open_per_level ((IF(confirmedAt IS NULL, levelId, NULL)))`,
       );
     }
   },
 
   async down(queryInterface) {
     const sequelize = queryInterface.sequelize;
-    const transaction = await sequelize.transaction();
-    try {
-      const hasOpenLevelId = await tableColumnExists(
-        sequelize,
-        'ratings',
-        'openLevelId',
-        transaction,
+    const hasUnique = await indexExists(
+      sequelize,
+      'ratings',
+      'ratings_one_open_per_level',
+    );
+    if (hasUnique) {
+      await sequelize.query(
+        `ALTER TABLE ratings DROP INDEX ratings_one_open_per_level`,
       );
-      if (hasOpenLevelId) {
-        await sequelize.query(
-          `ALTER TABLE ratings DROP COLUMN openLevelId`,
-          {transaction},
-        );
-      }
-      await transaction.commit();
-    } catch (error) {
-      await transaction.rollback();
-      throw error;
+    }
+
+    const hasOpenLevelId = await tableColumnExists(sequelize, 'ratings', 'openLevelId');
+    if (hasOpenLevelId) {
+      await sequelize.query(`ALTER TABLE ratings DROP COLUMN openLevelId`);
     }
   },
 };
