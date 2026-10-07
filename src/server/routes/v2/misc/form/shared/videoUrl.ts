@@ -1,6 +1,7 @@
 import {
   cleanSingleVideoUrl,
   cleanVideoLinks,
+  extractDouyinAwemeId,
   getPrimaryVideoLink,
   splitVideoLinks,
 } from '@/misc/utils/data/videoLinkParts.js';
@@ -9,6 +10,12 @@ const B23_HOSTS = new Set(['b23.tv', 'www.b23.tv']);
 const B23_PATH_CODE = /^\/([a-zA-Z0-9]+)$/;
 const ALLOWED_BILIBILI_HOSTS = new Set(['bilibili.com', 'www.bilibili.com', 'm.bilibili.com']);
 const B23_RESOLVE_TIMEOUT_MS = 8000;
+const DOUYIN_SHORT_HOSTS = new Set(['v.douyin.com', 'www.v.douyin.com']);
+const DOUYIN_SHORT_PATH = /^\/([A-Za-z0-9]+)\/?$/;
+const DOUYIN_RESOLVE_TIMEOUT_MS = 8000;
+const DOUYIN_MAX_REDIRECTS = 5;
+const DOUYIN_RESOLVE_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 interface ParsedB23TvUrl {
   shortCode: string;
@@ -136,6 +143,116 @@ export async function resolveB23ShortUrl(url: string): Promise<string> {
   }
 }
 
+interface ParsedDouyinShortUrl {
+  href: string;
+}
+
+function parseDouyinShortUrl(url: string): ParsedDouyinShortUrl | null {
+  const trimmed = url?.trim?.() ?? '';
+  if (!trimmed) return null;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+  } catch {
+    return null;
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return null;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (!DOUYIN_SHORT_HOSTS.has(host)) {
+    return null;
+  }
+
+  const pathMatch = parsed.pathname.match(DOUYIN_SHORT_PATH);
+  if (!pathMatch?.[1] || pathMatch[1].startsWith('BV')) {
+    return null;
+  }
+
+  if (extractDouyinAwemeId(parsed.href)) {
+    return null;
+  }
+
+  return { href: parsed.href };
+}
+
+function isAllowedDouyinHost(hostname: string): boolean {
+  const host = hostname.replace(/^www\./i, '').toLowerCase();
+  return host === 'douyin.com' || host.endsWith('.douyin.com') || host === 'iesdouyin.com' || host.endsWith('.iesdouyin.com');
+}
+
+function canonicalDouyinUrlFromHref(href: string): string | null {
+  const awemeId = extractDouyinAwemeId(href);
+  return awemeId ? `https://www.douyin.com/video/${awemeId}` : null;
+}
+
+export function isDouyinShortUrl(url: string): boolean {
+  return parseDouyinShortUrl(url) !== null;
+}
+
+export function needsDouyinResolution(url: string): boolean {
+  return parseDouyinShortUrl(url) !== null;
+}
+
+export async function resolveDouyinShortUrl(url: string): Promise<string> {
+  const parsed = parseDouyinShortUrl(url);
+  if (!parsed) {
+    throw new Error('Not a valid v.douyin.com short URL');
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DOUYIN_RESOLVE_TIMEOUT_MS);
+
+  try {
+    let current = parsed.href;
+    for (let hop = 0; hop < DOUYIN_MAX_REDIRECTS; hop++) {
+      let currentUrl: URL;
+      try {
+        currentUrl = new URL(current);
+      } catch {
+        throw new Error('Douyin short link redirected to an invalid URL');
+      }
+
+      if (!isAllowedDouyinHost(currentUrl.hostname)) {
+        throw new Error(`Douyin short link redirected to disallowed host: ${currentUrl.hostname}`);
+      }
+
+      const alreadyCanonical = canonicalDouyinUrlFromHref(current);
+      if (alreadyCanonical) return alreadyCanonical;
+
+      const response = await fetch(current, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: {
+          'User-Agent': DOUYIN_RESOLVE_UA,
+          Accept: 'text/html,application/xhtml+xml',
+        },
+      });
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (!location) {
+          throw new Error('Douyin short link redirect missing Location');
+        }
+        current = new URL(location, current).href;
+        continue;
+      }
+
+      const fromResponse = canonicalDouyinUrlFromHref(response.url || current);
+      if (fromResponse) return fromResponse;
+      throw new Error('Douyin short link did not resolve to a video id');
+    }
+
+    throw new Error('Douyin short link exceeded redirect limit');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export interface ResolveSubmissionVideoUrlResult {
   url: string;
   resolved: boolean;
@@ -154,6 +271,10 @@ export async function resolveSubmissionVideoUrl(url: string): Promise<ResolveSub
       if (needsB23Resolution(part)) {
         resolved = true;
         return resolveB23ShortUrl(part);
+      }
+      if (needsDouyinResolution(part)) {
+        resolved = true;
+        return resolveDouyinShortUrl(part);
       }
       return cleanSingleVideoUrl(part);
     }),

@@ -33,7 +33,8 @@ const SLOW_LOG_EXCLUDED_ROUTES = [
   '/v2/media/player-avatar/*',
   '/v2/cdn/download-events',
   '/v2/media/bilibili-cover',
-  '/v2/media/bilibili'
+  '/v2/media/bilibili',
+  '/v2/media/douyin-cover',
 ];
 
 function isExcludedRoute(path: string): boolean {

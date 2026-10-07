@@ -12,6 +12,8 @@ import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {getVideoDetails,} from '@/misc/utils/data/videoDetailParser.js';
 import { BILIBILI_REQUEST_HEADERS, downloadBilibiliCoverByBvid } from '@/misc/utils/data/bilibiliVideoDetails.js';
+import { downloadDouyinCoverByAwemeId } from '@/misc/utils/data/douyinVideoDetails.js';
+import { DOUYIN_AWEME_ID_PATTERN } from '@/misc/utils/data/videoLinkParts.js';
 import { resolveSubmissionVideoUrl } from './form/shared/videoUrl.js';
 import { gateSubmission } from './form/shared/submissionAuth.js';
 import { FormError, sendFormError } from './form/shared/errors.js';
@@ -877,6 +879,35 @@ router.get(
 );
 
 router.get(
+  '/douyin-cover',
+  ApiDoc({
+    operationId: 'getMediaDouyinCover',
+    summary: 'Douyin video cover',
+    description: 'Returns the Douyin video cover image for an aweme id. Does not call the YouTube Data API.',
+    tags: ['Media'],
+    query: { awemeId: { description: 'Douyin video id (aweme id)', schema: { type: 'string' }, required: true } },
+    responses: {
+      200: { description: 'Cover image' },
+      400: { description: 'Invalid aweme id' },
+      404: { description: 'Cover not found' },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    const awemeId = typeof req.query.awemeId === 'string' ? req.query.awemeId : '';
+    if (!DOUYIN_AWEME_ID_PATTERN.test(awemeId)) {
+      return res.status(400).send('Invalid aweme id');
+    }
+    const cover = await downloadDouyinCoverByAwemeId(awemeId);
+    if (!cover) {
+      return res.status(404).send('Cover not found');
+    }
+    res.set('Content-Type', cover.contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    return res.send(cover.buffer);
+  },
+);
+
+router.get(
   '/player-avatar/:playerId',
   ApiDoc({
     operationId: 'getMediaPlayerAvatar',
@@ -1190,7 +1221,7 @@ router.get(
     operationId: 'getMediaResolveVideoUrl',
     summary: 'Resolve submission video URL',
     description:
-      'Resolves opaque b23.tv short links via b23.wtf and canonicalises other video URLs for submission forms.',
+      'Resolves opaque b23.tv and v.douyin.com short links and canonicalises other video URLs for submission forms.',
     tags: ['Media'],
     security: ['bearerAuth'],
     query: {
@@ -1201,7 +1232,7 @@ router.get(
       400: { description: 'Missing or invalid URL', schema: errorResponseSchema },
       401: { schema: errorResponseSchema },
       403: { schema: errorResponseSchema },
-      502: { description: 'b23.wtf resolution failed', schema: errorResponseSchema },
+      502: { description: 'Short-link resolution failed', schema: errorResponseSchema },
     },
   }),
   async (req: Request, res: Response) => {
@@ -1226,7 +1257,7 @@ router.get(
         url: rawUrl.substring(0, 80),
         error: error instanceof Error ? error.message : String(error),
       });
-      return res.status(502).json({ error: 'Failed to resolve b23.tv short link' });
+      return res.status(502).json({ error: 'Failed to resolve video short link' });
     }
   },
 );
@@ -1236,7 +1267,7 @@ router.get(
   ApiDoc({
     operationId: 'getMediaVideoDetails',
     summary: 'Video metadata',
-    description: 'Fetches video details (title, thumbnail, etc.) from a video URL. Supports YouTube, Bilibili, etc. Response is cached.',
+    description: 'Fetches video details (title, thumbnail, etc.) from a video URL. Supports YouTube, Bilibili, Douyin. Response is cached.',
     tags: ['Media'],
     params: { videoLink: { description: 'URL-encoded video link', schema: { type: 'string' } } },
     responses: {

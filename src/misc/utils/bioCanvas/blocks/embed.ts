@@ -6,10 +6,11 @@ export const MAX_EMBED_TITLE_LENGTH = 120;
 
 const DANGEROUS_TITLE = /url\s*\(|var\s*\(|expression\s*\(|@import|javascript:|\/\*|\*\/|<\/|<>/i;
 
-/** Allowed video hosts: YouTube and Bilibili only. */
+/** Allowed video hosts: YouTube, Bilibili, and Douyin. */
 const EMBED_HOST_PATTERNS: Array<{ host: RegExp; label: string }> = [
   { host: /(^|\.)youtube\.com$|(^|\.)youtu\.be$/i, label: 'youtube' },
   { host: /(^|\.)bilibili\.com$|(^|\.)b23\.tv$/i, label: 'bilibili' },
+  { host: /(^|\.)douyin\.com$|(^|\.)iesdouyin\.com$/i, label: 'douyin' },
 ];
 
 export function getEmbedProvider(url: string): string | null {
@@ -25,7 +26,7 @@ export function getEmbedProvider(url: string): string | null {
 }
 
 const zEmbedUrl = zSafeUrl.refine((url) => getEmbedProvider(url) !== null, {
-  message: 'Only YouTube and Bilibili video links are supported',
+  message: 'Only YouTube, Bilibili, and Douyin video links are supported',
 });
 
 export const embedBlockDataSchema = z.object({

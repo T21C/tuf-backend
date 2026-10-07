@@ -2,13 +2,14 @@ import twemoji from 'twemoji';
 import { getVideoProvider, getPrimaryVideoLink } from '@/misc/utils/data/videoLinkParts.js';
 import { getYouTubeVideoDetails } from '@/misc/utils/data/youtubeVideoDetails.js';
 import { getBilibiliVideoDetails } from '@/misc/utils/data/bilibiliVideoDetails.js';
+import { getDouyinVideoDetails } from '@/misc/utils/data/douyinVideoDetails.js';
 import type { VideoDetails } from '@/misc/utils/data/videoDetailTypes.js';
 
 export type { VideoDetails } from '@/misc/utils/data/videoDetailTypes.js';
 
 /**
  * Metadata for write paths (submit time, Discord). Host decides which module runs.
- * YouTube and Bilibili do not fall through into each other.
+ * YouTube, Bilibili, and Douyin do not fall through into each other.
  */
 async function getVideoDetails(url: string): Promise<VideoDetails | null> {
   const primary = getPrimaryVideoLink(url);
@@ -17,6 +18,7 @@ async function getVideoDetails(url: string): Promise<VideoDetails | null> {
   const provider = getVideoProvider(primary);
   if (provider === 'youtube') return getYouTubeVideoDetails(primary);
   if (provider === 'bilibili') return getBilibiliVideoDetails(primary);
+  if (provider === 'douyin') return getDouyinVideoDetails(primary);
   return null;
 }
 
@@ -39,6 +41,7 @@ function isoToEmoji(code: string): string | null {
 export {
   getYouTubeVideoDetails,
   getBilibiliVideoDetails,
+  getDouyinVideoDetails,
   isoToEmoji,
   getVideoDetails,
 };

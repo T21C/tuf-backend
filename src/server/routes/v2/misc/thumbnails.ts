@@ -32,6 +32,7 @@ import LevelTag from '@/models/levels/LevelTag.js';
 import { getSongDisplayName, getArtistDisplayName, formatDuration } from '@/misc/utils/data/levelHelpers.js';
 import { getVideoProvider, getYouTubeThumbnailUrl } from '@/misc/utils/data/videoLinkParts.js';
 import { downloadBilibiliCover } from '@/misc/utils/data/bilibiliVideoDetails.js';
+import { downloadDouyinCover } from '@/misc/utils/data/douyinVideoDetails.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import {
@@ -371,7 +372,7 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
           const {width, height, multiplier} = THUMBNAIL_SIZES.LARGE;
           const iconSize = Math.floor(height * 0.184);
 
-          // YouTube covers are img.youtube.com. Bilibili covers come from the Bilibili module.
+          // YouTube covers are img.youtube.com. Bilibili and Douyin covers come from their modules.
           let backgroundBuffer: Buffer;
           try {
             const provider = getVideoProvider(level.videoLink);
@@ -382,6 +383,10 @@ const handleLevelStyleThumbnail = async (req: Request, res: Response) => {
             } else if (provider === 'bilibili') {
               const cover = await downloadBilibiliCover(level.videoLink);
               if (!cover) throw new Error('Bilibili cover not found');
+              backgroundBuffer = cover;
+            } else if (provider === 'douyin') {
+              const cover = await downloadDouyinCover(level.videoLink);
+              if (!cover) throw new Error('Douyin cover not found');
               backgroundBuffer = cover;
             } else {
               throw new Error('Video details not found');
