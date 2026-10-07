@@ -18,7 +18,7 @@ jobs:
     concurrency:
       group: backend-ci-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["ubuntu-latest"]') }}
+    runs-on: ["ARM64", "self-hosted", "tuf", "ubuntu-latest"]
     steps:
       - uses: actions/checkout@v5
 
@@ -74,7 +74,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["ubuntu-latest"]') }}
+    runs-on: ["ARM64", "self-hosted", "tuf", "ubuntu-latest"]
     steps:
       - uses: actions/checkout@v5
         with:
