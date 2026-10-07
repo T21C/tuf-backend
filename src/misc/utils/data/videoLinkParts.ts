@@ -15,13 +15,18 @@ export function getPrimaryVideoLink(raw: string | null | undefined): string {
   return splitVideoLinks(raw)[0] ?? '';
 }
 
-const VIDEO_HOST_PATTERNS: Array<{ host: RegExp; label: 'youtube' | 'bilibili' }> = [
+export type VideoProvider = 'youtube' | 'bilibili' | 'douyin';
+
+const VIDEO_HOST_PATTERNS: Array<{ host: RegExp; label: VideoProvider }> = [
   { host: /(^|\.)youtube\.com$|(^|\.)youtube-nocookie\.com$|(^|\.)youtu\.be$/i, label: 'youtube' },
   { host: /(^|\.)bilibili\.com$|(^|\.)b23\.tv$/i, label: 'bilibili' },
+  { host: /(^|\.)douyin\.com$|(^|\.)iesdouyin\.com$/i, label: 'douyin' },
 ];
 
-/** Host of the primary link. YouTube and Bilibili never share a match. */
-export function getVideoProvider(url: string | null | undefined): 'youtube' | 'bilibili' | null {
+export const DOUYIN_AWEME_ID_PATTERN = /^\d{15,22}$/;
+
+/** Host of the primary link. YouTube, Bilibili, and Douyin never share a match. */
+export function getVideoProvider(url: string | null | undefined): VideoProvider | null {
   const primary = getPrimaryVideoLink(url);
   if (!primary) return null;
   try {
@@ -90,6 +95,47 @@ export function getBilibiliEmbedUrl(url: string | null | undefined): string | nu
   return `https://player.bilibili.com/player.html?isOutside=true&bvid=${bvid}&p=1&autoplay=0`;
 }
 
+function isDouyinAwemeId(value: string | null | undefined): value is string {
+  return typeof value === 'string' && DOUYIN_AWEME_ID_PATTERN.test(value);
+}
+
+/** Extract a Douyin aweme id from video, share, player, or query-param URLs. */
+export function extractDouyinAwemeId(url: string | null | undefined): string | null {
+  const primary = getPrimaryVideoLink(url);
+  if (!primary || getVideoProvider(primary) !== 'douyin') return null;
+  try {
+    const parsed = new URL(primary);
+    const fromPath = parsed.pathname.match(/\/(?:share\/(?:video|note)|video)\/(\d{15,22})/)?.[1];
+    if (isDouyinAwemeId(fromPath)) return fromPath;
+    for (const key of ['modal_id', 'vid']) {
+      const value = parsed.searchParams.get(key);
+      if (isDouyinAwemeId(value)) return value;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function getDouyinCanonicalUrl(url: string | null | undefined): string | null {
+  const awemeId = extractDouyinAwemeId(url);
+  return awemeId ? `https://www.douyin.com/video/${awemeId}` : null;
+}
+
+/** Build a Douyin iframe embed URL from aweme id only (no metadata API). */
+export function getDouyinEmbedUrl(url: string | null | undefined): string | null {
+  const awemeId = extractDouyinAwemeId(url);
+  if (!awemeId) return null;
+  return `https://open.douyin.com/player/video?vid=${awemeId}&autoplay=0`;
+}
+
+/** Douyin official player requires unsafe-url; YouTube and Bilibili stay strict. */
+export function getVideoIframeReferrerPolicy(
+  url: string | null | undefined,
+): 'unsafe-url' | 'strict-origin-when-cross-origin' {
+  return getVideoProvider(url) === 'douyin' ? 'unsafe-url' : 'strict-origin-when-cross-origin';
+}
+
 /**
  * Canonicalise a single video URL to a stable form. Unknown URLs pass through unchanged.
  */
@@ -116,6 +162,9 @@ export function cleanSingleVideoUrl(url: string): string {
       return `https://www.youtube.com/watch?v=${match[1]}`;
     }
   }
+
+  const douyinCanonical = getDouyinCanonicalUrl(url);
+  if (douyinCanonical) return douyinCanonical;
 
   return url;
 }

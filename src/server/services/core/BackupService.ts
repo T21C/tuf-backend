@@ -320,7 +320,11 @@ export class BackupService {
 
     await fs.mkdir(path.dirname(filePath), {recursive: true});
 
-    const dumpFlags = '--single-transaction --quick';
+    // Views are dumped by default (mysqldump has no --views switch).
+    // --triggers is also default; --routines and --events are not, so
+    // procedures, functions, and events were omitted from backups.
+    const dumpFlags =
+      '--single-transaction --quick --routines --triggers --events';
     const dumpBin = this.isWindows
       ? `"${path.join(process.env.MYSQL_PATH || '', 'mysqldump.exe')}"`
       : 'mysqldump';
