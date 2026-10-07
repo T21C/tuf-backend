@@ -1,7 +1,7 @@
 import {Op} from 'sequelize';
 import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
-import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/index.js';
+import { standardErrorResponses, standardErrorResponses403404500, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/index.js';
 import Creator from '@/models/credits/Creator.js';
 import Level from '@/models/levels/Level.js';
 import LevelCredit, {CreditRole, nextLevelCreditSortOrder} from '@/models/levels/LevelCredit.js';
@@ -14,14 +14,14 @@ import {Router, Request, Response} from 'express';
 import LevelSubmissionCreatorRequest from '@/models/submissions/LevelSubmissionCreatorRequest.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { Cache } from '@/server/middleware/cache.js';
+import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { CREATORS_ALL_CACHE_TAG, creatorCacheTag } from '@/server/services/creators/creatorCache.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { safeTransactionRollback, sortLevelCredits } from '@/misc/utils/Utility.js';
 import { remapFollowTargets } from '@/server/services/notifications/FollowService.js';
 import { mapMysqlClientError } from '@/misc/utils/db/mysqlClientError.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
-import { validCreatorVerificationStatuses, type CreatorVerificationStatus } from '@/config/constants.js';
+import { permissionFlags, validCreatorVerificationStatuses, type CreatorVerificationStatus } from '@/config/constants.js';
 import {appendCreatorAliasFromRename} from '@/server/services/aliases/nameChangeAliases.js';
 import TournamentPlacement from '@/models/tournaments/TournamentPlacement.js';
 import TournamentPlacementCredit from '@/models/tournaments/TournamentPlacementCredit.js';
@@ -36,6 +36,8 @@ import {
   TeamMutationError,
   updateTeam,
 } from '@/server/services/teams/teamMutations.js';
+import { canManageLevelCredits } from '@/server/domain/levels/levelOwnership.js';
+import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 const router: Router = Router();
@@ -46,6 +48,54 @@ function handleTeamMutationError(res: Response, error: unknown, fallback: string
   }
   logger.error(fallback, error);
   return res.status(500).json({error: fallback});
+}
+
+const VALID_CREDIT_ROLES = new Set<string>(Object.values(CreditRole));
+
+type ParsedLevelCreator = {
+  id: number;
+  role: CreditRole;
+  isOwner: boolean;
+  sortOrder?: number;
+};
+
+function parseLevelCreatorsPayload(raw: unknown):
+  | {ok: true; creators: ParsedLevelCreator[]}
+  | {ok: false; error: string} {
+  const list = raw == null ? [] : raw;
+  if (!Array.isArray(list)) {
+    return {ok: false, error: 'creators must be an array'};
+  }
+
+  const seen = new Set<string>();
+  const creators: ParsedLevelCreator[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    if (!item || typeof item !== 'object') {
+      return {ok: false, error: `Invalid creator at index ${i}`};
+    }
+    const record = item as Record<string, unknown>;
+    const id = Number(record.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return {ok: false, error: `Invalid creator id at index ${i}`};
+    }
+    const role = record.role;
+    if (typeof role !== 'string' || !VALID_CREDIT_ROLES.has(role)) {
+      return {ok: false, error: `Invalid role at index ${i}`};
+    }
+    const key = `${id}:${role}`;
+    if (seen.has(key)) {
+      return {ok: false, error: 'Duplicate creator and role'};
+    }
+    seen.add(key);
+    creators.push({
+      id,
+      role: role as CreditRole,
+      isOwner: Boolean(record.isOwner),
+      sortOrder: typeof record.sortOrder === 'number' ? record.sortOrder : undefined,
+    });
+  }
+  return {ok: true, creators};
 }
 
 interface LevelCountResult {
@@ -460,29 +510,60 @@ router.post(
 // Update level creators
 router.put(
   '/level/:levelId([0-9]{1,20})',
-  Auth.superAdmin(),
+  Auth.verified(),
   ApiDoc({
     operationId: 'putLevelCreators',
     summary: 'Update level creators',
-    description: 'Replace creators for a level. Body: creators[{ id, role, isOwner }] in display order (array index is stored as sortOrder). Super admin.',
+    description: 'Replace creators for a level. Body: creators[{ id, role, isOwner }] in display order (array index is stored as sortOrder). Level owner or super admin. Non-admins must remain an owner.',
     tags: ['Database', 'Creators'],
     security: ['bearerAuth'],
     params: { levelId: { schema: { type: 'string' } } },
     requestBody: { description: 'creators in display order', schema: { type: 'object', properties: { creators: { type: 'array', items: { type: 'object', properties: { id: { type: 'number' }, role: { type: 'string' }, isOwner: { type: 'boolean' }, sortOrder: { type: 'integer' } } } } } }, required: true },
-    responses: { 200: { description: 'Level creators updated' }, ...standardErrorResponses404500 },
+    responses: { 200: { description: 'Level creators updated' }, ...standardErrorResponses403404500, 400: { schema: errorResponseSchema } },
   }),
   async (req: Request, res: Response) => {
     let transaction: any;
     try {
       transaction = await sequelize.transaction();
-      const {levelId} = req.params;
-      const {creators} = req.body;
+      const levelId = parseInt(req.params.levelId, 10);
+      const parsed = parseLevelCreatorsPayload(req.body?.creators);
+      if (!parsed.ok) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({error: parsed.error});
+      }
 
-      // Validate level exists
       const level = await Level.findByPk(levelId, {transaction});
       if (!level) {
         await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Level not found'});
+      }
+
+      const access = await canManageLevelCredits(levelId, req.user, transaction);
+      if (!access.canManage) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({error: access.errorMessage});
+      }
+
+      if (!hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
+        const keepsSelfOwner = parsed.creators.some(
+          (c) => c.id === Number(req.user?.creatorId) && c.isOwner,
+        );
+        if (!keepsSelfOwner) {
+          await safeTransactionRollback(transaction);
+          return res.status(403).json({error: 'You cannot remove yourself as an owner of this level'});
+        }
+      }
+
+      if (parsed.creators.length > 0) {
+        const creatorIds = [...new Set(parsed.creators.map((c) => c.id))];
+        const foundCount = await Creator.count({
+          where: {id: {[Op.in]: creatorIds}},
+          transaction,
+        });
+        if (foundCount !== creatorIds.length) {
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({error: 'One or more creators were not found'});
+        }
       }
 
       // Remove existing credits
@@ -493,8 +574,8 @@ router.put(
 
       // Add new credits. Array order is the source of truth; always re-rank 0..n-1
       // so tied/missing client sortOrder values cannot collapse to a single rank.
-      if (creators && creators.length > 0) {
-        const ordered = [...creators].sort((a: {sortOrder?: number}, b: {sortOrder?: number}) => {
+      if (parsed.creators.length > 0) {
+        const ordered = [...parsed.creators].sort((a, b) => {
           const ao = Number(a?.sortOrder);
           const bo = Number(b?.sortOrder);
           const aOk = Number.isFinite(ao);
@@ -503,7 +584,7 @@ router.put(
           return 0;
         });
         await LevelCredit.bulkCreate(
-          ordered.map((c: {id: number; role: CreditRole; isOwner: boolean}, index: number) => ({
+          ordered.map((c, index) => ({
             levelId,
             creatorId: c.id,
             isOwner: Boolean(c.isOwner),
@@ -517,7 +598,12 @@ router.put(
       await transaction.commit();
 
       // Wait for indexing to complete
-      await elasticsearchService.indexLevel(parseInt(levelId));
+      await elasticsearchService.indexLevel(levelId);
+      try {
+        await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all']);
+      } catch (cacheErr) {
+        logger.error('Error invalidating level cache after creator update:', cacheErr);
+      }
 
       return res.json({message: 'Level creators updated successfully'});
     } catch (error) {

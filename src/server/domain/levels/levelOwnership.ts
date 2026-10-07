@@ -8,6 +8,11 @@ export interface OwnershipCheckResult {
   errorMessage?: string;
 }
 
+export interface CreditManagementCheckResult {
+  canManage: boolean;
+  errorMessage?: string;
+}
+
 export const checkLevelOwnership = async (
   levelId: number,
   user: any,
@@ -51,4 +56,39 @@ export const checkLevelOwnership = async (
     errorMessage = 'You are not authorized to edit this level';
   }
   return { canEdit, errorMessage };
+};
+
+export const canManageLevelCredits = async (
+  levelId: number,
+  user: any,
+  transaction: Transaction,
+): Promise<CreditManagementCheckResult> => {
+  if (user && hasFlag(user, permissionFlags.SUPER_ADMIN)) {
+    return { canManage: true };
+  }
+
+  if (!user?.creatorId) {
+    return {
+      canManage: false,
+      errorMessage: 'You are not authorized to manage credits for this level',
+    };
+  }
+
+  const ownerCredit = await LevelCredit.findOne({
+    where: {
+      levelId,
+      creatorId: user.creatorId,
+      isOwner: true,
+    },
+    transaction,
+  });
+
+  if (ownerCredit) {
+    return { canManage: true };
+  }
+
+  return {
+    canManage: false,
+    errorMessage: 'You are not authorized to manage credits for this level',
+  };
 };

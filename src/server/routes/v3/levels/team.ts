@@ -3,7 +3,7 @@ import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import {
   idParamSpec,
-  standardErrorResponses404500,
+  standardErrorResponses403404500,
 } from '@/server/schemas/common.js';
 import sequelize from '@/config/db.js';
 import {safeTransactionRollback} from '@/misc/utils/Utility.js';
@@ -14,6 +14,8 @@ import {
   setLevelTeam,
   TeamMutationError,
 } from '@/server/services/teams/teamMutations.js';
+import { canManageLevelCredits } from '@/server/domain/levels/levelOwnership.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -31,12 +33,12 @@ function handleTeamError(res: Response, error: unknown, logLabel: string) {
 
 router.put(
   '/:id([0-9]{1,20})/team',
-  Auth.superAdmin(),
+  Auth.verified(),
   ApiDoc({
     operationId: 'v3PutLevelTeam',
     summary: 'Set level team (v3)',
     description:
-      'Assign or create a team for a level. Body: teamId?, name?, members?. Prefer over /v2/database/creators/level/:id/team. Super admin.',
+      'Assign or create a team for a level. Body: teamId?, name?, members?. Prefer over /v2/database/creators/level/:id/team. Level owner or super admin.',
     tags: ['Database', 'Levels', 'Teams', 'v3'],
     security: ['bearerAuth'],
     params: {id: idParamSpec},
@@ -52,7 +54,7 @@ router.put(
       },
       required: true,
     },
-    responses: {200: {description: 'Team updated'}, ...standardErrorResponses404500},
+    responses: {200: {description: 'Team updated'}, ...standardErrorResponses403404500},
   }),
   async (req: Request, res: Response) => {
     let transaction: Awaited<ReturnType<typeof sequelize.transaction>> | undefined;
@@ -62,6 +64,12 @@ router.put(
         return res.status(400).json({error: 'Invalid level id'});
       }
       transaction = await sequelize.transaction();
+      const access = await canManageLevelCredits(levelId, req.user, transaction);
+      if (!access.canManage) {
+        await safeTransactionRollback(transaction);
+        transaction = undefined;
+        return res.status(403).json({error: access.errorMessage});
+      }
       const team = await setLevelTeam(
         levelId,
         {
@@ -72,8 +80,13 @@ router.put(
         transaction,
       );
       await transaction.commit();
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      elasticsearchService.indexLevel(levelId);
+      transaction = undefined;
+      await elasticsearchService.indexLevel(levelId);
+      try {
+        await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all']);
+      } catch (cacheErr) {
+        logger.error('Error invalidating level cache after team update:', cacheErr);
+      }
       return res.json({
         message: 'Team updated successfully',
         team,
@@ -87,16 +100,16 @@ router.put(
 
 router.delete(
   '/:id([0-9]{1,20})/team',
-  Auth.superAdmin(),
+  Auth.verified(),
   ApiDoc({
     operationId: 'v3DeleteLevelTeam',
     summary: 'Remove level team (v3)',
     description:
-      'Remove team association from level. Deletes the team when unused elsewhere. Prefer over /v2/database/creators/level/:id/team. Super admin.',
+      'Remove team association from level. Deletes the team when unused elsewhere. Prefer over /v2/database/creators/level/:id/team. Level owner or super admin.',
     tags: ['Database', 'Levels', 'Teams', 'v3'],
     security: ['bearerAuth'],
     params: {id: idParamSpec},
-    responses: {200: {description: 'Team removed'}, ...standardErrorResponses404500},
+    responses: {200: {description: 'Team removed'}, ...standardErrorResponses403404500},
   }),
   async (req: Request, res: Response) => {
     let transaction: Awaited<ReturnType<typeof sequelize.transaction>> | undefined;
@@ -106,10 +119,21 @@ router.delete(
         return res.status(400).json({error: 'Invalid level id'});
       }
       transaction = await sequelize.transaction();
+      const access = await canManageLevelCredits(levelId, req.user, transaction);
+      if (!access.canManage) {
+        await safeTransactionRollback(transaction);
+        transaction = undefined;
+        return res.status(403).json({error: access.errorMessage});
+      }
       await clearLevelTeam(levelId, transaction);
       await transaction.commit();
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      elasticsearchService.indexLevel(levelId);
+      transaction = undefined;
+      await elasticsearchService.indexLevel(levelId);
+      try {
+        await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all']);
+      } catch (cacheErr) {
+        logger.error('Error invalidating level cache after team removal:', cacheErr);
+      }
       return res.json({message: 'Team association removed successfully'});
     } catch (error) {
       await safeTransactionRollback(transaction);

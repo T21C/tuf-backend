@@ -3,6 +3,7 @@ import Pass from './passes/Pass.js';
 import Player from './players/Player.js';
 import Rating from './levels/Rating.js';
 import RatingDetail from './levels/RatingDetail.js';
+import ZenRatingSession from './levels/ZenRatingSession.js';
 import RatingAccuracySample from './levels/RatingAccuracySample.js';
 import RatingAccuracyStats from './levels/RatingAccuracyStats.js';
 import Judgement from './passes/Judgement.js';
@@ -124,6 +125,7 @@ export const db = {
     Player,
     Rating,
     RatingDetail,
+    ZenRatingSession,
     RatingAccuracySample,
     RatingAccuracyStats,
     Judgement,

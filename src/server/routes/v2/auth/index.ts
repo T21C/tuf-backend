@@ -115,7 +115,7 @@ router.post(
     operationId: 'postAuthMfaVerify',
     summary: 'Verify login MFA',
     description:
-      'Confirm the login MFA code and issue a session. Optionally remember this device for 30 days.',
+      'Confirm the login MFA code and issue a session. Optionally remember this device for 120 days.',
     tags: ['Auth'],
     requestBody: {
       description: 'MFA code and remember-device flag',
