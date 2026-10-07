@@ -45,6 +45,17 @@ import {
   sendZenMediaReport,
 } from '@/server/services/ratings/zenRatingService.js';
 import {
+  assertNormalRatingAllowed,
+  assertZenSubmitAllowed,
+  deleteZenSession,
+  getHydratedZenSession,
+  upsertZenSession,
+} from '@/server/services/ratings/zenRatingSessionService.js';
+import {
+  nextRatedInZen,
+  ZenSessionError,
+} from '@/server/services/ratings/zenRatingSessionPayload.js';
+import {
   countOfficialRatingsInUtcMonth,
   enqueueTufStellarNomineeIfEligible,
 } from '@/server/services/ratings/tufStellarNomineeService.js';
@@ -299,6 +310,98 @@ router.post(
 );
 
 router.get(
+  '/zen/session',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getAdminRatingZenSession',
+    summary: 'Load saved Zen Mode session',
+    description:
+      'Returns the current user compact Zen deck plus hydrated rating cards. Missing or settled ids are dropped.',
+    tags: ['Admin', 'Rating'],
+    responses: { 200: { description: 'Zen session or null' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+      if (hasFlag(user, permissionFlags.RATING_BANNED)) {
+        return res.status(403).json({ error: 'User is banned from rating' });
+      }
+      const session = await getHydratedZenSession(user.id);
+      return res.json({ session });
+    } catch (error) {
+      logger.error('Error loading Zen session:', error);
+      return res.status(500).json({ error: 'Failed to load Zen session' });
+    }
+  }
+);
+
+router.put(
+  '/zen/session',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putAdminRatingZenSession',
+    summary: 'Save Zen Mode session',
+    description:
+      'Upsert compact Zen deck progress for the current user (rating ids, not full snapshots).',
+    tags: ['Admin', 'Rating'],
+    security: ['bearerAuth'],
+    requestBody: {
+      required: true,
+      schema: { type: 'object', additionalProperties: true },
+    },
+    responses: { 200: { description: 'Saved Zen session' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+      if (hasFlag(user, permissionFlags.RATING_BANNED)) {
+        return res.status(403).json({ error: 'User is banned from rating' });
+      }
+      const payload = await upsertZenSession(user.id, req.body);
+      return res.json({ session: payload });
+    } catch (error) {
+      if (error instanceof ZenSessionError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      logger.error('Error saving Zen session:', error);
+      return res.status(500).json({ error: 'Failed to save Zen session' });
+    }
+  }
+);
+
+router.delete(
+  '/zen/session',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deleteAdminRatingZenSession',
+    summary: 'Discard Zen Mode session',
+    description: 'Delete the current user saved Zen deck and progress.',
+    tags: ['Admin', 'Rating'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Zen session discarded' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+      await deleteZenSession(user.id);
+      return res.json({ ok: true });
+    } catch (error) {
+      logger.error('Error deleting Zen session:', error);
+      return res.status(500).json({ error: 'Failed to discard Zen session' });
+    }
+  }
+);
+
+router.get(
   '/by-level/:levelId',
   Auth.addUserToRequest(),
   ApiDoc({
@@ -436,6 +539,15 @@ router.put(
       }
 
       if (!rating || rating.trim() === '') {
+        try {
+          await assertNormalRatingAllowed(user.id);
+        } catch (error) {
+          await safeTransactionRollback(transaction);
+          if (error instanceof ZenSessionError) {
+            return res.status(error.status).json({ error: error.message });
+          }
+          throw error;
+        }
         await RatingDetail.destroy({
           where: {
             ratingId: id,
@@ -484,6 +596,24 @@ router.put(
         where: { ratingId: Number(id), userId: user.id },
         transaction,
       });
+      const ratedInZenDecision = nextRatedInZen(bodyRatedInZen, Boolean(existingDetail));
+      if (!ratedInZenDecision.ok) {
+        await safeTransactionRollback(transaction);
+        return res.status(ratedInZenDecision.status).json({ error: ratedInZenDecision.error });
+      }
+      try {
+        if (bodyRatedInZen) {
+          await assertZenSubmitAllowed(user.id, Number(id));
+        } else {
+          await assertNormalRatingAllowed(user.id);
+        }
+      } catch (error) {
+        await safeTransactionRollback(transaction);
+        if (error instanceof ZenSessionError) {
+          return res.status(error.status).json({ error: error.message });
+        }
+        throw error;
+      }
       const isNewOfficialRaterVote =
         !existingDetail &&
         !isCommunityRating &&
@@ -492,7 +622,7 @@ router.put(
       const priorOfficialCountThisMonth = isNewOfficialRaterVote
         ? await countOfficialRatingsInUtcMonth(user.id, nomineeNow, transaction)
         : 0;
-      const ratedInZen = bodyRatedInZen || Boolean(existingDetail?.ratedInZen);
+      const ratedInZen = ratedInZenDecision.ratedInZen;
 
       const parentRating = lockedRating;
 
@@ -630,6 +760,16 @@ router.delete(
       if (lockedRating.confirmedAt != null) {
         await safeTransactionRollback(transaction);
         return res.status(409).json({ error: 'Cannot change ratings after a level has been settled' });
+      }
+
+      try {
+        await assertNormalRatingAllowed(currentUser.id);
+      } catch (error) {
+        await safeTransactionRollback(transaction);
+        if (error instanceof ZenSessionError) {
+          return res.status(error.status).json({ error: error.message });
+        }
+        throw error;
       }
 
       await RatingDetail.destroy({

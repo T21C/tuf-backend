@@ -29,6 +29,20 @@ test('requestPguBand uses PGU tokens and legacy numbers without lowDiff', () => 
   assert.equal(requestPguBand('G10~12', null), 'G');
 });
 
+test('requestPguBand maps legacy feeling numbers to P below 20, G from 20, and U at 21', () => {
+  assert.equal(requestPguBand(null, '1'), 'P');
+  assert.equal(requestPguBand(null, '19'), 'P');
+  assert.equal(requestPguBand(null, '19+'), 'P');
+  assert.equal(requestPguBand(null, '20'), 'G');
+  assert.equal(requestPguBand(null, '20.0'), 'G');
+  assert.equal(requestPguBand(null, '20.7'), 'G');
+  assert.equal(requestPguBand(null, '20.9+'), 'G');
+  assert.equal(requestPguBand(null, '21'), 'U');
+  assert.equal(requestPguBand(null, '21.4'), 'U');
+  assert.equal(requestPguBand('19-20', null), 'G');
+  assert.equal(requestPguBand('20.7-21', null), 'U');
+});
+
 test('requestPguBand ranges take the highest resolved endpoint', () => {
   assert.equal(requestPguBand('P20-G1', null), 'G');
   assert.equal(requestPguBand('G20-U1', null), 'U');

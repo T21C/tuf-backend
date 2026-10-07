@@ -473,8 +473,12 @@ router.get(
         },
       ],
     });
-    // Rating query
- 
+    // Open rating holds the submitter request (requesterFR) while the level is in the queue.
+    const openRatingPromise = Rating.findOne({
+      where: { levelId, confirmedAt: null },
+      attributes: ['requesterFR'],
+    });
+
     // LevelRerateHistory query
     const rerateHistoryPromise = LevelRerateHistory.findAll({
       where: { levelId: levelId },
@@ -496,6 +500,7 @@ router.get(
       levelCredits,
       teamObject,
       curationsRows,
+      openRating,
       rerateHistory,
       tags,
       esLevelDoc
@@ -506,6 +511,7 @@ router.get(
       levelCreditsPromise,
       teamPromise,
       curationsPromise,
+      openRatingPromise,
       rerateHistoryPromise,
       tagsPromise,
       esLevelDocPromise
@@ -542,6 +548,7 @@ router.get(
       artist: getArtistDisplayName(level) || null,
       clears: esClears ?? level.clears,
       uniqueClears: esUniqueClears,
+      requesterFR: openRating?.requesterFR ?? '',
     };
     return res.json({
       level: assembledLevel,

@@ -96,6 +96,8 @@ export function parseRatingRange(
  * Universal floor convention: legacy 21 = U1 = Q0.
  */
 const PGU_LETTER_BASE: Record<string, number> = { P: 0, G: 20, U: 40 };
+/** Legacy feeling 20.0–20.9 sits in G; 21+ is universal. */
+const LEGACY_G_FLOOR = 20;
 const UNIVERSAL_LEGACY_FLOOR = 21;
 const UNIVERSAL_PGU_FLOOR = 41; // U1
 
@@ -223,6 +225,13 @@ function highestRequestBand(bands: RequestPguBand[]): RequestPguBand {
   return best ?? 'G';
 }
 
+/** Legacy feeling number → P (<20), G (20 up to but not including 21), U (>=21). */
+function bandFromLegacyFeeling(value: number): RequestPguBand {
+  if (value >= UNIVERSAL_LEGACY_FLOOR) return 'U';
+  if (value >= LEGACY_G_FLOOR) return 'G';
+  return 'P';
+}
+
 /** P/G/U letter, Q-bucket label, or legacy 1–21.x number; unrecognized tokens are skipped. */
 function bandFromRequestToken(token: string): RequestPguBand | null {
   const t = stripTrailingPlus(token.trim());
@@ -232,14 +241,15 @@ function bandFromRequestToken(token: string): RequestPguBand | null {
   const pgu = t.match(/^([PGU])([1-9]|1[0-9]|20)$/i);
   if (pgu?.[1]) return pgu[1].toUpperCase() as RequestPguBand;
   const legacy = legacyFeelingValue(t);
-  if (legacy !== null) return legacy >= UNIVERSAL_LEGACY_FLOOR ? 'U' : 'P';
+  if (legacy !== null) return bandFromLegacyFeeling(legacy);
   return null;
 }
 
 /**
  * Bucket a rating request for zen/list filters from the proposal string only
- * (rerateNum, else requesterFR). Q labels map to their letter; ranges take the
- * highest resolved endpoint (U > G > P). Unrecognized / empty text is G.
+ * (rerateNum, else requesterFR). Q labels map to their letter. Legacy feeling
+ * numbers map to P below 20, G from 20 up to but not including 21, and U at 21+.
+ * Ranges take the highest resolved endpoint (U > G > P). Unrecognized / empty text is G.
  */
 export function requestPguBand(
   rerateNum: string | null | undefined,
