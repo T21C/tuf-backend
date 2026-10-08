@@ -31,6 +31,7 @@ import {
 import { buildFieldSearchQuery } from '@/server/services/elasticsearch/search/levels/levelFieldQuery.js';
 import { specLevelCreditsByCreatorId } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQuerySpecs.js';
 import { shouldUseRegularSearch, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/tools/scrollHelpers.js';
+import { fetchDeepSearchPage } from '@/server/services/elasticsearch/search/tools/deepSearchPage.js';
 import {
   getSeededRandomSortOptions,
   isRandomSortParam,
@@ -268,8 +269,8 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       sort: await getLevelSortOptions(filters.sort),
       from: offset,
       size: limit,
-      track_total_hits: true, // Ensure accurate total count
-      track_scores: true // Keep scores for sorting
+      track_total_hits: true,
+      track_scores: true,
     }) as estypes.SearchResponse<LevelSearchView>;
 
     let diffs: Difficulty[] = [];
@@ -417,72 +418,30 @@ async function searchLevelsWithScroll(
       return searchLevelsWithRegularSearch(searchQuery, sortOptions, offset, limit);
     }
 
-    // Initialize scroll with optimized settings
-    const initialResponse = await client.search({
+    const query = optimizeQueryForScroll(searchQuery);
+    const { hits: windowHits, total } = await fetchDeepSearchPage({
+      label: 'levels',
       index: levelIndexName,
-      query: optimizeQueryForScroll(searchQuery),
+      query,
       sort: sortOptions,
-      size: Math.min(1000, offset + limit),
-      scroll: '1m',
-      track_total_hits: true, // Ensure accurate total count
-      track_scores: true // Keep scores for sorting
+      offset,
+      limit,
+      trackScores: true,
     });
+    const sources = windowHits.map((hit) => hit._source as Record<string, any>);
 
-    const scrollId = initialResponse._scroll_id;
-    let hits: Record<string, any>[] = [];
-    const total = initialResponse.hits.total ?
-      (typeof initialResponse.hits.total === 'number' ? initialResponse.hits.total : initialResponse.hits.total.value) : 0;
-
-    try {
-      // Process initial batch (sources only; difficulties loaded after final slice)
-      hits = initialResponse.hits.hits.map(hit => hit._source as Record<string, any>);
-
-      // If we need more results, continue scrolling
-      let scrollCount = 0;
-      const maxScrolls = Math.ceil((offset + limit) / 1000) + 1; // Add 1 for safety
-
-      while (hits.length < offset + limit && scrollCount < maxScrolls) {
-        const scrollResponse = await client.scroll({
-          scroll_id: scrollId,
-          scroll: '1m'
-        });
-
-        if (scrollResponse.hits.hits.length === 0) {
-          break; // No more results
-        }
-
-        const newHits = scrollResponse.hits.hits.map(hit => hit._source as Record<string, any>);
-
-        hits = hits.concat(newHits);
-        scrollCount++;
-
-        // Log progress for long-running scrolls
-        if (scrollCount % 5 === 0) {
-          logger.debug(`Scroll progress: ${hits.length} results fetched after ${scrollCount} scrolls`);
-        }
-      }
-
-      // Slice the results to get the requested range
-      const sources = hits.slice(offset, offset + limit);
-
-      let diffs: Difficulty[] = [];
-      if (sources.length > 0) {
-        diffs = await Difficulty.findAll({
-          where: {
-            id: { [Op.in]: sources.map((s) => s.diffId) },
-          },
-        });
-      }
-
-      const convertedHits = sources.map((source) => convertLevelSearchHit(source, diffs));
-
-      return { hits: convertedHits, total };
-    } finally {
-      // Clean up scroll context
-      if (scrollId) {
-        await client.clearScroll({ scroll_id: scrollId });
-      }
+    let diffs: Difficulty[] = [];
+    if (sources.length > 0) {
+      diffs = await Difficulty.findAll({
+        where: {
+          id: { [Op.in]: sources.map((s) => s.diffId) },
+        },
+      });
     }
+
+    const convertedHits = sources.map((source) => convertLevelSearchHit(source, diffs));
+
+    return { hits: convertedHits, total };
   } catch (error) {
     logger.error('Error in scroll search:', error);
     throw error;
@@ -502,7 +461,7 @@ async function searchLevelsWithRegularSearch(
       sort: sortOptions,
       from: offset,
       size: limit,
-      track_total_hits: true
+      track_total_hits: true,
     }) as estypes.SearchResponse<LevelSearchView>;
 
     let diffs: Difficulty[] = [];
