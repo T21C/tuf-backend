@@ -395,10 +395,16 @@ router.get(
   ApiDoc({
     operationId: 'getPassesByLevelId',
     summary: 'Get passes by level ID',
-    description: 'List all non-deleted passes for a level with players and judgements. Hidden passes visible only to owner or super admin.',
+    description: 'List passes for a level with players and judgements. Public responses omit deleted and hidden passes. Super admins may pass includeHidden=1 to include hidden and deleted clears (including banned players).',
     tags: ['Passes'],
     security: ['bearerAuth'],
     params: { levelId: { description: 'Level ID', schema: { type: 'string' } } },
+    query: {
+      includeHidden: {
+        description: 'When 1, super admins also receive hidden and deleted passes. Ignored for other users.',
+        schema: { type: 'string' },
+      },
+    },
     responses: { 200: { description: 'Array of passes' }, 404: { description: 'Level not found' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
@@ -410,13 +416,15 @@ router.get(
       }
 
       const parsedLevelId = parseInt(levelId);
+      const includeHiddenRequested = req.query.includeHidden === '1' || req.query.includeHidden === 'true';
+      const isSuperAdmin = !!(req.user && hasFlag(req.user, permissionFlags.SUPER_ADMIN));
+      const includeHiddenClears = includeHiddenRequested && isSuperAdmin;
 
       // Fetch passes
       const passesPromise = Pass.findAll({
         where: {
           levelId: parsedLevelId,
-          isDeleted: false,
-          isHidden: false,
+          ...(includeHiddenClears ? {} : { isDeleted: false, isHidden: false }),
         },
       }).then(async (passes) => {
         if (passes.length === 0) return [];
@@ -429,7 +437,7 @@ router.get(
           playerIds.length > 0 ? Player.findAll({
             where: {
               id: { [Op.in]: playerIds },
-              isBanned: false
+              ...(includeHiddenClears ? {} : { isBanned: false }),
             },
             include: [{
               model: User,
@@ -459,9 +467,7 @@ router.get(
           return acc;
         }, {} as Record<number, typeof judgements[0]>);
 
-        // Assemble passes with nested data and filter out passes with null players
         const userPlayerId = req.user?.playerId;
-        const isSuperAdmin = req.user && hasFlag(req.user, permissionFlags.SUPER_ADMIN);
 
         return passes
           .map(pass => {
@@ -473,20 +479,22 @@ router.get(
             };
           })
           .filter(pass => {
-            // Filter out passes with null players or judgements
             if (pass.player === null || pass.judgements === null) {
               return false;
             }
 
-            // Filter out hidden passes unless user is the owner or super admin
+            if (includeHiddenClears) {
+              return true;
+            }
+
             if (pass.isHidden) {
               if (isSuperAdmin) {
-                return true; // Super admins can see all passes
+                return true;
               }
               if (userPlayerId && pass.player?.id === userPlayerId) {
-                return true; // Users can see their own hidden passes
+                return true;
               }
-              return false; // Hidden passes are not visible to others
+              return false;
             }
 
             return true;
