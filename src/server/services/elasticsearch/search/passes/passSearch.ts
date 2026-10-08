@@ -17,6 +17,7 @@ import { buildPassFieldSearchQuery } from '@/server/services/elasticsearch/searc
 import { getDifficultySortOrderByDiffId } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/filterResolvers.js';
 import { buildPrimaryDifficultySortScript } from '@/server/services/elasticsearch/search/tools/primaryDifficultySort.js';
 import { shouldUseRegularSearch, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/tools/scrollHelpers.js';
+import { fetchDeepSearchPage } from '@/server/services/elasticsearch/search/tools/deepSearchPage.js';
 import {
   getSeededRandomSortOptions,
   isRandomSortParam,
@@ -217,7 +218,7 @@ export async function searchPasses(query: string, filters: any = {}, userPlayerI
       sort: await getPassSortOptions(filters.sort),
       from: offset,
       size: limit,
-      track_total_hits: true
+      track_total_hits: true,
     });
 
     // Convert PUA characters back to original special characters in the results
@@ -252,67 +253,18 @@ async function searchPassesWithScroll(
       return searchPassesWithRegularSearch(searchQuery, sortOptions, offset, limit);
     }
 
-    // Initialize scroll with optimized settings
-    const initialResponse = await client.search({
+    const { hits: windowHits, total } = await fetchDeepSearchPage({
+      label: 'passes',
       index: passIndexName,
       query: optimizeQueryForScroll(searchQuery),
       sort: sortOptions,
-      size: Math.min(1000, offset + limit),
-      scroll: '1m',
-      track_total_hits: true,
-      track_scores: true
+      offset,
+      limit,
+      trackScores: true,
     });
 
-    const scrollId = initialResponse._scroll_id;
-    let hits: any[] = [];
-    const total = initialResponse.hits.total ?
-      (typeof initialResponse.hits.total === 'number' ? initialResponse.hits.total : initialResponse.hits.total.value) : 0;
-
-    try {
-      // Process initial batch
-      hits = initialResponse.hits.hits.map(hit => {
-        const source = hit._source as Record<string, any>;
-        return convertPassSearchHit(source);
-      });
-
-      // If we need more results, continue scrolling
-      let scrollCount = 0;
-      const maxScrolls = Math.ceil((offset + limit) / 1000) + 1; // Add 1 for safety
-
-      while (hits.length < offset + limit && scrollCount < maxScrolls) {
-        const scrollResponse = await client.scroll({
-          scroll_id: scrollId,
-          scroll: '1m'
-        });
-
-        if (scrollResponse.hits.hits.length === 0) {
-          break; // No more results
-        }
-
-        const newHits = scrollResponse.hits.hits.map(hit => {
-          const source = hit._source as Record<string, any>;
-          return convertPassSearchHit(source);
-        });
-
-        hits = hits.concat(newHits);
-        scrollCount++;
-
-        // Log progress for long-running scrolls
-        if (scrollCount % 5 === 0) {
-          logger.debug(`Scroll progress: ${hits.length} results fetched after ${scrollCount} scrolls`);
-        }
-      }
-
-      // Slice the results to get the requested range
-      hits = hits.slice(offset, offset + limit);
-
-      return { hits, total };
-    } finally {
-      // Clean up scroll context
-      if (scrollId) {
-        await client.clearScroll({ scroll_id: scrollId });
-      }
-    }
+    const hits = windowHits.map((hit) => convertPassSearchHit(hit._source as Record<string, any>));
+    return { hits, total };
   } catch (error) {
     logger.error('Error in scroll search:', error);
     throw error;
@@ -332,7 +284,7 @@ async function searchPassesWithRegularSearch(
       sort: sortOptions,
       from: offset,
       size: limit,
-      track_total_hits: true
+      track_total_hits: true,
     });
 
     const hits = response.hits.hits.map(hit => {
@@ -389,7 +341,7 @@ async function getPassSortOptions(sort?: string): Promise<any[]> {
 
   switch (sort?.split('_').slice(0, -1).join('_')) {
     case 'RECENT':
-      return [{ vidUploadTime: direction }];
+      return [{ vidUploadTime: direction }, { id: 'desc' }];
     case 'SCORE':
       return [{ scoreV2: direction }, { id: 'desc' }];
     case 'XACC':
