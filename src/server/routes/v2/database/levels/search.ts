@@ -48,6 +48,11 @@ import {
   isRandomSortParam,
   resolveSearchSeed,
 } from '@/server/services/elasticsearch/search/tools/seededRandomSort.js';
+import { fetchLevelsByIdsFromElasticsearch } from '@/server/services/elasticsearch/search/levels/fetchLevelsByIdsFromElasticsearch.js';
+import {
+  parseLevelReferenceIds,
+  toLevelReference,
+} from '@/server/services/elasticsearch/search/levels/levelReferenceSerialize.js';
 
 const router: Router = Router()
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -232,6 +237,47 @@ router.get(
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+router.get(
+  '/references',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getLevelReferences',
+    summary: 'Get level reference cards',
+    description:
+      'Slim cards (id, difficulty, song, suffix) for comment #id mentions. Query: ids, comma-separated, max 40. Deleted and hidden levels are omitted.',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    query: {
+      ids: { description: 'Comma-separated level IDs', schema: { type: 'string' } },
+    },
+    responses: { 200: { description: 'Level reference cards' }, ...standardErrorResponses500 },
+  }),
+  Cache({
+    ttl: 300,
+    tags: (req) => [
+      'levels:all',
+      ...parseLevelReferenceIds(req.query.ids).map((id) => `level:${id}`),
+    ],
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const ids = parseLevelReferenceIds(req.query.ids);
+      if (ids.length === 0) {
+        return res.json({ results: [] });
+      }
+      const levels = await fetchLevelsByIdsFromElasticsearch(ids);
+      const results = ids.flatMap((id) => {
+        const card = toLevelReference(levels.get(id));
+        return card ? [card] : [];
+      });
+      return res.json({ results });
+    } catch (error) {
+      logger.error('Error fetching level references:', error);
+      return res.status(500).json({ error: 'Failed to fetch level references' });
+    }
+  }
+);
 
 router.get(
   '/byId/:id([0-9]{1,20})',

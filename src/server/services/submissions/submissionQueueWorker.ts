@@ -31,6 +31,7 @@ export async function runQueuedSubmissionItem(
     return 'skipped';
   }
 
+  await SubmissionJobService.attachDeclineReason(payload);
   await SubmissionJobService.markItemProcessing(payload.kind, payload.itemId);
   try {
     const result = await processQueuedSubmission(payload, async stepId => {

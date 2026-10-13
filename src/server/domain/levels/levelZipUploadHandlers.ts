@@ -28,7 +28,9 @@ import {
   parseSteamWorkshopPublishedFileId,
 } from '@/misc/utils/data/steamWorkshopLevelZip.js';
 import {
+  adjustPassesForMidspinChange,
   applyLevelChartStatsFromCdn,
+  invalidateLevelCaches,
   rebuildCdnCacheAndApplyLevelChartStats,
 } from '@/misc/utils/data/levelChartStatsSync.js';
 import { tagAssignmentService } from '@/server/services/data/TagAssignmentService.js';
@@ -657,6 +659,11 @@ export async function handleDeleteLevelZipUpload(req: Request, res: Response): P
     if (!fileId) {
       throw { error: 'Level does not have a CDN-managed file', code: 400 };
     }
+    const chartBeforeDelete = {
+      tilecount: level.tilecount ?? null,
+      autoTileCount: level.autoTileCount ?? null,
+      midspinCount: level.midspinCount ?? null,
+    };
     logger.debug(`Deleting file from CDN: ${fileId}`);
     await cdnService.deleteFileForStoredUrl(level.dlLink, fileId);
 
@@ -676,6 +683,23 @@ export async function handleDeleteLevelZipUpload(req: Request, res: Response): P
     );
 
     await transaction.commit();
+
+    try {
+      await adjustPassesForMidspinChange({
+        levelId,
+        before: chartBeforeDelete,
+        nextTilecount: null,
+        nextAutoTileCount: null,
+        nextMidspinCount: null,
+      });
+      await elasticsearchService.indexLevel(levelId);
+      await invalidateLevelCaches(levelId);
+    } catch (passError) {
+      logger.error(
+        `Chart file for level ${levelId} was deleted, but exact-pass Perfects were not adjusted for the cleared midspin count:`,
+        passError,
+      );
+    }
 
     try {
       await logLevelFileDeleteHook(levelId, getUserModel(req.user));

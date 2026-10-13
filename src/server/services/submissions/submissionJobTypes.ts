@@ -33,6 +33,8 @@ export type SubmissionItemState = {
   levelId?: number | null;
   passId?: number | null;
   error?: string;
+  /** Decline note shown in the processing drawer. Null when the decline had no reason. */
+  reason?: string | null;
   updatedAt: number;
 };
 
@@ -49,6 +51,8 @@ export type SubmissionRequestState = {
   createdAt: number;
   updatedAt: number;
   error?: string;
+  /** Decline note for this request. Null when the decline had no reason. */
+  reason?: string | null;
 };
 
 export type SubmissionRequestTree = SubmissionRequestState & {

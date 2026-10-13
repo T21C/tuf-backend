@@ -89,27 +89,18 @@ export type MidspinDifferenceSkipReason =
   | 'no_change';
 
 /**
- * Exact hit totals that may receive a midspin Perfects difference.
- * First-time set (old 0 → new N): only tilecount + N (uncorrected extras).
- * Correction (old M → new N): tilecount (already rewritten) and tilecount + M.
+ * Hit total that may receive a midspin Perfects difference: the chart's
+ * playable tilecount (persisted tiles minus auto tiles). The midspin delta
+ * itself does not change which passes match. Passes above or below this
+ * total are left alone.
  */
 export function exactHitTotalsForMidspinDifference(
   tilecount: unknown,
   autoTileCount: unknown,
-  oldMidspinCount: unknown,
-  newMidspinCount: unknown,
 ): Set<number> {
   const totals = new Set<number>();
   const playable = effectiveChartTilecount(tilecount, autoTileCount);
-  if (playable == null) return totals;
-  const oldM = midspinCountOrZero(oldMidspinCount);
-  const newM = midspinCountOrZero(newMidspinCount);
-  if (oldM === 0) {
-    if (newM > 0) totals.add(playable + newM);
-    return totals;
-  }
-  totals.add(playable);
-  totals.add(playable + oldM);
+  if (playable != null) totals.add(playable);
   return totals;
 }
 
@@ -119,8 +110,6 @@ export function shouldApplyMidspinPerfectsDifference(params: {
   adofaiVersion: number;
   tilecount: unknown;
   autoTileCount?: unknown;
-  oldMidspinCount: unknown;
-  newMidspinCount: unknown;
   perfectDelta: number;
 }): {apply: boolean; reason: MidspinDifferenceSkipReason | null} {
   if (!isLegacyAdofaiVersion(params.adofaiVersion)) {
@@ -136,8 +125,6 @@ export function shouldApplyMidspinPerfectsDifference(params: {
   const totals = exactHitTotalsForMidspinDifference(
     params.tilecount,
     params.autoTileCount,
-    params.oldMidspinCount,
-    params.newMidspinCount,
   );
   const hits = judgementHitCount(params.judgements);
   if (!totals.has(hits)) {

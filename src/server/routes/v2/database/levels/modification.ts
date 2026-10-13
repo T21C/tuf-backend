@@ -1595,13 +1595,13 @@ router.patch(
     operationId: 'patchLevelChartStats',
     summary: 'Update level chart stats (non-CDN)',
     description:
-      'Super admin only. Sets bpm, tilecount, levelLengthInMs, autoTileCount, and/or midspinCount for levels whose download is not CDN-managed. CDN levels must use chart sync from the uploaded file. Optional applyPerfectsDifference adds (oldMidspin - newMidspin) to Perfect on every pass of the level.',
+      'Super admin only. Sets bpm, tilecount, levelLengthInMs, autoTileCount, and/or midspinCount for levels whose download is not CDN-managed. CDN levels must use chart sync from the uploaded file. Optional applyPerfectsDifference adds (oldMidspin - newMidspin) to Perfect on legacy passes whose hit total exactly equals the tile count stored before this save.',
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
     requestBody: {
       description:
-        'At least one of bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount (null clears). Optional applyPerfectsDifference updates pass Perfects by the midspin delta.',
+        'At least one of bpm, tilecount, levelLengthInMs, autoTileCount, midspinCount (null clears). Optional applyPerfectsDifference updates Perfect on legacy passes that exactly match the stored tile count, by the midspin delta.',
       schema: {
         type: 'object',
         properties: {
@@ -1674,6 +1674,7 @@ router.patch(
             levelId,
             oldMidspinCount,
             newMidspinCount,
+            // Match passes against the tile count they were exact for, before this save.
             tilecount: level.tilecount ?? null,
             autoTileCount: level.autoTileCount ?? null,
           });
@@ -1711,7 +1712,7 @@ router.patch(
       const chartFieldsChanged =
         Object.prototype.hasOwnProperty.call(parsed.update, 'tilecount') ||
         Object.prototype.hasOwnProperty.call(parsed.update, 'autoTileCount');
-      if (chartFieldsChanged) {
+      if (chartFieldsChanged || passDiffApplied) {
         try {
           const flagPassIds = await syncWrongJudgementFlagsForLevel({
             levelId,
