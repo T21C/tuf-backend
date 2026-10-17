@@ -3,7 +3,8 @@
  * Membership follows UN M49, with Central America and the Caribbean in North America.
  * Transcontinental countries use their UN region: Russia is Europe; Turkey, Cyprus,
  * Kazakhstan, and the Caucasus are Asia.
- * Keep codes in sync with client/src/utils/continents.js.
+ * Keep codes in sync with client/src/utils/continents.js and countryCodes.js.
+ * The contract copy checked in CI lives in countryFilter.test.ts.
  */
 export const CONTINENT_COUNTRY_CODES: Record<string, readonly string[]> = {
   AFR: [
