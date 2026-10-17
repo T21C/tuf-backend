@@ -98,6 +98,52 @@ export type SetPlayerBanStatusInput =
   | {isBanned: false}
   | {isBanned: true; bannedUntil: Date};
 
+export type SetRerateRequestBanInput =
+  | {banned: false}
+  | {banned: true; bannedUntil: Date};
+
+export async function setRerateRequestBanStatus(
+  playerId: number,
+  input: SetRerateRequestBanInput,
+): Promise<Player> {
+  let transaction: Transaction | undefined;
+  try {
+    transaction = await sequelize.transaction();
+    const player = await Player.findByPk(playerId, {
+      transaction,
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'playerId', 'nickname', 'username', 'permissionFlags', 'permissionVersion'],
+        },
+      ],
+    });
+    if (!player) {
+      throw new PlayerBanError(404, 'Player not found');
+    }
+    const bannedUntil = input.banned ? input.bannedUntil : null;
+    await player.update({rerateRequestBannedUntil: bannedUntil}, {transaction});
+    if (player.user) {
+      await setUserPermissionAndSave(
+        player.user,
+        permissionFlags.RERATE_REQUEST_BANNED,
+        input.banned,
+        transaction,
+      );
+    }
+    await transaction.commit();
+    transaction = undefined;
+    if (player.user) {
+      await CacheInvalidation.invalidateUser(player.user.id);
+    }
+    return player;
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    throw error;
+  }
+}
+
 export async function setPlayerBanStatus(
   playerId: number,
   input: SetPlayerBanStatusInput,

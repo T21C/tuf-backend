@@ -46,6 +46,10 @@ import {
   invalidateRatingAccuracyCache,
 } from '@/server/services/ratings/ratingAccuracyService.js';
 import {ensureOpenRating} from '@/server/services/ratings/openRatingService.js';
+import {
+  attachOpenRatingToLevelRequest,
+  completeLevelRequestForSettledRating,
+} from '@/server/services/requests/levelRequestService.js';
 import { logLevelMetadataUpdateHook } from '@/server/routes/v2/webhooks/misc.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import { TAG_GROUP_INCLUDE } from '@/server/services/data/levelTagGroupService.js';
@@ -253,7 +257,7 @@ const handleRatingChanges = async (
         ? /^[pP]\d/.test(req.body.rerateNum)
         : false;
 
-      await ensureOpenRating(
+      const opened = await ensureOpenRating(
         level.id,
         {
           lowDiff,
@@ -263,6 +267,7 @@ const handleRatingChanges = async (
         },
         transaction,
       );
+      await attachOpenRatingToLevelRequest(level.id, opened.rating.id, transaction);
       return {settledRatingId: null};
     }
 
@@ -281,6 +286,15 @@ const handleRatingChanges = async (
           requesterFR: req.body.rerateNum || level.rerateNum || existingRating.requesterFR,
         },
         {transaction},
+      );
+      const settledDiffId =
+        req.body.diffId !== undefined && req.body.diffId !== null
+          ? Number(req.body.diffId)
+          : level.diffId;
+      await completeLevelRequestForSettledRating(
+        Number(existingRating.id),
+        Number.isFinite(settledDiffId) ? settledDiffId : null,
+        transaction,
       );
       return {settledRatingId: Number(existingRating.id)};
     }

@@ -15,6 +15,7 @@ import oauthClientsRoutes from './oauthClients.js';
 import usefulLinksRoutes from './usefulLinks.js';
 import modsRoutes from './mods.js';
 import botModsRoutes from './botMods.js';
+import artistVerificationRoutes from './artistVerification.js';
 import translationContributorsRoutes from './translationContributors.js';
 import keyboardsRoutes from './keyboards.js';
 // Import other admin routes here
@@ -39,6 +40,7 @@ router.use('/oauth-clients', oauthClientsRoutes);
 router.use('/useful-links', usefulLinksRoutes);
 router.use('/mods', modsRoutes);
 router.use('/bot-mods', botModsRoutes);
+router.use('/artist-verification', artistVerificationRoutes);
 router.use('/translation-contributors', translationContributorsRoutes);
 router.use('/keyboards', keyboardsRoutes);
 

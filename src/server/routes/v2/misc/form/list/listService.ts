@@ -35,6 +35,10 @@ export type MySubmissionDto = {
     charter?: string | null;
     requestedDiff?: string | null;
   };
+  /** Set by the mappers and removed before the response is returned. */
+  createdLevelId?: number | null;
+  /** Set by the mappers and removed before the response is returned. */
+  createdPassId?: number | null;
 };
 
 export type ListMySubmissionsParams = {
@@ -274,6 +278,7 @@ function mapPassDto(row: PassSubmission): MySubmissionDto {
       accuracy: typeof accuracy === 'number' && Number.isFinite(accuracy) ? accuracy : null,
       speed: json.speed ?? null,
     },
+    createdPassId: json.passId ?? null,
   };
 }
 
@@ -297,6 +302,7 @@ function mapLevelDto(row: LevelSubmission): MySubmissionDto {
       charter: json.charter || null,
       requestedDiff: json.diff || null,
     },
+    createdLevelId: json.levelId ?? null,
   };
 }
 

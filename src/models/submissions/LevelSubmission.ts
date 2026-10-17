@@ -33,6 +33,8 @@ class LevelSubmission extends BaseModel {
   declare teamId: number | null;
   declare teamRequest: boolean;
   declare userId: string | null;
+  /** Chart created when this submission was approved. */
+  declare levelId: number | null;
   declare songId: number | null;
   declare artistId: number | null;
   declare songRequestId: number | null;
@@ -150,6 +152,17 @@ LevelSubmission.init(
         key: 'id',
       },
     },
+    levelId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+      references: {
+        model: 'levels',
+        key: 'id',
+      },
+      onDelete: 'SET NULL',
+      onUpdate: 'CASCADE',
+    },
     songId: {
       type: DataTypes.INTEGER,
       allowNull: true,
@@ -199,6 +212,7 @@ LevelSubmission.init(
       {fields: ['artist']},
       {fields: ['status']},
       {fields: ['userId']},
+      {fields: ['levelId'], unique: true, name: 'level_submissions_levelId_unique'},
       {fields: ['songId']},
       {fields: ['artistId']},
       {fields: ['songRequestId']},

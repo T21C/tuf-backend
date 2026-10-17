@@ -2,9 +2,27 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   isUniversalRatingProposal,
+  isDiscordVoteCard,
+  isVoteRerateLabel,
   requestPguBand,
   includeRequestBandsFromFlags,
 } from './RatingUtils.js';
+
+test('isVoteRerateLabel matches the rating card VOTE prefix', () => {
+  assert.equal(isVoteRerateLabel('vote'), true);
+  assert.equal(isVoteRerateLabel('Vote U1'), true);
+  assert.equal(isVoteRerateLabel('vote G12'), true);
+  assert.equal(isVoteRerateLabel('VOTE'), true);
+  assert.equal(isVoteRerateLabel('G20'), false);
+  assert.equal(isVoteRerateLabel(''), false);
+  assert.equal(isVoteRerateLabel(null), false);
+});
+
+test('isDiscordVoteCard treats pipeline vote cards as votes even without a vote prefix', () => {
+  assert.equal(isDiscordVoteCard({rerateNum: 'G12', immediateSettle: true}), true);
+  assert.equal(isDiscordVoteCard({rerateNum: 'G12', requestStatus: 'discord_vote'}), true);
+  assert.equal(isDiscordVoteCard({rerateNum: 'G12'}), false);
+});
 
 test('requestPguBand uses universal proposal as U', () => {
   assert.equal(requestPguBand('U1', null), 'U');

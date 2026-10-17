@@ -22,6 +22,7 @@ export const NOTIFICATION_TYPES = {
   ChartCleared: 'chart.cleared',
   FollowingPlayerPass: 'following.player.pass',
   FollowingCreatorLevel: 'following.creator.level',
+  RequestUpdated: 'request.updated',
 } as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];
@@ -76,6 +77,24 @@ export const chartRatedPayloadSchema = chartSnapshotPayloadSchema.extend({
 
 export type ChartRatedPayload = z.infer<typeof chartRatedPayloadSchema>;
 
+export const requestUpdatedPayloadSchema = z.object({
+  requestId: z.number().int().positive(),
+  requestType: z.string(),
+  status: z.string(),
+  levelId: z.number().int().positive(),
+  song: z.string().nullable(),
+  artist: z.string().nullable(),
+  suffix: z.string().nullable().optional(),
+  event: z.enum(['status', 'note']).optional(),
+  publicNote: z.string().max(4000).nullable().optional(),
+  actorName: z.string().nullable().optional(),
+  requestedRating: z.string().nullable().optional(),
+  previousDifficulty: z.string().nullable().optional(),
+  settledDifficulty: z.string().nullable().optional(),
+});
+
+export type RequestUpdatedPayload = z.infer<typeof requestUpdatedPayloadSchema>;
+
 export const chartWeeklyPayloadSchema = chartSnapshotPayloadSchema.extend({
   weekStart: z.string(),
 });
@@ -127,6 +146,7 @@ export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.ChartModified]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartSwapped]: ChartSwappedPayload;
   [NOTIFICATION_TYPES.ChartRated]: ChartRatedPayload;
+  [NOTIFICATION_TYPES.RequestUpdated]: RequestUpdatedPayload;
   [NOTIFICATION_TYPES.ChartCurated]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartCurationRemoved]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartWeeklySelected]: ChartWeeklyPayload;
@@ -317,6 +337,12 @@ const notificationTypeRegistry: {
     'following',
     followingCreatorLevelPayloadSchema,
     levelHref,
+  ),
+  [NOTIFICATION_TYPES.RequestUpdated]: def(
+    NOTIFICATION_TYPES.RequestUpdated,
+    'submissions',
+    requestUpdatedPayloadSchema,
+    (payload) => `/submissions?tab=requests&request=${payload.requestId}`,
   ),
 };
 

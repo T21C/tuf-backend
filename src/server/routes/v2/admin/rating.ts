@@ -1,5 +1,6 @@
 import Rating from '@/models/levels/Rating.js';
 import Level from '@/models/levels/Level.js';
+import LevelRequest from '@/models/levels/LevelRequest.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import {
   standardErrorResponses,
@@ -12,6 +13,7 @@ import sequelize from '@/config/db.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import User from '@/models/auth/User.js';
 import { Router, Request, Response, NextFunction } from 'express';
+import type { Transaction } from 'sequelize';
 import Team from '@/models/credits/Team.js';
 import { TeamAlias } from '@/models/credits/TeamAlias.js';
 import Creator from '@/models/credits/Creator.js';
@@ -24,7 +26,7 @@ import SongCredit from '@/models/songs/SongCredit.js';
 import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { calculateAverageRating } from '@/misc/utils/data/RatingUtils.js';
+import { calculateAverageRating, isDiscordVoteCard } from '@/misc/utils/data/RatingUtils.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
@@ -63,6 +65,25 @@ import {
 const router: Router = Router();
 
 const MAX_RATING_COMMENT_LENGTH = 10_000;
+
+async function isLockedVoteCard(ratingId: number, levelId: number, transaction: Transaction) {
+  const [level, rating, request] = await Promise.all([
+    Level.findByPk(levelId, {attributes: ['rerateNum'], transaction}),
+    Rating.findByPk(ratingId, {attributes: ['requesterFR'], transaction}),
+    LevelRequest.findOne({
+      where: {linkedRatingId: ratingId, type: 'rerate'},
+      attributes: ['immediateSettle', 'status', 'discordMessageUrl'],
+      transaction,
+    }),
+  ]);
+  return isDiscordVoteCard({
+    rerateNum: level?.rerateNum,
+    requesterFR: rating?.requesterFR,
+    immediateSettle: request?.immediateSettle,
+    requestStatus: request?.status,
+    discordMessageUrl: request?.discordMessageUrl,
+  });
+}
 
 /** Level includes for mutation / complete responses (aliases for song, artist, creators, team). */
 const ratingLevelSearchIncludes = [
@@ -521,7 +542,7 @@ router.put(
       }
 
       const lockedRating = await Rating.findByPk(Number(id), {
-        attributes: ['id', 'confirmedAt', 'createdAt'],
+        attributes: ['id', 'levelId', 'confirmedAt', 'createdAt'],
         transaction,
       });
       if (!lockedRating) {
@@ -531,6 +552,12 @@ router.put(
       if (lockedRating.confirmedAt != null) {
         await safeTransactionRollback(transaction);
         return res.status(409).json({ error: 'Cannot change ratings after a level has been settled' });
+      }
+      if (await isLockedVoteCard(lockedRating.id, lockedRating.levelId, transaction)) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({
+          error: 'Vote cards are settled from Discord and cannot be rated on the site',
+        });
       }
 
       if (!isCommunityRating && !hasFlag(user, permissionFlags.RATER)) {
@@ -750,7 +777,7 @@ router.delete(
       }
 
       const lockedRating = await Rating.findByPk(Number(id), {
-        attributes: ['id', 'confirmedAt'],
+        attributes: ['id', 'levelId', 'confirmedAt'],
         transaction,
       });
       if (!lockedRating) {
@@ -760,6 +787,12 @@ router.delete(
       if (lockedRating.confirmedAt != null) {
         await safeTransactionRollback(transaction);
         return res.status(409).json({ error: 'Cannot change ratings after a level has been settled' });
+      }
+      if (await isLockedVoteCard(lockedRating.id, lockedRating.levelId, transaction)) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({
+          error: 'Vote cards are settled from Discord and cannot be rated on the site',
+        });
       }
 
       try {

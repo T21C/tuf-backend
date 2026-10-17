@@ -10,6 +10,7 @@ import creatorRoutes from './creators.js';
 import artistsRoutes from './artists.js';
 import songsRoutes from './songs.js';
 import tournamentsRoutes from './tournaments.js';
+import levelRequestRoutes from './levelRequests.js';
 
 export default function createDatabaseRouter(): Router {
   const router = Router();
@@ -26,6 +27,7 @@ export default function createDatabaseRouter(): Router {
   router.use('/artists', artistsRoutes);
   router.use('/songs', songsRoutes);
   router.use('/tournaments', tournamentsRoutes);
+  router.use('/level-requests', levelRequestRoutes);
 
   return router;
 }
