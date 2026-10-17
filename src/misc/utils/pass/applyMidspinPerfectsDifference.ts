@@ -28,8 +28,9 @@ function emptyResult(delta: number): MidspinPerfectsDifferenceResult {
 }
 
 /**
- * Add `oldMidspin - newMidspin` to Perfect on passes whose hit total exactly
- * matches tilecount (or tilecount + old midspin). Inexact/invalid clears are skipped.
+ * Add `oldMidspin - newMidspin` to Perfect on legacy passes whose hit total
+ * exactly equals the chart tilecount from before this change. +3 midspins
+ * subtracts 3 Perfects from those passes. Every other pass is skipped.
  */
 export async function applyMidspinPerfectsDifferenceToLevelPasses(params: {
   levelId: number;
@@ -98,8 +99,6 @@ export async function applyMidspinPerfectsDifferenceToLevelPasses(params: {
         adofaiVersion: parseAdofaiVersion(pass.adofaiVersion),
         tilecount: params.tilecount,
         autoTileCount: params.autoTileCount,
-        oldMidspinCount: params.oldMidspinCount,
-        newMidspinCount: params.newMidspinCount,
         perfectDelta: delta,
       });
       if (!gate.apply) {

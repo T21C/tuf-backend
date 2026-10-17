@@ -27,6 +27,7 @@ class Player
   declare isBanned: boolean;
   /** Temporary ban expiry. Null with isBanned means permanent / not timed. */
   declare bannedUntil: Date | null;
+  declare rerateRequestBannedUntil: Date | null;
   declare isSubmissionsPaused: boolean;
   declare pfp: string | null;
   /** Placement ids pinned on the profile tournaments section (max 5). */
@@ -72,6 +73,11 @@ Player.init(
       defaultValue: false,
     },
     bannedUntil: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    rerateRequestBannedUntil: {
       type: DataTypes.DATE,
       allowNull: true,
       defaultValue: null,

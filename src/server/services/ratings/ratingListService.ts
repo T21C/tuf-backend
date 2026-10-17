@@ -5,6 +5,7 @@ import Rating from '@/models/levels/Rating.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import RatingAccuracySample from '@/models/levels/RatingAccuracySample.js';
 import Level from '@/models/levels/Level.js';
+import LevelRequest from '@/models/levels/LevelRequest.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import Pass from '@/models/passes/Pass.js';
 import User from '@/models/auth/User.js';
@@ -14,6 +15,7 @@ import { pruneLevelForRatingList } from '@/server/services/elasticsearch/search/
 import { getOrFetchCacheLayer } from '@/server/middleware/stackedCacheLayers.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import {
+  isDiscordVoteCard,
   isUniversalRatingProposal,
   requestPguBand,
   includeRequestBandsFromFlags,
@@ -24,6 +26,8 @@ import { parseZenIncludeBands } from '@/server/services/ratings/zenRatingConstan
 import {
   attachSerializedAccuracySamples,
 } from '@/server/services/ratings/ratingAccuracyService.js';
+
+const DISCORD_VOTE_LEVEL_IDS_SQL = `(SELECT DISTINCT levelId FROM level_requests WHERE type = 'rerate' AND linkedRatingId IS NOT NULL AND (immediateSettle = 1 OR status = 'discord_vote' OR discordMessageUrl IS NOT NULL))`;
 
 export const RATING_LIST_PAGE_SIZE = 30;
 export const RATING_LIST_CACHE_TTL_SEC = 300;
@@ -351,6 +355,26 @@ export async function hydrateRatingListRows(
     detailsByRatingId.set(d.ratingId, list);
   }
 
+  const linkedRequests = await LevelRequest.findAll({
+    where: {
+      linkedRatingId: {[Op.in]: ratingIds},
+      type: 'rerate',
+    },
+    attributes: ['linkedRatingId', 'immediateSettle', 'status', 'discordMessageUrl'],
+  });
+  const voteByRatingId = new Map<number, boolean>();
+  for (const request of linkedRequests) {
+    if (request.linkedRatingId == null) continue;
+    voteByRatingId.set(
+      request.linkedRatingId,
+      isDiscordVoteCard({
+        immediateSettle: request.immediateSettle,
+        requestStatus: request.status,
+        discordMessageUrl: request.discordMessageUrl,
+      }),
+    );
+  }
+
   const rows: Record<string, unknown>[] = [];
   for (const rating of ratings) {
     const level = levelsById.get(rating.levelId);
@@ -376,6 +400,14 @@ export async function hydrateRatingListRows(
     const plain = rating.toJSON() as unknown as Record<string, unknown>;
     delete plain.level;
     plain.level = level;
+    const rerateNum = typeof level.rerateNum === 'string' ? level.rerateNum : null;
+    plain.isDiscordVote = Boolean(
+      voteByRatingId.get(rating.id) ||
+      isDiscordVoteCard({
+        rerateNum,
+        requesterFR: typeof rating.requesterFR === 'string' ? rating.requesterFR : null,
+      }),
+    );
     plain.details = slimDetails(
       (detailsByRatingId.get(rating.id) || []).map((d) => ({
         id: d.id,
@@ -469,13 +501,23 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
   }
 
   if (params.vote === 'only') {
-    levelWhere.rerateNum = { [Op.regexp]: '^vote' };
-  } else if (params.vote === 'exclude') {
     Object.assign(levelWhere, {
       [Op.or]: [
-        { rerateNum: { [Op.is]: null } },
-        { rerateNum: '' },
-        { rerateNum: { [Op.notRegexp]: '^vote' } },
+        {rerateNum: {[Op.regexp]: '^vote'}},
+        {id: {[Op.in]: literal(DISCORD_VOTE_LEVEL_IDS_SQL)}},
+      ],
+    });
+  } else if (params.vote === 'exclude') {
+    Object.assign(levelWhere, {
+      [Op.and]: [
+        {
+          [Op.or]: [
+            {rerateNum: {[Op.is]: null}},
+            {rerateNum: ''},
+            {rerateNum: {[Op.notRegexp]: '^vote'}},
+          ],
+        },
+        {id: {[Op.notIn]: literal(DISCORD_VOTE_LEVEL_IDS_SQL)}},
       ],
     });
   }
@@ -488,10 +530,15 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
     // Match legacy client: hide also hid VOTE queue entries
     if (params.myRated === 'hide' && !params.vote) {
       Object.assign(levelWhere, {
-        [Op.or]: [
-          { rerateNum: { [Op.is]: null } },
-          { rerateNum: '' },
-          { rerateNum: { [Op.notRegexp]: '^vote' } },
+        [Op.and]: [
+          {
+            [Op.or]: [
+              {rerateNum: {[Op.is]: null}},
+              {rerateNum: ''},
+              {rerateNum: {[Op.notRegexp]: '^vote'}},
+            ],
+          },
+          {id: {[Op.notIn]: literal(DISCORD_VOTE_LEVEL_IDS_SQL)}},
         ],
       });
     }
@@ -740,6 +787,19 @@ export async function buildCompleteRatingById(
   }
 
   attachSerializedAccuracySamples(plain);
+
+  const linkedRequest = await LevelRequest.findOne({
+    where: {linkedRatingId: ratingId, type: 'rerate'},
+    attributes: ['immediateSettle', 'status', 'discordMessageUrl'],
+  });
+  const completeLevel = plain.level as {rerateNum?: string | null} | undefined;
+  plain.isDiscordVote = isDiscordVoteCard({
+    rerateNum: completeLevel?.rerateNum ?? null,
+    requesterFR: typeof plain.requesterFR === 'string' ? plain.requesterFR : null,
+    immediateSettle: linkedRequest?.immediateSettle,
+    requestStatus: linkedRequest?.status,
+    discordMessageUrl: linkedRequest?.discordMessageUrl,
+  });
 
   return plain;
 }

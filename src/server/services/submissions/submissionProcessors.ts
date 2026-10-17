@@ -411,7 +411,7 @@ async function processLevelApprove(
     }
 
     await LevelSubmission.update(
-      { status: 'approved', toRate: true },
+      { status: 'approved', toRate: true, levelId: newLevel.id },
       { where: { id: submissionId }, transaction },
     );
 

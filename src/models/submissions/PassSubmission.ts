@@ -16,6 +16,8 @@ class PassSubmission extends BaseModel {
   declare isLocked: boolean;
   declare assignedPlayerId: number | null;
   declare levelId: number;
+  /** Pass created when this submission was approved. */
+  declare passId: number | null;
   declare speed: number | null;
   declare is12K: boolean;
   declare is16K: boolean;
@@ -111,6 +113,17 @@ PassSubmission.init(
         key: 'id',
       },
     },
+    passId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+      references: {
+        model: 'passes',
+        key: 'id',
+      },
+      onDelete: 'SET NULL',
+      onUpdate: 'CASCADE',
+    },
     speed: {
       type: DataTypes.FLOAT,
       allowNull: true,
@@ -174,6 +187,7 @@ PassSubmission.init(
       {fields: ['status']},
       {fields: ['assignedPlayerId']},
       {fields: ['levelId']},
+      {fields: ['passId'], unique: true, name: 'pass_submissions_passId_unique'},
       {fields: ['userId']},
       {fields: ['userId', 'createdAt']},
     ],

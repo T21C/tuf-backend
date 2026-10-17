@@ -1,6 +1,7 @@
 import client, { playerIndexName } from '@/config/elasticsearch.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { applyIdsFilter, rangeOnField, termField } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
+import { continentCountries } from '@/server/services/elasticsearch/search/players/countryFilter.js';
+import { applyIdsFilter, rangeOnField, termField, termsField } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 import {
   clampRankRange,
   intersectRankedScoreFilters,
@@ -29,7 +30,7 @@ export interface PlayerSearchOptions {
   flagMode?: PlayerFlagMode;
   /** @deprecated Use `flagField` + `flagMode`. Kept for backward compatibility. */
   showBanned?: PlayerFlagMode;
-  /** Range filters (numeric metrics, `country` exact match, optional `rankedScoreRank` `[min, max]`). */
+  /** Range filters (numeric metrics, `country` exact match or continent code, optional `rankedScoreRank` `[min, max]`). */
   filters?: Record<string, [number, number] | string>;
   /** Sort key (see mapping below). */
   sortBy?: string;
@@ -408,7 +409,12 @@ function buildPlayerQuery(
     for (const [key, value] of Object.entries(options.filters)) {
       if (key === 'rankedScoreRank') continue;
       if (key === 'country' && typeof value === 'string' && value.length > 0) {
-        filter.push(termField('country', value));
+        const members = continentCountries(value);
+        if (members) {
+          filter.push(termsField('country', [...members]));
+        } else {
+          filter.push(termField('country', value));
+        }
         continue;
       }
       if (key === 'rankedScore' && rankOverride) continue;

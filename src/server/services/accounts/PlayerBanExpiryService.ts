@@ -2,7 +2,10 @@ import {CronJob} from 'cron';
 import {Op} from 'sequelize';
 import Player from '@/models/players/Player.js';
 import {logger} from '@/server/services/core/LoggerService.js';
-import {setPlayerBanStatus} from '@/server/services/accounts/PlayerBanService.js';
+import {setPlayerBanStatus, setRerateRequestBanStatus} from '@/server/services/accounts/PlayerBanService.js';
+import User from '@/models/auth/User.js';
+import {hasFlag} from '@/misc/utils/auth/permissionUtils.js';
+import {permissionFlags} from '@/config/constants.js';
 
 const CRON_SCHEDULE = '* * * * *';
 const BATCH_SIZE = 200;
@@ -57,7 +60,31 @@ export class PlayerBanExpiryService {
         });
       }
 
-      return {processed: duePlayers.length, unbanned};
+      const dueRerate = await Player.findAll({
+        where: {
+          rerateRequestBannedUntil: {[Op.not]: null, [Op.lte]: new Date()},
+        },
+        attributes: ['id', 'rerateRequestBannedUntil'],
+        include: [{model: User, as: 'user', attributes: ['id', 'permissionFlags'], required: false}],
+        limit: BATCH_SIZE,
+      });
+      for (const row of dueRerate) {
+        if (row.user && !hasFlag(row.user, permissionFlags.RERATE_REQUEST_BANNED)) {
+          await row.update({rerateRequestBannedUntil: null});
+          continue;
+        }
+        try {
+          await setRerateRequestBanStatus(row.id, {banned: false});
+          unbanned += 1;
+        } catch (err) {
+          logger.error('[PlayerBanExpiry] Failed to expire rerate request ban', {
+            playerId: row.id,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      return {processed: duePlayers.length + dueRerate.length, unbanned};
     } catch (err) {
       logger.error('[PlayerBanExpiry] Batch lookup failed', {
         message: err instanceof Error ? err.message : String(err),

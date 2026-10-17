@@ -246,6 +246,7 @@ export const SubmissionJobService = {
         steps: buildSteps(kind, action),
         requestIds: [...new Set([...(existing?.requestIds || []), requestId])],
         updatedAt: now,
+        ...(action === 'decline' ? { reason: options.reason ?? null } : {}),
       });
       payloads.push({
         kind,
@@ -272,6 +273,7 @@ export const SubmissionJobService = {
       status: addedItemIds.length > 0 ? 'queued' : 'completed',
       createdAt: now,
       updatedAt: now,
+      ...(action === 'decline' ? { reason: options.reason ?? null } : {}),
     };
     await saveRequest(request);
 
@@ -307,6 +309,27 @@ export const SubmissionJobService = {
       alreadyCompletedIds,
       merged,
     };
+  },
+
+  async attachDeclineReason(payload: SubmissionQueuePayload): Promise<void> {
+    if (payload.action !== 'decline') return;
+    const reason = typeof payload.reason === 'string' && payload.reason.trim()
+      ? payload.reason
+      : null;
+
+    const item = await getItem(payload.kind, payload.itemId);
+    if (item && item.reason !== reason && !isTerminalItemStatus(item.status)) {
+      const updated: SubmissionItemState = { ...item, reason, updatedAt: Date.now() };
+      await saveItem(updated);
+      broadcast('submission.item.updated', { item: updated });
+    }
+
+    const req = await getRequest(payload.requestId);
+    if (req && req.reason !== reason && req.status !== 'completed' && req.status !== 'failed') {
+      const updated: SubmissionRequestState = { ...req, reason, updatedAt: Date.now() };
+      await saveRequest(updated);
+      broadcast('submission.request.updated', { request: updated });
+    }
   },
 
   async markItemProcessing(kind: SubmissionKind, itemId: number): Promise<void> {

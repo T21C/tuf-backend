@@ -198,6 +198,29 @@ export function isUniversalFeelingRating(raw: string | null | undefined): boolea
 export const REQUEST_PGU_BANDS = ['P', 'G', 'U'] as const;
 export type RequestPguBand = (typeof REQUEST_PGU_BANDS)[number];
 
+function voteLabelText(value: unknown): string {
+  if (Array.isArray(value)) return value.map((part) => String(part ?? '')).join(' ');
+  return String(value ?? '');
+}
+
+/** True when a rating-page rerate label is a Discord vote card (`vote`, `vote G12`, `Vote U1`, …). */
+export function isVoteRerateLabel(value: string | null | undefined): boolean {
+  return /^\s*vote\b/i.test(voteLabelText(value));
+}
+
+export function isDiscordVoteCard(options: {
+  rerateNum?: string | null;
+  requesterFR?: string | null;
+  immediateSettle?: boolean | null;
+  requestStatus?: string | null;
+  discordMessageUrl?: string | null;
+} = {}): boolean {
+  if (options.immediateSettle) return true;
+  if (options.requestStatus === 'discord_vote') return true;
+  if (options.discordMessageUrl) return true;
+  return isVoteRerateLabel(options.rerateNum) || isVoteRerateLabel(options.requesterFR);
+}
+
 /** Proposed request string preferred the same way as rating UI: rerateNum, else requesterFR. */
 export function ratingProposalString(
   rerateNum: string | null | undefined,

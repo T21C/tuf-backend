@@ -48,6 +48,7 @@ export const LEVEL_PAYLOAD_SWAP_FIELDS = [
 const LEVEL_ID_REMAP_TABLES = [
   'passes',
   'pass_submissions',
+  'level_submissions',
   'ratings',
   'level_credits',
   'level_pack_items',

@@ -120,6 +120,11 @@ export async function initializeRuntimeServices(): Promise<void> {
   );
   BotModsSyncCronService.startScheduledSync();
 
+  const { ArtistVerificationSyncCronService } = await import(
+    '@/server/services/artists/ArtistVerificationSyncCronService.js'
+  );
+  ArtistVerificationSyncCronService.startScheduledSync();
+
   const { initUploadKinds } = await import('@/server/services/upload/registerKinds.js');
   initUploadKinds();
 }

@@ -40,7 +40,9 @@ import {
   parseBanDuration,
   PlayerBanError,
   setPlayerBanStatus,
+  setRerateRequestBanStatus,
 } from '@/server/services/accounts/PlayerBanService.js';
+import {rejectRecentOpenRerates} from '@/server/services/requests/levelRequestService.js';
 import {appendPlayerAliasFromRename, migratePlayerAliasesOnMerge} from '@/server/services/aliases/nameChangeAliases.js';
 import PlayerAlias from '@/models/players/PlayerAlias.js';
 import {
@@ -941,7 +943,69 @@ router.patch(
   }
 );
 
-// Add this new endpoint after the ban endpoint
+router.patch(
+  '/:id([0-9]{1,20})/rerate-request-ban',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'patchPlayerRerateRequestBan',
+    summary: 'Restrict or restore rerate requests',
+    description:
+      'Timed rerate-request ban. Ban requires duration (1-999) and unit (hours|days|weeks|months). Optional rejectRecent closes open rerates from the last N hours or days.',
+    tags: ['Database', 'Players'],
+    security: ['bearerAuth'],
+    params: {id: idParamSpec},
+    responses: {200: {description: 'Rerate request ban updated'}, ...standardErrorResponses},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const {isBanned} = req.body;
+      if (typeof isBanned !== 'boolean') {
+        return res.status(400).json({error: 'isBanned must be a boolean'});
+      }
+      const playerId = Number(req.params.id);
+      let player;
+      if (isBanned) {
+        const parsed = parseBanDuration({duration: req.body.duration, unit: req.body.unit});
+        player = await setRerateRequestBanStatus(playerId, {
+          banned: true,
+          bannedUntil: computeBannedUntil(parsed.duration, parsed.unit),
+        });
+        if (req.body.rejectRecent === true) {
+          const recentUnit = req.body.rejectRecentUnit;
+          const recentDuration = Number(req.body.rejectRecentDuration);
+          if (recentUnit !== 'hours' && recentUnit !== 'days') {
+            return res.status(400).json({error: 'rejectRecentUnit must be hours or days'});
+          }
+          if (!Number.isInteger(recentDuration) || recentDuration < 1 || recentDuration > 999) {
+            return res.status(400).json({error: 'rejectRecentDuration must be an integer from 1 to 999'});
+          }
+          if (!player.user?.id) {
+            return res.status(400).json({error: 'Player has no user account'});
+          }
+          const ms = recentUnit === 'hours' ? recentDuration * 60 * 60 * 1000 : recentDuration * 24 * 60 * 60 * 1000;
+          await rejectRecentOpenRerates(player.user.id, new Date(Date.now() - ms));
+        }
+      } else {
+        player = await setRerateRequestBanStatus(playerId, {banned: false});
+      }
+      return res.json({
+        message: `Rerate requests ${isBanned ? 'restricted' : 'restored'}`,
+        player: {
+          ...serializePlayer(player),
+          rerateRequestBannedUntil: player.rerateRequestBannedUntil,
+          isRerateRequestBanned: hasFlag(player.user, permissionFlags.RERATE_REQUEST_BANNED),
+        },
+      });
+    } catch (error) {
+      if (error instanceof PlayerBanError) {
+        return res.status(error.status).json({error: error.message});
+      }
+      logger.error('Error updating rerate request ban:', error);
+      return res.status(500).json({error: 'Failed to update rerate request ban'});
+    }
+  },
+);
+
 router.patch(
   '/:id([0-9]{1,20})/pause-submissions',
   Auth.superAdmin(),
