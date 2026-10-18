@@ -11,6 +11,7 @@ import {
   completionStatusForDifficultyChange,
   isOpenLevelRequestStatus,
   isRealPguRequest,
+  resolveRerateRating,
   isTerminalLevelRequestStatus,
   rerateCooldownRemainingMs,
   RERATE_COOLDOWN_MS,
@@ -32,6 +33,20 @@ test('isRealPguRequest rejects non-PGU notation', () => {
   assert.equal(isRealPguRequest('21'), false);
   assert.equal(isRealPguRequest('G21'), false);
   assert.equal(isRealPguRequest('U0'), false);
+  assert.equal(isRealPguRequest('Censored'), false);
+  assert.equal(isRealPguRequest('Impossible'), false);
+});
+
+test('rerate ratings accept special difficulties by their stored name', () => {
+  const specials = ['Censored', 'Impossible'];
+  assert.equal(resolveRerateRating('Censored', specials), 'Censored');
+  assert.equal(resolveRerateRating('impossible', specials), 'Impossible');
+  assert.equal(resolveRerateRating('  Censored  ', specials), 'Censored');
+  assert.equal(resolveRerateRating('U2', specials), 'U2');
+  assert.equal(resolveRerateRating('G20 ~ U1', specials), 'G20~U1');
+  assert.equal(resolveRerateRating('vote', specials), null);
+  assert.equal(resolveRerateRating('Q0', specials), null);
+  assert.equal(resolveRerateRating('Censored', []), null);
 });
 
 test('an open rerate blocks another until it is terminal', () => {
@@ -88,7 +103,7 @@ test('accepted website requests complete or reject without rating-page actions',
   assert.deepEqual(actionsForRequest('tag', 'accepted'), ['complete', 'reject']);
   assert.deepEqual(
     actionsForRequest('curation', 'accepted', {discordMessageUrl: 'https://discord.com/x'}),
-    ['complete', 'reject'],
+    ['complete', 'reject', 'delete_discord'],
   );
 });
 
@@ -98,16 +113,20 @@ test('curation discord posts wait for accept', () => {
   assert.deepEqual(actionsForRequest('curation_rerate', 'accepted'), ['retry_discord', 'complete', 'reject']);
   assert.deepEqual(
     actionsForRequest('curation', 'accepted', {discordPostError: 'failed', discordMessageUrl: 'https://discord.com/x'}),
-    ['retry_discord', 'complete', 'reject'],
+    ['retry_discord', 'complete', 'reject', 'delete_discord'],
   );
   assert.deepEqual(actionsForRequest('rerate', 'discord_vote'), ['retry_discord']);
+  assert.deepEqual(
+    actionsForRequest('rerate', 'discord_vote', {discordMessageUrl: 'https://discord.com/x'}),
+    ['delete_discord'],
+  );
 });
 
 test('a rerate on the rating page can still become a discord vote until a thread exists', () => {
   assert.deepEqual(actionsForRequest('rerate', 'added_to_rating_page'), ['discord_vote']);
   assert.deepEqual(
     actionsForRequest('rerate', 'added_to_rating_page', {discordMessageUrl: 'https://discord.com/x'}),
-    [],
+    ['delete_discord'],
   );
 });
 
@@ -140,8 +159,29 @@ test('credit targets keep role order and reject duplicates', () => {
   assert.equal(signature, creditRequestSignature(canonicalRequestCredits(credits) || [], {id: 4, name: 'Nova'}));
 });
 
-test('terminal requests have no pipeline actions', () => {
+test('a closed rerate thread keeps its link and is not offered again', () => {
+  assert.deepEqual(
+    actionsForRequest('rerate', 'discord_vote', {
+      discordMessageUrl: 'https://discord.com/channels/1/2/3',
+      discordThreadClosed: true,
+    }),
+    [],
+  );
+  assert.deepEqual(
+    actionsForRequest('curation', 'accepted', {
+      discordMessageUrl: 'https://discord.com/x',
+      discordThreadClosed: true,
+    }),
+    ['complete', 'reject', 'delete_discord'],
+  );
+});
+
+test('terminal requests have no pipeline actions unless a Discord post remains', () => {
   assert.deepEqual(actionsForRequest('rerate', 'rejected'), []);
   assert.deepEqual(actionsForRequest('rerate', 'completed_changed'), []);
+  assert.deepEqual(
+    actionsForRequest('rerate', 'completed_changed', {discordMessageUrl: 'https://discord.com/channels/1/2/3'}),
+    ['delete_discord'],
+  );
   assert.deepEqual(actionsForRequest('info_change', 'completed'), []);
 });

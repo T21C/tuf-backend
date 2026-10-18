@@ -63,20 +63,26 @@ function jumpUrl(guildId: string | null, message: WebhookMessage): string | null
   return `https://discord.com/channels/${guildId}/${message.channel_id}/${message.id}`;
 }
 
-async function requesterMention(userId: string): Promise<{content: string; allowed_mentions: {parse: string[]; users: string[]}}> {
+async function createdByLine(
+  userId: string,
+  fallback = 'TUF staff',
+): Promise<{content: string; allowed_mentions: {parse: string[]; users: string[]}}> {
   const [user, discord] = await Promise.all([
     User.findByPk(userId, {attributes: ['id', 'username', 'nickname']}),
     OAuthProvider.findOne({where: {userId, provider: 'discord'}, attributes: ['providerId']}),
   ]);
-  const name = user?.nickname || user?.username || 'TUF user';
+  const websiteUsername = user?.username?.trim() || '';
+  const bracket = websiteUsername
+    ? `(@${websiteUsername})`
+    : `(${user?.nickname?.trim() || fallback})`;
   if (discord?.providerId) {
     return {
-      content: `created by <@${discord.providerId}>`,
+      content: `created by <@${discord.providerId}> ${bracket}`,
       allowed_mentions: {parse: [], users: [discord.providerId]},
     };
   }
   return {
-    content: `created by ${name}`,
+    content: `created by ${bracket}`,
     allowed_mentions: {parse: [], users: []},
   };
 }
@@ -191,32 +197,146 @@ async function loadChart(levelId: number): Promise<Level | null> {
   });
 }
 
-async function emojiForDiffId(diffId: number | null | undefined): Promise<string> {
-  if (diffId == null) return '';
-  const row = await Difficulty.findByPk(diffId, {attributes: ['emoji']});
-  return row?.emoji || '';
+async function difficultyMark(diffId: number | null | undefined): Promise<{name: string; emoji: string}> {
+  if (diffId == null) return {name: '', emoji: ''};
+  const row = await Difficulty.findByPk(diffId, {attributes: ['name', 'emoji']});
+  return {name: row?.name || '', emoji: row?.emoji || ''};
 }
 
-async function requestedEmoji(requested: string): Promise<string> {
-  const normalized = normalizePguRequest(requested);
-  const parts = normalized.split(/[-~]/).map((part) => part.trim()).filter(Boolean);
+async function requestedDifficultyMarks(requested: string): Promise<{names: string; emojis: string}> {
+  const tokens = normalizePguRequest(requested).split(/([-~])/).filter((part) => part !== '');
   const rows = await Difficulty.findAll({attributes: ['name', 'emoji']});
-  const byName = new Map(rows.map((row) => [row.name.toLowerCase(), row.emoji || '']));
-  return parts.map((part) => byName.get(part.toLowerCase()) || part).filter(Boolean).join(' ');
+  const byName = new Map(rows.map((row) => [row.name.toLowerCase(), row]));
+  const names: string[] = [];
+  const emojis: string[] = [];
+  for (const token of tokens) {
+    if (token === '-' || token === '~') {
+      names.push(token);
+      emojis.push(token);
+      continue;
+    }
+    const row = byName.get(token.toLowerCase());
+    const name = row?.name || token;
+    names.push(name);
+    emojis.push(row?.emoji || name);
+  }
+  return {names: names.join(''), emojis: emojis.join('')};
 }
 
-export async function postRerateRequestThread(request: LevelRequest, level: Level): Promise<{url: string | null}> {
+function webhookEnvFor(type: string): string {
+  if (type === 'curation_rerate') return 'CURATION_RERATE_WEBHOOK';
+  if (type === 'curation') return 'CURATION_REQUEST_WEBHOOK';
+  return 'RERATE_REQUEST_WEBHOOK';
+}
+
+export function discordJumpTarget(url: string): {threadId: string; messageId: string} | null {
+  const match = String(url || '').match(/discord(?:app)?\.com\/channels\/\d+\/(\d+)\/(\d+)/i);
+  if (!match) return null;
+  return {threadId: match[1], messageId: match[2]};
+}
+
+async function deleteWebhookMessage(webhookUrl: string, messageId: string, threadId: string | null): Promise<void> {
+  const base = new URL(webhookUrl);
+  const target = new URL(`${base.origin}${base.pathname.replace(/\/$/, '')}/messages/${messageId}`);
+  if (threadId) target.searchParams.set('thread_id', threadId);
+  const response = await fetch(target, {method: 'DELETE'});
+  if (response.status === 404) return;
+  if (response.status === 400 && threadId) {
+    target.searchParams.delete('thread_id');
+    const retry = await fetch(target, {method: 'DELETE'});
+    if (retry.status === 404 || retry.ok) return;
+    const text = await retry.text();
+    throw new Error(`Webhook ${retry.status}: ${text.slice(0, 300)}`);
+  }
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Webhook ${response.status}: ${text.slice(0, 300)}`);
+  }
+}
+
+async function discordBotToken(): Promise<string> {
+  const guild = await DiscordGuild.findOne({
+    where: {isActive: true},
+    order: [['id', 'ASC']],
+  });
+  return guild?.getDataValue('botToken') || process.env.DISCORD_BOT_TOKEN || '';
+}
+
+async function patchThread(threadId: string, token: string, body: Record<string, unknown>): Promise<Response> {
+  return fetch(`https://discord.com/api/v10/channels/${threadId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bot ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Archive and lock a rerate forum thread so the discussion stays readable. */
+async function closeForumThread(threadId: string): Promise<'closed' | 'missing'> {
+  const token = await discordBotToken();
+  if (!token) throw new Error('Discord bot token is not configured');
+  let response = await patchThread(threadId, token, {archived: true, locked: true});
+  if (response.status === 404) {
+    await response.text();
+    return 'missing';
+  }
+  if (response.status === 400) {
+    await response.text();
+    response = await patchThread(threadId, token, {archived: true});
+  }
+  const text = await response.text();
+  if (response.status === 404) return 'missing';
+  if (!response.ok) {
+    throw new Error(`Discord ${response.status}: ${text.slice(0, 300)}`);
+  }
+  return 'closed';
+}
+
+/** Rerate discussion threads are closed. Other Discord posts are deleted. */
+export async function deleteLevelRequestDiscordPost(request: LevelRequest): Promise<'closed' | 'removed'> {
+  const jump = discordJumpTarget(request.discordMessageUrl || '');
+  if (!jump) {
+    throw new Error('Stored Discord post URL is not a channel message link');
+  }
+  if (request.type === 'rerate') {
+    const outcome = await closeForumThread(jump.threadId);
+    return outcome === 'missing' ? 'removed' : 'closed';
+  }
+  const envName = webhookEnvFor(request.type);
+  const webhookUrl = (process.env[envName] || '').trim();
+  if (!webhookUrl) {
+    throw new Error(`${envName} is not configured`);
+  }
+  await deleteWebhookMessage(webhookUrl, jump.messageId, null);
+  return 'removed';
+}
+
+export async function postRerateRequestThread(
+  request: LevelRequest,
+  level: Level,
+  actorUserId: string,
+): Promise<{url: string | null}> {
   const webhookUrl = (process.env.RERATE_REQUEST_WEBHOOK || '').trim();
   if (!webhookUrl) {
     throw new Error('RERATE_REQUEST_WEBHOOK is not configured');
   }
   const payload = request.payload || {};
   const chart = await loadChart(level.id);
-  const currentEmoji = chart?.difficulty?.emoji || await emojiForDiffId(chart?.diffId ?? level.diffId);
-  const requested = await requestedEmoji(String(payload.requestedRating || ''));
+  const current = chart?.difficulty?.name
+    ? {name: chart.difficulty.name || '', emoji: chart.difficulty.emoji || ''}
+    : await difficultyMark(chart?.diffId ?? level.diffId);
+  const requested = await requestedDifficultyMarks(String(payload.requestedRating || ''));
   const song = chart?.song || level.song || 'Unknown';
   const creator = creatorLabel(chart);
-  const threadName = `${currentEmoji} ${withCreator(song, creator)} ➔ ${requested}`.replace(/\s+/g, ' ').trim().slice(0, 100);
+  const titled = (mark: string) => `${mark} ${withCreator(song, creator)} ➔ ${requested.names || requested.emojis}`
+    .replace(/\s+/g, ' ')
+    .trim();
+  const threadName = titled(current.name || current.emoji).slice(0, 100);
+  const emojiLine = `${current.emoji || current.name} ${withCreator(song, creator)} ➔ ${requested.emojis || requested.names}`
+    .replace(/\s+/g, ' ')
+    .trim();
   const comparisonIds = Array.isArray(payload.comparisons)
     ? payload.comparisons.map((row) => Number((row as {levelId?: number}).levelId)).filter((id) => id > 0)
     : [];
@@ -234,13 +354,13 @@ export async function postRerateRequestThread(request: LevelRequest, level: Leve
     'Comparisons:',
     comparisonLines.join('\n') || '—',
   ].join('\n').slice(0, 4000);
-  const mention = await requesterMention(request.requesterUserId);
+  const mention = await createdByLine(actorUserId);
   const message = await executeWebhook(
     webhookUrl,
     {
       username: 'Rerate request',
       avatar_url: announcerAvatar,
-      content: mention.content,
+      content: `${emojiLine}\n${mention.content}`.slice(0, 2000),
       allowed_mentions: mention.allowed_mentions,
       thread_name: threadName,
       embeds: [
@@ -263,14 +383,25 @@ export async function postCurationRequestEmbed(request: LevelRequest, level: Lev
   if (!webhookUrl) {
     throw new Error(`${envName} is not configured`);
   }
-  const emojis = await requestedCurationEmojis(request.payload?.curationTypeIds);
-  const mention = await requesterMention(request.requesterUserId);
-  const description = [
-    'Requested curations:',
-    emojis,
-    'Reason:',
-    request.reason || '',
-  ].join('\n').slice(0, 4000);
+  const addIds = request.payload?.addCurationTypeIds;
+  const removeIds = request.payload?.removeCurationTypeIds;
+  const hasDiff = request.type === 'curation_rerate' && (Array.isArray(addIds) || Array.isArray(removeIds));
+  const mention = await createdByLine(request.requesterUserId, 'TUF user');
+  const description = hasDiff
+    ? [
+        'Add:',
+        (await requestedCurationEmojis(addIds)) || '—',
+        'Remove:',
+        (await requestedCurationEmojis(removeIds)) || '—',
+        'Reason:',
+        request.reason || '',
+      ].join('\n').slice(0, 4000)
+    : [
+        'Requested curations:',
+        await requestedCurationEmojis(request.payload?.curationTypeIds),
+        'Reason:',
+        request.reason || '',
+      ].join('\n').slice(0, 4000);
   const message = await executeWebhook(
     webhookUrl,
     {

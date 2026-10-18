@@ -9,6 +9,7 @@ import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import LevelRequest from '@/models/levels/LevelRequest.js';
 import LevelTag from '@/models/levels/LevelTag.js';
+import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
@@ -44,8 +45,8 @@ import {
   isLevelRequestAction,
   isLevelRequestStatus,
   isLevelRequestType,
-  isRealPguRequest,
   normalizePguRequest,
+  resolveRerateRating,
   requestTeamFromInput,
   rerateCooldownRemainingMs,
   type LevelRequestAction,
@@ -55,6 +56,7 @@ import {
 import { loadSerializedAssignedTags } from '@/server/services/data/levelTagGroupService.js';
 import { getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import {
+  deleteLevelRequestDiscordPost,
   logRequestDiscordFailure,
   postCurationRequestEmbed,
   postRerateRequestThread,
@@ -251,6 +253,22 @@ async function comparisonSnapshots(reason: string) {
   return {ids, found};
 }
 
+async function currentCurationTypeIds(levelId: number): Promise<number[]> {
+  const row = await Curation.findOne({
+    where: {levelId},
+    attributes: ['id'],
+    include: [{
+      model: CurationType,
+      as: 'types',
+      attributes: ['id'],
+      through: {attributes: []},
+      required: false,
+    }],
+  });
+  const types = (row as (Curation & {types?: {id: number}[]}) | null)?.types || [];
+  return [...new Set(types.map((type) => Number(type.id)).filter((id) => Number.isInteger(id) && id > 0))];
+}
+
 async function assignableLevelTagIds(levelId: number): Promise<number[]> {
   const tags = await loadSerializedAssignedTags(levelId);
   return tags
@@ -373,9 +391,16 @@ async function buildInfoChangePayload(body: Record<string, unknown>, level: Leve
 
 async function buildPayload(type: LevelRequestType, body: Record<string, unknown>, level: Level, reason: string): Promise<Record<string, unknown>> {
   if (type === 'rerate') {
-    const requestedRating = normalizePguRequest(String(body.requestedRating ?? ''));
-    if (!isRealPguRequest(requestedRating)) {
-      throw new LevelRequestError(400, 'rating', 'Requested rating must be a real PGU difficulty or range');
+    const specials = await Difficulty.findAll({
+      where: {type: 'SPECIAL'},
+      attributes: ['name'],
+    });
+    const requestedRating = resolveRerateRating(
+      String(body.requestedRating ?? ''),
+      specials.map((row) => row.name),
+    );
+    if (!requestedRating) {
+      throw new LevelRequestError(400, 'rating', 'Requested rating must be a PGU difficulty, range, or special difficulty name');
     }
     const comparisons = await comparisonSnapshots(reason);
     if (comparisons.found.length < 1) {
@@ -415,19 +440,32 @@ async function buildPayload(type: LevelRequestType, body: Record<string, unknown
     return {targetTagIds};
   }
 
-  const curationTypeIds = Array.isArray(body.curationTypeIds)
-    ? [...new Set(body.curationTypeIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))]
-    : [];
-  if (curationTypeIds.length > 0) {
-    const types = await CurationType.findAll({
-      where: {id: {[Op.in]: curationTypeIds}},
-      attributes: ['id'],
-    });
-    if (types.length !== curationTypeIds.length) {
-      throw new LevelRequestError(400, 'curation_types', 'One or more curation types do not exist');
+  if (type === 'curation' || type === 'curation_rerate') {
+    const curationTypeIds = Array.isArray(body.curationTypeIds)
+      ? [...new Set(body.curationTypeIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))]
+      : [];
+    if (curationTypeIds.length > 0) {
+      const types = await CurationType.findAll({
+        where: {id: {[Op.in]: curationTypeIds}},
+        attributes: ['id'],
+      });
+      if (types.length !== curationTypeIds.length) {
+        throw new LevelRequestError(400, 'curation_types', 'One or more curation types do not exist');
+      }
     }
+    if (type === 'curation') return {curationTypeIds};
+    const currentIds = await currentCurationTypeIds(level.id);
+    const current = new Set(currentIds);
+    const target = new Set(curationTypeIds);
+    const addCurationTypeIds = curationTypeIds.filter((id) => !current.has(id));
+    const removeCurationTypeIds = currentIds.filter((id) => !target.has(id));
+    if (addCurationTypeIds.length === 0 && removeCurationTypeIds.length === 0) {
+      throw new LevelRequestError(400, 'unchanged', 'These curation types already match the level');
+    }
+    return {curationTypeIds, addCurationTypeIds, removeCurationTypeIds};
   }
-  return {curationTypeIds};
+
+  throw new LevelRequestError(400, 'type', 'Choose a request type');
 }
 
 function readReason(type: LevelRequestType, raw: unknown): string {
@@ -589,6 +627,9 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
     hasFlag(viewerFlags(viewer), permissionFlags.HEAD_CURATOR)
   );
   const levelTagIds = request.type === 'tag' ? await assignableLevelTagIds(request.levelId) : undefined;
+  const levelCurationTypeIds = request.type === 'curation_rerate'
+    ? await currentCurationTypeIds(request.levelId)
+    : undefined;
 
   return {
     id: request.id,
@@ -598,6 +639,7 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
       ? actionsForRequest(request.type, request.status, {
           discordMessageUrl: request.discordMessageUrl,
           discordPostError: request.discordPostError,
+          discordThreadClosed: request.discordThreadClosed,
         })
       : [],
     reason: request.reason,
@@ -606,6 +648,7 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
     payload,
     immediateSettle: request.immediateSettle,
     discordMessageUrl: request.discordMessageUrl,
+    discordThreadClosed: request.discordThreadClosed === true,
     discordPostError: canManageRequestType(viewer, request.type) || hasFlag(viewerFlags(viewer), permissionFlags.SUPER_ADMIN)
       ? request.discordPostError
       : null,
@@ -626,6 +669,7 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
             ? {id: level.difficulty.id, name: level.difficulty.name, icon: level.difficulty.icon, emoji: level.difficulty.emoji}
             : null,
           ...(levelTagIds ? {tagIds: levelTagIds} : {}),
+          ...(levelCurationTypeIds ? {curationTypeIds: levelCurationTypeIds} : {}),
           ...(request.type === 'info_change' ? {
             songId: level.songId ?? null,
             videoLink: level.videoLink || '',
@@ -653,7 +697,12 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
             })),
           } : {}),
         }
-      : {id: request.levelId, missing: true, ...(levelTagIds ? {tagIds: levelTagIds} : {})},
+      : {
+          id: request.levelId,
+          missing: true,
+          ...(levelTagIds ? {tagIds: levelTagIds} : {}),
+          ...(levelCurationTypeIds ? {curationTypeIds: levelCurationTypeIds} : {}),
+        },
     comparisons: Array.isArray(payload.comparisons)
       ? payload.comparisons.map((row) => {
           const snap = row as {levelId: number; diffId: number | null; diffName: string | null};
@@ -923,6 +972,7 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
   const allowed = actionsForRequest(request.type, request.status, {
     discordMessageUrl: request.discordMessageUrl,
     discordPostError: request.discordPostError,
+    discordThreadClosed: request.discordThreadClosed,
   });
   if (!allowed.includes(action)) {
     throw new LevelRequestError(409, 'action', 'That action is not available for this request');
@@ -1020,7 +1070,7 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
       throw error;
     }
     if (action === 'discord_vote') {
-      await postRerateDiscord(request);
+      await postRerateDiscord(request, user.id);
     }
     await notifyRequester(request, {actor: user});
     await refreshRatingSurfaces(request.levelId);
@@ -1036,8 +1086,26 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
     if (curation) {
       await postCurationDiscord(request);
     } else {
-      await postRerateDiscord(request);
+      await postRerateDiscord(request, user.id);
     }
+    return serializeLevelRequest(request, user);
+  }
+
+  if (action === 'delete_discord') {
+    if (!request.discordMessageUrl) {
+      throw new LevelRequestError(409, 'discord', 'This request has no Discord post');
+    }
+    let outcome: 'closed' | 'removed';
+    try {
+      outcome = await deleteLevelRequestDiscordPost(request);
+    } catch (error) {
+      const message = logRequestDiscordFailure(request.id, error);
+      const code = request.type === 'rerate' ? 'discord_close' : 'discord';
+      throw new LevelRequestError(502, code, message);
+    }
+    await request.update(outcome === 'closed'
+      ? {...notePatch, discordThreadClosed: true, discordPostError: null}
+      : {...notePatch, discordMessageUrl: null, discordThreadClosed: false, discordPostError: null});
     return serializeLevelRequest(request, user);
   }
 
@@ -1062,12 +1130,12 @@ async function postCurationDiscord(request: LevelRequest) {
   }
 }
 
-async function postRerateDiscord(request: LevelRequest) {
+async function postRerateDiscord(request: LevelRequest, actorUserId: string) {
   const level = await Level.findByPk(request.levelId);
   if (!level) throw new LevelRequestError(404, 'missing_level', 'Level not found');
   try {
-    const posted = await postRerateRequestThread(request, level);
-    await request.update({discordMessageUrl: posted.url, discordPostError: null});
+    const posted = await postRerateRequestThread(request, level, actorUserId);
+    await request.update({discordMessageUrl: posted.url, discordPostError: null, discordThreadClosed: false});
   } catch (error) {
     const message = logRequestDiscordFailure(request.id, error);
     await request.update({discordPostError: message});
