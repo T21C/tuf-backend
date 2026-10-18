@@ -7,6 +7,7 @@ import {
   createLevelRequest,
   getLevelRequestForViewer,
   levelRequestEligibility,
+  countOpenLevelRequests,
   listLevelRequests,
   listOwnLevelRequests,
   applyLevelRequestAction,
@@ -185,6 +186,28 @@ router.post(
       return res.json({request});
     } catch (error) {
       return sendError(res, error, 'Failed to withdraw request');
+    }
+  },
+);
+
+router.get(
+  '/open-counts',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'countOpenLevelRequests',
+    summary: 'Open level request counts by type for the current reviewer',
+    tags: ['Database', 'Level requests'],
+    security: ['bearerAuth'],
+    responses: {200: {description: 'Counts of requests that are not finished'}},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = viewer(req);
+      if (!user) return res.status(401).json({error: 'Authentication required'});
+      const counts = await countOpenLevelRequests(user);
+      return res.json({counts});
+    } catch (error) {
+      return sendError(res, error, 'Failed to count requests');
     }
   },
 );

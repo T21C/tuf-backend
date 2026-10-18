@@ -20,6 +20,7 @@ class LevelRequest extends Model {
   declare immediateSettle: boolean;
   declare discordMessageUrl: string | null;
   declare discordPostError: string | null;
+  declare discordThreadClosed: boolean;
   declare resolvedAt: Date | null;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -82,6 +83,11 @@ LevelRequest.init(
     discordPostError: {
       type: DataTypes.STRING(500),
       allowNull: true,
+    },
+    discordThreadClosed: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
     resolvedAt: {
       type: DataTypes.DATE,

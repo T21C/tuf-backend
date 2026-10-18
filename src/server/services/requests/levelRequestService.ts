@@ -1,4 +1,4 @@
-import {Op, type Transaction} from 'sequelize';
+import {Op, col, fn, type Transaction} from 'sequelize';
 import {getSequelizeForModelGroup} from '@/config/db.js';
 import Level from '@/models/levels/Level.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
@@ -9,6 +9,7 @@ import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import LevelRequest from '@/models/levels/LevelRequest.js';
 import LevelTag from '@/models/levels/LevelTag.js';
+import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
@@ -22,7 +23,9 @@ import {isBannedUntilExpired, isPermissionBanActive} from '@/server/services/acc
 import {notificationService} from '@/server/services/notifications/NotificationService.js';
 import {NOTIFICATION_TYPES} from '@/server/services/notifications/types.js';
 import {ensureOpenRating} from '@/server/services/ratings/openRatingService.js';
-import {buildLevelUpdateSseData} from '@/server/services/ratings/ratingListService.js';
+import {broadcastRatingUpsert, buildLevelUpdateSseData} from '@/server/services/ratings/ratingListService.js';
+import {CacheInvalidation} from '@/server/middleware/cache.js';
+import Rating from '@/models/levels/Rating.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import {
   COMPLETED_LEVEL_REQUEST_STATUSES,
@@ -44,8 +47,9 @@ import {
   isLevelRequestAction,
   isLevelRequestStatus,
   isLevelRequestType,
-  isRealPguRequest,
   normalizePguRequest,
+  resolveRerateRating,
+  reasonWithRequester,
   requestTeamFromInput,
   rerateCooldownRemainingMs,
   type LevelRequestAction,
@@ -55,10 +59,17 @@ import {
 import { loadSerializedAssignedTags } from '@/server/services/data/levelTagGroupService.js';
 import { getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import {
+  deleteLevelRequestDiscordPost,
   logRequestDiscordFailure,
   postCurationRequestEmbed,
   postRerateRequestThread,
+  reopenLevelRequestDiscordThread,
 } from '@/server/services/requests/levelRequestDiscord.js';
+import {
+  applyRatingThreadMode,
+  ratingThreadWantsPing,
+  voteThreadLabel,
+} from '@/server/services/discord/ratingThread.js';
 
 const sequelize = getSequelizeForModelGroup('levels');
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -135,14 +146,17 @@ function assertRerateBanClear(user: Viewer, player: Player | null) {
 
 async function loadLevelOrThrow(levelId: number): Promise<Level> {
   const level = await Level.findByPk(levelId, {
-    attributes: ['id', 'song', 'songId', 'artist', 'videoLink', 'dlLink', 'description', 'teamId', 'diffId', 'toRate', 'isDeleted', 'isHidden'],
+    attributes: ['id', 'song', 'songId', 'suffix', 'artist', 'videoLink', 'dlLink', 'description', 'teamId', 'diffId', 'toRate', 'isDeleted', 'isHidden'],
     include: [{model: Difficulty, as: 'difficulty', attributes: ['id', 'name', 'icon', 'emoji'], required: false}],
   });
   if (!level) throw new LevelRequestError(404, 'missing_level', 'Level not found');
   if (level.isDeleted) throw new LevelRequestError(400, 'deleted', 'Deleted levels cannot be requested');
   if (level.isHidden) throw new LevelRequestError(400, 'hidden', 'Hidden levels cannot be requested');
-  if (level.toRate) throw new LevelRequestError(400, 'unsettled', 'This level is still on the rating page');
   return level;
+}
+
+function assertNotOnRatingPage(level: Level) {
+  if (level.toRate) throw new LevelRequestError(400, 'unsettled', 'This level is still on the rating page');
 }
 
 async function assertNoOpenRequest(levelId: number, type: LevelRequestType) {
@@ -176,9 +190,13 @@ function requestedRatingOf(request: LevelRequest): string {
   return normalizePguRequest(String(request.payload?.requestedRating || ''));
 }
 
-function voteRerateNum(requested: string): string {
-  const rating = requested.trim();
-  return (rating ? `vote ${rating}` : 'vote').slice(0, 60);
+async function ratingPageReason(request: LevelRequest, fallback: string, transaction?: Transaction): Promise<string> {
+  const requester = await User.findByPk(request.requesterUserId, {
+    attributes: ['username'],
+    transaction,
+  });
+  const base = request.reason?.trim() || fallback.trim();
+  return reasonWithRequester(base, requester?.username || '');
 }
 
 function readOptionalNote(raw: unknown): string | null | undefined {
@@ -197,6 +215,25 @@ async function refreshRatingSurfaces(levelId: number) {
   } catch (error) {
     logger.error('Failed to refresh rating surfaces after a request action', error);
   }
+}
+
+async function publishRequestRating(request: LevelRequest) {
+  await refreshRatingSurfaces(request.levelId);
+  if (!request.linkedRatingId) return;
+  await CacheInvalidation.invalidateTag('admin:ratings').catch((error) => {
+    logger.error('Failed to invalidate rating cache after a request thread change', error);
+  });
+  await broadcastRatingUpsert(request.linkedRatingId, request.levelId);
+}
+
+async function syncRequestThreadMode(request: LevelRequest, mode: 'discord' | 'website') {
+  const level = await Level.findByPk(request.levelId);
+  if (!level?.toRate) return;
+  const rating = request.linkedRatingId
+    ? await Rating.findByPk(request.linkedRatingId)
+    : null;
+  if (rating?.confirmedAt != null) return;
+  await applyRatingThreadMode(level, rating, mode);
 }
 
 async function openLevelOnRatingPage(
@@ -249,6 +286,22 @@ async function comparisonSnapshots(reason: string) {
     diffName: level.difficulty?.name ?? null,
   }));
   return {ids, found};
+}
+
+async function currentCurationTypeIds(levelId: number): Promise<number[]> {
+  const row = await Curation.findOne({
+    where: {levelId},
+    attributes: ['id'],
+    include: [{
+      model: CurationType,
+      as: 'types',
+      attributes: ['id'],
+      through: {attributes: []},
+      required: false,
+    }],
+  });
+  const types = (row as (Curation & {types?: {id: number}[]}) | null)?.types || [];
+  return [...new Set(types.map((type) => Number(type.id)).filter((id) => Number.isInteger(id) && id > 0))];
 }
 
 async function assignableLevelTagIds(levelId: number): Promise<number[]> {
@@ -305,10 +358,12 @@ async function buildInfoChangePayload(body: Record<string, unknown>, level: Leve
     }
     const song = await Song.findByPk(songId, {attributes: ['id', 'name']});
     if (!song) throw new LevelRequestError(400, 'song', 'Choose an existing song');
-    if (song.id === level.songId) {
+    const suffix = typeof body.suffix === 'string' ? body.suffix.trim().slice(0, 255) : String(level.suffix || '').trim();
+    const currentSuffix = String(level.suffix || '').trim();
+    if (song.id === level.songId && suffix === currentSuffix) {
       throw new LevelRequestError(400, 'unchanged', 'This already matches the level');
     }
-    return {kind, songId: song.id, songName: song.name};
+    return {kind, songId: song.id, songName: song.name, suffix};
   }
   if (kind === 'artist') {
     const artistId = Number(body.artistId);
@@ -373,9 +428,16 @@ async function buildInfoChangePayload(body: Record<string, unknown>, level: Leve
 
 async function buildPayload(type: LevelRequestType, body: Record<string, unknown>, level: Level, reason: string): Promise<Record<string, unknown>> {
   if (type === 'rerate') {
-    const requestedRating = normalizePguRequest(String(body.requestedRating ?? ''));
-    if (!isRealPguRequest(requestedRating)) {
-      throw new LevelRequestError(400, 'rating', 'Requested rating must be a real PGU difficulty or range');
+    const specials = await Difficulty.findAll({
+      where: {type: 'SPECIAL'},
+      attributes: ['name'],
+    });
+    const requestedRating = resolveRerateRating(
+      String(body.requestedRating ?? ''),
+      specials.map((row) => row.name),
+    );
+    if (!requestedRating) {
+      throw new LevelRequestError(400, 'rating', 'Requested rating must be a PGU difficulty, range, or special difficulty name');
     }
     const comparisons = await comparisonSnapshots(reason);
     if (comparisons.found.length < 1) {
@@ -415,19 +477,32 @@ async function buildPayload(type: LevelRequestType, body: Record<string, unknown
     return {targetTagIds};
   }
 
-  const curationTypeIds = Array.isArray(body.curationTypeIds)
-    ? [...new Set(body.curationTypeIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))]
-    : [];
-  if (curationTypeIds.length > 0) {
-    const types = await CurationType.findAll({
-      where: {id: {[Op.in]: curationTypeIds}},
-      attributes: ['id'],
-    });
-    if (types.length !== curationTypeIds.length) {
-      throw new LevelRequestError(400, 'curation_types', 'One or more curation types do not exist');
+  if (type === 'curation' || type === 'curation_rerate') {
+    const curationTypeIds = Array.isArray(body.curationTypeIds)
+      ? [...new Set(body.curationTypeIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))]
+      : [];
+    if (curationTypeIds.length > 0) {
+      const types = await CurationType.findAll({
+        where: {id: {[Op.in]: curationTypeIds}},
+        attributes: ['id'],
+      });
+      if (types.length !== curationTypeIds.length) {
+        throw new LevelRequestError(400, 'curation_types', 'One or more curation types do not exist');
+      }
     }
+    if (type === 'curation') return {curationTypeIds};
+    const currentIds = await currentCurationTypeIds(level.id);
+    const current = new Set(currentIds);
+    const target = new Set(curationTypeIds);
+    const addCurationTypeIds = curationTypeIds.filter((id) => !current.has(id));
+    const removeCurationTypeIds = currentIds.filter((id) => !target.has(id));
+    if (addCurationTypeIds.length === 0 && removeCurationTypeIds.length === 0) {
+      throw new LevelRequestError(400, 'unchanged', 'These curation types already match the level');
+    }
+    return {curationTypeIds, addCurationTypeIds, removeCurationTypeIds};
   }
-  return {curationTypeIds};
+
+  throw new LevelRequestError(400, 'type', 'Choose a request type');
 }
 
 function readReason(type: LevelRequestType, raw: unknown): string {
@@ -533,7 +608,7 @@ async function bestVisiblePass(requesterUserId: string, levelId: number, viewer:
 export async function serializeLevelRequest(request: LevelRequest, viewer: Viewer, options?: {includePass?: boolean}) {
   const includeLevelCredits = request.type === 'info_change' || request.type === 'rerate';
   const level = await Level.findByPk(request.levelId, {
-    attributes: ['id', 'song', 'songId', 'artist', 'videoLink', 'dlLink', 'description', 'teamId', 'diffId', 'isDeleted', 'isHidden'],
+    attributes: ['id', 'song', 'songId', 'suffix', 'artist', 'videoLink', 'dlLink', 'description', 'teamId', 'diffId', 'isDeleted', 'isHidden'],
     include: [
       {model: Difficulty, as: 'difficulty', attributes: ['id', 'name', 'icon', 'emoji'], required: false},
       ...(includeLevelCredits ? [
@@ -589,6 +664,9 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
     hasFlag(viewerFlags(viewer), permissionFlags.HEAD_CURATOR)
   );
   const levelTagIds = request.type === 'tag' ? await assignableLevelTagIds(request.levelId) : undefined;
+  const levelCurationTypeIds = request.type === 'curation_rerate'
+    ? await currentCurationTypeIds(request.levelId)
+    : undefined;
 
   return {
     id: request.id,
@@ -598,6 +676,7 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
       ? actionsForRequest(request.type, request.status, {
           discordMessageUrl: request.discordMessageUrl,
           discordPostError: request.discordPostError,
+          discordThreadClosed: request.discordThreadClosed,
         })
       : [],
     reason: request.reason,
@@ -606,6 +685,7 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
     payload,
     immediateSettle: request.immediateSettle,
     discordMessageUrl: request.discordMessageUrl,
+    discordThreadClosed: request.discordThreadClosed === true,
     discordPostError: canManageRequestType(viewer, request.type) || hasFlag(viewerFlags(viewer), permissionFlags.SUPER_ADMIN)
       ? request.discordPostError
       : null,
@@ -626,8 +706,10 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
             ? {id: level.difficulty.id, name: level.difficulty.name, icon: level.difficulty.icon, emoji: level.difficulty.emoji}
             : null,
           ...(levelTagIds ? {tagIds: levelTagIds} : {}),
+          ...(levelCurationTypeIds ? {curationTypeIds: levelCurationTypeIds} : {}),
           ...(request.type === 'info_change' ? {
             songId: level.songId ?? null,
+            suffix: level.suffix || '',
             videoLink: level.videoLink || '',
             dlLink: level.dlLink || '',
             description: level.description || '',
@@ -653,7 +735,12 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
             })),
           } : {}),
         }
-      : {id: request.levelId, missing: true, ...(levelTagIds ? {tagIds: levelTagIds} : {})},
+      : {
+          id: request.levelId,
+          missing: true,
+          ...(levelTagIds ? {tagIds: levelTagIds} : {}),
+          ...(levelCurationTypeIds ? {curationTypeIds: levelCurationTypeIds} : {}),
+        },
     comparisons: Array.isArray(payload.comparisons)
       ? payload.comparisons.map((row) => {
           const snap = row as {levelId: number; diffId: number | null; diffName: string | null};
@@ -701,6 +788,7 @@ export async function createLevelRequest(user: Viewer, levelId: number, body: Re
   assertAccountAllowed(user, player);
   if (type === 'rerate') assertRerateBanClear(user, player);
   const level = await loadLevelOrThrow(levelId);
+  if (type === 'rerate') assertNotOnRatingPage(level);
   await assertNoOpenRequest(levelId, type);
   if (type === 'rerate') await assertRerateCooldown(levelId);
   const reason = readReason(type, body.reason);
@@ -723,6 +811,7 @@ export async function updateOwnLevelRequest(user: Viewer, requestId: number, bod
   if (request.requesterUserId !== user.id) throw new LevelRequestError(403, 'forbidden', 'You cannot edit this request');
   if (request.status !== 'pending') throw new LevelRequestError(409, 'locked', 'Only a pending request can be edited');
   const level = await loadLevelOrThrow(request.levelId);
+  if (request.type === 'rerate') assertNotOnRatingPage(level);
   const reason = body.reason === undefined ? request.reason : readReason(request.type, body.reason);
   const nextBody = {...request.payload, ...body, reason};
   const payload = await buildPayload(request.type, nextBody, level, reason);
@@ -757,6 +846,27 @@ export async function getLevelRequestForViewer(user: Viewer, requestId: number) 
 
 export async function listOwnLevelRequests(user: Viewer, query: Record<string, unknown>) {
   return listLevelRequests(user, {...query, mine: true});
+}
+
+export async function countOpenLevelRequests(user: Viewer): Promise<Partial<Record<LevelRequestType, number>>> {
+  const types = LEVEL_REQUEST_TYPES.filter((type) => canViewRequestType(user, type));
+  const counts: Partial<Record<LevelRequestType, number>> = {};
+  for (const type of types) counts[type] = 0;
+  if (!types.length) return counts;
+  const rows = await LevelRequest.findAll({
+    attributes: ['type', [fn('COUNT', col('id')), 'openCount']],
+    where: {
+      type: {[Op.in]: types},
+      status: {[Op.notIn]: [...TERMINAL_LEVEL_REQUEST_STATUSES]},
+    },
+    group: ['type'],
+    raw: true,
+  }) as unknown as Array<{type: LevelRequestType; openCount: string | number}>;
+  for (const row of rows) {
+    if (!types.includes(row.type)) continue;
+    counts[row.type] = Number(row.openCount) || 0;
+  }
+  return counts;
 }
 
 export async function listLevelRequests(user: Viewer, query: Record<string, unknown>) {
@@ -874,6 +984,7 @@ export async function levelRequestEligibility(user: Viewer, levelId: number) {
       if (type === 'rerate') {
         assertRerateBanClear(user, player);
         await assertRerateCooldown(levelId);
+        assertNotOnRatingPage(level);
       }
       await assertNoOpenRequest(level.id, type);
       result[type] = {allowed: true, code: null};
@@ -920,9 +1031,11 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
     throw new LevelRequestError(400, 'action', 'Unknown request action');
   }
   const action = body.action;
+  const ping = ratingThreadWantsPing(body);
   const allowed = actionsForRequest(request.type, request.status, {
     discordMessageUrl: request.discordMessageUrl,
     discordPostError: request.discordPostError,
+    discordThreadClosed: request.discordThreadClosed,
   });
   if (!allowed.includes(action)) {
     throw new LevelRequestError(409, 'action', 'That action is not available for this request');
@@ -980,7 +1093,7 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
 
   if (action === 'add_to_rating' || action === 'discord_vote') {
     const requested = requestedRatingOf(request);
-    const rerateNum = action === 'discord_vote' ? voteRerateNum(requested) : requested.slice(0, 60);
+    const rerateNum = action === 'discord_vote' ? voteThreadLabel(requested) : requested.slice(0, 60);
     const current = canonicalLevelRequestStatus(request.status);
     let transaction: Transaction | undefined;
     try {
@@ -992,9 +1105,10 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
           lock: true,
         });
         if (!level) throw new LevelRequestError(404, 'missing_level', 'Level not found');
+        const pageReason = await ratingPageReason(request, level.rerateReason || '', transaction);
         await level.update({
           rerateNum,
-          rerateReason: sanitizeTextInput(request.reason || level.rerateReason || ''),
+          rerateReason: sanitizeTextInput(pageReason),
         }, {transaction});
         if (!request.linkedRatingId) {
           const opened = await ensureOpenRating(
@@ -1005,7 +1119,8 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
           await request.update({linkedRatingId: opened.rating.id}, {transaction});
         }
       } else {
-        const rating = await openLevelOnRatingPage(request.levelId, rerateNum, request.reason || '', transaction);
+        const pageReason = await ratingPageReason(request, '', transaction);
+        const rating = await openLevelOnRatingPage(request.levelId, rerateNum, pageReason, transaction);
         await request.update({linkedRatingId: rating.id}, {transaction});
       }
       await request.update({
@@ -1020,10 +1135,10 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
       throw error;
     }
     if (action === 'discord_vote') {
-      await postRerateDiscord(request);
+      await postRerateDiscord(request, user.id, ping);
     }
     await notifyRequester(request, {actor: user});
-    await refreshRatingSurfaces(request.levelId);
+    if (action !== 'discord_vote') await refreshRatingSurfaces(request.levelId);
     return serializeLevelRequest(request, user);
   }
 
@@ -1036,8 +1151,55 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
     if (curation) {
       await postCurationDiscord(request);
     } else {
-      await postRerateDiscord(request);
+      await postRerateDiscord(request, user.id, ping);
     }
+    return serializeLevelRequest(request, user);
+  }
+
+  if (action === 'reopen_discord') {
+    if (request.type !== 'rerate' || !request.discordMessageUrl) {
+      throw new LevelRequestError(409, 'discord', 'This request has no Discord thread to reopen');
+    }
+    try {
+      const outcome = await reopenLevelRequestDiscordThread(request, {actorUserId: user.id, ping});
+      if (outcome === 'missing') throw new Error('Discord thread no longer exists');
+    } catch (error) {
+      if (error instanceof LevelRequestError) throw error;
+      const message = logRequestDiscordFailure(request.id, error);
+      throw new LevelRequestError(502, 'discord_reopen', message);
+    }
+    await syncRequestThreadMode(request, 'discord');
+    await request.update({...notePatch, discordThreadClosed: false, discordPostError: null});
+    await publishRequestRating(request);
+    return serializeLevelRequest(request, user);
+  }
+
+  if (action === 'delete_discord') {
+    if (!request.discordMessageUrl) {
+      throw new LevelRequestError(409, 'discord', 'This request has no Discord post');
+    }
+    let outcome: 'closed' | 'removed';
+    try {
+      outcome = await deleteLevelRequestDiscordPost(request, {actorUserId: user.id, ping});
+    } catch (error) {
+      const message = logRequestDiscordFailure(request.id, error);
+      const code = request.type === 'rerate' ? 'discord_close' : 'discord';
+      throw new LevelRequestError(502, code, message);
+    }
+    if (request.type === 'rerate') {
+      await syncRequestThreadMode(request, 'website');
+      await request.update(outcome === 'closed'
+        ? {...notePatch, discordThreadClosed: true, discordPostError: null}
+        : {...notePatch, discordMessageUrl: null, discordThreadClosed: true, discordPostError: null});
+      await publishRequestRating(request);
+      return serializeLevelRequest(request, user);
+    }
+    await request.update({
+      ...notePatch,
+      discordMessageUrl: null,
+      discordThreadClosed: false,
+      discordPostError: null,
+    });
     return serializeLevelRequest(request, user);
   }
 
@@ -1062,16 +1224,22 @@ async function postCurationDiscord(request: LevelRequest) {
   }
 }
 
-async function postRerateDiscord(request: LevelRequest) {
+async function postRerateDiscord(request: LevelRequest, actorUserId: string, ping = false) {
   const level = await Level.findByPk(request.levelId);
   if (!level) throw new LevelRequestError(404, 'missing_level', 'Level not found');
   try {
-    const posted = await postRerateRequestThread(request, level);
-    await request.update({discordMessageUrl: posted.url, discordPostError: null});
+    const posted = await postRerateRequestThread(request, level, actorUserId, ping);
+    await request.update({discordMessageUrl: posted.url, discordPostError: null, discordThreadClosed: false});
   } catch (error) {
     const message = logRequestDiscordFailure(request.id, error);
     await request.update({discordPostError: message});
     throw new LevelRequestError(502, 'discord', message);
+  }
+  try {
+    await syncRequestThreadMode(request, 'discord');
+    await publishRequestRating(request);
+  } catch (error) {
+    logger.error('Failed to mark the rating page after a Discord thread was posted', error);
   }
 }
 

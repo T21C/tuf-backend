@@ -22,6 +22,13 @@ test('isDiscordVoteCard treats pipeline vote cards as votes even without a vote 
   assert.equal(isDiscordVoteCard({rerateNum: 'G12', immediateSettle: true}), true);
   assert.equal(isDiscordVoteCard({rerateNum: 'G12', requestStatus: 'discord_vote'}), true);
   assert.equal(isDiscordVoteCard({rerateNum: 'G12'}), false);
+  assert.equal(isDiscordVoteCard({
+    rerateNum: 'vote G12',
+    immediateSettle: true,
+    requestStatus: 'discord_vote',
+    discordMessageUrl: 'https://discord.com/channels/1/2/3',
+    discordThreadClosed: true,
+  }), false);
 });
 
 test('requestPguBand uses universal proposal as U', () => {

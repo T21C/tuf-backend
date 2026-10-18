@@ -1,112 +1,26 @@
 import {Op} from 'sequelize';
-import Difficulty from '@/models/levels/Difficulty.js';
 import Level from '@/models/levels/Level.js';
-import LevelCredit from '@/models/levels/LevelCredit.js';
-import Creator from '@/models/credits/Creator.js';
-import Team from '@/models/credits/Team.js';
-import OAuthProvider from '@/models/auth/OAuthProvider.js';
-import User from '@/models/auth/User.js';
 import CurationType from '@/models/curations/CurationType.js';
 import {DiscordGuild} from '@/models/discord/index.js';
-import {clientUrlEnv} from '@/config/app.config.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import type LevelRequest from '@/models/levels/LevelRequest.js';
-import {normalizePguRequest} from '@/misc/utils/data/levelRequestValidation.js';
+import {
+  activeGuildId,
+  deleteWebhookMessage,
+  discordJumpTarget,
+  executeWebhook,
+  jumpUrl,
+  levelUrl,
+  logRatingThreadFailure,
+} from '@/server/services/discord/discordWebhook.js';
+import {
+  closeRatingThread,
+  createdByLine,
+  createRatingThread,
+  reopenRatingThread,
+} from '@/server/services/discord/ratingThread.js';
 
-type WebhookMessage = {
-  id?: string;
-  channel_id?: string;
-};
-
-function levelUrl(levelId: number): string {
-  const base = String(clientUrlEnv || 'http://localhost:5173').replace(/\/$/, '');
-  return `${base}/levels/${levelId}`;
-}
-
-async function executeWebhook(
-  webhookUrl: string,
-  body: Record<string, unknown>,
-  query: Record<string, string>,
-): Promise<WebhookMessage> {
-  const url = new URL(webhookUrl);
-  for (const [key, value] of Object.entries(query)) {
-    url.searchParams.set(key, value);
-  }
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {'content-type': 'application/json'},
-    body: JSON.stringify(body),
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`Webhook ${response.status}: ${text.slice(0, 300)}`);
-  }
-  if (!text.trim()) return {};
-  try {
-    return JSON.parse(text) as WebhookMessage;
-  } catch {
-    return {};
-  }
-}
-
-async function activeGuildId(): Promise<string | null> {
-  const guild = await DiscordGuild.findOne({
-    where: {isActive: true},
-    attributes: ['guildId'],
-    order: [['id', 'ASC']],
-  });
-  return guild?.guildId ?? null;
-}
-
-function jumpUrl(guildId: string | null, message: WebhookMessage): string | null {
-  if (!guildId || !message.channel_id || !message.id) return null;
-  return `https://discord.com/channels/${guildId}/${message.channel_id}/${message.id}`;
-}
-
-async function requesterMention(userId: string): Promise<{content: string; allowed_mentions: {parse: string[]; users: string[]}}> {
-  const [user, discord] = await Promise.all([
-    User.findByPk(userId, {attributes: ['id', 'username', 'nickname']}),
-    OAuthProvider.findOne({where: {userId, provider: 'discord'}, attributes: ['providerId']}),
-  ]);
-  const name = user?.nickname || user?.username || 'TUF user';
-  if (discord?.providerId) {
-    return {
-      content: `created by <@${discord.providerId}>`,
-      allowed_mentions: {parse: [], users: [discord.providerId]},
-    };
-  }
-  return {
-    content: `created by ${name}`,
-    allowed_mentions: {parse: [], users: []},
-  };
-}
-
-const announcerAvatar = process.env.BOT_AVATAR_URL
-  || 'https://soggy.cat/static/ssoggycat/main/images/soggycat.webp';
-
-function creatorLabel(level: Level | null | undefined): string {
-  if (!level) return '';
-  if (level.team) return level.team;
-  const names = (level.levelCredits || [])
-    .filter((credit) => String(credit.role).toLowerCase() === 'charter')
-    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.id - b.id)
-    .map((credit) => credit.creator?.name)
-    .filter((name): name is string => Boolean(name));
-  if (!names.length) return '';
-  if (names.length === 1) return names[0];
-  return `${names[0]} & ${names.length - 1} more`;
-}
-
-function withCreator(song: string, creator: string): string {
-  return creator ? `${song} (${creator})` : song;
-}
-
-function songArtistTitle(level: Level): string {
-  const songBase = String(level.song || 'Unknown Song').trim() || 'Unknown Song';
-  const song = level.suffix ? `${songBase} ${level.suffix}` : songBase;
-  const artist = String(level.artist || 'Unknown Artist').trim() || 'Unknown Artist';
-  return `${song} - ${artist}`.slice(0, 256);
-}
+export {discordJumpTarget, logRatingThreadFailure as logRequestDiscordFailure};
 
 type GuildEmojiRow = {id?: string; name?: string; animated?: boolean};
 
@@ -174,87 +88,76 @@ async function requestedCurationEmojis(typeIds: unknown): Promise<string> {
     .join(' ');
 }
 
-async function loadChart(levelId: number): Promise<Level | null> {
-  return Level.findByPk(levelId, {
-    attributes: ['id', 'song', 'diffId', 'teamId'],
-    include: [
-      {model: Difficulty, as: 'difficulty', attributes: ['id', 'name', 'emoji'], required: false},
-      {model: Team, as: 'teamObject', attributes: ['id', 'name'], required: false},
-      {
-        model: LevelCredit,
-        as: 'levelCredits',
-        attributes: ['id', 'role', 'sortOrder'],
-        required: false,
-        include: [{model: Creator, as: 'creator', attributes: ['id', 'name'], required: false}],
-      },
-    ],
+function songArtistTitle(level: Level): string {
+  const songBase = String(level.song || 'Unknown Song').trim() || 'Unknown Song';
+  const song = level.suffix ? `${songBase} ${level.suffix}` : songBase;
+  const artist = String(level.artist || 'Unknown Artist').trim() || 'Unknown Artist';
+  return `${song} - ${artist}`.slice(0, 256);
+}
+
+function webhookEnvFor(type: string): string {
+  if (type === 'curation_rerate') return 'CURATION_RERATE_WEBHOOK';
+  if (type === 'curation') return 'CURATION_REQUEST_WEBHOOK';
+  return 'RERATE_REQUEST_WEBHOOK';
+}
+
+/** Rerate threads go through the shared rating-thread module. Other posts are deleted. */
+export async function deleteLevelRequestDiscordPost(
+  request: LevelRequest,
+  options: {actorUserId?: string; ping?: boolean} = {},
+): Promise<'closed' | 'removed'> {
+  const jump = discordJumpTarget(request.discordMessageUrl || '');
+  if (!jump) {
+    throw new Error('Stored Discord post URL is not a channel message link');
+  }
+  if (request.type === 'rerate') {
+    if (!options.actorUserId) throw new Error('Closing a rating thread requires the acting user');
+    const outcome = await closeRatingThread({
+      threadUrl: request.discordMessageUrl || '',
+      actorUserId: options.actorUserId,
+      ping: options.ping === true,
+    });
+    return outcome === 'missing' ? 'removed' : 'closed';
+  }
+  const envName = webhookEnvFor(request.type);
+  const webhookUrl = (process.env[envName] || '').trim();
+  if (!webhookUrl) {
+    throw new Error(`${envName} is not configured`);
+  }
+  await deleteWebhookMessage(webhookUrl, jump.messageId, null);
+  return 'removed';
+}
+
+export async function reopenLevelRequestDiscordThread(
+  request: LevelRequest,
+  options: {actorUserId: string; ping?: boolean},
+): Promise<'reopened' | 'missing'> {
+  return reopenRatingThread({
+    threadUrl: request.discordMessageUrl || '',
+    actorUserId: options.actorUserId,
+    ping: options.ping === true,
   });
 }
 
-async function emojiForDiffId(diffId: number | null | undefined): Promise<string> {
-  if (diffId == null) return '';
-  const row = await Difficulty.findByPk(diffId, {attributes: ['emoji']});
-  return row?.emoji || '';
-}
-
-async function requestedEmoji(requested: string): Promise<string> {
-  const normalized = normalizePguRequest(requested);
-  const parts = normalized.split(/[-~]/).map((part) => part.trim()).filter(Boolean);
-  const rows = await Difficulty.findAll({attributes: ['name', 'emoji']});
-  const byName = new Map(rows.map((row) => [row.name.toLowerCase(), row.emoji || '']));
-  return parts.map((part) => byName.get(part.toLowerCase()) || part).filter(Boolean).join(' ');
-}
-
-export async function postRerateRequestThread(request: LevelRequest, level: Level): Promise<{url: string | null}> {
-  const webhookUrl = (process.env.RERATE_REQUEST_WEBHOOK || '').trim();
-  if (!webhookUrl) {
-    throw new Error('RERATE_REQUEST_WEBHOOK is not configured');
-  }
+export async function postRerateRequestThread(
+  request: LevelRequest,
+  level: Level,
+  actorUserId: string,
+  ping = false,
+): Promise<{url: string | null}> {
   const payload = request.payload || {};
-  const chart = await loadChart(level.id);
-  const currentEmoji = chart?.difficulty?.emoji || await emojiForDiffId(chart?.diffId ?? level.diffId);
-  const requested = await requestedEmoji(String(payload.requestedRating || ''));
-  const song = chart?.song || level.song || 'Unknown';
-  const creator = creatorLabel(chart);
-  const threadName = `${currentEmoji} ${withCreator(song, creator)} ➔ ${requested}`.replace(/\s+/g, ' ').trim().slice(0, 100);
-  const comparisonIds = Array.isArray(payload.comparisons)
+  const comparisonLevelIds = Array.isArray(payload.comparisons)
     ? payload.comparisons.map((row) => Number((row as {levelId?: number}).levelId)).filter((id) => id > 0)
     : [];
-  const comparisonLines = (await Promise.all(comparisonIds.map(async (levelId) => {
-    const row = await loadChart(levelId);
-    if (!row) return null;
-    const emoji = row.difficulty?.emoji || '';
-    const label = `${emoji} ${withCreator(row.song || `#${levelId}`, creatorLabel(row))}`.replace(/\s+/g, ' ').trim();
-    return `[${label}](${levelUrl(levelId)})`;
-  }))).filter((line): line is string => Boolean(line));
-  const description = [
-    'Reason:',
-    request.reason || '',
-    '',
-    'Comparisons:',
-    comparisonLines.join('\n') || '—',
-  ].join('\n').slice(0, 4000);
-  const mention = await requesterMention(request.requesterUserId);
-  const message = await executeWebhook(
-    webhookUrl,
-    {
-      username: 'Rerate request',
-      avatar_url: announcerAvatar,
-      content: mention.content,
-      allowed_mentions: mention.allowed_mentions,
-      thread_name: threadName,
-      embeds: [
-        {
-          title: `Request #${request.id}`,
-          url: levelUrl(level.id),
-          description,
-        },
-      ],
-    },
-    {wait: 'true'},
-  );
-  const guildId = await activeGuildId();
-  return {url: jumpUrl(guildId, message)};
+  return createRatingThread({
+    levelId: level.id,
+    requestedRating: String(payload.requestedRating || ''),
+    reason: request.reason || '',
+    comparisonLevelIds,
+    actorUserId,
+    embedTitle: `Request #${request.id}`,
+    ping,
+  });
 }
 
 export async function postCurationRequestEmbed(request: LevelRequest, level: Level): Promise<{url: string | null}> {
@@ -263,14 +166,25 @@ export async function postCurationRequestEmbed(request: LevelRequest, level: Lev
   if (!webhookUrl) {
     throw new Error(`${envName} is not configured`);
   }
-  const emojis = await requestedCurationEmojis(request.payload?.curationTypeIds);
-  const mention = await requesterMention(request.requesterUserId);
-  const description = [
-    'Requested curations:',
-    emojis,
-    'Reason:',
-    request.reason || '',
-  ].join('\n').slice(0, 4000);
+  const addIds = request.payload?.addCurationTypeIds;
+  const removeIds = request.payload?.removeCurationTypeIds;
+  const hasDiff = request.type === 'curation_rerate' && (Array.isArray(addIds) || Array.isArray(removeIds));
+  const mention = await createdByLine(request.requesterUserId, 'TUF user');
+  const description = hasDiff
+    ? [
+        'Add:',
+        (await requestedCurationEmojis(addIds)) || '—',
+        'Remove:',
+        (await requestedCurationEmojis(removeIds)) || '—',
+        'Reason:',
+        request.reason || '',
+      ].join('\n').slice(0, 4000)
+    : [
+        'Requested curations:',
+        await requestedCurationEmojis(request.payload?.curationTypeIds),
+        'Reason:',
+        request.reason || '',
+      ].join('\n').slice(0, 4000);
   const message = await executeWebhook(
     webhookUrl,
     {
@@ -288,10 +202,4 @@ export async function postCurationRequestEmbed(request: LevelRequest, level: Lev
   );
   const guildId = await activeGuildId();
   return {url: jumpUrl(guildId, message)};
-}
-
-export function logRequestDiscordFailure(requestId: number, error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  logger.warn('[level-request] Discord post failed', {requestId, message});
-  return message.slice(0, 500);
 }

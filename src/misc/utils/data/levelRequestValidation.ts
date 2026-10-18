@@ -31,6 +31,8 @@ export const LEVEL_REQUEST_ACTIONS = [
   'add_to_rating',
   'discord_vote',
   'retry_discord',
+  'delete_discord',
+  'reopen_discord',
 ] as const;
 
 export type LevelRequestAction = (typeof LEVEL_REQUEST_ACTIONS)[number];
@@ -139,29 +141,37 @@ export function statusAllowedForType(type: LevelRequestType, status: LevelReques
 export function actionsForRequest(
   type: LevelRequestType,
   status: string,
-  flags?: {discordMessageUrl?: string | null; discordPostError?: string | null},
+  flags?: {
+    discordMessageUrl?: string | null;
+    discordPostError?: string | null;
+    discordThreadClosed?: boolean | null;
+  },
 ): LevelRequestAction[] {
   const canonical = canonicalLevelRequestStatus(status);
   if (!canonical) return [];
   const hasThread = Boolean(flags?.discordMessageUrl);
+  const threadClosed = type === 'rerate' && Boolean(flags?.discordThreadClosed);
   const postFailed = Boolean(flags?.discordPostError);
-  if (canonical === 'pending') return ['accept', 'reject'];
-  if (canonical === 'accepted') {
-    if (type === 'rerate') return ['add_to_rating', 'discord_vote', 'complete', 'reject'];
-    const actions: LevelRequestAction[] = ['complete', 'reject'];
-    if ((type === 'curation' || type === 'curation_rerate') && (!hasThread || postFailed)) {
-      return ['retry_discord', ...actions];
+  let actions: LevelRequestAction[] = [];
+  if (canonical === 'pending') {
+    actions = ['accept', 'reject'];
+  } else if (canonical === 'accepted') {
+    if (type === 'rerate') {
+      actions = ['add_to_rating', 'discord_vote', 'complete', 'reject'];
+    } else {
+      actions = ['complete', 'reject'];
+      if ((type === 'curation' || type === 'curation_rerate') && (!hasThread || postFailed)) {
+        actions = ['retry_discord', ...actions];
+      }
     }
-    return actions;
+  } else if (type === 'rerate' && canonical === 'added_to_rating_page' && !hasThread) {
+    actions = ['discord_vote'];
+  } else if (type === 'rerate' && canonical === 'discord_vote' && (!hasThread || postFailed)) {
+    actions = ['retry_discord'];
   }
-  if (type !== 'rerate') return [];
-  if (canonical === 'added_to_rating_page' && !hasThread) {
-    return ['discord_vote'];
-  }
-  if (canonical === 'discord_vote' && (!hasThread || postFailed)) {
-    return ['retry_discord'];
-  }
-  return [];
+  if (hasThread && !threadClosed) actions = [...actions, 'delete_discord'];
+  if (type === 'rerate' && hasThread && threadClosed) actions = [...actions, 'reopen_discord'];
+  return actions;
 }
 
 /** Same separator rules as RatingUtils.parseRatingRange, with spaces around - and ~ removed first. */
@@ -190,6 +200,28 @@ export function isRealPguRequest(raw: string | null | undefined): boolean {
   const parts = parsePguParts(input);
   if (parts.length < 1 || parts.length > 2) return false;
   return parts.every((part) => PGU_TOKEN.test(part.trim()));
+}
+
+function specialNameLookup(names: Iterable<string>): Map<string, string> {
+  const lookup = new Map<string, string>();
+  for (const name of names) {
+    const value = String(name ?? '').trim();
+    if (!value) continue;
+    lookup.set(value.toLowerCase(), value);
+  }
+  return lookup;
+}
+
+/**
+ * A PGU difficulty or range, or one special difficulty matched by its stored name.
+ * Returns the value to save, with the special name in its stored casing.
+ */
+export function resolveRerateRating(raw: string | null | undefined, specialNames: Iterable<string> = []): string | null {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed) return null;
+  const special = specialNameLookup(specialNames).get(trimmed.toLowerCase());
+  if (special) return special;
+  return isRealPguRequest(trimmed) ? normalizePguRequest(trimmed) : null;
 }
 
 export function collectLevelReferenceIds(text: string): number[] {
@@ -296,4 +328,14 @@ export function completionStatusForDifficultyChange(
   const frozen = frozenDiffId == null ? null : Number(frozenDiffId);
   const settled = settledDiffId == null || Number.isNaN(Number(settledDiffId)) ? null : Number(settledDiffId);
   return frozen !== settled ? 'completed_changed' : 'completed_unchanged';
+}
+
+/** Rating-page copy of a rerate reason, with the original requester on the last line. */
+export function reasonWithRequester(reason: string, username: string): string {
+  const handle = String(username || '').trim().replace(/^@+/, '');
+  const base = String(reason || '').trim();
+  if (!handle) return base;
+  const line = `Requested by @${handle}`;
+  if (base === line || base.endsWith(`\n${line}`)) return base;
+  return base ? `${base}\n${line}` : line;
 }

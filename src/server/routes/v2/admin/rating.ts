@@ -27,6 +27,9 @@ import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { calculateAverageRating, isDiscordVoteCard } from '@/misc/utils/data/RatingUtils.js';
+import { LevelRequestError } from '@/server/services/requests/levelRequestService.js';
+import { manageRatingDiscordThread } from '@/server/services/ratings/ratingDiscordThread.js';
+import { readRatingThreadRequest } from '@/misc/utils/data/ratingThread.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
@@ -69,19 +72,25 @@ const MAX_RATING_COMMENT_LENGTH = 10_000;
 async function isLockedVoteCard(ratingId: number, levelId: number, transaction: Transaction) {
   const [level, rating, request] = await Promise.all([
     Level.findByPk(levelId, {attributes: ['rerateNum'], transaction}),
-    Rating.findByPk(ratingId, {attributes: ['requesterFR'], transaction}),
+    Rating.findByPk(ratingId, {attributes: ['requesterFR', 'discordMessageUrl', 'discordThreadClosed'], transaction}),
     LevelRequest.findOne({
       where: {linkedRatingId: ratingId, type: 'rerate'},
-      attributes: ['immediateSettle', 'status', 'discordMessageUrl'],
+      attributes: ['immediateSettle', 'status', 'discordMessageUrl', 'discordThreadClosed'],
       transaction,
     }),
   ]);
+  const requestOwnsThread = Boolean(
+    request && (request.discordMessageUrl || request.immediateSettle || request.status === 'discord_vote'),
+  );
   return isDiscordVoteCard({
     rerateNum: level?.rerateNum,
     requesterFR: rating?.requesterFR,
     immediateSettle: request?.immediateSettle,
     requestStatus: request?.status,
-    discordMessageUrl: request?.discordMessageUrl,
+    discordMessageUrl: request?.discordMessageUrl || rating?.discordMessageUrl,
+    discordThreadClosed: requestOwnsThread
+      ? Boolean(request?.discordThreadClosed)
+      : Boolean(rating?.discordThreadClosed),
   });
 }
 
@@ -478,6 +487,33 @@ router.get(
       return res.status(500).json({ error: 'Internal Server Error' });
     }
   }
+);
+
+router.post(
+  '/:id([0-9]+)/discord',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postRatingDiscordThread',
+    summary: 'Create, close, or reopen a Discord vote thread for a manually added rating',
+    description: 'Same vote-thread process as a rerate request, for a rating that has no website request. Body: {action: create|close|reopen, ping?: boolean}. Pings default off. Closing returns the chart to website rating.',
+    tags: ['Admin', 'Rating'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Discord thread created' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const {action, ping} = readRatingThreadRequest(req.body);
+      const rating = await manageRatingDiscordThread(req.user, Number(req.params.id), action, ping);
+      return res.json({ rating });
+    } catch (error) {
+      if (error instanceof LevelRequestError) {
+        return res.status(error.status).json({ error: error.message, code: error.code });
+      }
+      logger.error('Error updating a rating Discord thread:', error);
+      return res.status(500).json({ error: 'Failed to update the Discord thread' });
+    }
+  },
 );
 
 // Update rating

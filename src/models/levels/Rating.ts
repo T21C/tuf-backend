@@ -15,11 +15,14 @@ interface RatingAttributes {
   confirmedAt: Date | null;
   settledDiffId: number | null;
   clearsAtSettle: number | null;
+  discordMessageUrl: string | null;
+  discordPostError: string | null;
+  discordThreadClosed: boolean;
 }
 
 type RatingCreationAttributes = Optional<
   RatingAttributes,
-  'id' | 'averageDifficultyId' | 'communityDifficultyId' | 'settledDiffId' | 'clearsAtSettle'
+  'id' | 'averageDifficultyId' | 'communityDifficultyId' | 'settledDiffId' | 'clearsAtSettle' | 'discordMessageUrl' | 'discordPostError' | 'discordThreadClosed'
 >;
 
 class Rating
@@ -42,6 +45,9 @@ class Rating
   declare confirmedAt: Date | null;
   declare settledDiffId: number | null;
   declare clearsAtSettle: number | null;
+  declare discordMessageUrl: string | null;
+  declare discordPostError: string | null;
+  declare discordThreadClosed: boolean;
 }
 
 Rating.init(
@@ -99,6 +105,19 @@ Rating.init(
     clearsAtSettle: {
       type: DataTypes.INTEGER,
       allowNull: true,
+    },
+    discordMessageUrl: {
+      type: DataTypes.STRING(512),
+      allowNull: true,
+    },
+    discordPostError: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    discordThreadClosed: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
   },
   {
