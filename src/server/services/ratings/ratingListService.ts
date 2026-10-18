@@ -27,7 +27,7 @@ import {
   attachSerializedAccuracySamples,
 } from '@/server/services/ratings/ratingAccuracyService.js';
 
-const DISCORD_VOTE_LEVEL_IDS_SQL = `(SELECT DISTINCT levelId FROM level_requests WHERE type = 'rerate' AND linkedRatingId IS NOT NULL AND (immediateSettle = 1 OR status = 'discord_vote' OR discordMessageUrl IS NOT NULL))`;
+const DISCORD_VOTE_LEVEL_IDS_SQL = `(SELECT DISTINCT levelId FROM level_requests WHERE type = 'rerate' AND linkedRatingId IS NOT NULL AND discordThreadClosed = 0 AND (immediateSettle = 1 OR status = 'discord_vote' OR discordMessageUrl IS NOT NULL) UNION SELECT DISTINCT levelId FROM ratings WHERE discordMessageUrl IS NOT NULL AND discordThreadClosed = 0 AND confirmedAt IS NULL)`;
 
 export const RATING_LIST_PAGE_SIZE = 30;
 export const RATING_LIST_CACHE_TTL_SEC = 300;
@@ -360,19 +360,12 @@ export async function hydrateRatingListRows(
       linkedRatingId: {[Op.in]: ratingIds},
       type: 'rerate',
     },
-    attributes: ['linkedRatingId', 'immediateSettle', 'status', 'discordMessageUrl'],
+    attributes: ['linkedRatingId', 'immediateSettle', 'status', 'discordMessageUrl', 'discordThreadClosed'],
   });
-  const voteByRatingId = new Map<number, boolean>();
+  const linkedByRatingId = new Map<number, (typeof linkedRequests)[number]>();
   for (const request of linkedRequests) {
     if (request.linkedRatingId == null) continue;
-    voteByRatingId.set(
-      request.linkedRatingId,
-      isDiscordVoteCard({
-        immediateSettle: request.immediateSettle,
-        requestStatus: request.status,
-        discordMessageUrl: request.discordMessageUrl,
-      }),
-    );
+    linkedByRatingId.set(request.linkedRatingId, request);
   }
 
   const rows: Record<string, unknown>[] = [];
@@ -401,13 +394,21 @@ export async function hydrateRatingListRows(
     delete plain.level;
     plain.level = level;
     const rerateNum = typeof level.rerateNum === 'string' ? level.rerateNum : null;
-    plain.isDiscordVote = Boolean(
-      voteByRatingId.get(rating.id) ||
-      isDiscordVoteCard({
-        rerateNum,
-        requesterFR: typeof rating.requesterFR === 'string' ? rating.requesterFR : null,
-      }),
+    const linked = linkedByRatingId.get(rating.id);
+    const requestOwnsThread = Boolean(
+      linked && (linked.discordMessageUrl || linked.immediateSettle || linked.status === 'discord_vote'),
     );
+    plain.isDiscordVote = isDiscordVoteCard({
+      rerateNum,
+      requesterFR: typeof rating.requesterFR === 'string' ? rating.requesterFR : null,
+      immediateSettle: linked?.immediateSettle,
+      requestStatus: linked?.status,
+      discordMessageUrl: linked?.discordMessageUrl
+        || (typeof plain.discordMessageUrl === 'string' ? plain.discordMessageUrl : null),
+      discordThreadClosed: requestOwnsThread
+        ? Boolean(linked?.discordThreadClosed)
+        : Boolean(plain.discordThreadClosed),
+    });
     plain.details = slimDetails(
       (detailsByRatingId.get(rating.id) || []).map((d) => ({
         id: d.id,
@@ -790,15 +791,26 @@ export async function buildCompleteRatingById(
 
   const linkedRequest = await LevelRequest.findOne({
     where: {linkedRatingId: ratingId, type: 'rerate'},
-    attributes: ['immediateSettle', 'status', 'discordMessageUrl'],
+    attributes: ['immediateSettle', 'status', 'discordMessageUrl', 'discordThreadClosed'],
   });
   const completeLevel = plain.level as {rerateNum?: string | null} | undefined;
+  const requestOwnsThread = Boolean(
+    linkedRequest && (
+      linkedRequest.discordMessageUrl
+      || linkedRequest.immediateSettle
+      || linkedRequest.status === 'discord_vote'
+    ),
+  );
   plain.isDiscordVote = isDiscordVoteCard({
     rerateNum: completeLevel?.rerateNum ?? null,
     requesterFR: typeof plain.requesterFR === 'string' ? plain.requesterFR : null,
     immediateSettle: linkedRequest?.immediateSettle,
     requestStatus: linkedRequest?.status,
-    discordMessageUrl: linkedRequest?.discordMessageUrl,
+    discordMessageUrl: linkedRequest?.discordMessageUrl
+      || (typeof plain.discordMessageUrl === 'string' ? plain.discordMessageUrl : null),
+    discordThreadClosed: requestOwnsThread
+      ? Boolean(linkedRequest?.discordThreadClosed)
+      : Boolean(plain.discordThreadClosed),
   });
 
   return plain;

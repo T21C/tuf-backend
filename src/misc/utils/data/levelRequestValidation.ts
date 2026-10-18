@@ -32,6 +32,7 @@ export const LEVEL_REQUEST_ACTIONS = [
   'discord_vote',
   'retry_discord',
   'delete_discord',
+  'reopen_discord',
 ] as const;
 
 export type LevelRequestAction = (typeof LEVEL_REQUEST_ACTIONS)[number];
@@ -169,6 +170,7 @@ export function actionsForRequest(
     actions = ['retry_discord'];
   }
   if (hasThread && !threadClosed) actions = [...actions, 'delete_discord'];
+  if (type === 'rerate' && hasThread && threadClosed) actions = [...actions, 'reopen_discord'];
   return actions;
 }
 
@@ -326,4 +328,14 @@ export function completionStatusForDifficultyChange(
   const frozen = frozenDiffId == null ? null : Number(frozenDiffId);
   const settled = settledDiffId == null || Number.isNaN(Number(settledDiffId)) ? null : Number(settledDiffId);
   return frozen !== settled ? 'completed_changed' : 'completed_unchanged';
+}
+
+/** Rating-page copy of a rerate reason, with the original requester on the last line. */
+export function reasonWithRequester(reason: string, username: string): string {
+  const handle = String(username || '').trim().replace(/^@+/, '');
+  const base = String(reason || '').trim();
+  if (!handle) return base;
+  const line = `Requested by @${handle}`;
+  if (base === line || base.endsWith(`\n${line}`)) return base;
+  return base ? `${base}\n${line}` : line;
 }

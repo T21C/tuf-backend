@@ -12,6 +12,7 @@ import {
   isOpenLevelRequestStatus,
   isRealPguRequest,
   resolveRerateRating,
+  reasonWithRequester,
   isTerminalLevelRequestStatus,
   rerateCooldownRemainingMs,
   RERATE_COOLDOWN_MS,
@@ -159,13 +160,13 @@ test('credit targets keep role order and reject duplicates', () => {
   assert.equal(signature, creditRequestSignature(canonicalRequestCredits(credits) || [], {id: 4, name: 'Nova'}));
 });
 
-test('a closed rerate thread keeps its link and is not offered again', () => {
+test('a closed rerate thread keeps its link and can be reopened', () => {
   assert.deepEqual(
     actionsForRequest('rerate', 'discord_vote', {
       discordMessageUrl: 'https://discord.com/channels/1/2/3',
       discordThreadClosed: true,
     }),
-    [],
+    ['reopen_discord'],
   );
   assert.deepEqual(
     actionsForRequest('curation', 'accepted', {
@@ -174,6 +175,13 @@ test('a closed rerate thread keeps its link and is not offered again', () => {
     }),
     ['complete', 'reject', 'delete_discord'],
   );
+});
+
+test('rating page reasons end with the original requester', () => {
+  assert.equal(reasonWithRequester('Closer to G15 than G14\n#123', 'ada'), 'Closer to G15 than G14\n#123\nRequested by @ada');
+  assert.equal(reasonWithRequester('', 'ada'), 'Requested by @ada');
+  assert.equal(reasonWithRequester('Already noted\nRequested by @ada', '@ada'), 'Already noted\nRequested by @ada');
+  assert.equal(reasonWithRequester('  Keep this  ', ''), 'Keep this');
 });
 
 test('terminal requests have no pipeline actions unless a Discord post remains', () => {

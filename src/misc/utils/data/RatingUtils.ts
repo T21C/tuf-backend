@@ -214,7 +214,9 @@ export function isDiscordVoteCard(options: {
   immediateSettle?: boolean | null;
   requestStatus?: string | null;
   discordMessageUrl?: string | null;
+  discordThreadClosed?: boolean | null;
 } = {}): boolean {
+  if (options.discordThreadClosed) return false;
   if (options.immediateSettle) return true;
   if (options.requestStatus === 'discord_vote') return true;
   if (options.discordMessageUrl) return true;
