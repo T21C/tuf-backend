@@ -507,7 +507,7 @@ function readReason(type: LevelRequestType, raw: unknown): string {
   if (reason.length > LEVEL_REQUEST_REASON_MAX) {
     throw new LevelRequestError(400, 'reason_length', 'Reason must be at most 1000 characters');
   }
-  if (!reason && type !== 'curation') {
+  if (!reason && (type === 'rerate' || type === 'curation_rerate')) {
     throw new LevelRequestError(400, 'reason', 'A reason is required');
   }
   return reason;
@@ -841,6 +841,18 @@ export async function getLevelRequestForViewer(user: Viewer, requestId: number) 
   return serializeLevelRequest(request, user);
 }
 
+const LIST_SORTS: Record<string, [string, 'ASC' | 'DESC']> = {
+  created_desc: ['createdAt', 'DESC'],
+  created_asc: ['createdAt', 'ASC'],
+  updated_desc: ['updatedAt', 'DESC'],
+  updated_asc: ['updatedAt', 'ASC'],
+};
+
+function listLevelRequestOrder(raw: unknown): [[string, 'ASC' | 'DESC']] {
+  const key = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  return [LIST_SORTS[key] || LIST_SORTS.created_desc];
+}
+
 export async function listOwnLevelRequests(user: Viewer, query: Record<string, unknown>) {
   return listLevelRequests(user, {...query, mine: true});
 }
@@ -955,7 +967,7 @@ export async function listLevelRequests(user: Viewer, query: Record<string, unkn
   }
   const rows = await LevelRequest.findAndCountAll({
     where,
-    order: [['createdAt', 'DESC']],
+    order: listLevelRequestOrder(query.sort),
     limit,
     offset,
   });

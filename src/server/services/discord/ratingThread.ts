@@ -1,4 +1,4 @@
-import type {Transaction} from 'sequelize';
+import {Op, type Transaction} from 'sequelize';
 import Difficulty from '@/models/levels/Difficulty.js';
 import Level from '@/models/levels/Level.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
@@ -7,6 +7,7 @@ import Team from '@/models/credits/Team.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import User from '@/models/auth/User.js';
 import Rating from '@/models/levels/Rating.js';
+import Pass from '@/models/passes/Pass.js';
 import {normalizePguRequest} from '@/misc/utils/data/levelRequestValidation.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {
@@ -118,6 +119,20 @@ function creatorLabel(level: Level | null | undefined): string {
 
 function withCreator(song: string, creator: string): string {
   return creator ? `${song} (${creator})` : song;
+}
+
+async function topScoreClearVideoUrl(levelId: number): Promise<string> {
+  const pass = await Pass.findOne({
+    where: {
+      levelId,
+      isDeleted: false,
+      isHidden: false,
+      videoLink: {[Op.and]: [{[Op.ne]: null}, {[Op.ne]: ''}]},
+    },
+    order: [['scoreV2', 'DESC'], ['id', 'DESC']],
+    attributes: ['videoLink'],
+  });
+  return typeof pass?.videoLink === 'string' ? pass.videoLink.trim() : '';
 }
 
 async function loadChart(levelId: number): Promise<Level | null> {
@@ -270,12 +285,13 @@ export async function createRatingThread(input: {
   ].join('\n').slice(0, 4000);
   const mention = await createdByLine(input.actorUserId);
   const team = ratingTeamPing(input.ping === true);
+  const videoUrl = await topScoreClearVideoUrl(input.levelId);
   const message = await executeWebhook(
     rerateWebhookUrl(),
     {
       username: 'Rerate request',
       avatar_url: announcerAvatar,
-      content: [team.text, emojiLine, mention.content].filter(Boolean).join('\n').slice(0, 2000),
+      content: [team.text, emojiLine, mention.content, videoUrl].filter(Boolean).join('\n').slice(0, 2000),
       allowed_mentions: {
         parse: [],
         users: mention.allowed_mentions.users,

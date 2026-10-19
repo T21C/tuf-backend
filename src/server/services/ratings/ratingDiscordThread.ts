@@ -25,6 +25,7 @@ import {
   logRatingThreadFailure,
   reopenRatingThread,
   voteThreadLabel,
+  websiteRatingLabel,
 } from '@/server/services/discord/ratingThread.js';
 
 const sequelize = getSequelizeForModelGroup('levels');
@@ -114,6 +115,64 @@ export async function manageRatingDiscordThread(
   if (action === 'close') return closeManualThread(user, ratingId, ping);
   if (action === 'reopen') return reopenManualThread(user, ratingId, ping);
   return createManualThread(user, ratingId, ping);
+}
+
+/**
+ * First 1.0x UQ clear: post a Discord vote thread with a team ping.
+ * Skips the request pipeline and the rating Discord permission check.
+ * Discord failures are stored on the rating and do not throw.
+ */
+export async function postUqClearRatingThread(input: {
+  ratingId: number;
+  levelId: number;
+  actorUserId: string;
+  requestedRating: string;
+}): Promise<void> {
+  const requested = websiteRatingLabel(input.requestedRating);
+  const labeled = voteThreadLabel(requested || input.requestedRating);
+  const reason = 'cleared';
+  try {
+    const rating = await Rating.findByPk(input.ratingId);
+    if (!rating || rating.confirmedAt != null || rating.discordMessageUrl) return;
+    const level = await Level.findByPk(input.levelId);
+    if (!level?.toRate) return;
+
+    await level.update({rerateNum: labeled});
+    await rating.update({
+      requesterFR: labeled,
+      discordPostError: null,
+      discordThreadClosed: false,
+    });
+
+    try {
+      const posted = await createRatingThread({
+        levelId: input.levelId,
+        requestedRating: requested || labeled,
+        reason,
+        comparisonLevelIds: collectLevelReferenceIds(reason),
+        actorUserId: input.actorUserId,
+        embedTitle: `Rating #${input.ratingId} (Auto)`,
+        ping: true,
+      });
+      await rating.update({
+        discordMessageUrl: posted.url,
+        discordPostError: null,
+        discordThreadClosed: false,
+      });
+    } catch (error) {
+      const message = logRatingThreadFailure(input.ratingId, error);
+      await rating.update({discordPostError: message});
+    }
+
+    await refreshLevelSurfaces(input.levelId);
+    await publishRating(input.ratingId, input.levelId);
+  } catch (error) {
+    logger.warn('Failed to post a Discord thread after a UQ clear', {
+      ratingId: input.ratingId,
+      levelId: input.levelId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function createManualThread(user: Actor, ratingId: number, ping: boolean) {
