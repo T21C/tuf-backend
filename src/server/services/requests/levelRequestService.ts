@@ -440,9 +440,6 @@ async function buildPayload(type: LevelRequestType, body: Record<string, unknown
       throw new LevelRequestError(400, 'rating', 'Requested rating must be a PGU difficulty, range, or special difficulty name');
     }
     const comparisons = await comparisonSnapshots(reason);
-    if (comparisons.found.length < 1) {
-      throw new LevelRequestError(400, 'comparison', 'Mention at least one existing level with #id');
-    }
     return {
       requestedRating,
       frozenDiffId: level.diffId ?? null,
@@ -664,7 +661,7 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
     hasFlag(viewerFlags(viewer), permissionFlags.HEAD_CURATOR)
   );
   const levelTagIds = request.type === 'tag' ? await assignableLevelTagIds(request.levelId) : undefined;
-  const levelCurationTypeIds = request.type === 'curation_rerate'
+  const levelCurationTypeIds = request.type === 'curation' || request.type === 'curation_rerate'
     ? await currentCurationTypeIds(request.levelId)
     : undefined;
 
@@ -857,7 +854,7 @@ export async function countOpenLevelRequests(user: Viewer): Promise<Partial<Reco
     attributes: ['type', [fn('COUNT', col('id')), 'openCount']],
     where: {
       type: {[Op.in]: types},
-      status: {[Op.notIn]: [...TERMINAL_LEVEL_REQUEST_STATUSES]},
+      status: 'pending',
     },
     group: ['type'],
     raw: true,
