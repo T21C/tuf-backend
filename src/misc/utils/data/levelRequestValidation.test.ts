@@ -138,6 +138,7 @@ test('completed list filter defaults to hide and accepts show/only', () => {
   assert.equal(completedRequestsFilter({includeCompleted: '1'}), 'show');
   assert.equal(completedRequestsFilter({completed: 'nope', includeCompleted: true}), 'show');
   assert.equal(COMPLETED_LEVEL_REQUEST_STATUSES.includes('rejected'), true);
+  assert.equal(COMPLETED_LEVEL_REQUEST_STATUSES.includes('withdrawn'), true);
 });
 
 test('credit targets keep role order and reject duplicates', () => {

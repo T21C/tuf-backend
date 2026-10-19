@@ -13,6 +13,7 @@ import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
+import PlayerStats from '@/models/players/PlayerStats.js';
 import Pass from '@/models/passes/Pass.js';
 import {permissionFlags} from '@/config/constants.js';
 import {logger} from '@/server/services/core/LoggerService.js';
@@ -32,7 +33,6 @@ import {
   INFO_CHANGE_KINDS,
   INFO_CHANGE_VALUE_MAX,
   LEVEL_REQUEST_REASON_MAX,
-  LEVEL_REQUEST_STATUSES,
   LEVEL_REQUEST_TYPES,
   RATING_LINK_STATUSES,
   RERATE_COOLDOWN_STATUSES,
@@ -58,6 +58,13 @@ import {
 } from '@/misc/utils/data/levelRequestValidation.js';
 import { loadSerializedAssignedTags } from '@/server/services/data/levelTagGroupService.js';
 import { getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import {
+  REQUEST_SEARCH_MAX_Q,
+} from '@/misc/utils/data/levelRequestSearch.js';
+import {
+  levelRequestSearchFromQuery,
+  requestSearchHasStatusField,
+} from '@/server/services/requests/levelRequestSearch.js';
 import {
   deleteLevelRequestDiscordPost,
   logRequestDiscordFailure,
@@ -602,6 +609,37 @@ async function bestVisiblePass(requesterUserId: string, levelId: number, viewer:
   return {id: best.id, scoreV2: best.scoreV2, accuracy: best.accuracy};
 }
 
+async function requesterTopDiff(playerId: number | null | undefined) {
+  if (!playerId) return null;
+  const stats = await PlayerStats.findByPk(playerId, {
+    attributes: ['id', 'topDiffId'],
+    include: [{model: Difficulty, as: 'topDiff', attributes: ['id', 'name', 'icon'], required: false}],
+  });
+  const diff = stats?.topDiff;
+  if (!diff?.id) return null;
+  return {id: diff.id, name: diff.name, icon: diff.icon};
+}
+
+function withLastActor(user: Viewer, patch: Record<string, unknown> = {}) {
+  return {...patch, lastActorUserId: user.id};
+}
+
+async function serializeUserPreview(userId: string | null | undefined) {
+  if (!userId) return null;
+  const row = await User.findByPk(userId, {
+    attributes: ['id', 'username', 'nickname', 'playerId', 'avatarUrl', 'avatarIsGif'],
+  });
+  if (!row) return null;
+  return {
+    id: row.id,
+    username: row.username,
+    nickname: row.nickname,
+    playerId: row.playerId ?? null,
+    avatarUrl: row.avatarUrl ?? null,
+    avatarIsGif: row.avatarIsGif === true,
+  };
+}
+
 export async function serializeLevelRequest(request: LevelRequest, viewer: Viewer, options?: {includePass?: boolean}) {
   const includeLevelCredits = request.type === 'info_change' || request.type === 'rerate';
   const level = await Level.findByPk(request.levelId, {
@@ -769,9 +807,11 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
           playerId: requester.playerId ?? null,
           avatarUrl: requester.avatarUrl ?? null,
           avatarIsGif: requester.avatarIsGif === true,
+          topDiff: options?.includePass === false ? null : await requesterTopDiff(requester.playerId),
         }
-      : {id: request.requesterUserId, username: null, nickname: null, playerId: null, avatarUrl: null, avatarIsGif: false},
+      : {id: request.requesterUserId, username: null, nickname: null, playerId: null, avatarUrl: null, avatarIsGif: false, topDiff: null},
     bestPass: options?.includePass === false ? null : await bestVisiblePass(request.requesterUserId, request.levelId, viewer),
+    lastActor: await serializeUserPreview(request.lastActorUserId),
     showInternal,
   };
 }
@@ -896,41 +936,14 @@ export async function listLevelRequests(user: Viewer, query: Record<string, unkn
   if (typeof query.type === 'string' && isLevelRequestType(query.type) && mine) {
     where.type = query.type;
   }
-  const q = typeof query.q === 'string' ? query.q.trim().slice(0, 80) : '';
-  if (q) {
-    const needle = q.toLowerCase().replace(/\s+/g, '_');
-    const like = `%${q.replace(/[%_\\]/g, '').slice(0, 80)}%`;
-    const or: Record<string, unknown>[] = [];
-    if (/^\d+$/.test(q)) {
-      const id = Number(q);
-      or.push({id});
-      or.push({levelId: id});
-    }
-    const levels = await Level.findAll({
-      where: {[Op.or]: [{song: {[Op.like]: like}}, {artist: {[Op.like]: like}}]},
-      attributes: ['id'],
-      limit: 50,
-    });
-    if (levels.length) or.push({levelId: {[Op.in]: levels.map((level) => level.id)}});
-    if (!mine) {
-      const users = await User.findAll({
-        where: {username: {[Op.like]: like}},
-        attributes: ['id'],
-        limit: 50,
-      });
-      if (users.length) or.push({requesterUserId: {[Op.in]: users.map((row) => row.id)}});
-    }
-    const statuses = LEVEL_REQUEST_STATUSES.filter((status) => status.includes(needle));
-    if (statuses.length) or.push({status: {[Op.in]: statuses}});
-    if (mine) {
-      const types = LEVEL_REQUEST_TYPES.filter((requestType) => requestType.includes(needle));
-      if (types.length) or.push({type: {[Op.in]: [...types]}});
-    }
-    (where as Record<PropertyKey, unknown>)[Op.or] = or.length ? or : [{id: -1}];
+  const q = typeof query.q === 'string' ? query.q.trim().slice(0, REQUEST_SEARCH_MAX_Q) : '';
+  const search = q ? await levelRequestSearchFromQuery(q, mine) : {groups: [], where: null};
+  if (search.where) {
+    (where as Record<PropertyKey, unknown>)[Op.and] = [search.where];
   }
   if (typeof query.status === 'string' && isLevelRequestStatus(query.status)) {
     where.status = query.status;
-  } else {
+  } else if (!requestSearchHasStatusField(search.groups)) {
     const completedMode = completedRequestsFilter(query);
     if (completedMode === 'hide') {
       where.status = {[Op.notIn]: COMPLETED_LEVEL_REQUEST_STATUSES};
@@ -1023,7 +1036,7 @@ export async function updateLevelRequestStaff(user: Viewer, requestId: number, b
   if (Object.keys(patch).length === 0) {
     throw new LevelRequestError(400, 'notes', 'No notes to save');
   }
-  await request.update(patch);
+  await request.update(withLastActor(user, patch));
   if (patch.publicNote !== undefined && patch.publicNote !== previousPublic && request.publicNote) {
     await notifyRequester(request, {actor: user, event: 'note'});
   }
@@ -1057,7 +1070,7 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
   if (internalNote !== undefined) notePatch.internalNote = internalNote;
 
   if (action === 'accept') {
-    await request.update({...notePatch, status: 'accepted', resolvedAt: null});
+    await request.update(withLastActor(user, {...notePatch, status: 'accepted', resolvedAt: null}));
     if (isCurationDiscordType(request.type) && !request.discordMessageUrl) {
       try {
         await postCurationDiscord(request);
@@ -1070,11 +1083,11 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
   }
 
   if (action === 'reject') {
-    await request.update({
+    await request.update(withLastActor(user, {
       ...notePatch,
       status: 'rejected',
       resolvedAt: request.resolvedAt || new Date(),
-    });
+    }));
     await notifyRequester(request, {actor: user});
     return serializeLevelRequest(request, user);
   }
@@ -1091,11 +1104,11 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
         settledDiffId,
       );
     }
-    await request.update({
+    await request.update(withLastActor(user, {
       ...notePatch,
       status,
       resolvedAt: request.resolvedAt || new Date(),
-    });
+    }));
     await notifyRequester(request, {actor: user, settledDiffId});
     return serializeLevelRequest(request, user);
   }
@@ -1125,19 +1138,19 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
             {lowDiff: /^[pP]\d/.test(rerateNum), requesterFR: rerateNum},
             transaction,
           );
-          await request.update({linkedRatingId: opened.rating.id}, {transaction});
+          await request.update(withLastActor(user, {linkedRatingId: opened.rating.id}), {transaction});
         }
       } else {
         const pageReason = await ratingPageReason(request, '', transaction);
         const rating = await openLevelOnRatingPage(request.levelId, rerateNum, pageReason, transaction);
-        await request.update({linkedRatingId: rating.id}, {transaction});
+        await request.update(withLastActor(user, {linkedRatingId: rating.id}), {transaction});
       }
-      await request.update({
+      await request.update(withLastActor(user, {
         ...notePatch,
         status: action === 'discord_vote' ? 'discord_vote' : 'added_to_rating_page',
         immediateSettle: action === 'discord_vote' ? true : request.immediateSettle,
         resolvedAt: null,
-      }, {transaction});
+      }), {transaction});
       await transaction.commit();
     } catch (error) {
       if (transaction) await safeTransactionRollback(transaction);
@@ -1156,7 +1169,7 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
     if (request.type !== 'rerate' && !curation) {
       throw new LevelRequestError(400, 'discord', 'Discord threads are only created for rerate requests');
     }
-    await request.update(notePatch);
+    await request.update(withLastActor(user, notePatch));
     if (curation) {
       await postCurationDiscord(request);
     } else {
@@ -1178,7 +1191,7 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
       throw new LevelRequestError(502, 'discord_reopen', message);
     }
     await syncRequestThreadMode(request, 'discord');
-    await request.update({...notePatch, discordThreadClosed: false, discordPostError: null});
+    await request.update(withLastActor(user, {...notePatch, discordThreadClosed: false, discordPostError: null}));
     await publishRequestRating(request);
     return serializeLevelRequest(request, user);
   }
@@ -1197,18 +1210,18 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
     }
     if (request.type === 'rerate') {
       await syncRequestThreadMode(request, 'website');
-      await request.update(outcome === 'closed'
+      await request.update(withLastActor(user, outcome === 'closed'
         ? {...notePatch, discordThreadClosed: true, discordPostError: null}
-        : {...notePatch, discordMessageUrl: null, discordThreadClosed: true, discordPostError: null});
+        : {...notePatch, discordMessageUrl: null, discordThreadClosed: true, discordPostError: null}));
       await publishRequestRating(request);
       return serializeLevelRequest(request, user);
     }
-    await request.update({
+    await request.update(withLastActor(user, {
       ...notePatch,
       discordMessageUrl: null,
       discordThreadClosed: false,
       discordPostError: null,
-    });
+    }));
     return serializeLevelRequest(request, user);
   }
 
@@ -1238,10 +1251,15 @@ async function postRerateDiscord(request: LevelRequest, actorUserId: string, pin
   if (!level) throw new LevelRequestError(404, 'missing_level', 'Level not found');
   try {
     const posted = await postRerateRequestThread(request, level, actorUserId, ping);
-    await request.update({discordMessageUrl: posted.url, discordPostError: null, discordThreadClosed: false});
+    await request.update({
+      discordMessageUrl: posted.url,
+      discordPostError: null,
+      discordThreadClosed: false,
+      lastActorUserId: actorUserId,
+    });
   } catch (error) {
     const message = logRequestDiscordFailure(request.id, error);
-    await request.update({discordPostError: message});
+    await request.update({discordPostError: message, lastActorUserId: actorUserId});
     throw new LevelRequestError(502, 'discord', message);
   }
   try {
@@ -1287,6 +1305,7 @@ export async function completeLevelRequestForSettledRating(
   ratingId: number,
   settledDiffId: number | null,
   transaction?: Transaction,
+  actorUserId?: string | null,
 ) {
   const request = await LevelRequest.findOne({
     where: {
@@ -1302,7 +1321,11 @@ export async function completeLevelRequestForSettledRating(
     typeof frozen === 'number' ? frozen : null,
     settledDiffId,
   );
-  await request.update({status, resolvedAt: new Date()}, {transaction});
+  await request.update({
+    status,
+    resolvedAt: new Date(),
+    ...(actorUserId ? {lastActorUserId: actorUserId} : {}),
+  }, {transaction});
   await notifyRequester(request, {transaction, settledDiffId});
 }
 
@@ -1323,7 +1346,7 @@ export async function levelRequestForRating(ratingId: number) {
   };
 }
 
-export async function rejectRecentOpenRerates(userId: string, since: Date) {
+export async function rejectRecentOpenRerates(userId: string, since: Date, actorUserId?: string | null) {
   const rows = await LevelRequest.findAll({
     where: {
       requesterUserId: userId,
@@ -1338,6 +1361,7 @@ export async function rejectRecentOpenRerates(userId: string, since: Date) {
       status: 'rejected',
       publicNote: note,
       resolvedAt: new Date(),
+      ...(actorUserId ? {lastActorUserId: actorUserId} : {}),
     });
     await notifyRequester(request);
   }

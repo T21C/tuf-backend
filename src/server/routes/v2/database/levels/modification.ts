@@ -295,6 +295,7 @@ const handleRatingChanges = async (
         Number(existingRating.id),
         Number.isFinite(settledDiffId) ? settledDiffId : null,
         transaction,
+        req.user?.id ?? null,
       );
       return {settledRatingId: Number(existingRating.id)};
     }
