@@ -214,5 +214,21 @@ export const queryParserConfigs = {
   song: {
     allowedFields: ['artists'],
     numericFields: ['artists']
-  }
+  },
+  request: {
+    allowedFields: [
+      'levelid',
+      'level',
+      'requester',
+      'username',
+      'user',
+      'status',
+      'reason',
+      'artist',
+      'song',
+      'type',
+      'id',
+    ],
+    numericFields: ['id', 'levelid', 'level'],
+  },
 };

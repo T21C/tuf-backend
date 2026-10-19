@@ -63,6 +63,8 @@ import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { broadcastRatingUpsert } from '@/server/services/ratings/ratingListService.js';
 import { ensureOpenRating } from '@/server/services/ratings/openRatingService.js';
+import { postUqClearRatingThread } from '@/server/services/ratings/ratingDiscordThread.js';
+import { voteThreadLabel } from '@/misc/utils/data/ratingThread.js';
 import { syncVoteWeightsForLevel } from '@/server/services/data/communityTagVoteService.js';
 import type { SubmissionQueuePayload } from './submissionJobTypes.js';
 
@@ -695,15 +697,15 @@ async function approvePassSubmission(
 
   let createdRatingId: number | null = null;
   if (level.clears === 0 && difficulty.name.includes('Q') && speed === 1) {
-    let reqFr = submission.feelingDifficulty ?? '';
-    if (difficulty.name.includes('UQ')) {
-      reqFr = `vote (${submission.feelingDifficulty ?? ''})`;
-    }
+    const isUq = difficulty.name.includes('UQ');
+    const reqFr = isUq
+      ? voteThreadLabel((submission.feelingDifficulty || '').trim() || difficulty.name)
+      : (submission.feelingDifficulty ?? '');
     const open = await ensureOpenRating(
       submission.levelId,
       {
         lowDiff: false,
-        requesterFR: submission.feelingDifficulty?.substring(0, 60) || 'cleared',
+        requesterFR: isUq ? reqFr : (submission.feelingDifficulty?.substring(0, 60) || 'cleared'),
       },
       transaction,
     );
@@ -810,6 +812,22 @@ async function processPassApprove(
           error: err instanceof Error ? err.message : String(err),
         }),
       );
+      const difficultyName = String(newPass.level?.difficulty?.name || '');
+      if (difficultyName.includes('UQ')) {
+        if (actorId) {
+          await postUqClearRatingThread({
+            ratingId: createdRatingId,
+            levelId,
+            actorUserId: actorId,
+            requestedRating: String(newPass.feelingRating || '').trim() || difficultyName,
+          });
+        } else {
+          logger.warn('Skipped UQ Discord thread; pass was approved without an actor', {
+            ratingId: createdRatingId,
+            levelId,
+          });
+        }
+      }
     }
 
     await onStep('roleSync');

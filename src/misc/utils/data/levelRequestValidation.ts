@@ -66,6 +66,7 @@ export const RERATE_COOLDOWN_STATUSES: LevelRequestStatus[] = [
 
 export const COMPLETED_LEVEL_REQUEST_STATUSES: LevelRequestStatus[] = [
   'rejected',
+  'withdrawn',
   'completed',
   'completed_changed',
   'completed_unchanged',

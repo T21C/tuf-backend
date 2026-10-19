@@ -983,7 +983,7 @@ router.patch(
             return res.status(400).json({error: 'Player has no user account'});
           }
           const ms = recentUnit === 'hours' ? recentDuration * 60 * 60 * 1000 : recentDuration * 24 * 60 * 60 * 1000;
-          await rejectRecentOpenRerates(player.user.id, new Date(Date.now() - ms));
+          await rejectRecentOpenRerates(player.user.id, new Date(Date.now() - ms), req.user?.id ?? null);
         }
       } else {
         player = await setRerateRequestBanStatus(playerId, {banned: false});

@@ -21,6 +21,7 @@ class LevelRequest extends Model {
   declare discordMessageUrl: string | null;
   declare discordPostError: string | null;
   declare discordThreadClosed: boolean;
+  declare lastActorUserId: string | null;
   declare resolvedAt: Date | null;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -88,6 +89,14 @@ LevelRequest.init(
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,
+    },
+    lastActorUserId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'users',
+        key: 'id',
+      },
     },
     resolvedAt: {
       type: DataTypes.DATE,
