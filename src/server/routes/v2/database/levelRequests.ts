@@ -195,10 +195,10 @@ router.get(
   Auth.verified(),
   ApiDoc({
     operationId: 'countOpenLevelRequests',
-    summary: 'Open level request counts by type for the current reviewer',
+    summary: 'Pending level request counts by type for the current reviewer',
     tags: ['Database', 'Level requests'],
     security: ['bearerAuth'],
-    responses: {200: {description: 'Counts of requests that are not finished'}},
+    responses: {200: {description: 'Counts of pending requests'}},
   }),
   async (req: Request, res: Response) => {
     try {
