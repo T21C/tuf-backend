@@ -6,6 +6,11 @@ import {
   creditRequestSignature,
   requestTeamFromInput,
   collectLevelReferenceIds,
+  curationRequestIssue,
+  curationRequestTypeForLevel,
+  normalizePositiveIdList,
+  openRequestTypesFor,
+  tagRequestIssue,
   COMPLETED_LEVEL_REQUEST_STATUSES,
   completedRequestsFilter,
   completionStatusForDifficultyChange,
@@ -13,6 +18,7 @@ import {
   isRealPguRequest,
   resolveRerateRating,
   reasonWithRequester,
+  rerateComparisonLabel,
   isTerminalLevelRequestStatus,
   rerateCooldownRemainingMs,
   RERATE_COOLDOWN_MS,
@@ -77,6 +83,12 @@ test('completion compares frozen difficulty with the settled difficulty only', (
 
 test('collectLevelReferenceIds keeps the first valid ids and ignores broken text', () => {
   assert.deepEqual(collectLevelReferenceIds('harder than #12 and #12, see #0 #34'), [12, 34]);
+});
+
+test('rerate comparison labels are artist, song, and parenthesized suffix', () => {
+  assert.equal(rerateComparisonLabel('Frums', 'multi_arm', ''), 'Frums - multi_arm');
+  assert.equal(rerateComparisonLabel('meganeko', 'Feral', 'All Beats'), 'meganeko - Feral (All Beats)');
+  assert.equal(rerateComparisonLabel('snakywine', 'Classy Kitty', '(NSFV)'), 'snakywine - Classy Kitty (NSFV)');
 });
 
 test('info and curation requests cannot use rerate-only statuses', () => {
@@ -183,6 +195,27 @@ test('rating page reasons end with the original requester', () => {
   assert.equal(reasonWithRequester('', 'ada'), 'Requested by @ada');
   assert.equal(reasonWithRequester('Already noted\nRequested by @ada', '@ada'), 'Already noted\nRequested by @ada');
   assert.equal(reasonWithRequester('  Keep this  ', ''), 'Keep this');
+});
+
+test('curation vs curation rerate follows whether the level already has a curation', () => {
+  assert.equal(curationRequestTypeForLevel(false), 'curation');
+  assert.equal(curationRequestTypeForLevel(true), 'curation_rerate');
+  assert.deepEqual(openRequestTypesFor('curation'), ['curation', 'curation_rerate']);
+  assert.deepEqual(openRequestTypesFor('curation_rerate'), ['curation', 'curation_rerate']);
+  assert.deepEqual(openRequestTypesFor('rerate'), ['rerate']);
+});
+
+test('new curation cannot be empty and a rerate cannot match the current types', () => {
+  assert.equal(curationRequestIssue('curation', []), 'curation_empty');
+  assert.equal(curationRequestIssue('curation', [3]), null);
+  assert.equal(curationRequestIssue('curation_rerate', [1, 2], [2, 1]), 'unchanged_curation');
+  assert.equal(curationRequestIssue('curation_rerate', [], []), 'unchanged_curation');
+  assert.equal(curationRequestIssue('curation_rerate', [], [1]), null);
+  assert.equal(curationRequestIssue('curation_rerate', [1], [1, 2]), null);
+  assert.equal(tagRequestIssue([4, 5], [5, 4]), 'unchanged_tags');
+  assert.equal(tagRequestIssue([], []), 'unchanged_tags');
+  assert.equal(tagRequestIssue([], [5]), null);
+  assert.deepEqual(normalizePositiveIdList(['3', 3, 0, -1, 8]), [3, 8]);
 });
 
 test('terminal requests have no pipeline actions unless a Discord post remains', () => {

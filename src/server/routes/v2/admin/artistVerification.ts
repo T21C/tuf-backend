@@ -11,7 +11,7 @@ router.post(
   Auth.superAdmin(),
   ApiDoc({
     operationId: 'adminSyncArtistVerification',
-    summary: 'Fetch the 7BG artist list and upsert source-aligned verification states',
+    summary: 'Fetch the 7BG artist list and upsert source-aligned verification states and extra info',
     tags: ['Admin', 'Artists'],
     security: ['bearerAuth'],
     responses: {200: {description: 'Sync result'}},

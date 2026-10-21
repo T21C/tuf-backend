@@ -49,6 +49,7 @@ export type ArtistVerificationSyncDecision =
 export type ArtistSyncMatch = {
   id: number;
   verificationState: ArtistVerificationState;
+  extraInfo?: string | null;
 };
 
 /** Normalized name -> local artist ids. Several ids means the key is ambiguous. */
@@ -140,8 +141,39 @@ export function matchArtistIds(index: ArtistSyncIndex, names: string[]): number[
   return [...ids];
 }
 
+/** artists.extraInfo is TEXT. Stay under the 64KB byte limit for multibyte disclaimers. */
+const ARTIST_EXTRA_INFO_MAX_CHARS = 16_000;
+
+export function normalizeArtistExtraInfo(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.length > ARTIST_EXTRA_INFO_MAX_CHARS
+    ? trimmed.slice(0, ARTIST_EXTRA_INFO_MAX_CHARS)
+    : trimmed;
+}
+
+/**
+ * Same shape as the one-off 7BG import: `[LANG] text` blocks separated by a blank line.
+ * Missing or empty disclaimer lists become null so a later sync can clear stale text.
+ */
+export function formatSevenBgDisclaimers(raw: unknown): string | null {
+  if (!Array.isArray(raw)) return null;
+  const lines: string[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    const text = typeof record.text === 'string' ? record.text.trim() : '';
+    if (!text) continue;
+    const lang = typeof record.lang === 'string' ? record.lang.trim() : '';
+    lines.push(lang ? `[${lang.toUpperCase()}] ${text}` : text);
+  }
+  return normalizeArtistExtraInfo(lines.join('\n\n'));
+}
+
 export function decideArtistVerificationSync(input: {
   incoming: ArtistVerificationState | null;
+  extraInfo?: string | null;
   matches: ArtistSyncMatch[];
 }): ArtistVerificationSyncDecision {
   if (!isSourceAlignedArtistState(input.incoming)) {
@@ -157,7 +189,9 @@ export function decideArtistVerificationSync(input: {
   if (match.verificationState === 'ysmod_only') {
     return {kind: ARTIST_VERIFICATION_SYNC_ACTION.SKIP_PROTECTED, artistId: match.id};
   }
-  if (match.verificationState === input.incoming) {
+  const incomingExtra = normalizeArtistExtraInfo(input.extraInfo);
+  const localExtra = normalizeArtistExtraInfo(match.extraInfo);
+  if (match.verificationState === input.incoming && localExtra === incomingExtra) {
     return {kind: ARTIST_VERIFICATION_SYNC_ACTION.NOOP, artistId: match.id};
   }
   return {
@@ -197,6 +231,7 @@ export type ParsedArtistFeedRow = {
   links: string[];
   evidenceUrls: string[];
   verificationState: SourceAlignedArtistState | null;
+  extraInfo: string | null;
 };
 
 export function parseArtistFeedRow(raw: unknown): ParsedArtistFeedRow | null {
@@ -214,6 +249,7 @@ export function parseArtistFeedRow(raw: unknown): ParsedArtistFeedRow | null {
     links: uniqueStrings([link1, link2]),
     evidenceUrls: uniqueStrings(readStrings(src.evidenceArray)),
     verificationState: mapSevenBgStatus(pickSevenBgStatus(src.status_new, src.status)),
+    extraInfo: formatSevenBgDisclaimers(src.adofai_artist_disclaimers),
   };
 }
 
