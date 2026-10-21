@@ -44,6 +44,11 @@ export type ArtistVerificationSyncResult = {
 
 type ArtistVerificationSyncCounts = Omit<ArtistVerificationSyncResult, 'alreadyRunning'>;
 
+type IndexedArtist = {
+  verificationState: ArtistVerificationState;
+  extraInfo: string | null;
+};
+
 function emptyCounts(): ArtistVerificationSyncCounts {
   return {
     fetched: 0,
@@ -154,7 +159,7 @@ async function createArtistFromFeed(
   const transaction = await sequelize.transaction();
   try {
     const artist = await Artist.create(
-      {name: row.name, verificationState},
+      {name: row.name, verificationState, extraInfo: row.extraInfo},
       {transaction},
     );
     if (row.aliases.length > 0) {
@@ -187,9 +192,13 @@ async function createArtistFromFeed(
   }
 }
 
-async function updateArtistState(artistId: number, verificationState: SourceAlignedArtistState): Promise<boolean> {
+async function updateArtistFromFeed(
+  artistId: number,
+  verificationState: SourceAlignedArtistState,
+  extraInfo: string | null,
+): Promise<boolean> {
   const [affected] = await Artist.update(
-    {verificationState},
+    {verificationState, extraInfo},
     {
       where: {
         id: artistId,
@@ -202,31 +211,33 @@ async function updateArtistState(artistId: number, verificationState: SourceAlig
 
 function matchesFor(
   index: ArtistSyncIndex,
-  byId: Map<number, ArtistVerificationState>,
+  byId: Map<number, IndexedArtist>,
   names: string[],
 ): ArtistSyncMatch[] {
   const matches: ArtistSyncMatch[] = [];
   for (const id of matchArtistIds(index, names)) {
-    const verificationState = byId.get(id);
-    if (!verificationState) continue;
-    matches.push({id, verificationState});
+    const artist = byId.get(id);
+    if (!artist) continue;
+    matches.push({id, verificationState: artist.verificationState, extraInfo: artist.extraInfo});
   }
   return matches;
 }
 
 async function loadArtistIndex(): Promise<{
   index: ArtistSyncIndex;
-  byId: Map<number, ArtistVerificationState>;
+  byId: Map<number, IndexedArtist>;
 }> {
   const rows = await Artist.findAll({
-    attributes: ['id', 'name', 'verificationState'],
+    attributes: ['id', 'name', 'verificationState', 'extraInfo'],
     include: [{model: ArtistAlias, as: 'aliases', attributes: ['alias'], required: false}],
   });
   const index: ArtistSyncIndex = new Map();
-  const byId = new Map<number, ArtistVerificationState>();
+  const byId = new Map<number, IndexedArtist>();
   for (const row of rows) {
-    const verificationState = localVerificationState(row.verificationState);
-    byId.set(row.id, verificationState);
+    byId.set(row.id, {
+      verificationState: localVerificationState(row.verificationState),
+      extraInfo: row.extraInfo,
+    });
     const aliasNames = (row.aliases ?? []).map((alias) => alias.alias);
     rememberArtistKeys(index, row.id, feedMatchNames(row.name, aliasNames));
   }
@@ -248,6 +259,7 @@ async function runArtistVerificationSyncOnce(): Promise<ArtistVerificationSyncRe
     const names = feedMatchNames(row.name, row.aliases);
     const decision = decideArtistVerificationSync({
       incoming: row.verificationState,
+      extraInfo: row.extraInfo,
       matches: matchesFor(index, byId, names),
     });
 
@@ -271,18 +283,29 @@ async function runArtistVerificationSyncOnce(): Promise<ArtistVerificationSyncRe
     try {
       if (decision.kind === ARTIST_VERIFICATION_SYNC_ACTION.CREATE) {
         const artistId = await createArtistFromFeed(row, decision.verificationState);
-        byId.set(artistId, decision.verificationState);
+        byId.set(artistId, {verificationState: decision.verificationState, extraInfo: row.extraInfo});
         rememberArtistKeys(index, artistId, names);
         counts.created += 1;
         continue;
       }
-      const updated = await updateArtistState(decision.artistId, decision.verificationState);
+      const updated = await updateArtistFromFeed(
+        decision.artistId,
+        decision.verificationState,
+        row.extraInfo,
+      );
       if (!updated) {
         counts.skippedProtected += 1;
-        byId.set(decision.artistId, 'ysmod_only');
+        const current = byId.get(decision.artistId);
+        byId.set(decision.artistId, {
+          verificationState: 'ysmod_only',
+          extraInfo: current?.extraInfo ?? null,
+        });
         continue;
       }
-      byId.set(decision.artistId, decision.verificationState);
+      byId.set(decision.artistId, {
+        verificationState: decision.verificationState,
+        extraInfo: row.extraInfo,
+      });
       counts.updated += 1;
     } catch (error) {
       counts.errors += 1;

@@ -245,7 +245,7 @@ router.get(
     operationId: 'getLevelReferences',
     summary: 'Get level reference cards',
     description:
-      'Slim cards (id, difficulty, song, suffix) for comment #id mentions. Query: ids, comma-separated, max 40. Deleted and hidden levels are omitted.',
+      'Slim cards (id, difficulty, song, artist, suffix, toRate) for comment #id mentions. Query: ids, comma-separated, max 40. Deleted and hidden levels are omitted.',
     tags: ['Levels'],
     security: ['bearerAuth'],
     query: {

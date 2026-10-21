@@ -44,13 +44,20 @@ import {
   creditRequestSignature,
   completedRequestsFilter,
   completionStatusForDifficultyChange,
+  curationRequestIssue,
+  curationRequestTypeForLevel,
+  isCurationRequestType,
   isLevelRequestAction,
   isLevelRequestStatus,
   isLevelRequestType,
+  normalizePositiveIdList,
   normalizePguRequest,
+  openRequestTypesFor,
   resolveRerateRating,
   reasonWithRequester,
   requestTeamFromInput,
+  rerateComparisonLabel,
+  tagRequestIssue,
   rerateCooldownRemainingMs,
   type LevelRequestAction,
   type LevelRequestStatus,
@@ -84,12 +91,14 @@ const elasticsearchService = ElasticsearchService.getInstance();
 export class LevelRequestError extends Error {
   readonly status: number;
   readonly code: string;
+  readonly details?: Record<string, unknown>;
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, details?: Record<string, unknown>) {
     super(message);
     this.name = 'LevelRequestError';
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -166,14 +175,35 @@ function assertNotOnRatingPage(level: Level) {
   if (level.toRate) throw new LevelRequestError(400, 'unsettled', 'This level is still on the rating page');
 }
 
-async function assertNoOpenRequest(levelId: number, type: LevelRequestType) {
+async function assertNoOpenRequest(levelId: number, type: LevelRequestType, userId?: string) {
   const open = await LevelRequest.findOne({
-    where: {levelId, type, status: {[Op.notIn]: TERMINAL_LEVEL_REQUEST_STATUSES}},
-    attributes: ['id'],
+    where: {
+      levelId,
+      type: {[Op.in]: openRequestTypesFor(type)},
+      status: {[Op.notIn]: TERMINAL_LEVEL_REQUEST_STATUSES},
+    },
+    attributes: ['id', 'requesterUserId'],
   });
   if (open) {
-    throw new LevelRequestError(409, 'open', 'A request of this type is already open for this level');
+    throw new LevelRequestError(409, 'open', 'A request of this type is already open for this level', {
+      own: Boolean(userId && open.requesterUserId === userId),
+    });
   }
+}
+
+async function levelHasCuration(levelId: number): Promise<boolean> {
+  const count = await Curation.count({where: {levelId}});
+  return count > 0;
+}
+
+function assertCurationRequestSlot(type: LevelRequestType, hasCuration: boolean) {
+  if (!isCurationRequestType(type)) return;
+  const expected = curationRequestTypeForLevel(hasCuration);
+  if (type === expected) return;
+  if (hasCuration) {
+    throw new LevelRequestError(400, 'has_curation', 'This level already has a curation');
+  }
+  throw new LevelRequestError(400, 'no_curation', 'This level has no curation yet');
 }
 
 async function assertRerateCooldown(levelId: number) {
@@ -284,9 +314,21 @@ async function comparisonSnapshots(reason: string) {
   if (ids.length === 0) return {ids, found: [] as {levelId: number; diffId: number | null; diffName: string | null}[]};
   const levels = await Level.findAll({
     where: {id: {[Op.in]: ids}},
-    attributes: ['id', 'diffId'],
+    attributes: ['id', 'diffId', 'song', 'artist', 'suffix', 'toRate'],
     include: [{model: Difficulty, as: 'difficulty', attributes: ['name'], required: false}],
   });
+  const byId = new Map(levels.map((level) => [level.id, level]));
+  for (const id of ids) {
+    const level = byId.get(id);
+    if (!level?.toRate) continue;
+    const label = rerateComparisonLabel(level.artist, level.song, level.suffix);
+    throw new LevelRequestError(
+      400,
+      'comparison_rerating',
+      `${label} is currently being rerated, it cannot be used for comparison`,
+      {label, levelId: level.id},
+    );
+  }
   const found = levels.map((level) => ({
     levelId: level.id,
     diffId: level.diffId ?? null,
@@ -461,7 +503,7 @@ async function buildPayload(type: LevelRequestType, body: Record<string, unknown
     if (!Array.isArray(body.targetTagIds)) {
       throw new LevelRequestError(400, 'tags', 'Choose the tags this level should have');
     }
-    const targetTagIds = [...new Set(body.targetTagIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+    const targetTagIds = normalizePositiveIdList(body.targetTagIds);
     if (targetTagIds.length > 0) {
       const tags = await LevelTag.findAll({
         where: {id: {[Op.in]: targetTagIds}},
@@ -472,19 +514,14 @@ async function buildPayload(type: LevelRequestType, body: Record<string, unknown
       }
     }
     const currentIds = await assignableLevelTagIds(level.id);
-    const current = new Set(currentIds);
-    const target = new Set(targetTagIds);
-    const changed = targetTagIds.some((id) => !current.has(id)) || currentIds.some((id) => !target.has(id));
-    if (!changed) {
-      throw new LevelRequestError(400, 'unchanged', 'These tags already match the level');
+    if (tagRequestIssue(targetTagIds, currentIds)) {
+      throw new LevelRequestError(400, 'unchanged_tags', 'Selected tags already match the level');
     }
     return {targetTagIds};
   }
 
   if (type === 'curation' || type === 'curation_rerate') {
-    const curationTypeIds = Array.isArray(body.curationTypeIds)
-      ? [...new Set(body.curationTypeIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))]
-      : [];
+    const curationTypeIds = normalizePositiveIdList(body.curationTypeIds);
     if (curationTypeIds.length > 0) {
       const types = await CurationType.findAll({
         where: {id: {[Op.in]: curationTypeIds}},
@@ -494,16 +531,22 @@ async function buildPayload(type: LevelRequestType, body: Record<string, unknown
         throw new LevelRequestError(400, 'curation_types', 'One or more curation types do not exist');
       }
     }
+    const currentIds = type === 'curation_rerate' ? await currentCurationTypeIds(level.id) : [];
+    const issue = curationRequestIssue(type, curationTypeIds, currentIds);
+    if (issue === 'curation_empty') {
+      throw new LevelRequestError(400, issue, 'Choose at least one curation type');
+    }
+    if (issue === 'unchanged_curation') {
+      throw new LevelRequestError(400, issue, 'Selected types already match the level');
+    }
     if (type === 'curation') return {curationTypeIds};
-    const currentIds = await currentCurationTypeIds(level.id);
     const current = new Set(currentIds);
     const target = new Set(curationTypeIds);
-    const addCurationTypeIds = curationTypeIds.filter((id) => !current.has(id));
-    const removeCurationTypeIds = currentIds.filter((id) => !target.has(id));
-    if (addCurationTypeIds.length === 0 && removeCurationTypeIds.length === 0) {
-      throw new LevelRequestError(400, 'unchanged', 'These curation types already match the level');
-    }
-    return {curationTypeIds, addCurationTypeIds, removeCurationTypeIds};
+    return {
+      curationTypeIds,
+      addCurationTypeIds: curationTypeIds.filter((id) => !current.has(id)),
+      removeCurationTypeIds: currentIds.filter((id) => !target.has(id)),
+    };
   }
 
   throw new LevelRequestError(400, 'type', 'Choose a request type');
@@ -740,8 +783,8 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
           difficulty: level.difficulty
             ? {id: level.difficulty.id, name: level.difficulty.name, icon: level.difficulty.icon, emoji: level.difficulty.emoji}
             : null,
-          ...(levelTagIds ? {tagIds: levelTagIds} : {}),
-          ...(levelCurationTypeIds ? {curationTypeIds: levelCurationTypeIds} : {}),
+          ...(levelTagIds !== undefined ? {tagIds: levelTagIds} : {}),
+          ...(levelCurationTypeIds !== undefined ? {curationTypeIds: levelCurationTypeIds} : {}),
           ...(request.type === 'info_change' ? {
             songId: level.songId ?? null,
             suffix: level.suffix || '',
@@ -773,8 +816,8 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
       : {
           id: request.levelId,
           missing: true,
-          ...(levelTagIds ? {tagIds: levelTagIds} : {}),
-          ...(levelCurationTypeIds ? {curationTypeIds: levelCurationTypeIds} : {}),
+          ...(levelTagIds !== undefined ? {tagIds: levelTagIds} : {}),
+          ...(levelCurationTypeIds !== undefined ? {curationTypeIds: levelCurationTypeIds} : {}),
         },
     comparisons: Array.isArray(payload.comparisons)
       ? payload.comparisons.map((row) => {
@@ -826,7 +869,10 @@ export async function createLevelRequest(user: Viewer, levelId: number, body: Re
   if (type === 'rerate') assertRerateBanClear(user, player);
   const level = await loadLevelOrThrow(levelId);
   if (type === 'rerate') assertNotOnRatingPage(level);
-  await assertNoOpenRequest(levelId, type);
+  if (isCurationRequestType(type)) {
+    assertCurationRequestSlot(type, await levelHasCuration(levelId));
+  }
+  await assertNoOpenRequest(levelId, type, user.id);
   if (type === 'rerate') await assertRerateCooldown(levelId);
   const reason = readReason(type, body.reason);
   const payload = await buildPayload(type, body, level, reason);
@@ -849,6 +895,9 @@ export async function updateOwnLevelRequest(user: Viewer, requestId: number, bod
   if (request.status !== 'pending') throw new LevelRequestError(409, 'locked', 'Only a pending request can be edited');
   const level = await loadLevelOrThrow(request.levelId);
   if (request.type === 'rerate') assertNotOnRatingPage(level);
+  if (isCurationRequestType(request.type)) {
+    assertCurationRequestSlot(request.type, await levelHasCuration(request.levelId));
+  }
   const reason = body.reason === undefined ? request.reason : readReason(request.type, body.reason);
   const nextBody = {...request.payload, ...body, reason};
   const payload = await buildPayload(request.type, nextBody, level, reason);
@@ -991,7 +1040,7 @@ export async function listLevelRequests(user: Viewer, query: Record<string, unkn
 export async function levelRequestEligibility(user: Viewer, levelId: number) {
   const player = await loadViewerPlayer(user);
   const types: LevelRequestType[] = ['rerate', 'info_change', 'tag', 'curation', 'curation_rerate'];
-  const result: Record<string, {allowed: boolean; code: string | null}> = {};
+  const result: Record<string, {allowed: boolean; code: string | null; own?: boolean}> = {};
   let level: Level | null = null;
   try {
     level = await loadLevelOrThrow(levelId);
@@ -1000,6 +1049,7 @@ export async function levelRequestEligibility(user: Viewer, levelId: number) {
     for (const type of types) result[type] = {allowed: false, code};
     return result;
   }
+  const hasCuration = await levelHasCuration(level.id);
   for (const type of types) {
     try {
       assertAccountAllowed(user, player);
@@ -1008,12 +1058,17 @@ export async function levelRequestEligibility(user: Viewer, levelId: number) {
         await assertRerateCooldown(levelId);
         assertNotOnRatingPage(level);
       }
-      await assertNoOpenRequest(level.id, type);
+      if (isCurationRequestType(type)) assertCurationRequestSlot(type, hasCuration);
+      await assertNoOpenRequest(level.id, type, user.id);
       result[type] = {allowed: true, code: null};
     } catch (error) {
+      const own = error instanceof LevelRequestError && typeof error.details?.own === 'boolean'
+        ? error.details.own
+        : undefined;
       result[type] = {
         allowed: false,
         code: error instanceof LevelRequestError ? error.code : 'error',
+        ...(own !== undefined ? {own} : {}),
       };
     }
   }

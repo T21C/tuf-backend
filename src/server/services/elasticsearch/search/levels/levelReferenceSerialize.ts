@@ -29,7 +29,9 @@ export interface LevelReferenceCard {
   id: number;
   diffId: number | null;
   song: string;
+  artist: string;
   suffix: string | null;
+  toRate: boolean;
   songObject: { name: string } | null;
 }
 
@@ -61,7 +63,9 @@ export function toLevelReference(level: Record<string, unknown> | null | undefin
     id: level.id,
     diffId,
     song: level.song != null ? String(level.song) : '',
+    artist: level.artist != null ? String(level.artist) : '',
     suffix: level.suffix != null ? String(level.suffix) : null,
+    toRate: level.toRate === true,
     songObject,
   };
 }

@@ -31,7 +31,11 @@ function viewer(req: Request) {
 
 function sendError(res: Response, error: unknown, fallback: string) {
   if (error instanceof LevelRequestError) {
-    return res.status(error.status).json({error: error.message, code: error.code});
+    return res.status(error.status).json({
+      error: error.message,
+      code: error.code,
+      ...(error.details ? {details: error.details} : {}),
+    });
   }
   logger.error(fallback, error);
   return res.status(500).json({error: fallback});

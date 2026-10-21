@@ -97,6 +97,50 @@ export function isLevelRequestType(value: unknown): value is LevelRequestType {
   return LEVEL_REQUEST_TYPES.includes(value as LevelRequestType);
 }
 
+export function isCurationRequestType(type: string): type is 'curation' | 'curation_rerate' {
+  return type === 'curation' || type === 'curation_rerate';
+}
+
+export function curationRequestTypeForLevel(hasCuration: boolean): 'curation' | 'curation_rerate' {
+  return hasCuration ? 'curation_rerate' : 'curation';
+}
+
+export function openRequestTypesFor(type: LevelRequestType): LevelRequestType[] {
+  if (isCurationRequestType(type)) return ['curation', 'curation_rerate'];
+  return [type];
+}
+
+export function normalizePositiveIdList(ids: unknown): number[] {
+  if (!Array.isArray(ids)) return [];
+  return [...new Set(ids.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+}
+
+export function samePositiveIdSet(left: number[], right: number[]): boolean {
+  if (left.length !== right.length) return false;
+  const known = new Set(right);
+  return left.every((id) => known.has(id));
+}
+
+export type CurationRequestIssue = 'curation_empty' | 'unchanged_curation';
+
+/** New curation needs at least one type. A rerate must actually change the current types. */
+export function curationRequestIssue(
+  type: string,
+  targetIds: number[],
+  currentIds?: number[] | null,
+): CurationRequestIssue | null {
+  if (type === 'curation') return targetIds.length === 0 ? 'curation_empty' : null;
+  if (type === 'curation_rerate') {
+    if (!Array.isArray(currentIds)) return null;
+    return samePositiveIdSet(targetIds, currentIds) ? 'unchanged_curation' : null;
+  }
+  return null;
+}
+
+export function tagRequestIssue(targetIds: number[], currentIds: number[]): 'unchanged_tags' | null {
+  return samePositiveIdSet(targetIds, currentIds) ? 'unchanged_tags' : null;
+}
+
 export function canonicalLevelRequestStatus(value: unknown): LevelRequestStatus | null {
   if (typeof value !== 'string') return null;
   if (LEVEL_REQUEST_STATUSES.includes(value as LevelRequestStatus)) return value as LevelRequestStatus;
@@ -223,6 +267,16 @@ export function resolveRerateRating(raw: string | null | undefined, specialNames
   const special = specialNameLookup(specialNames).get(trimmed.toLowerCase());
   if (special) return special;
   return isRealPguRequest(trimmed) ? normalizePguRequest(trimmed) : null;
+}
+
+/** `Artist - Song (suffix)` for rerate comparison errors. */
+export function rerateComparisonLabel(artist: unknown, song: unknown, suffix: unknown): string {
+  const artistPart = String(artist ?? '').trim() || 'Unknown';
+  const songPart = String(song ?? '').trim() || 'Unknown';
+  const extra = String(suffix ?? '').trim();
+  if (!extra) return `${artistPart} - ${songPart}`;
+  const wrapped = extra.startsWith('(') ? extra : `(${extra})`;
+  return `${artistPart} - ${songPart} ${wrapped}`;
 }
 
 export function collectLevelReferenceIds(text: string): number[] {

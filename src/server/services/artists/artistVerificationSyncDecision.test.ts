@@ -8,6 +8,7 @@ import {
   isEvidenceImageUrl,
   mapSevenBgStatus,
   matchArtistIds,
+  formatSevenBgDisclaimers,
   parseArtistFeedRow,
   pickSevenBgStatus,
   rememberArtistKeys,
@@ -70,7 +71,7 @@ void test('unaligned incoming does not create or update', () => {
   );
 });
 
-void test('a single non-protected match updates only when the state differs', () => {
+void test('a single non-protected match updates only when the state or extra info differs', () => {
   assert.deepEqual(
     decideArtistVerificationSync({
       incoming: 'mostly_allowed',
@@ -85,9 +86,30 @@ void test('a single non-protected match updates only when the state differs', ()
   assert.deepEqual(
     decideArtistVerificationSync({
       incoming: 'allowed',
-      matches: [{id: 3, verificationState: 'allowed'}],
+      extraInfo: '  [EN] note  ',
+      matches: [{id: 3, verificationState: 'allowed', extraInfo: '[EN] note'}],
     }),
     {kind: ARTIST_VERIFICATION_SYNC_ACTION.NOOP, artistId: 3},
+  );
+  assert.deepEqual(
+    decideArtistVerificationSync({
+      incoming: 'allowed',
+      extraInfo: '[EN] updated note',
+      matches: [{id: 3, verificationState: 'allowed', extraInfo: '[EN] note'}],
+    }),
+    {
+      kind: ARTIST_VERIFICATION_SYNC_ACTION.UPDATE,
+      artistId: 3,
+      verificationState: 'allowed',
+    },
+  );
+  assert.deepEqual(
+    decideArtistVerificationSync({
+      incoming: 'allowed',
+      extraInfo: null,
+      matches: [{id: 3, verificationState: 'allowed', extraInfo: '[EN] note'}],
+    }).kind,
+    ARTIST_VERIFICATION_SYNC_ACTION.UPDATE,
   );
 });
 
@@ -131,8 +153,26 @@ void test('parse keeps status_new 0, links, and evidence', () => {
   assert.equal(row.name, 'Artist');
   assert.deepEqual(row.aliases, ['Alias']);
   assert.equal(row.verificationState, 'pending');
+  assert.equal(row.extraInfo, null);
   assert.deepEqual(row.links, ['https://example.com/a']);
   assert.deepEqual(row.evidenceUrls, ['https://cdn.example/evidence/shot.png']);
   assert.equal(isEvidenceImageUrl(row.evidenceUrls[0]), true);
   assert.equal(parseArtistFeedRow({name: '   ', status_new: 1}), null);
+});
+
+void test('parse formats disclaimer extra info and drops blank entries', () => {
+  assert.equal(formatSevenBgDisclaimers([]), null);
+  assert.equal(formatSevenBgDisclaimers(null), null);
+  const row = parseArtistFeedRow({
+    name: 'Artist',
+    status_new: 1,
+    adofai_artist_disclaimers: [
+      {id: 1, lang: 'en', text: '  Allowed with credit  '},
+      {id: 2, lang: '', text: '   '},
+      {id: 3, lang: 'ko', text: '출처 필요'},
+      {lang: '  '},
+    ],
+  });
+  assert.ok(row);
+  assert.equal(row.extraInfo, '[EN] Allowed with credit\n\n[KO] 출처 필요');
 });

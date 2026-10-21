@@ -27,16 +27,20 @@ test('toLevelReference keeps the fields a comment chip needs', () => {
       song: 'Rocky Buinned',
       suffix: '(Short)',
       songObject: { id: 9, name: 'Rocky Buinned', aliases: [] },
-      artist: 'ignored',
+      artist: 'Frums',
+      toRate: true,
     }),
     {
       id: 1686,
       diffId: 20,
       song: 'Rocky Buinned',
+      artist: 'Frums',
       suffix: '(Short)',
+      toRate: true,
       songObject: { name: 'Rocky Buinned' },
     }
   );
+  assert.equal(toLevelReference({id: 1, song: 'x'})?.toRate, false);
 });
 
 test('toLevelReference drops rows without a numeric id', () => {
