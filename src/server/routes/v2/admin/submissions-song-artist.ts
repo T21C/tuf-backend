@@ -19,6 +19,9 @@ import SongCredit from '@/models/songs/SongCredit.js';
 import SongService from '@/server/services/data/SongService.js';
 import ArtistService from '@/server/services/data/ArtistService.js';
 import { sanitizeNotes } from '@/server/routes/v2/misc/form/shared/sanitize.js';
+import { parseRequestedTagIds } from '@/server/routes/v2/misc/form/level/dto.js';
+import { assertRequestedTagIdsExist } from '@/server/routes/v2/misc/form/level/referenceCheck.js';
+import { FormError } from '@/server/services/submissions/submissionErrors.js';
 
 const router: Router = Router();
 const evidenceService = EvidenceService.getInstance();
@@ -1412,6 +1415,70 @@ router.put(
       await safeTransactionRollback(transaction);
       logger.error('Error updating level submission notes:', error);
       return res.status(500).json({ error: 'Failed to update notes' });
+    }
+  },
+);
+
+router.put(
+  '/levels/:id/tags',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionTags',
+    summary: 'Update requested submission tags',
+    description: 'Replace tag ids requested for a pending level submission. Body: tagIds (number[], empty clears). Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: {
+      description: 'tagIds',
+      schema: {
+        type: 'object',
+        properties: { tagIds: { type: 'array', items: { type: 'number' } } },
+        required: ['tagIds'],
+      },
+      required: true,
+    },
+    responses: { 200: { description: 'Updated requested tag ids' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+    try {
+      transaction = await sequelize.transaction();
+      const submission = await LevelSubmission.findByPk(req.params.id, { transaction });
+      if (!submission) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Submission not found' });
+      }
+
+      if (submission.status !== 'pending') {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Only pending level submissions can be edited' });
+      }
+
+      if (!Array.isArray(req.body?.tagIds)) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'tagIds must be an array' });
+      }
+
+      const parsed = parseRequestedTagIds(req.body.tagIds);
+      if (parsed.error) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: parsed.error });
+      }
+
+      await assertRequestedTagIdsExist(parsed.ids, transaction);
+      const requestedTagIds = parsed.ids.length > 0 ? parsed.ids : null;
+      await submission.update({ requestedTagIds }, { transaction });
+      await transaction.commit();
+
+      return res.json({ requestedTagIds: parsed.ids });
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      if (error instanceof FormError) {
+        return res.status(error.code).json({ error: error.message });
+      }
+      logger.error('Error updating level submission tags:', error);
+      return res.status(500).json({ error: 'Failed to update tags' });
     }
   },
 );

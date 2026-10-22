@@ -13,6 +13,7 @@ import {
   adofaiEraWebhookLabel,
   formatJudgementAnsi,
 } from '@/misc/utils/pass/judgementAnsi.js';
+import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -136,7 +137,7 @@ export async function createNewLevelEmbed(
   const embed = new MessageBuilder()
     .setColor(level.difficulty?.color || '#000000')
     .setAuthor(
-      `${wrap(level?.song || 'Unknown Song', 30)} \u2014 ${wrap(level?.artist || 'Unknown Artist', 30)}`,
+      `${wrap(getSongDisplayName(level) || 'Unknown Song', 30)} \u2014 ${wrap(level?.artist || 'Unknown Artist', 30)}`,
       '',
       `${clientUrlEnv}/levels/${level.id}`,
     )
@@ -218,7 +219,7 @@ export async function createClearEmbed(
 
   const embed = new MessageBuilder()
     .setAuthor(
-      `${trim(level?.song || 'Unknown Song', 27)}${pass.speed !== 1 ? ` (${pass.speed}x)` : ''}\n\u2014 ${trim(level?.artist || 'Unknown Artist', 30)}`,
+      `${trim(getSongDisplayName(level) || 'Unknown Song', 27)}${pass.speed !== 1 ? ` (${pass.speed}x)` : ''}\n\u2014 ${trim(level?.artist || 'Unknown Artist', 30)}`,
       pass.level?.difficulty?.icon || '',
       `${clientUrlEnv}/passes/${pass.id}`,
     )

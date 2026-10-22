@@ -38,6 +38,7 @@ import {
   standardErrorResponses400500,
 } from '@/server/schemas/v2/webhooks/index.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { appendSongSuffix } from '@/misc/utils/data/levelHelpers.js';
 import {
   clientUrlEnv,
   shouldDeliverDiscordAnnouncementWebhooks,
@@ -677,9 +678,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
     return new MessageBuilder().setDescription('No level info available');
   const level = levelSubmission.dataValues as LevelSubmission;
 
-  const songBase = level?.song || null;
-  const song =
-    songBase && level?.suffix ? `${songBase} ${level.suffix}` : songBase;
+  const song = appendSongSuffix(level?.song, level?.suffix) || null;
   const diff = level?.diff || null;
   const artist = level?.artist || null;
   const videoLink = level?.videoLink || null;
@@ -783,7 +782,7 @@ export async function passSubmissionHook(
 
   const embed = new MessageBuilder()
     .setAuthor(
-      `${trim(level?.song || 'Unknown Song', 27)}${pass.speed !== 1 ? ` (${pass.speed}x)` : ''} - ${trim(level?.artist || 'Unknown Artist', 30)}`,
+      `${trim(appendSongSuffix(level?.song, level?.suffix) || 'Unknown Song', 27)}${pass.speed !== 1 ? ` (${pass.speed}x)` : ''} - ${trim(level?.artist || 'Unknown Artist', 30)}`,
       level?.difficulty?.icon || '',
       levelLink,
     )
@@ -854,12 +853,12 @@ async function buildPassLabels(passIds: number[]): Promise<Map<number, string>> 
   const passes = await Pass.findAll({
     where: { id: { [Op.in]: passIds } },
     include: [
-      { model: Level, as: 'level', attributes: ['song', 'artist'] },
+      { model: Level, as: 'level', attributes: ['song', 'artist', 'suffix'] },
       { model: Player, as: 'player', attributes: ['name'] },
     ],
   });
   for (const pass of passes) {
-    const song = pass.level?.song || 'Unknown';
+    const song = appendSongSuffix(pass.level?.song, pass.level?.suffix) || 'Unknown';
     const player = pass.player?.name || 'Unknown';
     labels.set(pass.id, `${song} — ${player}`);
   }
@@ -871,10 +870,10 @@ async function buildQueueRowLabels(queueRowIds: number[]): Promise<Map<number, s
   if (queueRowIds.length === 0) return labels;
   const rows = await LevelAnnouncementQueue.findAll({
     where: { id: { [Op.in]: queueRowIds } },
-    include: [{ model: Level, as: 'level', attributes: ['song', 'artist'] }],
+    include: [{ model: Level, as: 'level', attributes: ['song', 'artist', 'suffix'] }],
   });
   for (const row of rows) {
-    const song = row.level?.song || 'Unknown';
+    const song = appendSongSuffix(row.level?.song, row.level?.suffix) || 'Unknown';
     const artist = row.level?.artist || '';
     labels.set(row.id, artist ? `${song} — ${artist}` : song);
   }

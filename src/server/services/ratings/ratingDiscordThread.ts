@@ -1,7 +1,6 @@
 import {getSequelizeForModelGroup} from '@/config/db.js';
 import Rating from '@/models/levels/Rating.js';
 import Level from '@/models/levels/Level.js';
-import LevelRequest from '@/models/levels/LevelRequest.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {CacheInvalidation} from '@/server/middleware/cache.js';
 import {safeTransactionRollback} from '@/misc/utils/Utility.js';
@@ -64,13 +63,6 @@ async function loadManualRating(user: Actor, ratingId: number) {
   if (rating.confirmedAt != null) {
     throw new LevelRequestError(409, 'settled', 'This rating is already settled');
   }
-  const linked = await LevelRequest.findOne({
-    where: {linkedRatingId: rating.id, type: 'rerate'},
-    attributes: ['id'],
-  });
-  if (linked) {
-    throw new LevelRequestError(409, 'request', 'This rating comes from a website request');
-  }
   const level = await Level.findByPk(rating.levelId);
   if (!level) throw new LevelRequestError(404, 'missing_level', 'Level not found');
   if (level.isDeleted) throw new LevelRequestError(400, 'deleted', 'Deleted levels cannot be posted');
@@ -105,7 +97,7 @@ async function finish(
   return stampThreadResult(await buildCompleteRatingById(ratingId), state);
 }
 
-/** Discord vote thread for a rating an admin placed on the page, with no website request. */
+/** Discord vote thread for any open rating on the page, including website requests. */
 export async function manageRatingDiscordThread(
   user: Actor,
   ratingId: number,
@@ -194,14 +186,6 @@ async function createManualThread(user: Actor, ratingId: number, ping: boolean) 
     }
     if (rating.discordMessageUrl) {
       throw new LevelRequestError(409, 'discord', 'This rating already has a Discord thread');
-    }
-    const linked = await LevelRequest.findOne({
-      where: {linkedRatingId: rating.id, type: 'rerate'},
-      attributes: ['id'],
-      transaction,
-    });
-    if (linked) {
-      throw new LevelRequestError(409, 'request', 'This rating comes from a website request');
     }
     const level = await Level.findByPk(rating.levelId, {transaction, lock: true});
     if (!level) throw new LevelRequestError(404, 'missing_level', 'Level not found');

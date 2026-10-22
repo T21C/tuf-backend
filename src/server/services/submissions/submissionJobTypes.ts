@@ -74,6 +74,7 @@ export const LEVEL_APPROVE_STEPS = [
   'createLevel',
   'notify',
   'chartStats',
+  'requestedTags',
   'autoTags',
 ] as const;
 

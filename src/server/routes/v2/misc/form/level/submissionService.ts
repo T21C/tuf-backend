@@ -6,11 +6,8 @@ import sequelize from '@/config/db.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
-import { randomUUID } from 'crypto';
 import { isYsmodOnlyState } from '@/server/submissions/submissionEvidenceRules.js';
 
-import cdnService, { CdnError } from '@/server/services/core/CdnService.js';
-import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
 import EvidenceService from '@/server/services/data/EvidenceService.js';
 
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
@@ -24,20 +21,25 @@ import Song from '@/models/songs/Song.js';
 import { OAuthProvider, User } from '@/models/index.js';
 
 import { levelSubmissionHook } from '@/server/routes/v2/webhooks/webhook.js';
-import { cancelSession as cancelUploadSession } from '@/server/services/upload/UploadSessionService.js';
 import {
   isUuidJobId,
   jobProgressService,
 } from '@/server/services/core/JobProgressService.js';
 
 import { formError } from '../shared/errors.js';
-import { cleanUpCdnFile } from '../shared/cdnCleanup.js';
 import { parseAndSanitizeLevelForm, type LevelFormSanitised } from './dto.js';
 import { applyResolvedVideoLinkToPayload } from '../shared/videoUrl.js';
 import { computeEvidenceRequirements, validateLevelReferences } from './referenceCheck.js';
 import { assertNoDuplicateLevelSubmission } from './duplicateCheck.js';
-import { resolveLevelZipSession, type ResolvedLevelZipSession } from './uploadSessionResolver.js';
 import { notifyChartSubmission } from '@/server/services/notifications/levelSubmissionNotify.js';
+import {
+  LevelZipSessionError,
+  cancelIngestedLevelZipSession,
+  discardIngestedLevelZip,
+  ingestOwnedLevelZip,
+  type IngestedLevelZip,
+  type IngestedLevelZipChart,
+} from '@/server/domain/levels/levelZipSessionIngest.js';
 
 const evidenceService = EvidenceService.getInstance();
 
@@ -77,8 +79,6 @@ export interface CreateLevelSubmissionResult {
     bpm?: number;
   }>;
 }
-
-type CdnLevelFile = Awaited<ReturnType<typeof cdnService.getLevelFiles>>[number];
 
 interface SubmissionRowIds {
   submissionId: number;
@@ -152,50 +152,34 @@ export async function createLevelSubmission(
   }
 
   // Phase 3: resolve + upload the zip (if any) to CDN, OUTSIDE the main tx.
-  let resolvedSession: ResolvedLevelZipSession | null = null;
-  let uploadedFileId: string | null = null;
+  let ingested: IngestedLevelZip | null = null;
   let directDLFromCdn: string | null = null;
-  let levelFiles: CdnLevelFile[] = [];
+  let levelFiles: IngestedLevelZipChart[] = [];
 
   if (uploadSessionId) {
-    resolvedSession = await resolveLevelZipSession(uploadSessionId, userId);
-
-    if (uploadJobId) {
-      await jobProgressService
-        .patchTrusted(uploadJobId, {
-          ownerUserId: userId,
-          kind: 'level_submission_upload',
-          phase: 'uploading_to_cdn',
-          percent: 5,
-          message: 'Sending zip to CDN',
-          meta: { source: 'level_submission', uploadSessionId },
-        })
-        .catch(() => undefined);
-    }
-
     try {
-      const uploadResult = await cdnService.uploadLevelZip(
-        resolvedSession.assembledPath,
-        resolvedSession.originalName,
-        uploadJobId ?? randomUUID(),
-      );
-      uploadedFileId = uploadResult.fileId;
-      directDLFromCdn = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
-      levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await markCdnJobFailed(msg);
-      await cleanUpCdnFile(uploadedFileId);
-      if (resolvedSession) {
-        await safeCancelSession(resolvedSession);
-      }
-      if (err instanceof CdnError) {
-        throw err;
-      }
-      throw formError.bad(msg || 'Failed to upload zip file to CDN', {
-        details: { error: msg },
+      ingested = await ingestOwnedLevelZip({
+        uploadSessionId,
+        userId,
+        uploadJobId,
+        purpose: 'submission',
+        jobKind: 'level_submission_upload',
+        jobSource: 'level_submission',
       });
+    } catch (err) {
+      if (err instanceof LevelZipSessionError) {
+        if (err.status === 401) throw formError.unauth(err.message);
+        if (err.status === 403) throw formError.forbid(err.message);
+        if (err.status === 404) throw formError.notFound(err.message);
+        if (err.status === 409) {
+          throw formError.conflict(err.message, { field: err.field, details: err.details });
+        }
+        throw formError.bad(err.message, { field: err.field, details: err.details });
+      }
+      throw err;
     }
+    directDLFromCdn = ingested.directDl;
+    levelFiles = ingested.levelFiles;
 
     if (
       songRequiresYsModFlag &&
@@ -203,10 +187,7 @@ export async function createLevelSubmission(
       !levelFiles.some((f) => f.hasYouTubeStream)
     ) {
       await markCdnJobFailed('Level is missing the required YSMod (YouTubeStream) flag');
-      await cleanUpCdnFile(uploadedFileId);
-      if (resolvedSession) {
-        await safeCancelSession(resolvedSession);
-      }
+      await discardIngestedLevelZip(ingested);
       throw formError.bad(
         'This song is YSMod-only: the submitted level must require the YouTubeStream mod',
         { field: 'directDL' },
@@ -271,6 +252,7 @@ export async function createLevelSubmission(
         level: {
           song: submissionWithAssociations.song,
           artist: submissionWithAssociations.artist,
+          suffix: submissionWithAssociations.suffix,
         },
         actorId: userId,
         transaction,
@@ -293,8 +275,8 @@ export async function createLevelSubmission(
       data: { action: 'create', submissionId: rowIds.submissionId, submissionType: 'level' },
     });
 
-    if (resolvedSession) {
-      await safeCancelSession(resolvedSession);
+    if (ingested) {
+      await cancelIngestedLevelZipSession(ingested);
     }
 
     if (levelFiles.length > 1) {
@@ -303,8 +285,8 @@ export async function createLevelSubmission(
         submissionId: rowIds.submissionId,
         message: 'Level submission saved successfully',
         requiresLevelSelection: true,
-        fileId: uploadedFileId,
-        levelFiles: levelFiles.map(mapLevelFile),
+        fileId: ingested?.fileId ?? null,
+        levelFiles,
       };
     }
 
@@ -318,10 +300,7 @@ export async function createLevelSubmission(
       await safeTransactionRollback(transaction);
     }
     await markCdnJobFailed(err instanceof Error ? err.message : String(err));
-    await cleanUpCdnFile(uploadedFileId);
-    if (resolvedSession) {
-      await safeCancelSession(resolvedSession);
-    }
+    await discardIngestedLevelZip(ingested);
     throw err;
   }
 }
@@ -347,6 +326,7 @@ async function createSubmissionRows(args: {
       userId,
       wsLink: sanitized.wsLink || '',
       notes: sanitized.notes,
+      requestedTagIds: sanitized.tagIds.length > 0 ? sanitized.tagIds : null,
       status: 'pending',
       charter: '',
       vfxer: '',
@@ -475,27 +455,3 @@ async function uploadEvidenceForSubmission(args: {
   );
 }
 
-async function safeCancelSession(resolved: ResolvedLevelZipSession): Promise<void> {
-  try {
-    await cancelUploadSession(resolved.session);
-  } catch (err) {
-    logger.warn('Failed to cancel upload session after submission:', err);
-  }
-}
-
-function mapLevelFile(file: CdnLevelFile) {
-  return {
-    name: file.name,
-    relativePath: file.relativePath,
-    fullPath: file.fullPath || file.relativePath,
-    storagePath: file.storagePath,
-    size: file.size,
-    hasYouTubeStream: file.hasYouTubeStream,
-    songFilename: file.songFilename,
-    artist: file.artist,
-    song: file.song,
-    author: file.author,
-    difficulty: file.difficulty,
-    bpm: file.bpm,
-  };
-}

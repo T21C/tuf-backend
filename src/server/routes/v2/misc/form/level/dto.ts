@@ -35,6 +35,8 @@ export interface LevelFormSanitised {
     verificationState: string | null;
   }>;
   evidenceType: 'song' | 'artist';
+  /** Staff-assignable tag ids requested for the chart. Empty means none. */
+  tagIds: number[];
 }
 
 export interface ParsedLevelForm {
@@ -44,6 +46,33 @@ export interface ParsedLevelForm {
 
 function asBool(v: unknown): boolean {
   return v === true || v === 'true';
+}
+
+/**
+ * Normalise a requested-tag list. Omitted / null / '' means no request.
+ * A present non-array, or any non-positive entry, is an error.
+ */
+export function parseRequestedTagIds(value: unknown): { ids: number[]; error: string | null } {
+  if (value === undefined || value === null || value === '') {
+    return { ids: [], error: null };
+  }
+  const parsed = typeof value === 'string' ? safeParseJSON<unknown>(value) : value;
+  if (!Array.isArray(parsed)) {
+    return { ids: [], error: 'tagIds must be an array' };
+  }
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  for (const item of parsed) {
+    const n = typeof item === 'number' ? item : Number(item);
+    if (!Number.isInteger(n) || n <= 0) {
+      return { ids: [], error: 'tagIds must be positive integers' };
+    }
+    if (!seen.has(n)) {
+      seen.add(n);
+      ids.push(n);
+    }
+  }
+  return { ids, error: null };
 }
 
 function parsePositiveIntOrNull(value: unknown): number | null {
@@ -86,6 +115,11 @@ export function parseAndSanitizeLevelForm(body: Record<string, unknown>): Parsed
   const suffixRaw = typeof body.suffix === 'string' ? body.suffix : '';
   const suffix = suffixRaw ? sanitizeTextInput(suffixRaw).trim() || null : null;
   const notes = sanitizeNotes(body.notes);
+  const parsedTagIds = parseRequestedTagIds(body.tagIds);
+  if (parsedTagIds.error) {
+    errors.push({ field: 'tagIds', message: parsedTagIds.error });
+  }
+  const tagIds = parsedTagIds.ids;
 
   const isNewSongRequest = asBool(body.isNewSongRequest);
   const isNewArtistRequest = asBool(body.isNewArtistRequest);
@@ -155,6 +189,7 @@ export function parseAndSanitizeLevelForm(body: Record<string, unknown>): Parsed
     teamRequest,
     artistRequests,
     evidenceType,
+    tagIds,
   };
 
   return { sanitized, errors };

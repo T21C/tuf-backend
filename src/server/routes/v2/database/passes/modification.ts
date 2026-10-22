@@ -11,7 +11,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import sequelize from '@/config/db.js';
 import { updateWorldsFirstFlags, updateWorldsFirstPPStatus } from './index.js';
 import { safeTransactionRollback, sanitizeTextInput, validateFeelingRating } from '@/misc/utils/Utility.js';
-import { optionalReasonFromBody } from '@/server/routes/v2/misc/form/shared/sanitize.js';
+import { optionalReasonFromBody, sanitizePassDetails } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 import { IJudgements, unwrapJudgements } from '@/misc/utils/pass/CalcAcc.js';
 import { isWrongJudgementFromChart } from '@/misc/utils/pass/wrongJudgementSync.js';
 import {
@@ -49,7 +49,7 @@ router.put(
   ApiDoc({
     operationId: 'updatePass',
     summary: 'Update pass',
-    description: 'Update a pass by ID (super admin). Body: levelId, vidUploadTime, speed, feelingRating, vidTitle, videoLink, is12K, is16K, isNoHoldTap, accuracy, scoreV2, isDeleted, judgements, playerId, isAnnounced, isDuplicate, isAdofaiV2, adofaiVersion, isXPerfectMode. Recalculates accuracy/score when judgements or era/X-Perfect fields provided.',
+    description: 'Update a pass by ID (super admin). Body: levelId, vidUploadTime, speed, feelingRating, expectedRating, details, vidTitle, videoLink, is12K, is16K, isNoHoldTap, accuracy, scoreV2, isDeleted, judgements, playerId, isAnnounced, isDuplicate, isAdofaiV2, adofaiVersion, isXPerfectMode. Recalculates accuracy/score when judgements or era/X-Perfect fields provided.',
     tags: ['Passes'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
@@ -57,6 +57,18 @@ router.put(
     responses: { 200: { description: 'Updated pass' }, 404: { description: 'Pass not found' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
+    let sanitizedDetails: string | null | undefined;
+    if (req.body.details !== undefined) {
+      try {
+        sanitizedDetails = sanitizePassDetails(req.body.details);
+      } catch (err: any) {
+        if (err?.code === 400) {
+          return res.status(400).json({ error: err.error });
+        }
+        throw err;
+      }
+    }
+
     let transaction: any;
     try {
       transaction = await sequelize.transaction();
@@ -247,6 +259,7 @@ router.put(
                   ? sanitizeTextInput(expectedRating)
                   : null
                 : pass.expectedRating,
+            details: sanitizedDetails !== undefined ? sanitizedDetails : pass.details,
             ...(keyCountFields ?? {}),
             vidTitle: vidTitle !== undefined ? sanitizeTextInput(vidTitle) : pass.vidTitle,
             videoLink: videoLink !== undefined ? sanitizeTextInput(videoLink) : pass.videoLink,
@@ -299,6 +312,7 @@ router.put(
                   ? sanitizeTextInput(expectedRating)
                   : null
                 : pass.expectedRating,
+            details: sanitizedDetails !== undefined ? sanitizedDetails : pass.details,
             ...(keyCountFields ?? {}),
             vidTitle: vidTitle !== undefined ? sanitizeTextInput(vidTitle) : pass.vidTitle,
             videoLink: videoLink !== undefined ? sanitizeTextInput(videoLink) : pass.videoLink,

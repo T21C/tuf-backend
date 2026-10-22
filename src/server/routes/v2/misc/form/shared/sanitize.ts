@@ -41,6 +41,23 @@ export function sanitizeLevelDescription(input: unknown): string | null {
   return trimmed;
 }
 
+/** Optional website-only pass details: trim, empty → null. Throws if invalid. */
+export function sanitizePassDetails(input: unknown): string | null {
+  if (input === undefined || input === null) return null;
+  if (typeof input !== 'string') {
+    throw { error: 'Pass details must be a string', code: 400 };
+  }
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.length > LEVEL_DESCRIPTION_MAX_LENGTH) {
+    throw {
+      error: `Pass details cannot exceed ${LEVEL_DESCRIPTION_MAX_LENGTH} characters`,
+      code: 400,
+    };
+  }
+  return trimmed;
+}
+
 /** Optional admin reason from a JSON body `{ reason?: string }`. */
 export function optionalReasonFromBody(body: unknown): string | null {
   if (!body || typeof body !== 'object') return null;

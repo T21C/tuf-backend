@@ -1,4 +1,4 @@
-import {Op, col, fn, type Transaction} from 'sequelize';
+import {Op, QueryTypes, col, fn, type Transaction} from 'sequelize';
 import {getSequelizeForModelGroup} from '@/config/db.js';
 import Level from '@/models/levels/Level.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
@@ -13,12 +13,27 @@ import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
-import PlayerStats from '@/models/players/PlayerStats.js';
 import Pass from '@/models/passes/Pass.js';
 import {permissionFlags} from '@/config/constants.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {hasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import {safeTransactionRollback, sanitizeTextInput} from '@/misc/utils/Utility.js';
+import {CdnError} from '@/server/services/core/CdnService.js';
+import {cleanUpCdnFile} from '@/server/routes/v2/misc/form/shared/cdnCleanup.js';
+import {
+  DownloadAttachError,
+  LevelZipSessionError,
+  acceptStagedDownload,
+  cancelIngestedLevelZipSession,
+  deleteStagedDownload,
+  discardIngestedLevelZip,
+  downloadSelection,
+  prepareDownloadChange,
+  readStagedDownload,
+  selectDownloadRequestChart,
+  stagedDownloadFileId,
+  type IngestedLevelZip,
+} from '@/server/services/requests/levelRequestDownload.js';
 import {sseManager, SSE_SOURCES} from '@/misc/utils/server/sse.js';
 import {isBannedUntilExpired, isPermissionBanActive} from '@/server/services/accounts/playerBanUtils.js';
 import {notificationService} from '@/server/services/notifications/NotificationService.js';
@@ -427,13 +442,16 @@ async function buildInfoChangePayload(body: Record<string, unknown>, level: Leve
     }
     return {kind, artistId: artist.id, artistName: artist.name};
   }
-  if (kind === 'video' || kind === 'download' || kind === 'description' || kind === 'multiple') {
+  if (kind === 'download') {
+    throw new LevelRequestError(400, 'value', 'Enter the new value');
+  }
+  if (kind === 'video' || kind === 'description' || kind === 'multiple') {
     const value = String(body.value ?? '').trim();
     if (!value) throw new LevelRequestError(400, 'value', 'Enter the new value');
     if (value.length > INFO_CHANGE_VALUE_MAX) {
       throw new LevelRequestError(400, 'value_length', 'That value must be at most 4000 characters');
     }
-    const current = kind === 'video' ? level.videoLink : kind === 'download' ? level.dlLink : kind === 'description' ? level.description : null;
+    const current = kind === 'video' ? level.videoLink : kind === 'description' ? level.description : null;
     if (current != null && value === String(current).trim()) {
       throw new LevelRequestError(400, 'unchanged', 'This already matches the level');
     }
@@ -654,13 +672,25 @@ async function bestVisiblePass(requesterUserId: string, levelId: number, viewer:
 
 async function requesterTopDiff(playerId: number | null | undefined) {
   if (!playerId) return null;
-  const stats = await PlayerStats.findByPk(playerId, {
-    attributes: ['id', 'topDiffId'],
-    include: [{model: Difficulty, as: 'topDiff', attributes: ['id', 'name', 'icon'], required: false}],
-  });
-  const diff = stats?.topDiff;
-  if (!diff?.id) return null;
-  return {id: diff.id, name: diff.name, icon: diff.icon};
+  // Live passes, not player_stats.topDiffId — that column can lag a newer clear.
+  const rows = await sequelize.query<{
+    id: number | string;
+    name: string | null;
+    icon: string | null;
+  }>(
+    `SELECT d.id AS id, d.name AS name, d.icon AS icon
+     FROM player_pass_summary AS ps
+     INNER JOIN difficulties AS d ON d.id = ps.diffId
+     WHERE ps.playerId = :playerId
+       AND d.type = 'PGU'
+     ORDER BY d.sortOrder DESC, d.id DESC
+     LIMIT 1`,
+    {replacements: {playerId}, type: QueryTypes.SELECT},
+  );
+  const row = rows[0];
+  const id = Number(row?.id);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return {id, name: row.name ?? null, icon: row.icon ?? null};
 }
 
 function withLastActor(user: Viewer, patch: Record<string, unknown> = {}) {
@@ -683,8 +713,14 @@ async function serializeUserPreview(userId: string | null | undefined) {
   };
 }
 
-export async function serializeLevelRequest(request: LevelRequest, viewer: Viewer, options?: {includePass?: boolean}) {
-  const includeLevelCredits = request.type === 'info_change' || request.type === 'rerate';
+export async function serializeLevelRequest(
+  request: LevelRequest,
+  viewer: Viewer,
+  options?: {includePass?: boolean; includeCredits?: boolean},
+) {
+  const includeLevelCredits = options?.includeCredits === true
+    || request.type === 'info_change'
+    || request.type === 'rerate';
   const level = await Level.findByPk(request.levelId, {
     attributes: ['id', 'song', 'songId', 'suffix', 'artist', 'videoLink', 'dlLink', 'description', 'teamId', 'diffId', 'isDeleted', 'isHidden'],
     include: [
@@ -812,6 +848,17 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
               creator: credit.creator ? {id: credit.creator.id, name: credit.creator.name} : null,
             })),
           } : {}),
+          ...(options?.includeCredits ? {
+            teamName: level.teamObject?.name || null,
+            ...(request.type === 'info_change' || request.type === 'rerate' ? {} : {
+              levelCredits: (level.levelCredits || []).map((credit) => ({
+                creatorId: credit.creatorId,
+                role: credit.role,
+                sortOrder: credit.sortOrder,
+                creator: credit.creator ? {id: credit.creator.id, name: credit.creator.name} : null,
+              })),
+            }),
+          } : {}),
         }
       : {
           id: request.levelId,
@@ -859,6 +906,32 @@ export async function serializeLevelRequest(request: LevelRequest, viewer: Viewe
   };
 }
 
+function rethrowDownloadFailure(err: unknown): never {
+  if (err instanceof LevelRequestError) throw err;
+  if (err instanceof DownloadAttachError) {
+    throw new LevelRequestError(err.status, err.code, err.message);
+  }
+  if (err instanceof LevelZipSessionError) {
+    throw new LevelRequestError(err.status, err.field || 'upload', err.message, err.details);
+  }
+  if (err instanceof CdnError) {
+    const status = err.httpStatus >= 400 && err.httpStatus < 600 ? err.httpStatus : 502;
+    throw new LevelRequestError(status, 'upload', err.message);
+  }
+  throw err;
+}
+
+async function writeDownloadRequest(
+  run: () => Promise<{request: Awaited<ReturnType<typeof serializeLevelRequest>>; ingested: IngestedLevelZip | null}>,
+) {
+  try {
+    const written = await run();
+    return {request: written.request, ...downloadSelection(written.ingested)};
+  } catch (err) {
+    rethrowDownloadFailure(err);
+  }
+}
+
 export async function createLevelRequest(user: Viewer, levelId: number, body: Record<string, unknown>) {
   if (!isLevelRequestType(body.type)) {
     throw new LevelRequestError(400, 'type', 'Unknown request type');
@@ -875,17 +948,34 @@ export async function createLevelRequest(user: Viewer, levelId: number, body: Re
   await assertNoOpenRequest(levelId, type, user.id);
   if (type === 'rerate') await assertRerateCooldown(levelId);
   const reason = readReason(type, body.reason);
-  const payload = await buildPayload(type, body, level, reason);
-  const request = await LevelRequest.create({
-    type,
-    levelId,
-    requesterUserId: user.id,
-    status: 'pending',
-    reason,
-    payload,
-    immediateSettle: false,
+  let ingested: IngestedLevelZip | null = null;
+  let saved = false;
+  return writeDownloadRequest(async () => {
+    try {
+      const payload = type === 'info_change' && body.kind === 'download'
+        ? await (async () => {
+          const prepared = await prepareDownloadChange(user.id, body, level, null);
+          ingested = prepared.ingested;
+          return prepared.payload;
+        })()
+        : await buildPayload(type, body, level, reason);
+      const request = await LevelRequest.create({
+        type,
+        levelId,
+        requesterUserId: user.id,
+        status: 'pending',
+        reason,
+        payload,
+        immediateSettle: false,
+      });
+      saved = true;
+      await cancelIngestedLevelZipSession(ingested);
+      return {request: await serializeLevelRequest(request, user), ingested};
+    } catch (err) {
+      if (!saved) await discardIngestedLevelZip(ingested);
+      throw err;
+    }
   });
-  return serializeLevelRequest(request, user);
 }
 
 export async function updateOwnLevelRequest(user: Viewer, requestId: number, body: Record<string, unknown>) {
@@ -899,16 +989,42 @@ export async function updateOwnLevelRequest(user: Viewer, requestId: number, bod
     assertCurationRequestSlot(request.type, await levelHasCuration(request.levelId));
   }
   const reason = body.reason === undefined ? request.reason : readReason(request.type, body.reason);
-  const nextBody = {...request.payload, ...body, reason};
-  const payload = await buildPayload(request.type, nextBody, level, reason);
-  if (request.type === 'rerate') {
-    const previousFrozenId = request.payload?.frozenDiffId;
-    const previousFrozenName = request.payload?.frozenDiffName;
-    if (typeof previousFrozenId === 'number') payload.frozenDiffId = previousFrozenId;
-    if (typeof previousFrozenName === 'string') payload.frozenDiffName = previousFrozenName;
-  }
-  await request.update({reason, payload});
-  return serializeLevelRequest(request, user);
+  const nextKind = request.type === 'info_change'
+    ? (typeof body.kind === 'string' ? body.kind : request.payload?.kind)
+    : null;
+  const previousFileId = stagedDownloadFileId(request.payload);
+  let ingested: IngestedLevelZip | null = null;
+  let saved = false;
+  return writeDownloadRequest(async () => {
+    try {
+      let payload: Record<string, unknown>;
+      if (request.type === 'info_change' && nextKind === 'download') {
+        const prepared = await prepareDownloadChange(user.id, body, level, request.payload);
+        ingested = prepared.ingested;
+        payload = prepared.payload;
+      } else {
+        const nextBody = {...request.payload, ...body, reason};
+        payload = await buildPayload(request.type, nextBody, level, reason);
+        if (request.type === 'rerate') {
+          const previousFrozenId = request.payload?.frozenDiffId;
+          const previousFrozenName = request.payload?.frozenDiffName;
+          if (typeof previousFrozenId === 'number') payload.frozenDiffId = previousFrozenId;
+          if (typeof previousFrozenName === 'string') payload.frozenDiffName = previousFrozenName;
+        }
+      }
+      await request.update({reason, payload});
+      saved = true;
+      const nextFileId = stagedDownloadFileId(payload);
+      if (previousFileId && previousFileId !== nextFileId) {
+        await cleanUpCdnFile(previousFileId);
+      }
+      await cancelIngestedLevelZipSession(ingested);
+      return {request: await serializeLevelRequest(request, user), ingested};
+    } catch (err) {
+      if (!saved) await discardIngestedLevelZip(ingested);
+      throw err;
+    }
+  });
 }
 
 export async function withdrawLevelRequest(user: Viewer, requestId: number) {
@@ -916,8 +1032,26 @@ export async function withdrawLevelRequest(user: Viewer, requestId: number) {
   if (!request) throw new LevelRequestError(404, 'missing', 'Request not found');
   if (request.requesterUserId !== user.id) throw new LevelRequestError(403, 'forbidden', 'You cannot withdraw this request');
   if (request.status !== 'pending') throw new LevelRequestError(409, 'locked', 'Only a pending request can be withdrawn');
+  await deleteStagedDownload(request.payload);
   const resolvedAt = new Date();
   await request.update({status: 'withdrawn', resolvedAt});
+  return serializeLevelRequest(request, user);
+}
+
+export async function selectLevelRequestChart(user: Viewer, requestId: number, body: Record<string, unknown>) {
+  const request = await LevelRequest.findByPk(requestId);
+  if (!request) throw new LevelRequestError(404, 'missing', 'Request not found');
+  if (request.requesterUserId !== user.id) {
+    throw new LevelRequestError(403, 'forbidden', 'You cannot edit this request');
+  }
+  if (request.status !== 'pending') {
+    throw new LevelRequestError(409, 'locked', 'Only a pending request can be edited');
+  }
+  try {
+    await selectDownloadRequestChart(request, body.selectedLevel);
+  } catch (err) {
+    rethrowDownloadFailure(err);
+  }
   return serializeLevelRequest(request, user);
 }
 
@@ -1027,13 +1161,20 @@ export async function listLevelRequests(user: Viewer, query: Record<string, unkn
     });
     where.requesterUserId = {[Op.in]: users.map((row) => row.id).concat(['00000000-0000-0000-0000-000000000000'])};
   }
+  const includeCredits = query.includeCredits === true
+    || query.includeCredits === 1
+    || query.includeCredits === '1'
+    || query.includeCredits === 'true';
   const rows = await LevelRequest.findAndCountAll({
     where,
     order: listLevelRequestOrder(query.sort),
     limit,
     offset,
   });
-  const results = await Promise.all(rows.rows.map((row) => serializeLevelRequest(row, user, {includePass: false})));
+  const results = await Promise.all(rows.rows.map((row) => serializeLevelRequest(row, user, {
+    includePass: false,
+    includeCredits,
+  })));
   return {results, total: rows.count, limit, offset};
 }
 
@@ -1125,6 +1266,17 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
   if (internalNote !== undefined) notePatch.internalNote = internalNote;
 
   if (action === 'accept') {
+    let staged: ReturnType<typeof readStagedDownload> = null;
+    try {
+      staged = readStagedDownload(request.payload);
+      if (staged) await acceptStagedDownload(user.id, request, notePatch);
+    } catch (err) {
+      rethrowDownloadFailure(err);
+    }
+    if (staged) {
+      await notifyRequester(request, {actor: user});
+      return serializeLevelRequest(request, user);
+    }
     await request.update(withLastActor(user, {...notePatch, status: 'accepted', resolvedAt: null}));
     if (isCurationDiscordType(request.type) && !request.discordMessageUrl) {
       try {
@@ -1138,6 +1290,7 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
   }
 
   if (action === 'reject') {
+    await deleteStagedDownload(request.payload);
     await request.update(withLastActor(user, {
       ...notePatch,
       status: 'rejected',

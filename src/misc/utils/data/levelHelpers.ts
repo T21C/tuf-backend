@@ -68,18 +68,25 @@ export const getArtistDisplayName = (level: Level | any): string => {
 
 
 /**
+ * Join a song title and its chart suffix. Skips the suffix when the title already ends with it
+ * (legacy `song` values were stored as the joined display name).
+ */
+export function appendSongSuffix(song: unknown, suffix: unknown): string {
+  const name = String(song ?? '').trim();
+  const extra = String(suffix ?? '').trim();
+  if (!name) return '';
+  if (!extra || name.endsWith(extra)) return name;
+  return `${name} ${extra}`;
+}
+
+/**
  * Get full song display name with suffix if applicable
  * @param level - Level instance or plain object
  * @returns Song name with suffix or just song name
  */
 export const getSongDisplayName = (level: Level | any): string => {
   if (!level) return '';
-  const songName = getSongName(level);
-  if (level.suffix && songName && level.songObject) {
-    return `${songName} ${level.suffix}`;
-  } else {
-    return songName;
-  }
+  return appendSongSuffix(getSongName(level), level.suffix);
 };
 
 export const formatDuration = (duration: number): string => {

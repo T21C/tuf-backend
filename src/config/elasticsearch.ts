@@ -509,6 +509,12 @@ export const passMapping = {
       speed: { type: 'float' as const },
       feelingRating: { type: 'text' as const },
       expectedRating: { type: 'text' as const },
+      details: {
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 },
+        },
+      },
       keyCount: { type: 'integer' as const },
       vidTitle: { type: 'text' as const },
       videoLink: {
