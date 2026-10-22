@@ -7,7 +7,7 @@
 # Do not declare GIT_SHA until after apt/npm layers. An ENV that includes
 # the commit SHA would bust Chromium and `npm ci` on every build.
 
-FROM node:22-bookworm-slim AS build
+FROM node:22.23.4-bookworm-slim AS build
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 
@@ -33,7 +33,7 @@ RUN --mount=type=cache,target=/root/.npm \
 
 COPY dist ./dist
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:22.23.4-bookworm-slim AS runtime
 
 ENV NODE_ENV=production \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
