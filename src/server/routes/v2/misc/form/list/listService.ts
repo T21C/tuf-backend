@@ -5,7 +5,7 @@ import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {escapeForMySQL} from '@/misc/utils/data/searchHelpers.js';
-import {getArtistDisplayName, getSongDisplayName} from '@/misc/utils/data/levelHelpers.js';
+import {appendSongSuffix, getArtistDisplayName, getSongDisplayName} from '@/misc/utils/data/levelHelpers.js';
 import {asHttpUrl, enrichSubmissionLinks} from './submissionLinks.js';
 
 export type SubmissionKind = 'pass' | 'level';
@@ -284,8 +284,7 @@ function mapPassDto(row: PassSubmission): MySubmissionDto {
 
 function mapLevelDto(row: LevelSubmission): MySubmissionDto {
   const json = row.toJSON() as LevelSubmission;
-  const song = json.song || '';
-  const title = json.suffix && song ? `${song} ${json.suffix}` : song;
+  const title = appendSongSuffix(json.song, json.suffix);
   return {
     kind: 'level',
     id: json.id,

@@ -14,10 +14,12 @@ import {
 } from '@/server/services/upload/kinds/levelZipLimits.js';
 
 export interface LevelZipMeta {
-  /** Level being replaced. If null, the upload is for a new submission (validated at /init). */
+  /** Level being replaced. If null, the upload is for a new submission or a download change request. */
   levelId: number | null;
-  /** True when the session was minted by `POST /v2/form/level/validate` for a brand-new submission. */
+  /** True when the session was minted for a brand-new submission. */
   forSubmission?: boolean;
+  /** True when the session was minted to attach a zip to a download change request. */
+  forLevelRequest?: boolean;
   /** Pending level submission whose zip a super-admin is replacing. */
   submissionId?: number | null;
 }
@@ -53,6 +55,7 @@ export const LevelZipUploadKind: UploadKind<LevelZipMeta, LevelZipResult> = {
         ? null
         : Number(rawLevelId);
     const forSubmission = metaObj.forSubmission === true || metaObj.forSubmission === 'true';
+    const forLevelRequest = metaObj.forLevelRequest === true || metaObj.forLevelRequest === 'true';
     const rawSubmissionId = metaObj.submissionId;
     const submissionId =
       rawSubmissionId == null || rawSubmissionId === ''
@@ -60,8 +63,8 @@ export const LevelZipUploadKind: UploadKind<LevelZipMeta, LevelZipResult> = {
         : Number(rawSubmissionId);
 
     if (submissionId != null) {
-      if (levelId != null || forSubmission) {
-        throw new UploadError(400, 'submissionId cannot be combined with levelId or forSubmission');
+      if (levelId != null || forSubmission || forLevelRequest) {
+        throw new UploadError(400, 'submissionId cannot be combined with levelId, forSubmission, or forLevelRequest');
       }
       if (!hasFlag(user, permissionFlags.SUPER_ADMIN)) {
         throw new UploadError(403, 'Forbidden');
@@ -80,7 +83,20 @@ export const LevelZipUploadKind: UploadKind<LevelZipMeta, LevelZipResult> = {
       if (shouldSkipEnqueue(job?.status) === 'inflight') {
         throw new UploadError(409, 'This submission is already being approved or declined. Wait for it to finish.');
       }
-      return { meta: { levelId: null, forSubmission: false, submissionId } };
+      return { meta: { levelId: null, forSubmission: false, forLevelRequest: false, submissionId } };
+    }
+
+    if (forLevelRequest) {
+      if (levelId != null || forSubmission) {
+        throw new UploadError(400, 'forLevelRequest cannot be combined with levelId or forSubmission');
+      }
+      if (isPermissionBanActive(user, user.player?.bannedUntil)) {
+        throw new UploadError(403, 'You are banned');
+      }
+      if (!hasFlag(user, permissionFlags.EMAIL_VERIFIED)) {
+        throw new UploadError(403, 'Your email is not verified');
+      }
+      return { meta: { levelId: null, forSubmission: false, forLevelRequest: true, submissionId: null } };
     }
 
     if (levelId == null) {
@@ -95,7 +111,7 @@ export const LevelZipUploadKind: UploadKind<LevelZipMeta, LevelZipResult> = {
       }
       if (hasFlag(user, permissionFlags.SUBMISSIONS_PAUSED)) throw new UploadError(403, 'Your submissions are paused');
       if (!hasFlag(user, permissionFlags.EMAIL_VERIFIED)) throw new UploadError(403, 'Your email is not verified');
-      return { meta: { levelId: null, forSubmission: true } };
+      return { meta: { levelId: null, forSubmission: true, forLevelRequest: false } };
     }
 
     if (!Number.isInteger(levelId) || levelId <= 0) {
@@ -121,7 +137,7 @@ export const LevelZipUploadKind: UploadKind<LevelZipMeta, LevelZipResult> = {
       logger.warn('level-zip validateInit ownership check failed:', err);
       throw new UploadError(500, 'Failed to verify level access');
     }
-    return { meta: { levelId, forSubmission: false, submissionId: null } };
+    return { meta: { levelId, forSubmission: false, forLevelRequest: false, submissionId: null } };
   },
 
   async onAssembled({ assembledPath }) {

@@ -28,6 +28,7 @@ import User from '@/models/auth/User.js';
 import { Op, fn, col, literal } from 'sequelize';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import { appendSongSuffix } from '@/misc/utils/data/levelHelpers.js';
 import {TeamAlias} from '@/models/credits/TeamAlias.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import LevelSubmissionSongRequest from '@/models/submissions/LevelSubmissionSongRequest.js';
@@ -81,8 +82,13 @@ function submissionQueueActor(req: Request): {
   };
 }
 
-function levelSubmissionLabel(row: { song?: string | null; artist?: string | null; id: number }): string {
-  const song = row.song || '';
+function levelSubmissionLabel(row: {
+  song?: string | null;
+  artist?: string | null;
+  suffix?: string | null;
+  id: number;
+}): string {
+  const song = appendSongSuffix(row.song, row.suffix);
   const artist = row.artist || '';
   if (song && artist) return `${song} — ${artist}`;
   return song || artist || `#${row.id}`;

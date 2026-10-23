@@ -1,5 +1,5 @@
 import { Op, Transaction } from 'sequelize';
-import sequelize from '@/config/db.js';
+import sequelize, { getSequelizeForModelGroup } from '@/config/db.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import {
@@ -40,6 +40,8 @@ import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSy
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { tagAssignmentService } from '@/server/services/data/TagAssignmentService.js';
+import { applyStaffTagSelection } from '@/server/services/data/communityTagVoteService.js';
+import { parseRequestedTagIds } from '@/server/routes/v2/misc/form/level/dto.js';
 import { autoraterService } from '@/server/services/data/AutoraterService.js';
 import LevelSubmissionSongRequest from '@/models/submissions/LevelSubmissionSongRequest.js';
 import LevelSubmissionArtistRequest from '@/models/submissions/LevelSubmissionArtistRequest.js';
@@ -422,7 +424,7 @@ async function processLevelApprove(
       outcome: 'approved',
       submissionId,
       userId: submission.userId,
-      level: { id: newLevel.id, song: newLevel.song, artist: newLevel.artist },
+      level: { id: newLevel.id, song: newLevel.song, artist: newLevel.artist, suffix: newLevel.suffix },
       actorId,
       transaction,
     });
@@ -463,6 +465,43 @@ async function processLevelApprove(
         levelId: newLevel.id,
         error: statsError instanceof Error ? statsError.message : String(statsError),
       });
+    }
+
+    await onStep('requestedTags');
+    const parsedRequestedTags = parseRequestedTagIds(submission.requestedTagIds);
+    if (parsedRequestedTags.error && submission.requestedTagIds != null) {
+      logger.warn('Ignoring invalid requestedTagIds on level submission', {
+        submissionId,
+        error: parsedRequestedTags.error,
+      });
+    }
+    if (!parsedRequestedTags.error && parsedRequestedTags.ids.length > 0) {
+      let applied = false;
+      try {
+        const tagTransaction = await getSequelizeForModelGroup('levels').transaction();
+        try {
+          await applyStaffTagSelection(newLevel.id, parsedRequestedTags.ids, tagTransaction);
+          await tagTransaction.commit();
+          applied = true;
+        } catch (assignError) {
+          await safeTransactionRollback(tagTransaction);
+          throw assignError;
+        }
+      } catch (tagError) {
+        logger.warn('Failed to apply requested tags to new level', {
+          levelId: newLevel.id,
+          submissionId,
+          error: tagError instanceof Error ? tagError.message : String(tagError),
+        });
+      }
+      if (applied) {
+        await elasticsearchService.reindexLevels([newLevel.id]).catch(err =>
+          logger.warn('Failed to reindex level after requested tags', {
+            levelId: newLevel.id,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      }
     }
 
     await onStep('autoTags');
@@ -534,7 +573,7 @@ async function processLevelDecline(
       outcome: 'declined',
       submissionId,
       userId: submission.userId,
-      level: { song: submission.song, artist: submission.artist },
+      level: { song: submission.song, artist: submission.artist, suffix: submission.suffix },
       actorId,
       reason,
       transaction,
@@ -649,6 +688,7 @@ async function approvePassSubmission(
     passMetaFlags: prepared.passMetaFlagsDb,
     feelingRating: submission.feelingDifficulty || null,
     expectedRating: submission.expectedDifficulty || null,
+    details: submission.details || null,
     accuracy,
     scoreV2,
     isAnnounced: false,

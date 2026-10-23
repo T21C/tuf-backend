@@ -22,6 +22,7 @@ class Pass
   declare playerId: number;
   declare feelingRating: string | null;
   declare expectedRating: string | null;
+  declare details: string | null;
   declare keyCount: number | null;
   declare submissionSource: 'video' | 'auto_submission';
   declare autoSubmissionRunId: string | null;
@@ -89,6 +90,12 @@ Pass.init(
     expectedRating: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    details: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Optional website-only plain-text details of the pass',
     },
     submissionSource: {
       type: DataTypes.STRING(32),

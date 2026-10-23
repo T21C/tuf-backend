@@ -23,6 +23,8 @@ class LevelSubmission extends BaseModel {
   declare directDL: string;
   declare wsLink: string;
   declare notes: string | null;
+  /** Tag ids the submitter (or a manager) asked to assign when the chart is created. */
+  declare requestedTagIds: number[] | null;
   declare submitterId: string;
   declare status: 'pending' | 'approved' | 'declined';
   declare isLocked: boolean;
@@ -96,6 +98,11 @@ LevelSubmission.init(
     },
     notes: {
       type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+    },
+    requestedTagIds: {
+      type: DataTypes.JSON,
       allowNull: true,
       defaultValue: null,
     },

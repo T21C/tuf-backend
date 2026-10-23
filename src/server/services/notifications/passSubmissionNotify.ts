@@ -1,14 +1,15 @@
 import type {Transaction} from 'sequelize';
 import {PassSubmission} from '@/models/submissions/PassSubmission.js';
+import {appendSongSuffix} from '@/misc/utils/data/levelHelpers.js';
 import {notificationService} from './NotificationService.js';
 import {NOTIFICATION_TYPES} from './types.js';
 
-function passSongArtist(level?: {song?: string | null; artist?: string | null} | null): {
+function passSongArtist(level?: {song?: string | null; artist?: string | null; suffix?: string | null} | null): {
   song: string | null;
   artist: string | null;
 } {
   return {
-    song: level?.song ?? null,
+    song: level?.song ? appendSongSuffix(level.song, level.suffix) : null,
     artist: level?.artist ?? null,
   };
 }
@@ -83,7 +84,7 @@ export async function notifyPassLifecycle(args: {
     id: number;
     playerId?: number | null;
     levelId: number;
-    level?: {song?: string | null; artist?: string | null} | null;
+    level?: {song?: string | null; artist?: string | null; suffix?: string | null} | null;
   };
   actorId?: string | null;
   reason?: string | null;

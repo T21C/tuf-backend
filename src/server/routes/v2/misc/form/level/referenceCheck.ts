@@ -1,6 +1,7 @@
-import type { Transaction } from 'sequelize';
+import { Op, type Transaction } from 'sequelize';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
+import LevelTag from '@/models/levels/LevelTag.js';
 import { computeSubmissionEvidenceRequirements } from '@/server/submissions/submissionEvidenceRules.js';
 
 import { formError } from '../shared/errors.js';
@@ -32,6 +33,21 @@ export async function validateLevelReferences(
     if (!artist) {
       throw formError.bad(`Artist with ID ${sanitized.artistId} does not exist`, { field: 'artistId' });
     }
+  }
+  await assertRequestedTagIdsExist(sanitized.tagIds, transaction);
+}
+
+export async function assertRequestedTagIdsExist(
+  tagIds: number[],
+  transaction?: Transaction,
+): Promise<void> {
+  if (tagIds.length === 0) return;
+  const found = await LevelTag.count({
+    where: { id: { [Op.in]: tagIds } },
+    transaction,
+  });
+  if (found !== tagIds.length) {
+    throw formError.bad('One or more tag IDs are invalid', { field: 'tagIds' });
   }
 }
 

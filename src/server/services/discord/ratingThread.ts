@@ -291,7 +291,7 @@ export async function createRatingThread(input: {
     {
       username: 'Rerate request',
       avatar_url: announcerAvatar,
-      content: [team.text, emojiLine, mention.content, videoUrl].filter(Boolean).join('\n').slice(0, 2000),
+      content: [team.text, emojiLine, mention.content].filter(Boolean).join('\n').slice(0, 2000),
       allowed_mentions: {
         parse: [],
         users: mention.allowed_mentions.users,
@@ -308,6 +308,30 @@ export async function createRatingThread(input: {
     },
     {wait: 'true'},
   );
+  if (videoUrl && message.channel_id) {
+    try {
+      await executeWebhook(
+        rerateWebhookUrl(),
+        {
+          username: 'Rerate request',
+          avatar_url: announcerAvatar,
+          content: videoUrl.slice(0, 2000),
+          allowed_mentions: {parse: []},
+        },
+        {thread_id: message.channel_id, wait: 'true'},
+      );
+    } catch (error) {
+      logger.warn('[rating-thread] Top clear follow-up failed', {
+        levelId: input.levelId,
+        threadId: message.channel_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  } else if (videoUrl) {
+    logger.warn('[rating-thread] Top clear was not posted; Discord did not return a thread id', {
+      levelId: input.levelId,
+    });
+  }
   const guildId = await activeGuildId();
   return {url: jumpUrl(guildId, message)};
 }

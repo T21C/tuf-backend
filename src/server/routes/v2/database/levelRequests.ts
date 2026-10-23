@@ -15,6 +15,7 @@ import {
   updateLevelRequestStaff,
   updateOwnLevelRequest,
   withdrawLevelRequest,
+  selectLevelRequestChart,
 } from '@/server/services/requests/levelRequestService.js';
 
 const router = Router();
@@ -142,8 +143,8 @@ router.post(
     try {
       const user = viewer(req);
       if (!user) return res.status(401).json({error: 'Authentication required'});
-      const request = await createLevelRequest(user, Number(req.params.levelId), req.body || {});
-      return res.status(201).json({request});
+      const result = await createLevelRequest(user, Number(req.params.levelId), req.body || {});
+      return res.status(201).json(result);
     } catch (error) {
       return sendError(res, error, 'Failed to create request');
     }
@@ -164,10 +165,32 @@ router.patch(
     try {
       const user = viewer(req);
       if (!user) return res.status(401).json({error: 'Authentication required'});
-      const request = await updateOwnLevelRequest(user, Number(req.params.id), req.body || {});
-      return res.json({request});
+      const result = await updateOwnLevelRequest(user, Number(req.params.id), req.body || {});
+      return res.json(result);
     } catch (error) {
       return sendError(res, error, 'Failed to update request');
+    }
+  },
+);
+
+router.post(
+  '/:id([0-9]+)/select-level',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'selectLevelRequestChart',
+    summary: 'Choose the chart inside a download-request zip',
+    tags: ['Database', 'Level requests'],
+    security: ['bearerAuth'],
+    responses: {200: {description: 'Updated request'}},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = viewer(req);
+      if (!user) return res.status(401).json({error: 'Authentication required'});
+      const request = await selectLevelRequestChart(user, Number(req.params.id), req.body || {});
+      return res.json({request});
+    } catch (error) {
+      return sendError(res, error, 'Failed to select chart');
     }
   },
 );

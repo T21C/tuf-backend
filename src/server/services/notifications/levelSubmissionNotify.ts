@@ -1,4 +1,5 @@
 import type {Transaction} from 'sequelize';
+import {appendSongSuffix} from '@/misc/utils/data/levelHelpers.js';
 import {notificationService} from './NotificationService.js';
 import {NOTIFICATION_TYPES} from './types.js';
 
@@ -6,7 +7,7 @@ export async function notifyChartSubmission(args: {
   outcome: 'submitted' | 'approved' | 'declined';
   submissionId: number;
   userId?: string | null;
-  level: {id?: number | null; song?: string | null; artist?: string | null};
+  level: {id?: number | null; song?: string | null; artist?: string | null; suffix?: string | null};
   actorId?: string | null;
   reason?: string | null;
   transaction: Transaction;
@@ -27,7 +28,7 @@ export async function notifyChartSubmission(args: {
     payload: {
       submissionId: args.submissionId,
       levelId,
-      song: args.level.song ?? null,
+      song: args.level.song ? appendSongSuffix(args.level.song, args.level.suffix) : null,
       artist: args.level.artist ?? null,
       reason: args.reason ?? null,
     },
