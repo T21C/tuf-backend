@@ -3,6 +3,7 @@ import Notification from './Notification.js';
 import NotificationPreference from './NotificationPreference.js';
 import NotificationCategoryPreference from './NotificationCategoryPreference.js';
 import UserFollow from './UserFollow.js';
+import ProfileNote from './ProfileNote.js';
 import NotificationUserSettings from './NotificationUserSettings.js';
 import PushSubscription from './PushSubscription.js';
 import ChartClearNotificationMute from './ChartClearNotificationMute.js';
@@ -44,6 +45,15 @@ export function initializeNotificationAssociations(): void {
     as: 'follows',
   });
   UserFollow.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  User.hasMany(ProfileNote, {
+    foreignKey: 'userId',
+    as: 'profileNotes',
+  });
+  ProfileNote.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
   });

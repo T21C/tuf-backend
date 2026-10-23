@@ -120,8 +120,12 @@ test('accepted website requests complete or reject without rating-page actions',
   );
 });
 
-test('curation discord posts wait for accept', () => {
-  assert.deepEqual(actionsForRequest('curation', 'pending', {discordPostError: 'failed'}), ['accept', 'reject']);
+test('curation discord retry is available after a failed post', () => {
+  assert.deepEqual(
+    actionsForRequest('curation', 'pending', {discordPostError: 'failed'}),
+    ['retry_discord', 'accept', 'reject'],
+  );
+  assert.deepEqual(actionsForRequest('curation', 'pending'), ['accept', 'reject']);
   assert.deepEqual(actionsForRequest('curation', 'accepted'), ['retry_discord', 'complete', 'reject']);
   assert.deepEqual(actionsForRequest('curation_rerate', 'accepted'), ['retry_discord', 'complete', 'reject']);
   assert.deepEqual(

@@ -77,6 +77,11 @@ import {
   profileFollowLimiter,
 } from '@/server/services/notifications/followHttp.js';
 import {
+  handleNotePut,
+  profileNoteLimiter,
+  viewerNoteForProfile,
+} from '@/server/services/notifications/profileNoteHttp.js';
+import {
   parseFollowingQueryParam,
   resolveFollowingLeaderboardFilter,
 } from '@/server/services/notifications/FollowService.js';
@@ -808,7 +813,7 @@ router.get(
       const doc = await elasticsearchService.getPlayerDocumentById(id);
       if (!doc) return res.status(404).json({ error: 'Player not found' });
 
-      const [ranks, enriched, funFacts, playerRow, presentation, follow, highestRankedScore, profileModulesPayload] =
+      const [ranks, enriched, funFacts, playerRow, presentation, follow, viewerNote, highestRankedScore, profileModulesPayload] =
         await Promise.all([
           getPlayerRanks(doc),
           playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
@@ -827,6 +832,7 @@ router.get(
           }),
           assemblePresentationForPlayer(id),
           followFieldsForProfile('player', id, user?.id),
+          viewerNoteForProfile('player', id, user?.id),
           getPeakRankedScoreRank({ playerId: id }),
           getProfileModulesApiPayload('player', id),
         ]);
@@ -930,6 +936,7 @@ router.get(
         equippedAvatarFrame,
         isFollowing: follow.isFollowing,
         followerCount: follow.followerCount,
+        viewerNote,
         showFollowerCount: coerceShowFollowerCount(playerRow?.showFollowerCount),
         youtubeChannels,
         ...profileModulesPayload,
@@ -1030,6 +1037,42 @@ router.put(
     },
   }),
   async (req: Request, res: Response) => handleFollowPut(req, res, 'player'),
+);
+
+router.put(
+  '/:id([0-9]{1,20})/note',
+  Auth.user(),
+  profileNoteLimiter.middleware,
+  ApiDoc({
+    operationId: 'v3PutPlayerNote',
+    summary: 'Set the viewer’s private note on a player',
+    description:
+      'Authenticated. Body: `{ text: string }`. Empty or whitespace-only text deletes the note. Max 2000 characters after trim; over-limit is 400. Notes are visible only to the author.',
+    tags: ['Database', 'Players', 'v3'],
+    security: ['bearerAuth'],
+    params: {id: idParamSpec},
+    requestBody: {
+      description: 'text: string',
+      schema: {
+        type: 'object',
+        properties: {text: {type: 'string'}},
+        required: ['text'],
+      },
+      required: true,
+    },
+    responses: {
+      200: {
+        description: 'Saved note',
+        schema: {
+          type: 'object',
+          properties: {text: {type: 'string', nullable: true}},
+        },
+      },
+      400: {schema: errorResponseSchema},
+      ...standardErrorResponses401404500,
+    },
+  }),
+  async (req: Request, res: Response) => handleNotePut(req, res, 'player'),
 );
 
 router.patch(
