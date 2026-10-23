@@ -97,6 +97,7 @@ import Notification from './notifications/Notification.js';
 import NotificationPreference from './notifications/NotificationPreference.js';
 import NotificationCategoryPreference from './notifications/NotificationCategoryPreference.js';
 import UserFollow from './notifications/UserFollow.js';
+import ProfileNote from './notifications/ProfileNote.js';
 import NotificationUserSettings from './notifications/NotificationUserSettings.js';
 import PushSubscription from './notifications/PushSubscription.js';
 import ChartClearNotificationMute from './notifications/ChartClearNotificationMute.js';
@@ -218,6 +219,7 @@ export const db = {
     NotificationPreference,
     NotificationCategoryPreference,
     UserFollow,
+    ProfileNote,
     NotificationUserSettings,
     PushSubscription,
     ChartClearNotificationMute,
@@ -275,6 +277,7 @@ export {
   NotificationPreference,
   NotificationCategoryPreference,
   UserFollow,
+  ProfileNote,
   NotificationUserSettings,
   PushSubscription,
   ChartClearNotificationMute,

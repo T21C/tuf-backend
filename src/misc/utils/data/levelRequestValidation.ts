@@ -200,6 +200,9 @@ export function actionsForRequest(
   let actions: LevelRequestAction[] = [];
   if (canonical === 'pending') {
     actions = ['accept', 'reject'];
+    if ((type === 'curation' || type === 'curation_rerate') && postFailed) {
+      actions = ['retry_discord', ...actions];
+    }
   } else if (canonical === 'accepted') {
     if (type === 'rerate') {
       actions = ['add_to_rating', 'discord_vote', 'complete', 'reject'];

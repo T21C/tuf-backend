@@ -63,6 +63,11 @@ import {
   handleFollowPut,
   profileFollowLimiter,
 } from '@/server/services/notifications/followHttp.js';
+import {
+  handleNotePut,
+  profileNoteLimiter,
+  viewerNoteForProfile,
+} from '@/server/services/notifications/profileNoteHttp.js';
 import { resolveFollowingLeaderboardFilter } from '@/server/services/notifications/FollowService.js';
 import { youtubeChannelService } from '@/server/services/accounts/YouTubeChannelService.js';
 import {
@@ -1168,7 +1173,7 @@ router.get(
 
       const isOwnProfile = Boolean(req.user?.creatorId && req.user.creatorId === id);
 
-      const [doc, enriched, funFacts, curationTypeCounts, creatorRow, presentation, follow, profileModulesPayload] = await Promise.all([
+      const [doc, enriched, funFacts, curationTypeCounts, creatorRow, presentation, follow, viewerNote, profileModulesPayload] = await Promise.all([
         elasticsearchService.getCreatorDocumentById(id),
         creatorStatsService.getEnrichedCreator(id),
         computeCreatorFunFacts(id),
@@ -1187,6 +1192,7 @@ router.get(
         }),
         assemblePresentationForCreator(id),
         followFieldsForProfile('creator', id, req.user?.id),
+        viewerNoteForProfile('creator', id, req.user?.id),
         getProfileModulesApiPayload('creator', id),
       ]);
 
@@ -1368,6 +1374,7 @@ router.get(
         equippedAvatarFrame,
         isFollowing: follow.isFollowing,
         followerCount: follow.followerCount,
+        viewerNote,
         showFollowerCount: coerceShowFollowerCount(creatorRow?.showFollowerCount),
         youtubeChannels,
         ...profileModulesPayload,
@@ -1468,6 +1475,42 @@ router.put(
     },
   }),
   async (req: Request, res: Response) => handleFollowPut(req, res, 'creator'),
+);
+
+router.put(
+  '/:id([0-9]{1,20})/note',
+  Auth.user(),
+  profileNoteLimiter.middleware,
+  ApiDoc({
+    operationId: 'v3PutCreatorNote',
+    summary: 'Set the viewer’s private note on a creator',
+    description:
+      'Authenticated. Body: `{ text: string }`. Empty or whitespace-only text deletes the note. Max 2000 characters after trim; over-limit is 400. Notes are visible only to the author.',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    params: {id: idParamSpec},
+    requestBody: {
+      description: 'text: string',
+      schema: {
+        type: 'object',
+        properties: {text: {type: 'string'}},
+        required: ['text'],
+      },
+      required: true,
+    },
+    responses: {
+      200: {
+        description: 'Saved note',
+        schema: {
+          type: 'object',
+          properties: {text: {type: 'string', nullable: true}},
+        },
+      },
+      400: {schema: errorResponseSchema},
+      ...standardErrorResponses401404500,
+    },
+  }),
+  async (req: Request, res: Response) => handleNotePut(req, res, 'creator'),
 );
 
 router.patch(

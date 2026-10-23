@@ -11,6 +11,7 @@ import {
   listLevelRequests,
   listOwnLevelRequests,
   applyLevelRequestAction,
+  applyLevelRequestBulkAction,
   postLevelRequestDiscord,
   updateLevelRequestStaff,
   updateOwnLevelRequest,
@@ -257,6 +258,28 @@ router.get(
       return res.json(page);
     } catch (error) {
       return sendError(res, error, 'Failed to list requests');
+    }
+  },
+);
+
+router.post(
+  '/bulk-actions',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'applyLevelRequestBulkAction',
+    summary: 'Accept or complete every matching curation request',
+    tags: ['Database', 'Level requests'],
+    security: ['bearerAuth'],
+    responses: {200: {description: 'Bulk action counts'}},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = viewer(req);
+      if (!user) return res.status(401).json({error: 'Authentication required'});
+      const result = await applyLevelRequestBulkAction(user, req.body || {});
+      return res.json(result);
+    } catch (error) {
+      return sendError(res, error, 'Failed to apply bulk request action');
     }
   },
 );

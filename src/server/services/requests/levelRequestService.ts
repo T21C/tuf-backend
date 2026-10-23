@@ -3,6 +3,7 @@ import {getSequelizeForModelGroup} from '@/config/db.js';
 import Level from '@/models/levels/Level.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Difficulty from '@/models/levels/Difficulty.js';
+import Reference from '@/models/levels/References.js';
 import Creator from '@/models/credits/Creator.js';
 import Team from '@/models/credits/Team.js';
 import Song from '@/models/songs/Song.js';
@@ -188,6 +189,17 @@ async function loadLevelOrThrow(levelId: number): Promise<Level> {
 
 function assertNotOnRatingPage(level: Level) {
   if (level.toRate) throw new LevelRequestError(400, 'unsettled', 'This level is still on the rating page');
+}
+
+async function levelIsReference(levelId: number): Promise<boolean> {
+  const count = await Reference.count({where: {levelId}});
+  return count > 0;
+}
+
+function assertNotReferenceLevel(isReference: boolean) {
+  if (isReference) {
+    throw new LevelRequestError(400, 'reference', 'Cannot rerate a reference level');
+  }
 }
 
 async function assertNoOpenRequest(levelId: number, type: LevelRequestType, userId?: string) {
@@ -941,7 +953,10 @@ export async function createLevelRequest(user: Viewer, levelId: number, body: Re
   assertAccountAllowed(user, player);
   if (type === 'rerate') assertRerateBanClear(user, player);
   const level = await loadLevelOrThrow(levelId);
-  if (type === 'rerate') assertNotOnRatingPage(level);
+  if (type === 'rerate') {
+    assertNotReferenceLevel(await levelIsReference(levelId));
+    assertNotOnRatingPage(level);
+  }
   if (isCurationRequestType(type)) {
     assertCurationRequestSlot(type, await levelHasCuration(levelId));
   }
@@ -970,6 +985,7 @@ export async function createLevelRequest(user: Viewer, levelId: number, body: Re
       });
       saved = true;
       await cancelIngestedLevelZipSession(ingested);
+      await tryPostCurationDiscord(request);
       return {request: await serializeLevelRequest(request, user), ingested};
     } catch (err) {
       if (!saved) await discardIngestedLevelZip(ingested);
@@ -984,7 +1000,10 @@ export async function updateOwnLevelRequest(user: Viewer, requestId: number, bod
   if (request.requesterUserId !== user.id) throw new LevelRequestError(403, 'forbidden', 'You cannot edit this request');
   if (request.status !== 'pending') throw new LevelRequestError(409, 'locked', 'Only a pending request can be edited');
   const level = await loadLevelOrThrow(request.levelId);
-  if (request.type === 'rerate') assertNotOnRatingPage(level);
+  if (request.type === 'rerate') {
+    assertNotReferenceLevel(await levelIsReference(request.levelId));
+    assertNotOnRatingPage(level);
+  }
   if (isCurationRequestType(request.type)) {
     assertCurationRequestSlot(request.type, await levelHasCuration(request.levelId));
   }
@@ -1190,12 +1209,16 @@ export async function levelRequestEligibility(user: Viewer, levelId: number) {
     for (const type of types) result[type] = {allowed: false, code};
     return result;
   }
-  const hasCuration = await levelHasCuration(level.id);
+  const [hasCuration, isReference] = await Promise.all([
+    levelHasCuration(level.id),
+    levelIsReference(level.id),
+  ]);
   for (const type of types) {
     try {
       assertAccountAllowed(user, player);
       if (type === 'rerate') {
         assertRerateBanClear(user, player);
+        assertNotReferenceLevel(isReference);
         await assertRerateCooldown(levelId);
         assertNotOnRatingPage(level);
       }
@@ -1278,13 +1301,7 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
       return serializeLevelRequest(request, user);
     }
     await request.update(withLastActor(user, {...notePatch, status: 'accepted', resolvedAt: null}));
-    if (isCurationDiscordType(request.type) && !request.discordMessageUrl) {
-      try {
-        await postCurationDiscord(request);
-      } catch (error) {
-        if (!(error instanceof LevelRequestError) || error.code !== 'discord') throw error;
-      }
-    }
+    await tryPostCurationDiscord(request);
     await notifyRequester(request, {actor: user});
     return serializeLevelRequest(request, user);
   }
@@ -1436,8 +1453,56 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
   throw new LevelRequestError(400, 'action', 'Unknown request action');
 }
 
+export async function applyLevelRequestBulkAction(
+  user: Viewer,
+  body: Record<string, unknown>,
+) {
+  const type = body.type;
+  const action = body.action;
+  if (!isLevelRequestType(type) || !isCurationRequestType(type)) {
+    throw new LevelRequestError(400, 'type', 'Bulk actions are only available for curation requests');
+  }
+  if (action !== 'accept' && action !== 'complete') {
+    throw new LevelRequestError(400, 'action', 'Unknown bulk action');
+  }
+  if (!canManageRequestType(user, type)) {
+    throw new LevelRequestError(403, 'forbidden', 'You cannot update this request');
+  }
+  const status: LevelRequestStatus = action === 'accept' ? 'pending' : 'accepted';
+  const rows = await LevelRequest.findAll({
+    where: {type, status},
+    attributes: ['id'],
+    order: [['id', 'ASC']],
+  });
+  let updated = 0;
+  let failed = 0;
+  for (const row of rows) {
+    try {
+      await applyLevelRequestAction(user, row.id, {action});
+      updated += 1;
+    } catch (error) {
+      failed += 1;
+      logger.warn('Level request bulk action failed', {
+        requestId: row.id,
+        action,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return {updated, failed};
+}
+
 function isCurationDiscordType(type: string): boolean {
   return type === 'curation' || type === 'curation_rerate';
+}
+
+async function tryPostCurationDiscord(request: LevelRequest) {
+  if (!isCurationDiscordType(request.type) || request.discordMessageUrl) return;
+  try {
+    await postCurationDiscord(request);
+  } catch (error) {
+    if (!(error instanceof LevelRequestError) || error.code !== 'discord') throw error;
+  }
 }
 
 async function postCurationDiscord(request: LevelRequest) {
