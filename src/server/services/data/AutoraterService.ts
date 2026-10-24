@@ -1,13 +1,12 @@
 import axios from 'axios';
-import sequelize from '@/config/db.js';
 import Level from '@/models/levels/Level.js';
-import Difficulty from '@/models/levels/Difficulty.js';
 import Rating from '@/models/levels/Rating.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import { calculateAverageRating } from '@/misc/utils/data/RatingUtils.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
-import cdnService from '@/server/services/core/CdnService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { validateAutoraterResult } from '@/misc/utils/data/autoraterResult.js';
+import type {Transaction} from 'sequelize';
 
 const AUTORATER_UUID = process.env.AUTORATER_UUID;
 if (!AUTORATER_UUID) {
@@ -43,11 +42,9 @@ class AutoraterService {
   }
 
   async autorateRating(ratingId: number): Promise<AutorateResult> {
-    let transaction: Awaited<ReturnType<typeof sequelize.transaction>> | undefined;
+    let transaction: Transaction | undefined;
     try {
-      transaction = await sequelize.transaction();
-
-      const rating = await Rating.findByPk(ratingId, {transaction});
+      const rating = await Rating.findByPk(ratingId);
       if (!rating) {
         throw new AutoraterError('Rating not found', 404);
       }
@@ -63,81 +60,43 @@ class AutoraterService {
         throw new AutoraterError('Level not found', 404);
       }
 
-      const levelFile =
-        (await cdnService.getLevelAdofai(level)) ||
-        (await fetch(
-          'https://api.tuforums.com/v2/database/levels/' + rating.levelId + '/level.adofai',
-        ).then((res) => res.json()));
-      if (!levelFile) {
-        throw new AutoraterError('No level file available', 404);
-      }
-
-      const requestBody = {
-        Content: levelFile,
-        techMode: 'both',
-      };
-
-      const response = await axios.post(`${process.env.OWOSEAN_API_URL}/rate`, requestBody, {
-        timeout: 20000,
+      const apiUrl = (process.env.AUTORATER_API_URL ||
+        'https://auto-rater-cat-v2-api-production.up.railway.app').replace(/\/+$/, '');
+      const response = await axios.get(`${apiUrl}/rating-result`, {
+        params: {tufid: rating.levelId},
+        timeout: 190000,
       });
       if (response.status !== 200) {
-        throw new AutoraterError('Failed to autorate level', 500, response.data);
+        throw new AutoraterError('Failed to autorate level', 502);
       }
 
-      logger.debug('Autorate response:', response.data);
-      const result = response.data;
-      const normal = result.normal;
-      const tech = result.tech;
-
-      const normalRatingRange = normal.tuf_diff_id_range as [number, number];
-      const techRatingRange = tech.tuf_diff_id_range as [number, number];
-
-      const getComment = (input: {
-        range: number[];
-        difficulty: string;
-        index_key_count: number[];
-        roll_key_count: number[];
-        warnings: unknown[];
-        similar_level?: unknown[];
-        similar_raw_diff: string;
-      }) => {
-        return [
-          `  Range: [${input.range.join('-')}] (${input.difficulty} raw diff)`,
-          `  Key Count:`,
-          `  Index: [${input.index_key_count.join(', ')}] | Roll: [${input.roll_key_count.join(', ')}]`,
-          `  Warnings: ${input.warnings.length || 'None'}`,
-          `  Similar Level: ${input.similar_level?.[0] ?? ''} (${input.similar_raw_diff} raw diff)`,
-        ];
-      };
-      const comment = [
-        `Normal`,
-        ...getComment(normal),
-        ``,
-        `Tech`,
-        ...getComment(tech),
-      ].join('\n');
-
-      const idRatingRanges = [...normalRatingRange, ...techRatingRange];
-      const [minId, maxId] = [Math.min(...idRatingRanges), Math.max(...idRatingRanges)];
-      const [minDifficulty, maxDifficulty] = await Promise.all([
-        minId ? Difficulty.findByPk(minId) : Difficulty.findOne({ where: { name: 'Qq' } }),
-        maxId ? Difficulty.findByPk(maxId) : Difficulty.findOne({ where: { name: 'Qq' } }),
-      ]);
-
-      if (!minDifficulty || !maxDifficulty) {
-        logger.warn('Difficulty not found', { minId, maxId });
-        throw new AutoraterError('Failed to autorate level', 502, 'Difficulty not found');
+      let result;
+      try {
+        result = validateAutoraterResult(response.data, rating.levelId);
+      } catch {
+        throw new AutoraterError('AutoRater returned an invalid rating result', 502);
       }
 
-      const ratingRange = `${minDifficulty.name}-${maxDifficulty.name}`;
+      // Do not hold a database connection during model inference. Recheck settlement
+      // under the same levels-pool transaction used to save the detail and averages.
+      transaction = await Rating.sequelize!.transaction();
+      const current = await Rating.findByPk(ratingId, {transaction, lock: transaction.LOCK.UPDATE});
+      if (!current) throw new AutoraterError('Rating not found', 404);
+      if (current.confirmedAt != null || current.levelId !== rating.levelId) {
+        throw new AutoraterError('Rating changed while AutoRater was running', 409);
+      }
+      const currentLevel = await Level.findByPk(current.levelId, {transaction});
+      if (!currentLevel || currentLevel.isDeleted || currentLevel.isHidden) {
+        throw new AutoraterError('Level not found', 404);
+      }
 
       await RatingDetail.upsert({
         ratingId: ratingId,
         userId: autoraterUserId,
-        rating: ratingRange,
-        comment: comment,
+        rating: result.rating_result,
+        comment: '',
         isCommunityRating: false,
-      });
+      }, {transaction});
 
       const details = await RatingDetail.findAll({
         where: { ratingId: ratingId },
@@ -162,7 +121,10 @@ class AutoraterService {
         throw error;
       }
       if (axios.isAxiosError(error)) {
-        throw new AutoraterError('Failed to autorate level', 500, error.response?.data);
+        const upstreamStatus = error.response?.status;
+        const status = error.code === 'ECONNABORTED' ? 504
+          : upstreamStatus && [404, 413, 422, 503, 504].includes(upstreamStatus) ? upstreamStatus : 502;
+        throw new AutoraterError('Failed to autorate level. The previous rating has been kept.', status);
       }
       logger.error('Error autorating level:', error);
       throw new AutoraterError('Failed to autorate level', 500);
