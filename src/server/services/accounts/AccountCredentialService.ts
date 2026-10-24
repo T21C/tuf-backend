@@ -680,8 +680,12 @@ class AccountCredentialService {
     const { currentPassword, newPassword, keepSessionId } = args;
 
     const changeRejection = passwordRejection(newPassword);
-    if (changeRejection) {
-      throw new CredentialError(changeRejection.message, 400, changeRejection.code);
+    if (changeRejection || typeof newPassword !== 'string') {
+      throw new CredentialError(
+        changeRejection?.message ?? 'Password is missing: at least 8 characters, a lowercase letter, an uppercase letter, a number, a symbol',
+        400,
+        changeRejection?.code ?? 'PASSWORD_REQUIREMENTS',
+      );
     }
 
     const user = await User.findByPk(userId);
