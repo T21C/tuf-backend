@@ -1,6 +1,7 @@
 import Difficulty from '@/models/levels/Difficulty.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import { parseQRange } from '@/misc/utils/data/communityTagEligibility.js';
+import { ratingForAverage } from '@/misc/utils/data/autoraterResult.js';
 
 // Cache for difficulties to avoid repeated DB queries
 let difficultyCache: {
@@ -522,7 +523,7 @@ export async function calculateAverageRating(
     if (!detail.rating) continue;
 
     const {pguNumeric, specialRatings} = await getRatingPguNumericAndSpecials(
-      detail.rating,
+      ratingForAverage(detail.rating, detail.userId, process.env.AUTORATER_UUID),
       transaction,
     );
     // Process special ratings first
