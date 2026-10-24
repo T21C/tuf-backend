@@ -19,6 +19,7 @@ import {
   createRatingThread,
   reopenRatingThread,
 } from '@/server/services/discord/ratingThread.js';
+import {appendRerateScoreTargetLines} from '@/misc/utils/data/levelRequestValidation.js';
 
 export {discordJumpTarget, logRatingThreadFailure as logRequestDiscordFailure};
 
@@ -152,7 +153,7 @@ export async function postRerateRequestThread(
   return createRatingThread({
     levelId: level.id,
     requestedRating: String(payload.requestedRating || ''),
-    reason: request.reason || '',
+    reason: appendRerateScoreTargetLines(request.reason || '', payload),
     comparisonLevelIds,
     actorUserId,
     embedTitle: `Request #${request.id}`,

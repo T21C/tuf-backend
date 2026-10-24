@@ -14,6 +14,7 @@ export const CLIENT_PREFERENCE_KEYS = {
   NAV_DROPDOWN_CLICK_MODE: 'navigation.dropdownClickMode',
   SUBMISSION_MINIMAL_MOTION: 'submission.minimalMotion',
   SUBMISSION_DISABLE_MASCOTS: 'submission.disableMascots',
+  PERFORMANCE_DISABLE_OPTIONAL_ANIMATIONS: 'performance.disableOptionalAnimations',
   DISPLAY_HIDDEN_LEVEL_CARD_TAG_IDS: 'display.hiddenLevelCardTagIds',
 } as const;
 
@@ -31,6 +32,7 @@ export type ClientPreferencesPayload = {
   [CLIENT_PREFERENCE_KEYS.NAV_DROPDOWN_CLICK_MODE]?: 'cycle' | 'pin';
   [CLIENT_PREFERENCE_KEYS.SUBMISSION_MINIMAL_MOTION]?: boolean;
   [CLIENT_PREFERENCE_KEYS.SUBMISSION_DISABLE_MASCOTS]?: boolean;
+  [CLIENT_PREFERENCE_KEYS.PERFORMANCE_DISABLE_OPTIONAL_ANIMATIONS]?: boolean;
   [CLIENT_PREFERENCE_KEYS.DISPLAY_HIDDEN_LEVEL_CARD_TAG_IDS]?: number[];
 };
 
@@ -138,6 +140,7 @@ export function sanitizeClientPreferencePatch(
     if (
       key === CLIENT_PREFERENCE_KEYS.SUBMISSION_MINIMAL_MOTION
       || key === CLIENT_PREFERENCE_KEYS.SUBMISSION_DISABLE_MASCOTS
+      || key === CLIENT_PREFERENCE_KEYS.PERFORMANCE_DISABLE_OPTIONAL_ANIMATIONS
     ) {
       if (typeof raw !== 'boolean') {
         throw new ClientPreferenceError(`${key} must be a boolean`);

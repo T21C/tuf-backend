@@ -397,3 +397,261 @@ export function reasonWithRequester(reason: string, username: string): string {
   if (base === line || base.endsWith(`\n${line}`)) return base;
   return base ? `${base}\n${line}` : line;
 }
+
+export type ParseResult<T> =
+  | {ok: true; value: T}
+  | {ok: false; code: string; message: string};
+
+export type RerateScoreTargets = {
+  baseScore?: number;
+  ppBaseScore?: number;
+  xaccCurveMeta?: Record<string, unknown>;
+};
+
+const CURVE_JUDGEMENT_KEYS = [
+  'earlyDouble',
+  'earlySingle',
+  'ePerfect',
+  'perfectMinus',
+  'perfect',
+  'perfectPlus',
+  'lPerfect',
+  'lateSingle',
+  'lateDouble',
+] as const;
+
+function isBlankScoreInput(raw: unknown): boolean {
+  return raw === undefined || raw === null || (typeof raw === 'string' && !raw.trim());
+}
+
+/** Optional non-negative finite number. Blank/null means the field is not requested. */
+export function parseOptionalNonNegativeNumber(
+  raw: unknown,
+  code: string,
+  label: string,
+): ParseResult<number | undefined> {
+  if (isBlankScoreInput(raw)) return {ok: true, value: undefined};
+  const value = typeof raw === 'number' ? raw : Number(typeof raw === 'string' ? raw.trim() : raw);
+  if (!Number.isFinite(value) || value < 0) {
+    return {ok: false, code, message: `${label} must be a non-negative number`};
+  }
+  return {ok: true, value};
+}
+
+function parseOptionalFiniteNumber(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const value = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function parseOptionalPassId(raw: unknown): number | null {
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function parseStoredJudgements(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const source = raw as Record<string, unknown>;
+  const judgements: Record<string, string> = {};
+  for (const key of CURVE_JUDGEMENT_KEYS) {
+    if (source[key] == null || source[key] === '') continue;
+    const count = Number(source[key]);
+    if (Number.isFinite(count) && count === 0) continue;
+    judgements[key] = String(source[key]);
+  }
+  return Object.keys(judgements).length > 0 ? judgements : undefined;
+}
+
+function parseStoredCurvePin(raw: unknown): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const source = raw as Record<string, unknown>;
+  const pin: Record<string, unknown> = {};
+  const sourcePassId = parseOptionalPassId(source.sourcePassId);
+  if (sourcePassId != null) pin.sourcePassId = sourcePassId;
+  const judgements = parseStoredJudgements(source.judgements);
+  if (judgements) pin.judgements = judgements;
+  return Object.keys(pin).length > 0 ? pin : undefined;
+}
+
+function parseStoredCurveEditor(raw: unknown): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const source = raw as Record<string, unknown>;
+  const editor: Record<string, unknown> = {
+    pinInputMode: source.pinInputMode === 'judgements' ? 'judgements' : 'accuracy',
+    disablePP: source.disablePP === true,
+  };
+  const accXDisplay = parseOptionalFiniteNumber(source.accXDisplay);
+  const scoreXDisplay = parseOptionalFiniteNumber(source.scoreXDisplay);
+  const accYDisplay = parseOptionalFiniteNumber(source.accYDisplay);
+  const scoreYDisplay = parseOptionalFiniteNumber(source.scoreYDisplay);
+  if (accXDisplay != null) editor.accXDisplay = accXDisplay;
+  if (scoreXDisplay != null) editor.scoreXDisplay = scoreXDisplay;
+  if (accYDisplay != null) editor.accYDisplay = accYDisplay;
+  if (scoreYDisplay != null) editor.scoreYDisplay = scoreYDisplay;
+  const pin1 = parseStoredCurvePin(source.pin1);
+  const pin2 = parseStoredCurvePin(source.pin2);
+  if (pin1) editor.pin1 = pin1;
+  if (pin2) editor.pin2 = pin2;
+  return editor;
+}
+
+function parseStoredCurvePins(raw: unknown): ParseResult<Record<string, unknown> | undefined> {
+  if (raw == null) return {ok: true, value: undefined};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {ok: false, code: 'score_curve', message: 'Score curve pins must be an object'};
+  }
+  const source = raw as Record<string, unknown>;
+  const accX = Number(source.accX);
+  const accY = Number(source.accY);
+  const scoreX = Number(source.scoreX);
+  const scoreY = Number(source.scoreY);
+  if (![accX, accY, scoreX, scoreY].every((value) => Number.isFinite(value))) {
+    return {ok: false, code: 'score_curve', message: 'Score curve pins must include accuracy and score'};
+  }
+  if (accX <= 0 || accX > 1 || accY <= 0 || accY > 1 || scoreX < 0 || scoreY < 0) {
+    return {ok: false, code: 'score_curve', message: 'Score curve pin values are out of range'};
+  }
+  const pins: Record<string, unknown> = {accX, accY, scoreX, scoreY};
+  const multX = parseOptionalFiniteNumber(source.multX);
+  const multY = parseOptionalFiniteNumber(source.multY);
+  if (multX != null) pins.multX = multX;
+  if (multY != null) pins.multY = multY;
+  const missesX = parseOptionalFiniteNumber(source.missesX);
+  const missesY = parseOptionalFiniteNumber(source.missesY);
+  const hitTiles = parseOptionalFiniteNumber(source.hitTiles);
+  if (missesX != null) pins.missesX = Math.max(0, Math.floor(missesX));
+  if (missesY != null) pins.missesY = Math.max(0, Math.floor(missesY));
+  if (hitTiles != null) pins.hitTiles = Math.max(0, Math.floor(hitTiles));
+  if (source.scoresAreXaccMultipliers === true) pins.scoresAreXaccMultipliers = true;
+  return {ok: true, value: pins};
+}
+
+/**
+ * Optional requested xacc curve. Keeps the editor pin setup (passes, judgements,
+ * accuracy, score) plus the derived hyperbola params. Blank/null means omitted.
+ */
+export function parseRerateXaccCurveMeta(raw: unknown): ParseResult<Record<string, unknown> | undefined> {
+  if (isBlankScoreInput(raw)) return {ok: true, value: undefined};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {ok: false, code: 'score_curve', message: 'Score curve must be an object'};
+  }
+  const source = raw as Record<string, unknown>;
+  const poleOffset = Number(source.poleOffset);
+  const topMultiplier = Number(source.topMultiplier);
+  if (!Number.isFinite(poleOffset) || poleOffset <= 0 || poleOffset >= 1) {
+    return {ok: false, code: 'score_curve', message: 'Score curve pole offset (E) must be a positive number less than 1'};
+  }
+  if (!Number.isFinite(topMultiplier) || topMultiplier <= 1 || topMultiplier >= 1000) {
+    return {ok: false, code: 'score_curve', message: 'Score curve top multiplier (G) must be greater than 1 and less than 1000'};
+  }
+  const pins = parseStoredCurvePins(source.pins);
+  if (!pins.ok) return pins;
+  if (!pins.value) {
+    return {ok: false, code: 'score_curve', message: 'Score curve must include pin accuracy and score'};
+  }
+  const meta: Record<string, unknown> = {
+    poleOffset,
+    topMultiplier,
+    pins: pins.value,
+  };
+  const cutoff = parseOptionalFiniteNumber(source.cutoff);
+  if (cutoff != null) meta.cutoff = cutoff;
+  const editor = parseStoredCurveEditor(source.editor);
+  if (editor) meta.editor = editor;
+  return {ok: true, value: meta};
+}
+
+export function parseRerateScoreTargets(body: Record<string, unknown>): ParseResult<RerateScoreTargets> {
+  const baseScore = parseOptionalNonNegativeNumber(body.baseScore, 'base_score', 'Base score');
+  if (!baseScore.ok) return baseScore;
+  const ppBaseScore = parseOptionalNonNegativeNumber(body.ppBaseScore, 'pp_base_score', 'PP base score');
+  if (!ppBaseScore.ok) return ppBaseScore;
+  const xaccCurveMeta = parseRerateXaccCurveMeta(body.xaccCurveMeta);
+  if (!xaccCurveMeta.ok) return xaccCurveMeta;
+  const value: RerateScoreTargets = {};
+  if (baseScore.value !== undefined) value.baseScore = baseScore.value;
+  if (ppBaseScore.value !== undefined) value.ppBaseScore = ppBaseScore.value;
+  if (xaccCurveMeta.value !== undefined) value.xaccCurveMeta = xaccCurveMeta.value;
+  return {ok: true, value};
+}
+
+function formatCompactNumber(value: number): string {
+  if (!Number.isFinite(value)) return String(value);
+  const rounded = Math.round(value * 1e6) / 1e6;
+  return String(rounded);
+}
+
+function formatPinJudgements(raw: unknown): string {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return '';
+  const source = raw as Record<string, unknown>;
+  const parts: string[] = [];
+  for (const key of CURVE_JUDGEMENT_KEYS) {
+    const count = Number(source[key]);
+    if (!Number.isFinite(count) || count === 0) continue;
+    parts.push(`${key} ${formatCompactNumber(count)}`);
+  }
+  return parts.length ? `judgements ${parts.join(' ')}` : '';
+}
+
+function formatScoreCurvePinLine(
+  index: 1 | 2,
+  pins: Record<string, unknown>,
+  editor: Record<string, unknown> | null,
+): string | null {
+  const accKey = index === 1 ? 'accX' : 'accY';
+  const scoreKey = index === 1 ? 'scoreX' : 'scoreY';
+  const acc = Number(pins[accKey]);
+  const score = Number(pins[scoreKey]);
+  if (!Number.isFinite(acc) || !Number.isFinite(score)) return null;
+  const parts = [
+    `Pin ${index}:`,
+    `${formatCompactNumber(acc * 100)}%`,
+    formatCompactNumber(score),
+  ];
+  const pin = (index === 1 ? editor?.pin1 : editor?.pin2) as Record<string, unknown> | undefined;
+  const passId = parseOptionalPassId(pin?.sourcePassId);
+  if (passId != null) parts.push(`pass #${passId}`);
+  if (editor?.pinInputMode === 'judgements') {
+    const judgements = formatPinJudgements(pin?.judgements);
+    if (judgements) parts.push(judgements);
+  }
+  return parts.join(' ');
+}
+
+/** English lines for Discord embeds and rating-page rerate info. */
+export function formatRerateScoreTargetLines(payload: Record<string, unknown> | null | undefined): string[] {
+  if (!payload) return [];
+  const lines: string[] = [];
+  const baseScore = parseOptionalFiniteNumber(payload.baseScore);
+  const ppBaseScore = parseOptionalFiniteNumber(payload.ppBaseScore);
+  if (baseScore != null) lines.push(`Base score: ${formatCompactNumber(baseScore)}`);
+  if (ppBaseScore != null) lines.push(`PP base score: ${formatCompactNumber(ppBaseScore)}`);
+  const meta = payload.xaccCurveMeta;
+  if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+    const root = meta as Record<string, unknown>;
+    const pins = root.pins && typeof root.pins === 'object' && !Array.isArray(root.pins)
+      ? root.pins as Record<string, unknown>
+      : null;
+    const editor = root.editor && typeof root.editor === 'object' && !Array.isArray(root.editor)
+      ? root.editor as Record<string, unknown>
+      : null;
+    lines.push('Score curve:');
+    if (pins) {
+      const pin1 = formatScoreCurvePinLine(1, pins, editor);
+      const pin2 = formatScoreCurvePinLine(2, pins, editor);
+      if (pin1) lines.push(pin1);
+      if (pin2) lines.push(pin2);
+    }
+  }
+  return lines;
+}
+
+export function appendRerateScoreTargetLines(
+  reason: string,
+  payload: Record<string, unknown> | null | undefined,
+): string {
+  const lines = formatRerateScoreTargetLines(payload);
+  const base = String(reason || '').trim();
+  if (!lines.length) return base;
+  return base ? `${base}\n${lines.join('\n')}` : lines.join('\n');
+}

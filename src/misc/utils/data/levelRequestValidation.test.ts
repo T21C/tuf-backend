@@ -18,6 +18,10 @@ import {
   isRealPguRequest,
   resolveRerateRating,
   reasonWithRequester,
+  appendRerateScoreTargetLines,
+  formatRerateScoreTargetLines,
+  parseRerateScoreTargets,
+  parseRerateXaccCurveMeta,
   rerateComparisonLabel,
   isTerminalLevelRequestStatus,
   rerateCooldownRemainingMs,
@@ -199,6 +203,89 @@ test('rating page reasons end with the original requester', () => {
   assert.equal(reasonWithRequester('', 'ada'), 'Requested by @ada');
   assert.equal(reasonWithRequester('Already noted\nRequested by @ada', '@ada'), 'Already noted\nRequested by @ada');
   assert.equal(reasonWithRequester('  Keep this  ', ''), 'Keep this');
+});
+
+test('optional rerate score targets omit blanks and reject invalid numbers', () => {
+  assert.deepEqual(parseRerateScoreTargets({}), {ok: true, value: {}});
+  assert.deepEqual(parseRerateScoreTargets({baseScore: '', ppBaseScore: null}), {ok: true, value: {}});
+  assert.deepEqual(parseRerateScoreTargets({baseScore: '12.5', ppBaseScore: 8}), {
+    ok: true,
+    value: {baseScore: 12.5, ppBaseScore: 8},
+  });
+  assert.equal(parseRerateScoreTargets({baseScore: -1}).ok, false);
+  assert.equal(parseRerateScoreTargets({ppBaseScore: 'nope'}).ok, false);
+  const invalid = parseRerateScoreTargets({baseScore: -1});
+  if (!invalid.ok) assert.equal(invalid.code, 'base_score');
+});
+
+test('rerate score curve keeps pin setup and drops extra fields', () => {
+  const parsed = parseRerateXaccCurveMeta({
+    poleOffset: 0.0054017154,
+    topMultiplier: 5.51289781,
+    cutoff: 0.95,
+    extra: 'drop',
+    pins: {
+      accX: 0.985,
+      accY: 0.995,
+      scoreX: 120,
+      scoreY: 200,
+      extraPin: true,
+      scoresAreXaccMultipliers: true,
+    },
+    editor: {
+      pinInputMode: 'judgements',
+      disablePP: true,
+      pin1: {sourcePassId: 44, judgements: {perfect: '40', ePerfect: '2', earlyDouble: '0'}},
+      pin2: {sourcePassId: 90},
+    },
+  });
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.value?.extra, undefined);
+  assert.deepEqual(parsed.value?.pins, {
+    accX: 0.985,
+    accY: 0.995,
+    scoreX: 120,
+    scoreY: 200,
+    scoresAreXaccMultipliers: true,
+  });
+  assert.deepEqual(parsed.value?.editor, {
+    pinInputMode: 'judgements',
+    disablePP: true,
+    pin1: {sourcePassId: 44, judgements: {perfect: '40', ePerfect: '2'}},
+    pin2: {sourcePassId: 90},
+  });
+  assert.equal(parseRerateXaccCurveMeta(null).ok, true);
+  assert.equal(parseRerateXaccCurveMeta({poleOffset: 2, topMultiplier: 5, pins: {accX: 0.98, accY: 0.99, scoreX: 1, scoreY: 2}}).ok, false);
+});
+
+test('rerate score target lines summarize scores and pins without E/G', () => {
+  const lines = formatRerateScoreTargetLines({
+    baseScore: 12.5,
+    ppBaseScore: 8,
+    xaccCurveMeta: {
+      poleOffset: 0.0054017154,
+      topMultiplier: 5.51289781,
+      pins: {accX: 0.985, accY: 0.995, scoreX: 120, scoreY: 200},
+      editor: {
+        pinInputMode: 'judgements',
+        pin1: {sourcePassId: 44, judgements: {perfect: '40', ePerfect: '2'}},
+        pin2: {sourcePassId: 90},
+      },
+    },
+  });
+  assert.deepEqual(lines, [
+    'Base score: 12.5',
+    'PP base score: 8',
+    'Score curve:',
+    'Pin 1: 98.5% 120 pass #44 judgements ePerfect 2 perfect 40',
+    'Pin 2: 99.5% 200 pass #90',
+  ]);
+  assert.equal(
+    appendRerateScoreTargetLines('Closer to G15\n#123', {baseScore: 12.5}),
+    'Closer to G15\n#123\nBase score: 12.5',
+  );
+  assert.equal(appendRerateScoreTargetLines('Keep this', {}), 'Keep this');
 });
 
 test('curation vs curation rerate follows whether the level already has a curation', () => {

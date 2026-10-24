@@ -114,6 +114,23 @@ test('hidden tag ids are unique finite numbers', () => {
   );
 });
 
+test('performance.disableOptionalAnimations is a writable boolean', () => {
+  const on = sanitizeClientPreferencePatch({
+    [CLIENT_PREFERENCE_KEYS.PERFORMANCE_DISABLE_OPTIONAL_ANIMATIONS]: true,
+  });
+  assert.equal(on[CLIENT_PREFERENCE_KEYS.PERFORMANCE_DISABLE_OPTIONAL_ANIMATIONS], true);
+  const merged = mergeClientPreferences(on, {
+    [CLIENT_PREFERENCE_KEYS.PERFORMANCE_DISABLE_OPTIONAL_ANIMATIONS]: false,
+  });
+  assert.equal(merged[CLIENT_PREFERENCE_KEYS.PERFORMANCE_DISABLE_OPTIONAL_ANIMATIONS], false);
+  assert.throws(
+    () => sanitizeClientPreferencePatch({
+      [CLIENT_PREFERENCE_KEYS.PERFORMANCE_DISABLE_OPTIONAL_ANIMATIONS]: 'true',
+    }),
+    ClientPreferenceError,
+  );
+});
+
 test('writable bools replace', () => {
   const merged = mergeClientPreferences(
     {[CLIENT_PREFERENCE_KEYS.SUBMISSION_DISABLE_MASCOTS]: true},
