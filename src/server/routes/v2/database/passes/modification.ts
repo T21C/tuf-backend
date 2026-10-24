@@ -10,7 +10,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import sequelize from '@/config/db.js';
 import { updateWorldsFirstFlags, updateWorldsFirstPPStatus } from './index.js';
-import { safeTransactionRollback, sanitizeTextInput, validateFeelingRating } from '@/misc/utils/Utility.js';
+import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
 import { optionalReasonFromBody, sanitizePassDetails } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 import { IJudgements, unwrapJudgements } from '@/misc/utils/pass/CalcAcc.js';
 import { isWrongJudgementFromChart } from '@/misc/utils/pass/wrongJudgementSync.js';
@@ -778,13 +778,15 @@ router.patch(
   },
 );
 
+const FEELING_RATING_MAX_LENGTH = 500;
+
 router.patch(
   '/:id([0-9]{1,20})/feeling-rating',
   Auth.addUserToRequest(),
   ApiDoc({
     operationId: 'updatePassFeelingRating',
     summary: 'Update pass feeling rating',
-    description: 'Update feelingRating for a pass. Caller must own the pass (same playerId as authenticated user). feelingRating is required and must be a valid rating string.',
+    description: 'Update feelingRating for a pass. Caller must own the pass (same playerId as authenticated user). feelingRating is required and may be any non-empty text up to 500 characters.',
     tags: ['Passes'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
@@ -793,12 +795,12 @@ router.patch(
       schema: {
         type: 'object',
         required: ['feelingRating'],
-        properties: { feelingRating: { type: 'string' } },
+        properties: { feelingRating: { type: 'string', maxLength: FEELING_RATING_MAX_LENGTH } },
       },
     },
     responses: {
       200: { description: 'Updated pass with feelingRating' },
-      400: { description: 'Invalid or missing feeling rating' },
+      400: { description: 'Missing, empty, or too long feeling rating' },
       401: { description: 'Authentication required' },
       403: { description: 'Not pass owner' },
       404: { description: 'Pass not found' },
@@ -831,9 +833,9 @@ router.patch(
         await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'feelingRating cannot be empty' });
       }
-      if (sanitized.length > 60 || !validateFeelingRating(sanitized)) {
+      if (sanitized.length > FEELING_RATING_MAX_LENGTH) {
         await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'Invalid feeling rating' });
+        return res.status(400).json({ error: 'feelingRating is too long' });
       }
 
       const pass = await Pass.findOne({

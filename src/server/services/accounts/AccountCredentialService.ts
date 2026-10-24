@@ -23,6 +23,7 @@ import { STEP_UP_TTL_SEC } from '@/config/auth.config.js';
 import type { StepUpCodeScope } from '@/models/auth/StepUpCode.js';
 import { trustedDeviceService } from '@/server/services/auth/TrustedDeviceService.js';
 import { securityNotificationService } from '@/server/services/accounts/SecurityNotificationService.js';
+import { passwordRejection } from '@/misc/utils/auth/passwordPolicy.js';
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const EMAIL_VERIFY_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -420,8 +421,9 @@ class AccountCredentialService {
     newPassword: string,
     ctx?: ActionContext,
   ): Promise<void> {
-    if (!newPassword || newPassword.length < 8) {
-      throw new CredentialError('Password must be at least 8 characters long', 400);
+    const resetRejection = passwordRejection(newPassword);
+    if (resetRejection) {
+      throw new CredentialError(resetRejection.message, 400, resetRejection.code);
     }
 
     const email = this.normalizeEmail(emailRaw);
@@ -656,7 +658,7 @@ class AccountCredentialService {
   /**
    * Self-service password change for a signed-in user.
    *
-   * Deliberately mirrors confirmPasswordReset — same strength floor, same
+   * Deliberately mirrors confirmPasswordReset — same password policy, same
    * permissionVersion bump, same audit entry — because the two paths set the
    * same credential and previously diverged: this one validated nothing and
    * left every other session alive, so changing your password after a
@@ -677,8 +679,9 @@ class AccountCredentialService {
   ): Promise<{ revokedSessions: number; keptCurrentSession: boolean }> {
     const { currentPassword, newPassword, keepSessionId } = args;
 
-    if (typeof newPassword !== 'string' || newPassword.length < 8) {
-      throw new CredentialError('Password must be at least 8 characters long', 400);
+    const changeRejection = passwordRejection(newPassword);
+    if (changeRejection) {
+      throw new CredentialError(changeRejection.message, 400, changeRejection.code);
     }
 
     const user = await User.findByPk(userId);

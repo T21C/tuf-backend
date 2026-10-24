@@ -71,6 +71,8 @@ import {
   openRequestTypesFor,
   resolveRerateRating,
   reasonWithRequester,
+  appendRerateScoreTargetLines,
+  parseRerateScoreTargets,
   requestTeamFromInput,
   rerateComparisonLabel,
   tagRequestIssue,
@@ -260,7 +262,10 @@ async function ratingPageReason(request: LevelRequest, fallback: string, transac
     transaction,
   });
   const base = request.reason?.trim() || fallback.trim();
-  return reasonWithRequester(base, requester?.username || '');
+  return reasonWithRequester(
+    appendRerateScoreTargetLines(base, request.payload),
+    requester?.username || '',
+  );
 }
 
 function readOptionalNote(raw: unknown): string | null | undefined {
@@ -518,12 +523,17 @@ async function buildPayload(type: LevelRequestType, body: Record<string, unknown
     if (!requestedRating) {
       throw new LevelRequestError(400, 'rating', 'Requested rating must be a PGU difficulty, range, or special difficulty name');
     }
+    const scoreTargets = parseRerateScoreTargets(body);
+    if (!scoreTargets.ok) {
+      throw new LevelRequestError(400, scoreTargets.code, scoreTargets.message);
+    }
     const comparisons = await comparisonSnapshots(reason);
     return {
       requestedRating,
       frozenDiffId: level.diffId ?? null,
       frozenDiffName: level.difficulty?.name ?? null,
       comparisons: comparisons.found,
+      ...scoreTargets.value,
     };
   }
 
@@ -734,9 +744,9 @@ export async function serializeLevelRequest(
     || request.type === 'info_change'
     || request.type === 'rerate';
   const level = await Level.findByPk(request.levelId, {
-    attributes: ['id', 'song', 'songId', 'suffix', 'artist', 'videoLink', 'dlLink', 'description', 'teamId', 'diffId', 'isDeleted', 'isHidden'],
+    attributes: ['id', 'song', 'songId', 'suffix', 'artist', 'videoLink', 'dlLink', 'description', 'teamId', 'diffId', 'baseScore', 'ppBaseScore', 'xaccCurveMeta', 'tilecount', 'isDeleted', 'isHidden'],
     include: [
-      {model: Difficulty, as: 'difficulty', attributes: ['id', 'name', 'icon', 'emoji'], required: false},
+      {model: Difficulty, as: 'difficulty', attributes: ['id', 'name', 'icon', 'emoji', 'baseScore'], required: false},
       ...(includeLevelCredits ? [
         {model: Team, as: 'teamObject', attributes: ['id', 'name'], required: false},
         {
@@ -829,7 +839,13 @@ export async function serializeLevelRequest(
           isHidden: level.isHidden,
           missing: false,
           difficulty: level.difficulty
-            ? {id: level.difficulty.id, name: level.difficulty.name, icon: level.difficulty.icon, emoji: level.difficulty.emoji}
+            ? {
+                id: level.difficulty.id,
+                name: level.difficulty.name,
+                icon: level.difficulty.icon,
+                emoji: level.difficulty.emoji,
+                baseScore: level.difficulty.baseScore ?? null,
+              }
             : null,
           ...(levelTagIds !== undefined ? {tagIds: levelTagIds} : {}),
           ...(levelCurationTypeIds !== undefined ? {curationTypeIds: levelCurationTypeIds} : {}),
@@ -853,6 +869,10 @@ export async function serializeLevelRequest(
           } : {}),
           ...(request.type === 'rerate' ? {
             team: level.teamObject?.name || null,
+            baseScore: level.baseScore ?? null,
+            ppBaseScore: level.ppBaseScore ?? null,
+            xaccCurveMeta: level.xaccCurveMeta ?? null,
+            tilecount: level.tilecount ?? null,
             levelCredits: (level.levelCredits || []).map((credit) => ({
               creatorId: credit.creatorId,
               role: credit.role,

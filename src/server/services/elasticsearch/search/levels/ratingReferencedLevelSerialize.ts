@@ -61,6 +61,7 @@ export function pruneLevelForRatingList(
     creator: level.creator,
     diffId: level.diffId,
     ppDiffId: level.ppDiffId ?? null,
+    baseScore: level.baseScore ?? null,
     ppBaseScore: level.ppBaseScore ?? null,
     xaccCurveMeta: level.xaccCurveMeta ?? null,
     clears: level.clears,

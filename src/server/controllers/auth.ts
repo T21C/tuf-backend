@@ -14,6 +14,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import CaptchaService from '@/server/services/accounts/CaptchaService.js';
 import { RateLimiter } from '@/server/decorators/rateLimiter.js';
 import { getUsernameFormatError, normalizeUsername } from '@/misc/utils/auth/username.js';
+import { passwordRejection } from '@/misc/utils/auth/passwordPolicy.js';
 import {
   accountCredentialService,
   CredentialError,
@@ -155,8 +156,9 @@ class AuthController {
         return res.status(400).json({ message: usernameFormatError });
       }
 
-      if (password.length < 8) {
-        return res.status(400).json({ message: 'Password must be at least 8 characters long' });
+      const rejection = passwordRejection(password);
+      if (rejection) {
+        return res.status(400).json({ message: rejection.message, code: rejection.code });
       }
 
       try {
