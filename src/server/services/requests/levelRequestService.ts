@@ -388,7 +388,7 @@ async function currentCurationTypeIds(levelId: number): Promise<number[]> {
 async function assignableLevelTagIds(levelId: number): Promise<number[]> {
   const tags = await loadSerializedAssignedTags(levelId);
   return tags
-    .filter((tag) => tag.isCommunity !== true || tag.pinned === true)
+    .filter((tag) => !tag.isCommunity)
     .map((tag) => Number(tag.id))
     .filter((id) => Number.isInteger(id) && id > 0);
 }
@@ -547,10 +547,13 @@ async function buildPayload(type: LevelRequestType, body: Record<string, unknown
     if (targetTagIds.length > 0) {
       const tags = await LevelTag.findAll({
         where: {id: {[Op.in]: targetTagIds}},
-        attributes: ['id'],
+        attributes: ['id', 'isCommunity'],
       });
       if (tags.length !== targetTagIds.length) {
         throw new LevelRequestError(400, 'tags', 'Only existing tags can be requested');
+      }
+      if (tags.some((tag) => Boolean(tag.isCommunity))) {
+        throw new LevelRequestError(400, 'community_tags', 'Community tags are voted on, not requested');
       }
     }
     const currentIds = await assignableLevelTagIds(level.id);
