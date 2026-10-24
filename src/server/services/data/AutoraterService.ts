@@ -124,7 +124,13 @@ class AutoraterService {
         const upstreamStatus = error.response?.status;
         const status = error.code === 'ECONNABORTED' ? 504
           : upstreamStatus && [404, 413, 422, 503, 504].includes(upstreamStatus) ? upstreamStatus : 502;
-        throw new AutoraterError('Failed to autorate level. The previous rating has been kept.', status);
+        const data = error.response?.data;
+        const reason = [data?.detail?.message, data?.detail, data?.error, data?.message]
+          .find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim();
+        throw new AutoraterError(
+          `${reason || 'Failed to autorate level.'} The previous rating has been kept.`,
+          status,
+        );
       }
       logger.error('Error autorating level:', error);
       throw new AutoraterError('Failed to autorate level', 500);
