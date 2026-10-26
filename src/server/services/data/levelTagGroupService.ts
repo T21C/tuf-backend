@@ -1,4 +1,4 @@
-import { Includeable, Order, Transaction } from 'sequelize';
+import { Includeable, Op, Order, Transaction } from 'sequelize';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import LevelTag from '@/models/levels/LevelTag.js';
@@ -9,6 +9,7 @@ import {
   isCommunityTagHiddenForDifficulty,
   resolveCommunityTagSettings,
 } from '@/misc/utils/data/communityTagEligibility.js';
+import { isAutomaticLevelTagName } from '@/misc/utils/data/automaticLevelTags.js';
 
 export const TAG_GROUP_INCLUDE: Includeable = {
   model: LevelTagGroup,
@@ -53,7 +54,37 @@ export function serializeLevelTag(tag: LevelTag): Record<string, unknown> {
     groupSortOrder: nested?.sortOrder ?? null,
     description: (rest.description as string | null | undefined) ?? tag.description ?? null,
     settings,
+    isAutomatic: isAutomaticLevelTagName(tag.name),
   };
+}
+
+/** Tags a person can ask for. Parser tags and community votes are outside that. */
+export function isRequestableLevelTag(tag: {
+  isCommunity?: unknown;
+  isAutomatic?: unknown;
+  name?: unknown;
+} | null | undefined): boolean {
+  if (!tag || tag.isCommunity) return false;
+  if (tag.isAutomatic === true) return false;
+  return !isAutomaticLevelTagName(tag.name);
+}
+
+/** Drop parser-owned tag ids. Unknown ids are kept so callers can still reject them. */
+export async function excludeAutomaticTagIds(
+  ids: number[],
+  transaction?: Transaction,
+): Promise<number[]> {
+  if (ids.length === 0) return [];
+  const tags = await LevelTag.findAll({
+    where: { id: { [Op.in]: ids } },
+    attributes: ['id', 'name'],
+    transaction,
+  });
+  const automatic = new Set(
+    tags.filter((tag) => isAutomaticLevelTagName(tag.name)).map((tag) => tag.id),
+  );
+  if (automatic.size === 0) return ids;
+  return ids.filter((id) => !automatic.has(id));
 }
 
 export function serializeLevelTags(tags: LevelTag[]): Record<string, unknown>[] {

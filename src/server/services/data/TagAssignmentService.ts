@@ -5,68 +5,18 @@ import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import { findOrCreateTagGroupByName } from '@/server/services/data/levelTagGroupService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { Op } from 'sequelize';
+import {
+    AUTOMATIC_LEVEL_TAG_NAMES,
+    VFX_TIERS,
+    dlcTagsMap,
+    lengthTagsMinutes,
+    miscTagsMap,
+    requiredModsTagsMap,
+    vfxTierTags,
+} from '@/misc/utils/data/automaticLevelTags.js';
 
 const FILTER_THRESHOLD = 20;
 const DECO_THRESHOLD = 15;
-
-enum VFX_TIERS {
-    None,
-    Low,
-    Camera,
-    Filter,
-    Deco,
-    Full
-}
-
-// Tag mapping configurations
-const lengthTagsMinutes: Record<number, string> = {
-    /*
-    0: 'Tiny',
-    0.5: '30+ Seconds',
-    1: '1+ Minute',
-    2: '2+ Minutes',
-    3: '3+ Minutes',
-    5: '5+ Minutes',
-    7: '7+ Minutes',
-    10: '10+ Minutes',
-    15: '15+ Minutes',
-    20: '20+ Minutes',
-    */
-    30: '30+ Minutes',
-    45: '45+ Minutes',
-    60: '1+ Hours',
-    90: '1.5+ Hours',
-    120: '2+ Hours',
-    360: 'Timeless'
-};
-
-const vfxTierTags: Record<number, string> = {
-    [VFX_TIERS.None]: 'Non-VFX',
-    [VFX_TIERS.Low]: 'Low VFX',
-    [VFX_TIERS.Camera]: 'Camera',
-    [VFX_TIERS.Filter]: 'Filters',
-    [VFX_TIERS.Deco]: 'Decorations',
-    [VFX_TIERS.Full]: 'Full VFX',
-};
-
-const dlcTagsMap: Record<string, string> = {
-    containsDLC: 'DLC',
-    Hold: 'Hold',
-    MultiPlanet: 'Multi Planet',
-    FreeRoam: 'Free Roam',
-    ScaleMargin: 'Timing Window Scale',
-};
-
-const requiredModsTagsMap: Record<string, string> = {
-    YouTubeStream: 'Youtube Stream',
-    KeyLimiter: 'Key Limiter',
-    PACL2: 'PACL2',
-};
-
-const miscTagsMap: Record<string, string> = {
-    isJudgementLimited: 'Judgement Limit',
-    autoTile: 'Auto Tile'
-};
 
 const groupNameMap = {
     dlc: 'DLC',
@@ -107,14 +57,7 @@ class TagAssignmentService {
      * Get all tag names that can be auto-assigned
      */
     public getAutoTagNames(): string[] {
-        const allAutoTags: string[] = [
-            ...Object.values(lengthTagsMinutes),
-            ...Object.values(vfxTierTags),
-            ...Object.values(dlcTagsMap),
-            ...Object.values(requiredModsTagsMap),
-            ...Object.values(miscTagsMap),
-        ];
-        return [...new Set(allAutoTags)]; // Remove duplicates
+        return [...AUTOMATIC_LEVEL_TAG_NAMES];
     }
 
     /**

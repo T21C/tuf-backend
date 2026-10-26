@@ -1,6 +1,7 @@
 import Pass from '@/models/passes/Pass.js';
 import { convertToPUA } from '@/misc/utils/data/searchHelpers.js';
 import { passPlayerAvatarProxyUrl } from '@/server/services/elasticsearch/misc/sequelizeIncludes.js';
+import { projectLevelTagsForIndex } from '@/server/services/elasticsearch/indexing/levelTagIndexProjection.js';
 
 /** Plain row for ES: never spread Sequelize models (they carry include/parent cycles). */
 function plainRow<T extends object>(row: T): Record<string, unknown> {
@@ -77,6 +78,7 @@ export function buildPassIndexDocument(pass: Pass): any {
               alias: pua(row.alias),
             };
           }),
+          tags: projectLevelTagsForIndex(level.tags),
         }
       : null,
     judgements: p.judgements

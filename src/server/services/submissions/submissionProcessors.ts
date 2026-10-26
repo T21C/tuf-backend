@@ -41,6 +41,7 @@ import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { tagAssignmentService } from '@/server/services/data/TagAssignmentService.js';
 import { applyStaffTagSelection } from '@/server/services/data/communityTagVoteService.js';
+import { excludeAutomaticTagIds } from '@/server/services/data/levelTagGroupService.js';
 import { parseRequestedTagIds } from '@/server/routes/v2/misc/form/level/dto.js';
 import { autoraterService } from '@/server/services/data/AutoraterService.js';
 import LevelSubmissionSongRequest from '@/models/submissions/LevelSubmissionSongRequest.js';
@@ -475,12 +476,15 @@ async function processLevelApprove(
         error: parsedRequestedTags.error,
       });
     }
-    if (!parsedRequestedTags.error && parsedRequestedTags.ids.length > 0) {
+    const requestedTagIds = parsedRequestedTags.error
+      ? []
+      : await excludeAutomaticTagIds(parsedRequestedTags.ids);
+    if (requestedTagIds.length > 0) {
       let applied = false;
       try {
         const tagTransaction = await getSequelizeForModelGroup('levels').transaction();
         try {
-          await applyStaffTagSelection(newLevel.id, parsedRequestedTags.ids, tagTransaction);
+          await applyStaffTagSelection(newLevel.id, requestedTagIds, tagTransaction);
           await tagTransaction.commit();
           applied = true;
         } catch (assignError) {

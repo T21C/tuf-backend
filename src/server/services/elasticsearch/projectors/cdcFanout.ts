@@ -59,15 +59,19 @@ export async function getLevelIdsByPlayerId(playerId: number): Promise<number[]>
   );
 }
 
-export async function getPassIdsByLevelId(levelId: number): Promise<number[]> {
+export async function getPassIdsByLevelIds(levelIds: number[]): Promise<number[]> {
+  const ids = uniquePositiveIds(levelIds);
+  if (ids.length === 0) return [];
   const rows = await Pass.findAll({
-    where: { levelId },
+    where: { levelId: { [Op.in]: ids } },
     attributes: ['id'],
     raw: true,
   });
-  return (rows as { id: number }[])
-    .map((r) => r.id)
-    .filter((id) => typeof id === 'number' && Number.isFinite(id) && id > 0);
+  return uniquePositiveIds((rows as { id: number }[]).map((r) => r.id));
+}
+
+export async function getPassIdsByLevelId(levelId: number): Promise<number[]> {
+  return getPassIdsByLevelIds([levelId]);
 }
 
 export async function getPlayerIdsByLevelId(levelId: number): Promise<number[]> {

@@ -2,6 +2,7 @@ import { Op, type Transaction } from 'sequelize';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import LevelTag from '@/models/levels/LevelTag.js';
+import { isAutomaticLevelTagName } from '@/misc/utils/data/automaticLevelTags.js';
 import { computeSubmissionEvidenceRequirements } from '@/server/submissions/submissionEvidenceRules.js';
 
 import { formError } from '../shared/errors.js';
@@ -42,12 +43,16 @@ export async function assertRequestedTagIdsExist(
   transaction?: Transaction,
 ): Promise<void> {
   if (tagIds.length === 0) return;
-  const found = await LevelTag.count({
+  const tags = await LevelTag.findAll({
     where: { id: { [Op.in]: tagIds } },
+    attributes: ['id', 'name'],
     transaction,
   });
-  if (found !== tagIds.length) {
+  if (tags.length !== tagIds.length) {
     throw formError.bad('One or more tag IDs are invalid', { field: 'tagIds' });
+  }
+  if (tags.some((tag) => isAutomaticLevelTagName(tag.name))) {
+    throw formError.bad('Tags read from the level file are set by the parser, not by request', { field: 'tagIds' });
   }
 }
 

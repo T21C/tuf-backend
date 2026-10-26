@@ -10,6 +10,12 @@ import LevelCredit from '@/models/levels/LevelCredit.js';
 import Creator from '@/models/credits/Creator.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import Team from '@/models/credits/Team.js';
+import { getCommunityTagConfig } from '@/config/app.config.js';
+import {
+  fetchLevelTagAssignmentsForIndex,
+  filterVisibleLevelTags,
+  groupTagsByLevelId,
+} from '@/server/services/elasticsearch/fetching/levelTagsForIndex.js';
 
 /** Reuse Player/Level rows across reindex batches. */
 const esPlayerCache = new Map<number, any>();
@@ -48,38 +54,46 @@ function groupLevelCreditsByLevelId(rows: LevelCredit[]): Map<number, LevelCredi
 async function cacheLevelsForPassIndex(levelIds: number[]): Promise<void> {
   if (levelIds.length === 0) return;
 
-  const levels = await Level.findAll({
-    where: { id: { [Op.in]: levelIds } },
-    include: [
-      { model: Difficulty, as: 'difficulty', attributes: ['id', 'name', 'type', 'icon', 'color', 'emoji', 'sortOrder'] },
-      { model: LevelAlias, as: 'aliases', attributes: ['id', 'levelId', 'field', 'originalValue', 'alias', 'createdAt', 'updatedAt'] },
-      { model: Team, as: 'teamObject', attributes: ['id', 'name'] },
-    ],
-  });
-
-  const levelCredits = await LevelCredit.findAll({
-    where: { levelId: { [Op.in]: levelIds } },
-    attributes: ['id', 'levelId', 'creatorId', 'role', 'isOwner', 'sortOrder'],
-    order: [
-      ['levelId', 'ASC'],
-      ['sortOrder', 'ASC'],
-      ['id', 'ASC'],
-    ],
-    include: [
-      {
-        model: Creator,
-        as: 'creator',
-        attributes: ['id', 'name'],
-        include: [{ model: CreatorAlias, as: 'creatorAliases', attributes: ['name'] }],
-      },
-    ],
-  });
+  const [levels, levelCredits, tagAssignments] = await Promise.all([
+    Level.findAll({
+      where: { id: { [Op.in]: levelIds } },
+      include: [
+        { model: Difficulty, as: 'difficulty', attributes: ['id', 'name', 'type', 'icon', 'color', 'emoji', 'sortOrder'] },
+        { model: LevelAlias, as: 'aliases', attributes: ['id', 'levelId', 'field', 'originalValue', 'alias', 'createdAt', 'updatedAt'] },
+        { model: Team, as: 'teamObject', attributes: ['id', 'name'] },
+      ],
+    }),
+    LevelCredit.findAll({
+      where: { levelId: { [Op.in]: levelIds } },
+      attributes: ['id', 'levelId', 'creatorId', 'role', 'isOwner', 'sortOrder'],
+      order: [
+        ['levelId', 'ASC'],
+        ['sortOrder', 'ASC'],
+        ['id', 'ASC'],
+      ],
+      include: [
+        {
+          model: Creator,
+          as: 'creator',
+          attributes: ['id', 'name'],
+          include: [{ model: CreatorAlias, as: 'creatorAliases', attributes: ['name'] }],
+        },
+      ],
+    }),
+    fetchLevelTagAssignmentsForIndex(levelIds),
+  ]);
 
   const creditsByLevel = groupLevelCreditsByLevelId(levelCredits);
+  const tagsByLevel = groupTagsByLevelId(tagAssignments);
+  const communityTagEnv = getCommunityTagConfig();
 
   for (const level of levels) {
     const lv = level as unknown as Level & { setDataValue: (k: string, v: unknown) => void };
     lv.setDataValue('levelCredits', creditsByLevel.get(level.id) ?? []);
+    lv.setDataValue(
+      'tags',
+      filterVisibleLevelTags(tagsByLevel.get(level.id) ?? [], level.difficulty ?? null, communityTagEnv),
+    );
     esLevelCache.set(level.id, lv.get({ plain: true }));
   }
 }

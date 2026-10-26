@@ -3,9 +3,6 @@ import Level from '@/models/levels/Level.js';
 import { Op, QueryTypes } from 'sequelize';
 import LevelAlias from '@/models/levels/LevelAlias.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
-import LevelTag from '@/models/levels/LevelTag.js';
-import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
-import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import Creator from '@/models/credits/Creator.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import Team from '@/models/credits/Team.js';
@@ -20,7 +17,11 @@ import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { getCommunityTagConfig } from '@/config/app.config.js';
-import { isCommunityTagHiddenForDifficulty } from '@/misc/utils/data/communityTagEligibility.js';
+import {
+  fetchLevelTagAssignmentsForIndex,
+  filterVisibleLevelTags,
+  groupTagsByLevelId,
+} from '@/server/services/elasticsearch/fetching/levelTagsForIndex.js';
 
 /** Reuse Team/Song rows across reindex batches (same song/team on many levels). */
 const esTeamCache = new Map<number, any>();
@@ -57,21 +58,6 @@ function groupAliasesByLevelId(rows: LevelAlias[]): Map<number, LevelAlias[]> {
     const arr = m.get(r.levelId) ?? [];
     arr.push(r);
     m.set(r.levelId, arr);
-  }
-  return m;
-}
-
-function groupTagsByLevelId(assignments: LevelTagAssignment[]): Map<number, LevelTag[]> {
-  const m = new Map<number, LevelTag[]>();
-  for (const a of assignments) {
-    const tag = (a as unknown as { tag?: LevelTag }).tag;
-    if (!tag) continue;
-    const tagged = tag as LevelTag & { pinned?: boolean; score?: number | null };
-    tagged.pinned = Boolean(a.pinned);
-    tagged.score = a.score ?? null;
-    const arr = m.get(a.levelId) ?? [];
-    arr.push(tagged);
-    m.set(a.levelId, arr);
   }
   return m;
 }
@@ -215,55 +201,7 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
         ['confirmedAt', 'DESC'],
       ],
     }),
-    LevelTagAssignment.findAll({
-      where: { levelId: { [Op.in]: ids } },
-      attributes: [
-        'id',
-        'levelId',
-        'tagId',
-        'pinned',
-        'score',
-      ],
-      include: [
-        {
-          model: LevelTag, 
-          as: 'tag', 
-          attributes: [
-            'id',
-            'name',
-            'icon',
-            'color',
-            'groupId',
-            'isCommunity',
-            'passWarningEnabled',
-            'allowedBands',
-            'wilsonZ',
-            'scoreOn',
-            'scoreOff',
-            'scoringMode',
-            'requireTopPlay',
-          ],
-          include: [
-            {
-              model: LevelTagGroup,
-              as: 'tagGroup',
-              required: false,
-              attributes: [
-                'id',
-                'name',
-                'sortOrder',
-                'allowedBands',
-                'wilsonZ',
-                'scoreOn',
-                'scoreOff',
-                'scoringMode',
-                'requireTopPlay',
-              ],
-            },
-          ],
-        }
-      ],
-    }),
+    fetchLevelTagAssignmentsForIndex(ids),
     sequelize.query<{ levelId: number; cnt: string; uniqueCnt: string }>(
       `SELECT p.levelId,
               COUNT(*) AS cnt,
@@ -317,10 +255,11 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
     const lr = latestRatingByLevel.get(level.id);
     level.setDataValue('ratings', lr ? [lr] : []);
     const difficulty = level.diffId != null ? difficultyById.get(level.diffId) ?? null : null;
-    const visibleTags = (tagsByLevel.get(level.id) ?? []).filter((tag) => {
-      const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
-      return !isCommunityTagHiddenForDifficulty(tag, group, difficulty, communityTagEnv);
-    });
+    const visibleTags = filterVisibleLevelTags(
+      tagsByLevel.get(level.id) ?? [],
+      difficulty,
+      communityTagEnv,
+    );
     level.setDataValue('tags', visibleTags);
     level.setDataValue(
       'songObject',

@@ -19,6 +19,7 @@ export async function searchPasses(query: any, userPlayerId?: number, isSuperAdm
         adofaiVersionFilter: query.adofaiVersionFilter,
         wrongJudgementFilter: query.wrongJudgementFilter,
         specialDifficulties: query.specialDifficulties,
+        facetQueryV1: query.facetQueryV1,
         sort: query.sort,
         seed: query.seed,
         offset: query.offset,

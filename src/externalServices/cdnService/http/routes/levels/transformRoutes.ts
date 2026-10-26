@@ -205,13 +205,11 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     throw { error: 'Level metadata is missing', code: 400 };
                 }
 
-                if (!metadata.songFiles) {
-                    logger.debug('Missing song files in metadata:', {
-                        fileId,
-                        metadata: file.metadata
-                    });
-                    throw { error: 'Song files not found in metadata', code: 400 };
-                }
+                // YouTube Stream packs often have no audio; ingest + metadata normalize
+                // drop empty songFiles maps. Defer the missing-song 400 until after
+                // the chart is loaded so YS levels can still transform.
+                const songFilesMissingFromMetadata = !metadata.songFiles;
+                const songFiles = metadata.songFiles ?? {};
 
                 // If targetLevel is missing, find the largest level file
                 if (!metadata.targetLevel) {
@@ -291,6 +289,15 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 
                 // Transform the level
                 const transformedLevel = transformLevel(parsedLevel, options);
+                const requiresYSMod = transformedLevel.getSetting('requiredMods')?.includes('YouTubeStream');
+
+                if (songFilesMissingFromMetadata && !requiresYSMod) {
+                    logger.debug('Missing song files in metadata:', {
+                        fileId,
+                        metadata: file.metadata
+                    });
+                    throw { error: 'Song files not found in metadata', code: 400 };
+                }
 
                 await file.increment('accessCount');
                 ingestDownloadEvent({ fileId: file.id, kind: 'transform' }).catch(() => undefined);
@@ -305,7 +312,6 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 
                     // Find the song file referenced in the level
                     const songFilename = transformedLevel.getSetting('songFilename');
-                    const requiresYSMod = transformedLevel.getSetting('requiredMods')?.includes('YouTubeStream');
 
                     // Handle song file download if needed using fallback logic
                     let songFilePath: string | undefined;
@@ -313,7 +319,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 
                     if (!requiresYSMod) {
                         selectedSongFile = resolveSongFileForTransform(
-                            metadata.songFiles,
+                            songFiles,
                             songFilename ?? undefined,
                             metadata.targetLevelRelativePath ?? undefined
                         );
@@ -323,10 +329,10 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                             logger.debug('Song file not found by name, searching for usable audio extensions', {
                                 fileId,
                                 requestedSongFilename: songFilename,
-                                availableSongFiles: Object.keys(metadata.songFiles)
+                                availableSongFiles: Object.keys(songFiles)
                             });
 
-                            for (const [, songFile] of Object.entries(metadata.songFiles)) {
+                            for (const [, songFile] of Object.entries(songFiles)) {
                                 const fileExtension = path.extname(songFile.name).toLowerCase();
                                 if (LEVEL_SUPPORTED_AUDIO_EXTENSION_SET.has(fileExtension)) {
                                     selectedSongFile = songFile;
@@ -343,7 +349,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                                 logger.debug('No song file found (neither specified nor audio-extension fallback)', {
                                     fileId,
                                     requestedSongFilename: songFilename,
-                                    availableSongFiles: Object.keys(metadata.songFiles)
+                                    availableSongFiles: Object.keys(songFiles)
                                 });
                                 throw { error: 'Song file not found in level', code: 400 };
                             }
