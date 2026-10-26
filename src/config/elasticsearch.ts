@@ -541,6 +541,7 @@ export const passMapping = {
       adofaiVersion: { type: 'integer' as const },
       isXPerfectMode: { type: 'boolean' as const },
       isWrongJudgement: { type: 'boolean' as const },
+      likes: { type: 'integer' as const },
       passMetaFlags: { type: 'long' as const },
       player: {
         properties: {

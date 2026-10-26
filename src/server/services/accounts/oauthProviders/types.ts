@@ -76,6 +76,11 @@ export interface NormalizedOAuthProfile {
   avatarId?: string;
   avatarUrl?: string;
   handle?: string | null;
+  /**
+   * Google refresh token from the YouTube link flow only.
+   * Read in the linking branch and never stored on OAuthProvider.
+   */
+  refreshToken?: string;
 }
 
 export interface OAuthProviderAdapter {

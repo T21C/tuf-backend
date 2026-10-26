@@ -314,6 +314,13 @@ export function startCdcProjectors(): void {
             }
             break;
           }
+          case 'pass_likes': {
+            const pid = num(after?.passId ?? before?.passId);
+            if (pid != null) {
+              await es.indexPass(pid);
+            }
+            break;
+          }
           case 'players': {
             const pid = rowId(before, after);
             if (pid == null) return;

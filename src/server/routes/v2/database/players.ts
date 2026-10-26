@@ -27,6 +27,7 @@ import CurationType from '@/models/curations/CurationType.js';
 import { AuditLog } from '@/models/index.js';
 import UsernameChange from '@/models/auth/UsernameChange.js';
 import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
+import LevelCurationHistory from '@/models/levels/LevelCurationHistory.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { permissionFlags } from '@/config/constants.js';
@@ -1237,6 +1238,10 @@ router.post(
           await LevelRerateHistory.update(
             {reratedBy: targetUserId},
             {where: {reratedBy: sourceUserId}, transaction}
+          );
+          await LevelCurationHistory.update(
+            {changedBy: targetUserId},
+            {where: {changedBy: sourceUserId}, transaction}
           );
           // 4. UsernameChange
           await UsernameChange.update(

@@ -18,6 +18,7 @@ import { User } from '@/models/index.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
+import LevelCurationHistory from '@/models/levels/LevelCurationHistory.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import LevelTag from '@/models/levels/LevelTag.js';
@@ -530,6 +531,17 @@ router.get(
       where: { levelId: levelId },
       order: [['createdAt', 'DESC']],
     });
+    const curationHistoryPromise = LevelCurationHistory.findAll({
+      where: { levelId },
+      order: [['createdAt', 'DESC']],
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['username'],
+        },
+      ],
+    });
     const tagsPromise = loadSerializedAssignedTags(levelId);
     const esLevelDocPromise = elasticsearchService
       .getLevelDocumentById(levelId)
@@ -548,6 +560,7 @@ router.get(
       curationsRows,
       openRating,
       rerateHistory,
+      curationHistory,
       tags,
       esLevelDoc
     ] = await Promise.all([
@@ -559,6 +572,7 @@ router.get(
       curationsPromise,
       openRatingPromise,
       rerateHistoryPromise,
+      curationHistoryPromise,
       tagsPromise,
       esLevelDocPromise
     ]);
@@ -599,6 +613,7 @@ router.get(
     return res.json({
       level: assembledLevel,
       rerateHistory,
+      curationHistory,
     });
 
   } catch (error) {

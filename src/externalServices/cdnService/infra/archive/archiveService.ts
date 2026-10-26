@@ -43,6 +43,22 @@ export interface ArchiveEntry {
 
 export type SupportedArchiveExt = 'zip' | 'rar' | '7z' | 'tar' | 'gz' | 'tgz';
 
+/**
+ * The extract tree contained a symbolic link. Extraction is rejected.
+ * `userMessage` is safe to show to the uploader; the on-disk path stays in the server log.
+ */
+export class ArchiveSymbolicLinkError extends Error {
+    readonly clientFacing = true;
+    readonly archiveErrorKind = 'SYMBOLIC_LINK' as const;
+    readonly userMessage =
+        'Archive contains a symbolic link and was rejected. Re-export it as regular files.';
+
+    constructor() {
+        super('Archive contains a symbolic link and was rejected. Re-export it as regular files.');
+        this.name = 'ArchiveSymbolicLinkError';
+    }
+}
+
 /** Game-originated or other extensions that are byte-for-byte ZIP archives. */
 export const ZIP_ALIAS_EXTENSIONS = ['.adozip'] as const;
 
@@ -707,6 +723,10 @@ export async function extractAll(archivePath: string, destDir: string, signal?: 
     const args = ['x', archivePath, `-o${destDir}`, '-y', ...encodingArgs, '-bd', '-bb0'];
     const result = await runSevenZ(args, { signal });
 
+    // A non-zero exit can still have written a symlink. Reject that before the exit-code
+    // check so callers cannot treat the directory as a partial success.
+    await assertNoSymbolicLinks(destDir);
+
     // Exit code 1 = warnings (e.g. filename encoding) but extraction usually succeeded.
     // Verify by checking destDir for any output.
     if (result.code !== 0 && result.code !== 1) {
@@ -749,6 +769,40 @@ async function directoryHasAnyFile(dir: string): Promise<boolean> {
         }
     }
     return false;
+}
+
+/**
+ * Fail the extract if `dir` contains a symlink at any depth.
+ *
+ * `lstat` does not follow, so the link itself is visible. Call this before any `stat` walk of `dir`.
+ */
+async function assertNoSymbolicLinks(dir: string): Promise<void> {
+    const stack: Buffer[] = [Buffer.from(dir, 'utf8')];
+    while (stack.length > 0) {
+        const dirBuf = stack.pop()!;
+        let names: Buffer[];
+        try {
+            names = (await fs.promises.readdir(dirBuf, { encoding: 'buffer' })) as Buffer[];
+        } catch {
+            continue;
+        }
+        for (const nameBuf of names) {
+            const fullBuf = joinPathBufDirName(dirBuf, nameBuf);
+            let st: fs.Stats;
+            try {
+                st = await fs.promises.lstat(fullBuf);
+            } catch {
+                continue;
+            }
+            if (st.isSymbolicLink()) {
+                logger.warn('archiveService: symbolic link rejected', {
+                    path: fullBuf.toString('utf8')
+                });
+                throw new ArchiveSymbolicLinkError();
+            }
+            if (st.isDirectory()) stack.push(fullBuf);
+        }
+    }
 }
 
 /**
@@ -828,6 +882,8 @@ export async function extractLevelPackPayload(
     ];
 
     const result = await runSevenZ(filteredArgs, { signal });
+
+    await assertNoSymbolicLinks(extractRoot);
 
     const filteredOk = result.code === 0 || result.code === 1;
     const hasFiles = filteredOk ? await directoryHasAnyFile(extractRoot) : false;
@@ -955,6 +1011,18 @@ export async function extractAdofaiFilesForDetection(
         return [];
     }
 
+    try {
+        await assertNoSymbolicLinks(destDir);
+    } catch (err) {
+        if (err instanceof ArchiveSymbolicLinkError) {
+            logger.debug('archiveService.extractAdofaiFilesForDetection: symbolic link rejected', {
+                archivePath
+            });
+            return [];
+        }
+        throw err;
+    }
+
     if (result.code !== 0 && result.code !== 1) {
         logger.debug('archiveService.extractAdofaiFilesForDetection: 7z exited non-zero; encoding detection will fall back', {
             archivePath,
@@ -1026,6 +1094,8 @@ export async function extractEntry(
         ];
         const result = await runSevenZ(args, { signal });
 
+        await assertNoSymbolicLinks(stagingDir);
+
         if (result.code !== 0 && result.code !== 1) {
             throw buildSevenZError('extract entry', args, result);
         }
@@ -1033,10 +1103,19 @@ export async function extractEntry(
         const normalized = entry.relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
         const stagedPath = path.join(stagingDir, normalized);
 
-        if (!fs.existsSync(stagedPath)) {
-            throw new Error(
-                `Entry not found after extraction: ${entry.relativePath} (staged at ${stagedPath})`
-            );
+        let stagedStat: fs.Stats;
+        try {
+            stagedStat = await fs.promises.lstat(stagedPath);
+        } catch (err) {
+            if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+                throw new Error(
+                    `Entry not found after extraction: ${entry.relativePath} (staged at ${stagedPath})`
+                );
+            }
+            throw err;
+        }
+        if (!stagedStat.isFile()) {
+            throw new Error(`Entry is not a regular file after extraction: ${entry.relativePath}`);
         }
 
         // Replace destFilePath atomically.

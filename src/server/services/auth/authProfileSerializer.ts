@@ -40,7 +40,7 @@ export async function buildAuthProfileUser(userId: string) {
   const player = await Player.findByPk(user.playerId);
   const clientPreferences = await getClientPreferences(user.id);
   const youtubeChannels = youtubeLinkingOn
-    ? await youtubeChannelService.listPublic(user.id)
+    ? await youtubeChannelService.listForAuth(user.id)
     : [];
 
   return {

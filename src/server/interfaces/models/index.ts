@@ -159,6 +159,7 @@ export interface IPass extends IBaseModel {
   passMetaFlags?: bigint | number | string;
   isXPerfectMode?: boolean;
   isWrongJudgement?: boolean;
+  likes: number;
   createdAt: Date;
   updatedAt: Date;
   level?: ILevel;

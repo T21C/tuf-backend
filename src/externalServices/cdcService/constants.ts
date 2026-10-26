@@ -4,6 +4,7 @@
  */
 export const CDC_WATCHED_TABLES: readonly string[] = [
   'passes',
+  'pass_likes',
   'levels',
   'level_likes',
   'players',

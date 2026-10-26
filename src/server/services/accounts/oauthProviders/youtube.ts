@@ -14,6 +14,7 @@ export const YOUTUBE_OAUTH_SCOPE = 'https://www.googleapis.com/auth/youtube.read
 
 interface GoogleTokenResponse {
   access_token?: string;
+  refresh_token?: string;
 }
 
 interface YoutubeChannelsListResponse {
@@ -37,6 +38,7 @@ export function buildYouTubeAuthorizeUrl(
     response_type: 'code',
     scope: YOUTUBE_OAUTH_SCOPE,
     state,
+    access_type: 'offline',
     prompt: 'select_account consent',
   });
   return `${GOOGLE_AUTHORIZE_URL}?${params.toString()}`;
@@ -113,12 +115,17 @@ export const youtubeOAuthProvider: OAuthProviderAdapter = {
         },
       );
       const channel = parseYoutubeMineChannelList(channelsResponse.data);
+      const refreshToken =
+        typeof tokens.refresh_token === 'string' && tokens.refresh_token.trim()
+          ? tokens.refresh_token.trim()
+          : undefined;
       return {
         provider: 'youtube',
         id: channel.id,
         username: channel.handle || channel.title || channel.id,
         nickname: channel.title || undefined,
         handle: channel.handle,
+        ...(refreshToken ? {refreshToken} : {}),
       };
     } catch (error) {
       if (error instanceof OAuthYoutubeChannelRequiredError) {

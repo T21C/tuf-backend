@@ -12,6 +12,7 @@ import UserTufStellarEntitlementSegment from '@/models/billing/UserTufStellarEnt
 import UserTufStellarAdminGrant from '@/models/billing/UserTufStellarAdminGrant.js';
 import UserClientPreferences from '@/models/auth/UserClientPreferences.js';
 import UserYoutubeChannel from '@/models/auth/UserYoutubeChannel.js';
+import UserYoutubeChannelCredential from '@/models/auth/UserYoutubeChannelCredential.js';
 
 export function initializeAuthAssociations() {
   // User <-> RefreshToken associations
@@ -155,6 +156,15 @@ export function initializeAuthAssociations() {
   UserYoutubeChannel.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
+  });
+
+  UserYoutubeChannel.hasOne(UserYoutubeChannelCredential, {
+    foreignKey: 'userYoutubeChannelId',
+    as: 'credential',
+  });
+  UserYoutubeChannelCredential.belongsTo(UserYoutubeChannel, {
+    foreignKey: 'userYoutubeChannelId',
+    as: 'channel',
   });
 
 }

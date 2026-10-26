@@ -23,6 +23,7 @@ void test('youtube authorize URL uses youtube.readonly, consent prompt, and quer
   assert.equal(url.searchParams.get('scope'), 'https://www.googleapis.com/auth/youtube.readonly');
   assert.equal(url.searchParams.get('state'), 'nonce-value');
   assert.equal(url.searchParams.get('prompt'), 'select_account consent');
+  assert.equal(url.searchParams.get('access_type'), 'offline');
   assert.equal(url.searchParams.get('linking'), null);
 });
 

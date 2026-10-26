@@ -24,6 +24,9 @@ import {
   resolveSearchSeed,
 } from '@/server/services/elasticsearch/search/tools/seededRandomSort.js';
 import { parseFacetQueryString } from '@/misc/utils/search/facetQuery.js';
+import { Cache } from '@/server/middleware/cache.js';
+import { annotatePassesWithLikeState } from '@/misc/utils/data/passLikeState.js';
+import PassLikes from '@/models/passes/PassLikes.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const router = Router();
@@ -155,18 +158,63 @@ router.get(
         return res.json({count: 0, results: []});
       }
 
-      const assembledPass = {
+      let assembledPass = {
         ...pass.toJSON(),
         player,
         level,
         judgements: judgement || null
       };
 
+      if (req.user?.id) {
+        const [annotated] = await annotatePassesWithLikeState([assembledPass], req.user.id);
+        if (annotated) assembledPass = annotated;
+      }
+
       return res.json({count: 1, results: [assembledPass]});
     }
     catch (error) {
       logger.error('Error fetching pass by ID:', error);
       return res.status(500).json({error: 'Failed to fetch pass'});
+    }
+  },
+);
+
+router.get(
+  '/:id([0-9]{1,20})/isLiked',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getPassIsLiked',
+    summary: 'Check if pass is liked',
+    description: 'Returns whether the current user has liked the pass',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Liked status' }, ...standardErrorResponses500 },
+  }),
+  Cache({
+    ttl: 300,
+    varyByUser: true,
+    tags: (req) => [`pass:${req.params.id}:isLiked`, 'passes:all'],
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const passId = parseInt(req.params.id);
+
+      const likes = await PassLikes.count({
+        where: { passId },
+      });
+
+      if (!req.user?.id) {
+        return res.json({ isLiked: false, likes });
+      }
+
+      const isLiked = await PassLikes.findOne({
+        where: { passId, userId: req.user.id },
+      });
+      return res.json({ isLiked: !!isLiked, likes });
+    } catch (error) {
+      logger.error('Error checking if pass is liked:', error);
+      return res.status(500).json({ error: 'Failed to check if pass is liked' });
     }
   },
 );
@@ -518,7 +566,7 @@ router.get(
   ApiDoc({
     operationId: 'searchPasses',
     summary: 'Search passes',
-    description: 'Search passes with filters (query, deletedFilter, minDiff, maxDiff, keyFlag, wfFilter, adofaiVersionFilter, wrongJudgementFilter, levelId, player, specialDifficulties, facetQuery, sort). Query: page, offset, limit. Uses Elasticsearch.',
+    description: 'Search passes with filters (query, deletedFilter, minDiff, maxDiff, keyFlag, wfFilter, adofaiVersionFilter, wrongJudgementFilter, levelId, player, specialDifficulties, facetQuery, sort, withLikeState). Query: page, offset, limit. Uses Elasticsearch.',
     tags: ['Passes'],
     security: ['bearerAuth'],
     query: {
@@ -535,6 +583,7 @@ router.get(
       specialDifficulties: { schema: { type: 'string' } },
       facetQuery: { description: 'Facet filter JSON v1 (tags)', schema: { type: 'string' } },
       sort: { schema: { type: 'string' } },
+      withLikeState: { description: 'Annotate each result with isLiked for the current user (requires auth)', schema: { type: 'boolean' } },
       seed: { description: 'Seed for RANDOM sort (stable pagination). Generated when omitted.', schema: { type: 'integer' } },
       page: { schema: { type: 'string' } },
       offset: { schema: { type: 'string' } },
@@ -560,6 +609,7 @@ router.get(
         query: searchQuery,
         sort,
         seed: seedQuery,
+        withLikeState,
       } = req.query;
 
       // Get user's playerId if logged in
@@ -590,8 +640,14 @@ router.get(
         seed,
       }, userPlayerId, hasFlag(req.user, permissionFlags.SUPER_ADMIN));
 
+      let results = result.results || [];
+      if (withLikeState === 'true' && req.user?.id && results.length > 0) {
+        results = await annotatePassesWithLikeState(results, req.user.id);
+      }
+
       return res.json({
         ...result,
+        results,
         page,
         offset,
         limit,
