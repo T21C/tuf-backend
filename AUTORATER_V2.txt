@@ -23,6 +23,12 @@ transaction. Invalid responses, timeouts, settlement races and write failures ke
 the previous saved result. Ensure deployment request/proxy timeouts accommodate
 the longer upstream request.
 
+Upstream failures expose the first non-empty string from `detail.message`,
+`detail`, `error`, or `message` in the route's existing `error` field, followed by
+"The previous rating has been kept." Missing or malformed messages use the
+existing generic failure text. HTTP status mapping and transactional writes are
+unchanged; no frontend change is required to display the reason.
+
 Run the affected tests:
 
 ```sh
