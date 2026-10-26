@@ -1,5 +1,4 @@
 import Level from '@/models/levels/Level.js';
-import LevelTag from '@/models/levels/LevelTag.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import { convertToPUA } from '@/misc/utils/data/searchHelpers.js';
@@ -9,6 +8,7 @@ import {
   pickThemeCuration,
   sortCurationsByTypeOrder,
 } from '@/misc/utils/data/curationOrdering.js';
+import { projectLevelTagsForIndex } from '@/server/services/elasticsearch/indexing/levelTagIndexProjection.js';
 
 function arr<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
@@ -220,27 +220,7 @@ export function buildLevelIndexDocument(level: Level): any {
       };
     })(),
     isCurated: arr(l.curations).length > 0,
-    tags: arr<LevelTag>(l.tags).map((tag: any) => {
-      const t = plainRow(tag as object) as any;
-      const groupName = t.tagGroup?.name ?? t.group ?? null;
-      const through = t.LevelTagAssignment || t.level_tag_assignment || {};
-      const scoreRaw =
-        typeof tag.score === 'number'
-          ? tag.score
-          : typeof t.score === 'number'
-            ? t.score
-            : through.score;
-      return {
-        id: t.id,
-        name: t.name,
-        icon: t.icon,
-        color: t.color,
-        group: groupName,
-        score: typeof scoreRaw === 'number' && Number.isFinite(scoreRaw) ? scoreRaw : null,
-        pinned: Boolean(tag.pinned ?? t.pinned ?? through.pinned),
-        isCommunity: Boolean(tag.isCommunity ?? t.isCommunity),
-      };
-    }),
+    tags: projectLevelTagsForIndex(l.tags),
     uniqueClears: intFromLevelData(level, l, 'uniqueClears'),
   };
 }

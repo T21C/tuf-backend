@@ -23,6 +23,7 @@ import {
   isRandomSortParam,
   resolveSearchSeed,
 } from '@/server/services/elasticsearch/search/tools/seededRandomSort.js';
+import { parseFacetQueryString } from '@/misc/utils/search/facetQuery.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const router = Router();
@@ -517,7 +518,7 @@ router.get(
   ApiDoc({
     operationId: 'searchPasses',
     summary: 'Search passes',
-    description: 'Search passes with filters (query, deletedFilter, minDiff, maxDiff, keyFlag, wfFilter, adofaiVersionFilter, wrongJudgementFilter, levelId, player, specialDifficulties, sort). Query: page, offset, limit. Uses Elasticsearch.',
+    description: 'Search passes with filters (query, deletedFilter, minDiff, maxDiff, keyFlag, wfFilter, adofaiVersionFilter, wrongJudgementFilter, levelId, player, specialDifficulties, facetQuery, sort). Query: page, offset, limit. Uses Elasticsearch.',
     tags: ['Passes'],
     security: ['bearerAuth'],
     query: {
@@ -532,6 +533,7 @@ router.get(
       levelId: { schema: { type: 'string' } },
       player: { schema: { type: 'string' } },
       specialDifficulties: { schema: { type: 'string' } },
+      facetQuery: { description: 'Facet filter JSON v1 (tags)', schema: { type: 'string' } },
       sort: { schema: { type: 'string' } },
       seed: { description: 'Seed for RANDOM sort (stable pagination). Generated when omitted.', schema: { type: 'integer' } },
       page: { schema: { type: 'string' } },
@@ -554,6 +556,7 @@ router.get(
         levelId,
         player,
         specialDifficulties,
+        facetQuery,
         query: searchQuery,
         sort,
         seed: seedQuery,
@@ -563,6 +566,10 @@ router.get(
       const userPlayerId = req.user?.playerId;
       const sortStr = ensureString(sort);
       const seed = isRandomSortParam(sortStr) ? resolveSearchSeed(seedQuery) : undefined;
+
+      const facetQueryV1 = parseFacetQueryString(
+        typeof facetQuery === 'string' ? facetQuery : undefined,
+      );
 
       const result = await searchPasses({
         deletedFilter: ensureString(deletedFilter),
@@ -575,6 +582,7 @@ router.get(
         levelId: ensureString(levelId),
         player: ensureString(player),
         specialDifficulties,
+        facetQueryV1,
         query: ensureString(searchQuery),
         offset,
         limit,

@@ -1,11 +1,16 @@
 import { Op } from 'sequelize';
 import Difficulty from '@/models/levels/Difficulty.js';
 import Level from '@/models/levels/Level.js';
+import LevelRequest from '@/models/levels/LevelRequest.js';
 import Pass from '@/models/passes/Pass.js';
 import Rating from '@/models/levels/Rating.js';
 import { MessageBuilder } from '@/misc/webhook/index.js';
 import { getVideoDetails } from '@/misc/utils/data/videoDetailParser.js';
 import { getPrimaryVideoLink } from '@/misc/utils/data/videoLinkParts.js';
+import {
+  ratingMatchesAnnouncementWindow,
+  rerateAnnouncementThreadUrl,
+} from '@/misc/utils/data/rerateAnnouncementThread.js';
 import { clientUrlEnv } from '@/config/app.config.js';
 import {
   type LevelAnnouncementCurveSnapshot,
@@ -52,6 +57,7 @@ export type RerateEmbedContext = {
   facets: LevelAnnouncementFacet[];
   before: LevelAnnouncementSnapshot;
   after: LevelAnnouncementSnapshot;
+  queueCreatedAt?: Date | string | null;
 };
 
 type DifficultyRow = { id: number; name: string; emoji?: string; icon?: string; color?: string; baseScore?: number };
@@ -271,6 +277,31 @@ export async function buildCurveScoreSamplesField(
   };
 }
 
+async function resolveRerateAnnouncementThreadUrl(
+  levelId: number,
+  queueCreatedAt?: Date | string | null,
+): Promise<string | null> {
+  if (!queueCreatedAt) return null;
+  const rating = await Rating.findOne({
+    where: {levelId, confirmedAt: {[Op.ne]: null}},
+    attributes: ['id', 'confirmedAt', 'discordMessageUrl'],
+    order: [['confirmedAt', 'DESC']],
+  });
+  if (!rating || !ratingMatchesAnnouncementWindow(rating.confirmedAt, queueCreatedAt)) {
+    return null;
+  }
+  const request = await LevelRequest.findOne({
+    where: {linkedRatingId: rating.id, type: 'rerate'},
+    attributes: ['discordMessageUrl', 'immediateSettle', 'status'],
+  });
+  return rerateAnnouncementThreadUrl({
+    ratingUrl: rating.discordMessageUrl,
+    requestUrl: request?.discordMessageUrl,
+    immediateSettle: request?.immediateSettle,
+    requestStatus: request?.status,
+  });
+}
+
 export async function createRerateEmbedFromQueue(
   ctx: RerateEmbedContext,
 ): Promise<MessageBuilder> {
@@ -328,6 +359,11 @@ export async function createRerateEmbedFromQueue(
   if (charter) embed.addField('', `Chart\n**${formatString(charter)}**`, true);
   if (comment && level.difficulty?.name === 'Censored') {
     embed.addField('Reason', `**${formatString(comment)}**`, false);
+  }
+
+  const threadUrl = await resolveRerateAnnouncementThreadUrl(level.id, ctx.queueCreatedAt);
+  if (threadUrl) {
+    embed.addField('Discord thread', `**[Open thread](${threadUrl})**`, false);
   }
 
   embed

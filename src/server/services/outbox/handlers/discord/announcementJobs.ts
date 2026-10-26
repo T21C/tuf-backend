@@ -463,6 +463,7 @@ export async function runRerateAnnouncementJob(requestedIds: number[]): Promise<
           facets: row.facets,
           before: row.before,
           after: row.after,
+          queueCreatedAt: row.createdAt,
         }),
       })),
     );

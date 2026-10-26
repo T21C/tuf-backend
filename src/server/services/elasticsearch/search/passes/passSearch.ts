@@ -25,6 +25,8 @@ import {
   wrapQueryWithSeededRandom,
 } from '@/server/services/elasticsearch/search/tools/seededRandomSort.js';
 import { filterValueToAdofaiVersion } from '@/misc/utils/pass/adofaiVersion.js';
+import type { FacetQueryV1 } from '@/misc/utils/search/facetQuery.js';
+import { buildFacetDomainClause } from '@/misc/utils/search/facetQuery.js';
 
 export async function searchPasses(query: string, filters: any = {}, userPlayerId?: number, isSuperAdmin = false): Promise<{ hits: any[], total: number }> {
   try {
@@ -128,6 +130,14 @@ export async function searchPasses(query: string, filters: any = {}, userPlayerI
     const sortType = filters.sort?.split('_').slice(0, -1).join('_');
     if (sortType === 'SPEED') {
       must.push(rangeGt('speed', 1));
+    }
+
+    const facetQueryV1 = filters.facetQueryV1 as FacetQueryV1 | undefined;
+    if (facetQueryV1?.tags) {
+      const tagClause = buildFacetDomainClause(facetQueryV1.tags, 'level.tags', 'level.tags.id');
+      if (tagClause) {
+        must.push(tagClause);
+      }
     }
 
     // Handle difficulty filters

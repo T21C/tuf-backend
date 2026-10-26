@@ -5,7 +5,10 @@ import {
   TUF_STELLAR_DISPLAY_CURRENCIES,
   type TufStellarDisplayCurrency,
 } from '@/server/services/billing/tufStellarDisplayPriceMatrix.js';
-import { buildBillingPricingDisplayForRequest } from '@/server/services/billing/tufStellarDisplayPricingRegion.js';
+import {
+  buildBillingPricingDisplayForRequest,
+  type TufStellarDisplayCurrencyPreference,
+} from '@/server/services/billing/tufStellarDisplayPricingRegion.js';
 import {
   isTufStellarMonths,
   resolveTufStellarGiftProductId,
@@ -23,15 +26,22 @@ function isAllowlistedCurrency(code: string): code is TufStellarDisplayCurrency 
   return (TUF_STELLAR_DISPLAY_CURRENCIES as readonly string[]).includes(code);
 }
 
-/** Resolve checkout currency from request body (`auto`/omit → geo) or explicit ISO code. */
-export function resolveCheckoutCurrency(req: Request, bodyCurrency: unknown): CheckoutCurrencyResolution {
+/**
+ * Resolve checkout currency from the request body.
+ * `auto` or omit follows the explicit site language, then the player country, then geo.
+ */
+export function resolveCheckoutCurrency(
+  req: Request,
+  bodyCurrency: unknown,
+  preference?: TufStellarDisplayCurrencyPreference,
+): CheckoutCurrencyResolution {
   const raw =
     bodyCurrency == null || bodyCurrency === ''
       ? 'auto'
       : String(bodyCurrency).trim().toLowerCase();
 
   if (raw === 'auto') {
-    const { currency } = buildBillingPricingDisplayForRequest(req);
+    const { currency } = buildBillingPricingDisplayForRequest(req, preference);
     return { ok: true, currency };
   }
 

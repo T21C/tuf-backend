@@ -46,6 +46,7 @@ import {
 } from '@/server/services/billing/tufStellarStripeUserRefund.js';
 import { classifyBillingActivityKind } from '@/server/services/billing/billingActivityKind.js';
 import { buildBillingPricingDisplayForRequest } from '@/server/services/billing/tufStellarDisplayPricingRegion.js';
+import { loadTufStellarDisplayCurrencyPreference } from '@/server/services/billing/tufStellarDisplayCurrencyPreference.js';
 import { stripeMinorToMajor } from '@/server/services/billing/stripeCurrencyMinorUnits.js';
 import adminGrantsRouter from '@/server/routes/v3/billing/adminGrants.js';
 
@@ -301,7 +302,7 @@ router.get(
     operationId: 'getBillingMe',
     summary: 'Get current TUFStellar access (one-time purchases)',
     description:
-      'Returns stacked purchase entitlement (expiry-driven), per-segment breakdown (`accessSegments`), optional `preview` when `previewMonths` query matches catalog terms, allowed checkout actions, and `pricingDisplay` (marketing amounts by term, currency from `CF-IPCountry` when present). Invoice IDs appear on GET /me/events only.',
+      'Returns stacked purchase entitlement (expiry-driven), per-segment breakdown (`accessSegments`), optional `preview` when `previewMonths` query matches catalog terms, allowed checkout actions, and `pricingDisplay` (marketing amounts by term). Default currency follows an explicit site language, otherwise the player profile country, otherwise the language Follow country would show. Invoice IDs appear on GET /me/events only.',
     tags: ['Billing'],
     security: ['bearerAuth'],
     query: {
@@ -381,7 +382,8 @@ router.get(
                 country: {
                   type: 'string',
                   nullable: true,
-                  description: 'Cloudflare `CF-IPCountry` when sent to origin; null if absent',
+                  description:
+                    'Country used for the default currency: explicit site language flag country, otherwise player profile country, otherwise the flag country of the language Follow country would show.',
                 },
                 amountsByMonths: {
                   type: 'object',
@@ -446,7 +448,10 @@ router.get(
             }
           : null;
 
-      const pricingDisplay = buildBillingPricingDisplayForRequest(req);
+      const pricingDisplay = buildBillingPricingDisplayForRequest(
+        req,
+        await loadTufStellarDisplayCurrencyPreference(user),
+      );
 
       return res.json({
         active: accessActive,
@@ -717,7 +722,7 @@ router.post(
     operationId: 'postBillingStripeCheckout',
     summary: 'Start Stripe Checkout for a one-time TUFStellar purchase',
     description:
-      'Creates a Checkout Session (stacked calendar-month access). `recipientUserId` optional UUID (defaults to yourself). `currency` optional: `auto` (geo-inferred, default) or an allowlisted ISO 4217 code.',
+      'Creates a Checkout Session (stacked calendar-month access). `recipientUserId` optional UUID (defaults to yourself). `currency` optional: `auto` (explicit site language, then player country, then the Follow country language) or an allowlisted ISO 4217 code.',
     tags: ['Billing'],
     security: ['bearerAuth'],
     requestBody: {
@@ -730,7 +735,8 @@ router.post(
           recipientUserId: { type: 'string', format: 'uuid' },
           currency: {
             type: 'string',
-            description: '`auto` (default, geo-inferred) or allowlisted ISO 4217 checkout currency',
+            description:
+              '`auto` (explicit site language, then player country, then the Follow country language) or allowlisted ISO 4217 checkout currency',
           },
         },
         required: ['months'],
@@ -809,7 +815,11 @@ router.post(
         });
       }
 
-      const currencyResolved = resolveCheckoutCurrency(req, body?.currency);
+      const currencyResolved = resolveCheckoutCurrency(
+        req,
+        body?.currency,
+        await loadTufStellarDisplayCurrencyPreference(user),
+      );
       if (!currencyResolved.ok) {
         return res.status(400).json({
           error: {

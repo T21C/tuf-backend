@@ -81,7 +81,8 @@ import {
   type LevelRequestStatus,
   type LevelRequestType,
 } from '@/misc/utils/data/levelRequestValidation.js';
-import { loadSerializedAssignedTags } from '@/server/services/data/levelTagGroupService.js';
+import { isRequestableLevelTag, loadSerializedAssignedTags } from '@/server/services/data/levelTagGroupService.js';
+import { isAutomaticLevelTagName } from '@/misc/utils/data/automaticLevelTags.js';
 import { getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import {
   REQUEST_SEARCH_MAX_Q,
@@ -92,6 +93,7 @@ import {
 } from '@/server/services/requests/levelRequestSearch.js';
 import {
   deleteLevelRequestDiscordPost,
+  echoNewLevelRequest,
   logRequestDiscordFailure,
   postCurationRequestEmbed,
   postRerateRequestThread,
@@ -388,7 +390,7 @@ async function currentCurationTypeIds(levelId: number): Promise<number[]> {
 async function assignableLevelTagIds(levelId: number): Promise<number[]> {
   const tags = await loadSerializedAssignedTags(levelId);
   return tags
-    .filter((tag) => !tag.isCommunity)
+    .filter((tag) => isRequestableLevelTag(tag))
     .map((tag) => Number(tag.id))
     .filter((id) => Number.isInteger(id) && id > 0);
 }
@@ -547,13 +549,16 @@ async function buildPayload(type: LevelRequestType, body: Record<string, unknown
     if (targetTagIds.length > 0) {
       const tags = await LevelTag.findAll({
         where: {id: {[Op.in]: targetTagIds}},
-        attributes: ['id', 'isCommunity'],
+        attributes: ['id', 'name', 'isCommunity'],
       });
       if (tags.length !== targetTagIds.length) {
         throw new LevelRequestError(400, 'tags', 'Only existing tags can be requested');
       }
       if (tags.some((tag) => Boolean(tag.isCommunity))) {
         throw new LevelRequestError(400, 'community_tags', 'Community tags are voted on, not requested');
+      }
+      if (tags.some((tag) => isAutomaticLevelTagName(tag.name))) {
+        throw new LevelRequestError(400, 'automatic_tags', 'Tags read from the level file are set by the parser, not by request');
       }
     }
     const currentIds = await assignableLevelTagIds(level.id);
@@ -1009,6 +1014,7 @@ export async function createLevelRequest(user: Viewer, levelId: number, body: Re
       saved = true;
       await cancelIngestedLevelZipSession(ingested);
       await tryPostCurationDiscord(request);
+      await echoNewLevelRequest(request, level);
       return {request: await serializeLevelRequest(request, user), ingested};
     } catch (err) {
       if (!saved) await discardIngestedLevelZip(ingested);
