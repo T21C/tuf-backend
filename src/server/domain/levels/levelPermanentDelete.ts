@@ -5,6 +5,7 @@ import Curation from '@/models/curations/Curation.js';
 import Pass from '@/models/passes/Pass.js';
 import DirectiveConditionHistory from '@/models/announcements/DirectiveConditionHistory.js';
 import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
+import LevelCurationHistory from '@/models/levels/LevelCurationHistory.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {isCdnUrl, safeTransactionRollback} from '@/misc/utils/Utility.js';
 import cdnService from '@/server/services/core/CdnService.js';
@@ -77,6 +78,10 @@ export async function permanentDeleteLevelInTransaction(
   }
 
   await LevelRerateHistory.destroy({
+    where: {levelId},
+    transaction,
+  });
+  await LevelCurationHistory.destroy({
     where: {levelId},
     transaction,
   });

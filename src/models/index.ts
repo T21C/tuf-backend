@@ -39,6 +39,7 @@ import PlayerLeaderboardRankEvent from './players/PlayerLeaderboardRankEvent.js'
 import UsernameChange from './auth/UsernameChange.js';
 import UserClientPreferences from './auth/UserClientPreferences.js';
 import UserYoutubeChannel from './auth/UserYoutubeChannel.js';
+import UserYoutubeChannelCredential from './auth/UserYoutubeChannelCredential.js';
 import ProfileActionLog from './auth/ProfileActionLog.js';
 import AnnouncementChannel from './announcements/AnnouncementChannel.js';
 import AnnouncementRole from './announcements/AnnouncementRole.js';
@@ -159,6 +160,7 @@ export const db = {
     UsernameChange,
     UserClientPreferences,
     UserYoutubeChannel,
+    UserYoutubeChannelCredential,
     ProfileActionLog,
     AnnouncementChannel,
     AnnouncementRole,
@@ -263,6 +265,7 @@ export {
   ProfileActionLog,
   UserClientPreferences,
   UserYoutubeChannel,
+  UserYoutubeChannelCredential,
   AuditLog,
   BillingEvent,
   UserTufStellarBilling,

@@ -8,8 +8,16 @@ import {
   serializeYoutubeChannel,
   shouldBePrimaryOnInsert,
   youtubeLinkConflict,
+  type YoutubeChannelAuth,
   type YoutubeChannelPublic,
 } from '@/misc/utils/data/youtubeChannel.js';
+import {logger} from '@/server/services/core/LoggerService.js';
+import {
+  clearYoutubeRefreshToken,
+  saveYoutubeRefreshToken,
+  youtubeChannelIdsWithCredentials,
+} from '@/server/services/accounts/youtubeChannelCredentials.js';
+import {forgetYoutubeChannelAccess} from '@/server/services/accounts/youtubeChannelAccessCache.js';
 
 export class YoutubeChannelError extends Error {
   readonly status: number;
@@ -31,6 +39,22 @@ export interface YoutubeChannelLinkInput {
   channelId: string;
   title?: string;
   handle?: string | null;
+  refreshToken?: string | null;
+}
+
+async function storeRefreshToken(
+  channelRowId: number,
+  channelId: string,
+  refreshToken: string | null | undefined,
+): Promise<void> {
+  const token = typeof refreshToken === 'string' ? refreshToken.trim() : '';
+  if (!token) return;
+  forgetYoutubeChannelAccess(channelRowId, channelId);
+  try {
+    await saveYoutubeRefreshToken(channelRowId, token);
+  } catch (error) {
+    logger.error('youtube_refresh_token_store_failed', error);
+  }
 }
 
 function assertLinkingEnabled(): void {
@@ -53,6 +77,22 @@ class YouTubeChannelService {
       ],
     });
     return rows.map((row) => serializeYoutubeChannel(row));
+  }
+
+  async listForAuth(userId: string): Promise<YoutubeChannelAuth[]> {
+    const rows = await UserYoutubeChannel.findAll({
+      where: {userId},
+      order: [
+        ['isPrimary', 'DESC'],
+        ['createdAt', 'ASC'],
+      ],
+      attributes: ['id', 'channelId', 'title', 'handle', 'isPrimary'],
+    });
+    const withToken = await youtubeChannelIdsWithCredentials(rows.map((row) => row.id));
+    return rows.map((row) => ({
+      ...serializeYoutubeChannel(row),
+      canReadUnlisted: withToken.has(row.id),
+    }));
   }
 
   async listIdsByUserIds(userIds: string[]): Promise<Map<string, string[]>> {
@@ -112,6 +152,7 @@ class YouTubeChannelService {
         title: title || existing.title,
         handle: handle ?? existing.handle,
       });
+      await storeRefreshToken(existing.id, existing.channelId, input.refreshToken);
       return serializeYoutubeChannel(existing);
     }
 
@@ -128,6 +169,7 @@ class YouTubeChannelService {
         createdAt: now,
         updatedAt: now,
       });
+      await storeRefreshToken(row.id, row.channelId, input.refreshToken);
       await accountCredentialService.logAction(userId, 'youtube_link', {channelId});
       return serializeYoutubeChannel(row);
     } catch (error) {
@@ -142,7 +184,7 @@ class YouTubeChannelService {
     }
   }
 
-  async setPrimary(userId: string, channelId: string): Promise<YoutubeChannelPublic[]> {
+  async setPrimary(userId: string, channelId: string): Promise<YoutubeChannelAuth[]> {
     assertLinkingEnabled();
     const row = await UserYoutubeChannel.findOne({where: {userId, channelId}});
     if (!row) {
@@ -159,10 +201,10 @@ class YouTubeChannelService {
     if (!row.isPrimary) {
       await row.update({isPrimary: true});
     }
-    return this.listPublic(userId);
+    return this.listForAuth(userId);
   }
 
-  async unlink(userId: string, channelId: string): Promise<YoutubeChannelPublic[]> {
+  async unlink(userId: string, channelId: string): Promise<YoutubeChannelAuth[]> {
     assertLinkingEnabled();
     const row = await UserYoutubeChannel.findOne({where: {userId, channelId}});
     if (!row) {
@@ -176,6 +218,8 @@ class YouTubeChannelService {
       {channelId: row.channelId, isPrimary: row.isPrimary},
       others.map((r) => ({channelId: r.channelId, createdAt: r.createdAt})),
     );
+    await clearYoutubeRefreshToken(row.id);
+    forgetYoutubeChannelAccess(row.id, row.channelId);
     await row.destroy();
     if (promoteId) {
       await UserYoutubeChannel.update(
@@ -184,7 +228,7 @@ class YouTubeChannelService {
       );
     }
     await accountCredentialService.logAction(userId, 'youtube_unlink', {channelId});
-    return this.listPublic(userId);
+    return this.listForAuth(userId);
   }
 }
 

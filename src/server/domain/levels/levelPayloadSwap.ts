@@ -59,6 +59,7 @@ const LEVEL_ID_REMAP_TABLES = [
   '`references`',
   'curations',
   'level_rerate_histories',
+  'level_curation_histories',
   'level_announcement_queue',
   'directive_condition_history',
   'tournament_placements',

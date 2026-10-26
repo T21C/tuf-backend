@@ -360,6 +360,8 @@ async function getPassSortOptions(sort?: string): Promise<any[]> {
       return [{ speed: direction }, { speed: 'desc' }, { id: 'desc' }];
     case 'KEYCOUNT':
       return [{ keyCount: { order: direction, missing: '_last' } }, { id: 'desc' }];
+    case 'LIKES':
+      return [{ likes: direction }, { id: 'desc' }];
     case 'DIFF': {
       const difficultySortOrderById = await getDifficultySortOrderByDiffId();
       return [

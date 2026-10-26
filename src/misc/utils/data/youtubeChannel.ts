@@ -10,6 +10,11 @@ export interface YoutubeChannelPublic {
   url: string;
 }
 
+/** Auth-session channel. `canReadUnlisted` is not included on public profiles. */
+export interface YoutubeChannelAuth extends YoutubeChannelPublic {
+  canReadUnlisted: boolean;
+}
+
 /**
  * YouTube `snippet.customUrl` may be `@handle`, a bare handle, or a legacy
  * `/c/` / `/user/` path. Only a handle without slashes is stored.

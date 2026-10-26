@@ -9,7 +9,7 @@ const sequelize = getSequelizeForModelGroup('passes');
 type PassAttributes = IPass;
 type PassCreationAttributes = Optional<
   PassAttributes,
-  'id' | 'createdAt' | 'updatedAt' | 'isWrongJudgement' | 'isDuplicateOverridden'
+  'id' | 'createdAt' | 'updatedAt' | 'isWrongJudgement' | 'isDuplicateOverridden' | 'likes'
 >;
 
 class Pass
@@ -47,6 +47,7 @@ class Pass
   declare passMetaFlags: bigint | number | string;
   declare isXPerfectMode: boolean;
   declare isWrongJudgement: boolean;
+  declare likes: number;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -230,6 +231,11 @@ Pass.init(
       allowNull: false,
       defaultValue: false,
       comment: 'Hit total does not match chart tilecount minus auto tiles',
+    },
+    likes: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
     },
     createdAt: {
       type: DataTypes.DATE,

@@ -1,14 +1,16 @@
 import { Router, Request, Response } from 'express';
 import { Auth } from '@/server/middleware/auth.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
-import { standardErrorResponses500, idParamSpec } from '@/server/schemas/v2/database/passes/index.js';
+import { standardErrorResponses403404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/passes/index.js';
 import Pass from '@/models/passes/Pass.js';
+import PassLikes from '@/models/passes/PassLikes.js';
 import Player from '@/models/players/Player.js';
 import Level from '@/models/levels/Level.js';
 import Judgement from '@/models/passes/Judgement.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import sequelize from '@/config/db.js';
+import sequelize, { getSequelizeForModelGroup } from '@/config/db.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { updateWorldsFirstFlags, updateWorldsFirstPPStatus } from './index.js';
 import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
 import { optionalReasonFromBody, sanitizePassDetails } from '@/server/routes/v2/misc/form/shared/sanitize.js';
@@ -877,6 +879,100 @@ router.patch(
       await safeTransactionRollback(transaction);
       logger.error('Error updating pass feeling rating:', error);
       return res.status(500).json({ error: 'Failed to update pass feeling rating' });
+    }
+  },
+);
+
+router.put(
+  '/:id([0-9]{1,20})/like',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'putPassLike',
+    summary: 'Like/unlike pass',
+    description: 'Like or unlike a pass (action: "like" | "unlike").',
+    tags: ['Database', 'Passes'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'action: "like" | "unlike"', schema: { type: 'object', properties: { action: { type: 'string', enum: ['like', 'unlike'] } }, required: ['action'] }, required: true },
+    responses: { 200: { description: 'Like updated' }, 400: { schema: errorResponseSchema }, 401: { schema: errorResponseSchema }, ...standardErrorResponses403404500 },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+    if (!req.user) {
+      return res.status(401).json({error: 'Unauthorized'});
+    }
+    try {
+      const passesSequelize = getSequelizeForModelGroup('passes');
+      transaction = await passesSequelize.transaction();
+      const passId = parseInt(req.params.id);
+      const {action} = req.body;
+
+      if (!action || !['like', 'unlike'].includes(action)) {
+        await safeTransactionRollback(transaction);
+        return res
+          .status(400)
+          .json({error: 'Invalid action. Must be "like" or "unlike"'});
+      }
+
+      const pass = await Pass.findByPk(passId, {transaction});
+      if (!pass) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({error: 'Pass not found'});
+      }
+
+      if (pass.isDeleted) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({error: 'Cannot like deleted pass'});
+      }
+
+      if (action === 'like') {
+        const [, wasCreated] = await PassLikes.findOrCreate({
+          where: {passId, userId: req.user.id},
+          transaction,
+        });
+
+        if (!wasCreated) {
+          await safeTransactionRollback(transaction);
+          return res
+            .status(400)
+            .json({error: 'You have already liked this pass'});
+        }
+      } else {
+        const existingLike = await PassLikes.findOne({
+          where: {passId, userId: req.user.id},
+          transaction,
+        });
+
+        if (!existingLike) {
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({error: 'You have not liked this pass'});
+        }
+
+        await PassLikes.destroy({
+          where: {passId, userId: req.user.id},
+          transaction,
+        });
+      }
+
+      await transaction.commit();
+
+      await CacheInvalidation.invalidateTag(`pass:${passId}:isLiked`).catch(err =>
+        logger.error('Error invalidating like cache:', err)
+      );
+
+      const likeCount = await PassLikes.count({
+        where: {passId},
+      });
+
+      return res.json({
+        success: true,
+        action,
+        likes: likeCount,
+      });
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error toggling pass like:', error);
+      return res.status(500).json({error: 'Failed to toggle pass like'});
     }
   },
 );

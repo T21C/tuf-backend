@@ -34,6 +34,7 @@ import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import { updateDifficultiesHash } from '@/server/routes/v2/database/difficulties/index.js';
 import { serializeCurationJson, sortCurationsByTypeOrder } from '@/misc/utils/data/curationOrdering.js';
+import { recordCurationTypeChange } from '@/server/domain/curations/recordCurationTypeHistory.js';
 import { parseFacetQueryString } from '@/misc/utils/search/facetQuery.js';
 import { normalizeLevelSearchQuery } from '@/server/services/elasticsearch/search/tools/parseSearch.js';
 import {
@@ -1321,12 +1322,27 @@ router.post(
               : undefined;
           oldTypeSetsByLevel.set(levelId, oldCurationTypeSets);
 
+          const changedBy = req.user?.id ?? null;
           if (existing && mergedTypeIds) {
             await existing.setTypes(mergedTypeIds, { transaction });
+            await recordCurationTypeChange({
+              levelId,
+              previousTypeIds: (existing.types || []).map((t) => t.id),
+              newTypeIds: mergedTypeIds,
+              changedBy,
+              transaction,
+            });
             updated += 1;
           } else {
             const curation = await Curation.create({ levelId, assignedBy }, { transaction });
             await curation.setTypes(collapsedIncomingIds, { transaction });
+            await recordCurationTypeChange({
+              levelId,
+              previousTypeIds: [],
+              newTypeIds: collapsedIncomingIds,
+              changedBy,
+              transaction,
+            });
             created += 1;
             await notifyChartOwners({
               type: NOTIFICATION_TYPES.ChartCurated,
@@ -1750,6 +1766,13 @@ router.put(
         throw { status: 500, error: 'Failed to load curation after save' };
       }
       await row.setTypes(uniqueTypeIds, { transaction });
+      await recordCurationTypeChange({
+        levelId,
+        previousTypeIds: [...oldTypeIds],
+        newTypeIds: uniqueTypeIds,
+        changedBy: req.user?.id ?? null,
+        transaction,
+      });
 
       await transaction.commit();
       committed = true;
@@ -1949,6 +1972,13 @@ router.put(
         }
       }
       await curation.setTypes(uniqueTypeIds, { transaction });
+      await recordCurationTypeChange({
+        levelId: curation.levelId,
+        previousTypeIds: [...oldTypeIds],
+        newTypeIds: uniqueTypeIds,
+        changedBy: req.user?.id ?? null,
+        transaction,
+      });
     }
 
     const completeCuration = await Curation.findByPk(id, {
@@ -2077,7 +2107,10 @@ router.delete(
     transaction = await sequelize.transaction();
     const {id} = req.params;
 
-    const curation = await Curation.findByPk(id, { transaction });
+    const curation = await Curation.findByPk(id, {
+      transaction,
+      include: [{ model: CurationType, as: 'types', through: { attributes: [] } }],
+    });
     if (!curation) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'Curation not found'});
@@ -2106,6 +2139,14 @@ router.delete(
     const oldCurationTypeSets = creatorIds.length > 0
       ? await roleSyncService.getCreatorsCurationTypeSets(creatorIds)
       : undefined;
+
+    await recordCurationTypeChange({
+      levelId: curation.levelId,
+      previousTypeIds: (curation.types || []).map((t) => t.id),
+      newTypeIds: [],
+      changedBy: req.user?.id ?? null,
+      transaction,
+    });
 
     // Clean up CDN files for this curation
     await cleanupCurationCdnFiles([curation]);

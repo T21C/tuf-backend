@@ -269,6 +269,7 @@ export const OAuthController = {
               channelId: profile.id,
               title: profile.nickname || profile.username,
               handle: profile.handle ?? null,
+              refreshToken: profile.refreshToken,
             });
           } else {
             await OAuthService.linkProvider(req.user!.id, {
