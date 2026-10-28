@@ -4,6 +4,15 @@ import {hasFlag, type PermissionInput} from '@/misc/utils/auth/permissionUtils.j
 export const BAN_DURATION_UNITS = ['hours', 'days', 'weeks', 'months'] as const;
 export type BanDurationUnit = (typeof BAN_DURATION_UNITS)[number];
 
+/** Ban with no expiry. Duration is ignored. */
+export const BAN_FOREVER_UNIT = 'forever' as const;
+
+export const BAN_EXPIRY_UNITS = [...BAN_DURATION_UNITS, BAN_FOREVER_UNIT] as const;
+
+export function isForeverBanUnit(unit: unknown): unit is typeof BAN_FOREVER_UNIT {
+  return unit === BAN_FOREVER_UNIT;
+}
+
 export const BAN_DURATION_MIN = 1;
 export const BAN_DURATION_MAX = 999;
 
@@ -108,4 +117,11 @@ export function computeBannedUntil(
       throw new PlayerBanError(400, 'unit must be hours, days, weeks, or months');
   }
   return result;
+}
+
+/** Forever resolves to no expiry. Any other unit requires a duration in range. */
+export function resolveBannedUntil(input: BanDurationInput, now = new Date()): Date | null {
+  if (isForeverBanUnit(input.unit)) return null;
+  const parsed = parseBanDuration(input);
+  return computeBannedUntil(parsed.duration, parsed.unit, now);
 }

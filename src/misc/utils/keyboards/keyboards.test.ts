@@ -9,6 +9,9 @@ import {
   keySignature,
   matchRankerToPlayer,
   parseBoardSpecInput,
+  layoutSetupRecord,
+  promoteSharedBoardDefaults,
+  assertBoardSpecFitsGeometry,
   parseSwitchSensing,
   parseKeybindText,
   parseStoredGeometryKeys,
@@ -205,7 +208,197 @@ test('membrane sensing strips switch-modifiable board fields', () => {
   assert.equal(parsed.rapidTriggerSplit, false);
   assert.equal(parsed.rapidTriggerActuationMm, null);
   assert.deepEqual(parsed.keyOverrides, []);
+  assert.deepEqual(parsed.switches, []);
   assert.throws(() => parseSwitchSensing('membrane'), KeyboardSetupError);
+});
+
+test('a pulled switch clears that key’s switch index', () => {
+  const parsed = parseBoardSpecInput({
+    geometryId: 1,
+    sensing: 'mechanical',
+    switches: [{switchId: 4}],
+    keyOverrides: [{code: 'KeyQ', switchAbsent: true, periodSwitchIndex: 0}],
+  });
+  assert.equal(parsed.keyOverrides?.[0].switchAbsent, true);
+  assert.equal(parsed.keyOverrides?.[0].periodSwitchIndex, null);
+  assert.equal(layoutSetupRecord(parsed).keyOverrides[0].switchAbsent, true);
+});
+
+test('an absent switch drops catalog identity and colors', () => {
+  const parsed = parseBoardSpecInput({
+    geometryId: 1,
+    sensing: 'mechanical',
+    switches: [{absent: true, switchId: 4, customSwitch: 'pulled', stemColor: '#ffffff'}],
+  });
+  assert.equal(parsed.switches?.[0].absent, true);
+  assert.equal(parsed.switches?.[0].switchId, null);
+  assert.equal(parsed.switches?.[0].customSwitch, null);
+  assert.equal(parsed.switches?.[0].stemColor, null);
+  assert.equal(layoutSetupRecord(parsed).switches[0].absent, true);
+});
+
+test('board switch list and per-key actuation round-trip through parse', () => {
+  const parsed = parseBoardSpecInput({
+    geometryId: 1,
+    sensing: 'hall',
+    switches: [
+      {id: 9, switchId: 4, customSwitch: 'alpha', stemColor: '#E23B3B', baseOpacity: 0.5},
+      {customSwitch: 'beta', stemColor: '#2f6fdb'},
+    ],
+    keyOverrides: [
+      {
+        code: 'KeyA',
+        periodSwitchId: 9,
+        actuationMm: 1.25,
+        rapidTriggerSplit: false,
+        rapidTriggerActuationMm: 0.4,
+      },
+      {
+        code: 'KeyS',
+        periodSwitchIndex: 1,
+        actuationMm: 2,
+        rapidTriggerPressMm: 0.3,
+        rapidTriggerReleaseMm: 0.2,
+      },
+    ],
+  });
+  assert.equal(parsed.switches?.length, 2);
+  assert.equal(parsed.switches?.[0].stemColor, '#e23b3b');
+  assert.equal(parsed.switches?.[0].baseOpacity, 0.5);
+  assert.equal(parsed.keyOverrides?.[0].periodSwitchIndex, 0);
+  assert.equal(parsed.keyOverrides?.[0].actuationMm, 1.25);
+  assert.equal(parsed.keyOverrides?.[0].rapidTriggerSplit, false);
+  assert.equal(parsed.keyOverrides?.[0].rapidTriggerActuationMm, 0.4);
+  assert.equal(parsed.keyOverrides?.[1].periodSwitchIndex, 1);
+  assert.equal(parsed.keyOverrides?.[1].rapidTriggerSplit, true);
+  assert.equal(parsed.keyOverrides?.[1].rapidTriggerActuationMm, null);
+  assert.equal(parsed.keyOverrides?.[1].rapidTriggerPressMm, 0.3);
+});
+
+test('non-hall sensing strips per-key rapid trigger', () => {
+  const parsed = parseBoardSpecInput({
+    geometryId: 1,
+    sensing: 'mechanical',
+    keyOverrides: [
+      {
+        code: 'KeyA',
+        rapidTriggerSplit: true,
+        rapidTriggerPressMm: 0.4,
+        rapidTriggerReleaseMm: 0.2,
+        actuationMm: 1.5,
+      },
+    ],
+  });
+  assert.equal(parsed.keyOverrides?.[0].actuationMm, 1.5);
+  assert.equal(parsed.keyOverrides?.[0].rapidTriggerSplit, null);
+  assert.equal(parsed.keyOverrides?.[0].rapidTriggerPressMm, null);
+});
+
+test('shared per-key actuation copies up to the board', () => {
+  const promoted = promoteSharedBoardDefaults(
+    parseBoardSpecInput({
+      geometryId: 1,
+      sensing: 'hall',
+      actuationMm: 2,
+      rapidTriggerActuationMm: 1,
+      switches: [
+        {customSwitch: 'left', stemColor: '#e23b3b'},
+        {customSwitch: 'right', stemColor: '#2f6fdb'},
+      ],
+      keyOverrides: [
+        {
+          code: 'KeyA',
+          periodSwitchIndex: 1,
+          actuationMm: 1.5,
+          rapidTriggerSplit: false,
+          rapidTriggerActuationMm: 0.4,
+        },
+        {
+          code: 'KeyS',
+          periodSwitchIndex: 1,
+          actuationMm: 1.5,
+          rapidTriggerActuationMm: 0.4,
+        },
+      ],
+    }),
+    ['KeyA', 'KeyS'],
+  );
+  assert.equal(promoted.actuationMm, 1.5);
+  assert.equal(promoted.rapidTriggerSplit, false);
+  assert.equal(promoted.rapidTriggerActuationMm, 0.4);
+  assert.equal(promoted.customSwitch, 'right');
+  assert.equal(promoted.stemColor, '#2f6fdb');
+});
+
+test('mixed per-key depths leave board defaults in place', () => {
+  const promoted = promoteSharedBoardDefaults(
+    parseBoardSpecInput({
+      geometryId: 1,
+      sensing: 'mechanical',
+      actuationMm: 2,
+      customSwitch: 'stock',
+      switches: [{customSwitch: 'left'}, {customSwitch: 'right'}],
+      keyOverrides: [
+        {code: 'KeyA', periodSwitchIndex: 0, actuationMm: 1},
+        {code: 'KeyS', periodSwitchIndex: 1, actuationMm: 2},
+      ],
+    }),
+    ['KeyA', 'KeyS'],
+  );
+  assert.equal(promoted.actuationMm, 2);
+  assert.equal(promoted.customSwitch, 'stock');
+});
+
+test('switch list longer than 64 is rejected', () => {
+  assert.throws(
+    () =>
+      parseBoardSpecInput({
+        geometryId: 1,
+        switches: Array.from({length: 65}, () => ({customSwitch: 'x'})),
+      }),
+    KeyboardSetupError,
+  );
+});
+
+test('unknown key override codes are rejected against geometry', () => {
+  assert.throws(
+    () =>
+      assertBoardSpecFitsGeometry(
+        parseBoardSpecInput({
+          geometryId: 1,
+          keyOverrides: [{code: 'Nope', actuationMm: 1}],
+        }),
+        ['KeyA'],
+        ['KeyA'],
+      ),
+    KeyboardSetupError,
+  );
+});
+
+test('switch list longer than bindable keys is rejected', () => {
+  assert.throws(
+    () =>
+      assertBoardSpecFitsGeometry(
+        parseBoardSpecInput({
+          geometryId: 1,
+          switches: [{customSwitch: 'a'}, {customSwitch: 'b'}, {customSwitch: 'c'}],
+        }),
+        ['KeyA', 'KeyS'],
+        ['KeyA'],
+      ),
+    KeyboardSetupError,
+  );
+});
+
+test('import snapshot board fields keep version 1 with per-key data', () => {
+  const parsed = parseBoardSpecInput({
+    geometryId: 1,
+    sensing: 'hall',
+    switches: [{customSwitch: 'left', stemColor: '#e23b3b'}],
+    keyOverrides: [{code: 'KeyA', periodSwitchIndex: 0, actuationMm: 1.25}],
+  });
+  assert.equal(parsed.switches?.[0].customSwitch, 'left');
+  assert.equal(parsed.keyOverrides?.[0].actuationMm, 1.25);
 });
 
 test('KLE import maps known legends to HID codes', () => {

@@ -212,7 +212,6 @@ const buildItemTree = (items: any[], parentId = 0): any[] => {
   children.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
   return children.map(item => {
-    // Handle both Sequelize model instances and plain objects
     const itemId = item.id;
     const subChildren = buildItemTree(items, itemId);
 

@@ -19,6 +19,12 @@ class KeyboardBoardPeriodKey extends Model<
   declare socketEmpty: CreationOptional<boolean>;
   declare switchId: number | null;
   declare customSwitch: string | null;
+  declare periodSwitchId: number | null;
+  declare actuationMm: number | null;
+  declare rapidTriggerSplit: boolean | null;
+  declare rapidTriggerActuationMm: number | null;
+  declare rapidTriggerPressMm: number | null;
+  declare rapidTriggerReleaseMm: number | null;
 }
 
 KeyboardBoardPeriodKey.init(
@@ -29,6 +35,12 @@ KeyboardBoardPeriodKey.init(
     socketEmpty: {type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false},
     switchId: {type: DataTypes.INTEGER, allowNull: true},
     customSwitch: {type: DataTypes.STRING(120), allowNull: true},
+    periodSwitchId: {type: DataTypes.INTEGER, allowNull: true},
+    actuationMm: {type: DataTypes.DECIMAL(4, 2), allowNull: true},
+    rapidTriggerSplit: {type: DataTypes.BOOLEAN, allowNull: true},
+    rapidTriggerActuationMm: {type: DataTypes.DECIMAL(4, 2), allowNull: true},
+    rapidTriggerPressMm: {type: DataTypes.DECIMAL(4, 2), allowNull: true},
+    rapidTriggerReleaseMm: {type: DataTypes.DECIMAL(4, 2), allowNull: true},
   },
   {
     sequelize,

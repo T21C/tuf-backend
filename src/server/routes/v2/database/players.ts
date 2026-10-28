@@ -37,9 +37,9 @@ import { serializePlayer } from '@/misc/utils/server/jsonHelpers.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { loadUserTufStellarBilling } from '@/server/services/billing/userTufStellarBillingSupport.js';
 import {
-  computeBannedUntil,
-  parseBanDuration,
+  BAN_EXPIRY_UNITS,
   PlayerBanError,
+  resolveBannedUntil,
   setPlayerBanStatus,
   setRerateRequestBanStatus,
 } from '@/server/services/accounts/PlayerBanService.js';
@@ -886,18 +886,18 @@ router.patch(
     operationId: 'patchPlayerBan',
     summary: 'Ban/unban player',
     description:
-      'Set player ban status. Ban requires duration (1-999) and unit (hours|days|weeks|months). Unban only needs isBanned: false. Super admin.',
+      'Set player ban status. A timed ban requires duration (1-999) and unit (hours|days|weeks|months). unit "forever" bans with no expiry and ignores duration. Unban only needs isBanned: false. Super admin.',
     tags: ['Database', 'Players'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
     requestBody: {
-      description: 'isBanned; duration and unit required when banning',
+      description: 'isBanned; duration and unit required when banning, except unit forever',
       schema: {
         type: 'object',
         properties: {
           isBanned: { type: 'boolean' },
           duration: { type: 'integer', minimum: 1, maximum: 999 },
-          unit: { type: 'string', enum: ['hours', 'days', 'weeks', 'months'] },
+          unit: { type: 'string', enum: [...BAN_EXPIRY_UNITS] },
         },
         required: ['isBanned'],
       },
@@ -916,10 +916,9 @@ router.patch(
       const playerId = Number(id);
       let player;
       if (isBanned) {
-        const parsed = parseBanDuration({duration: req.body.duration, unit: req.body.unit});
         player = await setPlayerBanStatus(playerId, {
           isBanned: true,
-          bannedUntil: computeBannedUntil(parsed.duration, parsed.unit),
+          bannedUntil: resolveBannedUntil({duration: req.body.duration, unit: req.body.unit}),
         });
       } else {
         player = await setPlayerBanStatus(playerId, {isBanned: false});
@@ -951,7 +950,7 @@ router.patch(
     operationId: 'patchPlayerRerateRequestBan',
     summary: 'Restrict or restore rerate requests',
     description:
-      'Timed rerate-request ban. Ban requires duration (1-999) and unit (hours|days|weeks|months). Optional rejectRecent closes open rerates from the last N hours or days.',
+      'Rerate-request ban. A timed ban requires duration (1-999) and unit (hours|days|weeks|months). unit "forever" bans with no expiry and ignores duration. Optional rejectRecent closes open rerates from the last N hours or days.',
     tags: ['Database', 'Players'],
     security: ['bearerAuth'],
     params: {id: idParamSpec},
@@ -966,10 +965,9 @@ router.patch(
       const playerId = Number(req.params.id);
       let player;
       if (isBanned) {
-        const parsed = parseBanDuration({duration: req.body.duration, unit: req.body.unit});
         player = await setRerateRequestBanStatus(playerId, {
           banned: true,
-          bannedUntil: computeBannedUntil(parsed.duration, parsed.unit),
+          bannedUntil: resolveBannedUntil({duration: req.body.duration, unit: req.body.unit}),
         });
         if (req.body.rejectRecent === true) {
           const recentUnit = req.body.rejectRecentUnit;

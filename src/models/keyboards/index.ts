@@ -5,6 +5,7 @@ import KeyboardSwitch from './KeyboardSwitch.js';
 import KeyboardRig from './KeyboardRig.js';
 import KeyboardBoardPeriod from './KeyboardBoardPeriod.js';
 import KeyboardBoardPeriodKey from './KeyboardBoardPeriodKey.js';
+import KeyboardBoardPeriodSwitch from './KeyboardBoardPeriodSwitch.js';
 import KeyboardLane from './KeyboardLane.js';
 import KeyboardLanePeriod from './KeyboardLanePeriod.js';
 import PassBindOverride from './PassBindOverride.js';
@@ -27,6 +28,17 @@ export function initializeKeyboardsAssociations() {
   KeyboardBoardPeriod.belongsTo(KeyboardProduct, {foreignKey: 'productId', as: 'product'});
   KeyboardBoardPeriod.belongsTo(KeyboardSwitch, {foreignKey: 'switchId', as: 'switch'});
 
+  KeyboardBoardPeriod.hasMany(KeyboardBoardPeriodSwitch, {
+    foreignKey: 'boardPeriodId',
+    as: 'switches',
+    onDelete: 'CASCADE',
+  });
+  KeyboardBoardPeriodSwitch.belongsTo(KeyboardBoardPeriod, {
+    foreignKey: 'boardPeriodId',
+    as: 'boardPeriod',
+  });
+  KeyboardBoardPeriodSwitch.belongsTo(KeyboardSwitch, {foreignKey: 'switchId', as: 'switch'});
+
   KeyboardBoardPeriod.hasMany(KeyboardBoardPeriodKey, {
     foreignKey: 'boardPeriodId',
     as: 'keyOverrides',
@@ -37,6 +49,10 @@ export function initializeKeyboardsAssociations() {
     as: 'boardPeriod',
   });
   KeyboardBoardPeriodKey.belongsTo(KeyboardSwitch, {foreignKey: 'switchId', as: 'switch'});
+  KeyboardBoardPeriodKey.belongsTo(KeyboardBoardPeriodSwitch, {
+    foreignKey: 'periodSwitchId',
+    as: 'periodSwitch',
+  });
 
   KeyboardRig.hasMany(KeyboardLane, {foreignKey: 'rigId', as: 'lanes', onDelete: 'CASCADE'});
   KeyboardLane.belongsTo(KeyboardRig, {foreignKey: 'rigId', as: 'rig'});
@@ -65,6 +81,7 @@ export {
   KeyboardRig,
   KeyboardBoardPeriod,
   KeyboardBoardPeriodKey,
+  KeyboardBoardPeriodSwitch,
   KeyboardLane,
   KeyboardLanePeriod,
   PassBindOverride,

@@ -16,7 +16,8 @@ import { spacesStorage } from '@/externalServices/cdnService/infra/storage/space
 import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '@/externalServices/cdnService/constants/levelPackAudio.js';
 import {
     createZip as archiveCreateZip,
-    extractAll as archiveExtractAll
+    extractAll as archiveExtractAll,
+    ArchiveSymbolicLinkError,
 } from '@/externalServices/cdnService/infra/archive/archiveService.js';
 import {
     PACK_DOWNLOAD_MAX_SIZE_BYTES,
@@ -752,6 +753,12 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
         await archiveExtractAll(zipPath, extractTo);
         return;
     } catch (error) {
+        if (error instanceof ArchiveSymbolicLinkError) {
+            // A non-empty extract dir is otherwise treated as partial success and later packed.
+            // Drop the tree first: `rm` unlinks a symlink without following it.
+            await fs.promises.rm(extractTo, { recursive: true, force: true }).catch(() => undefined);
+            throw error;
+        }
         let extractedEntries: fs.Dirent[] = [];
         try {
             extractedEntries = await fs.promises.readdir(extractTo, { withFileTypes: true });

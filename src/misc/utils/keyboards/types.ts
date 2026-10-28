@@ -14,6 +14,7 @@ export const MAX_KEYBOARD_RIGS_PER_PLAYER = 8;
 export const MAX_LANES_PER_RIG = 12;
 export const MAX_PERIODS_PER_LIST = 40;
 export const MAX_KEY_COUNT = 64;
+export const MAX_BOARD_SWITCHES = 64;
 export const MAX_KEYBIND_NOTE_LENGTH = 500;
 export const MAX_KEYBOARD_NAME_LENGTH = 120;
 export const MAX_RIG_NAME_LENGTH = 80;
@@ -68,14 +69,33 @@ export type BoardSpecInput = {
   baseColor?: string | null;
   topColor?: string | null;
   baseOpacity?: number | null;
+  switches?: BoardSwitchListInput[];
   keyOverrides?: BoardKeyOverrideInput[];
+};
+
+export type BoardSwitchListInput = {
+  id?: number | null;
+  absent?: boolean;
+  switchId?: number | null;
+  customSwitch?: string | null;
+  stemColor?: string | null;
+  baseColor?: string | null;
+  topColor?: string | null;
+  baseOpacity?: number | null;
 };
 
 export type BoardKeyOverrideInput = {
   code: string;
   socketEmpty?: boolean;
+  switchAbsent?: boolean;
   switchId?: number | null;
   customSwitch?: string | null;
+  periodSwitchIndex?: number | null;
+  actuationMm?: number | null;
+  rapidTriggerSplit?: boolean | null;
+  rapidTriggerActuationMm?: number | null;
+  rapidTriggerPressMm?: number | null;
+  rapidTriggerReleaseMm?: number | null;
 };
 
 export type TimelinePeriod = {
