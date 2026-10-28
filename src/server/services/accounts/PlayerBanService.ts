@@ -15,13 +15,17 @@ export {
   BAN_DURATION_MAX,
   BAN_DURATION_MIN,
   BAN_DURATION_UNITS,
+  BAN_EXPIRY_UNITS,
+  BAN_FOREVER_UNIT,
   computeBannedUntil,
   isAdminBanActive,
   isBanCurrentlyActive,
   isBannedUntilExpired,
+  isForeverBanUnit,
   isPermissionBanActive,
   parseBanDuration,
   PlayerBanError,
+  resolveBannedUntil,
 } from '@/server/services/accounts/playerBanUtils.js';
 export type {BanDurationInput, BanDurationUnit} from '@/server/services/accounts/playerBanUtils.js';
 
@@ -96,11 +100,11 @@ async function reindexBanSideEffects(playerId: number): Promise<void> {
 
 export type SetPlayerBanStatusInput =
   | {isBanned: false}
-  | {isBanned: true; bannedUntil: Date};
+  | {isBanned: true; bannedUntil: Date | null};
 
 export type SetRerateRequestBanInput =
   | {banned: false}
-  | {banned: true; bannedUntil: Date};
+  | {banned: true; bannedUntil: Date | null};
 
 export async function setRerateRequestBanStatus(
   playerId: number,

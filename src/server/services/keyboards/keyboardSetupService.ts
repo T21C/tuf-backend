@@ -5,6 +5,7 @@ import Pass from '@/models/passes/Pass.js';
 import {
   KeyboardBoardPeriod,
   KeyboardBoardPeriodKey,
+  KeyboardBoardPeriodSwitch,
   KeyboardFormFactor,
   KeyboardGeometry,
   KeyboardLane,
@@ -27,10 +28,14 @@ import {
   assertUniqueSinceDates,
   canonicalizeKeys,
   currentPeriod,
+  assertBoardSpecFitsGeometry,
   emptySocketCodes,
   findPeriodAt,
   keySignature,
   parseBoardSpecInput,
+  parseLayoutSetup,
+  layoutSetupRecord,
+  promoteSharedBoardDefaults,
   parseSwitchSensing,
   parseKeysArray,
   parseSinceDate,
@@ -58,6 +63,11 @@ const RIG_INCLUDE = [
       {model: KeyboardGeometry, as: 'geometry'},
       {model: KeyboardProduct, as: 'product'},
       {model: KeyboardSwitch, as: 'switch'},
+      {
+        model: KeyboardBoardPeriodSwitch,
+        as: 'switches',
+        include: [{model: KeyboardSwitch, as: 'switch'}],
+      },
       {model: KeyboardBoardPeriodKey, as: 'keyOverrides'},
     ],
   },
@@ -159,12 +169,19 @@ function parseBaseOpacity(raw: unknown): number | null {
   return Math.round(n * 100) / 100;
 }
 
+type BoardPeriodSwitchRow = KeyboardBoardPeriodSwitch & {switch?: KeyboardSwitch | null};
+
 function serializeBoardPeriod(row: KeyboardBoardPeriod & {
   geometry?: KeyboardGeometry | null;
   product?: KeyboardProduct | null;
   switch?: KeyboardSwitch | null;
+  switches?: BoardPeriodSwitchRow[];
   keyOverrides?: KeyboardBoardPeriodKey[];
 }) {
+  const switchRows = [...(row.switches ?? [])].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.id - b.id,
+  );
+  const switchIndexById = new Map(switchRows.map((item, index) => [item.id, index]));
   return {
     id: Number(row.id),
     sinceDate: sinceKey(row.sinceDate),
@@ -192,13 +209,47 @@ function serializeBoardPeriod(row: KeyboardBoardPeriod & {
     geometry: row.geometry ? serializeGeometry(row.geometry) : null,
     product: row.product ? serializeProduct(row.product) : null,
     switch: row.switch ? serializeSwitch(row.switch) : null,
+    switches: switchRows.map((item) => ({
+      id: Number(item.id),
+      absent: Boolean(item.absent),
+      switchId: item.switchId,
+      customSwitch: item.customSwitch,
+      stemColor: item.stemColor,
+      baseColor: item.baseColor,
+      topColor: item.topColor,
+      baseOpacity: item.baseOpacity == null ? null : Number(item.baseOpacity),
+      switch: item.switch ? serializeSwitch(item.switch) : null,
+    })),
     keyOverrides: (row.keyOverrides ?? []).map((item) => ({
       code: item.keyCode,
       socketEmpty: Boolean(item.socketEmpty),
       switchId: item.switchId,
       customSwitch: item.customSwitch,
+      periodSwitchId: item.periodSwitchId,
+      periodSwitchIndex:
+        item.periodSwitchId == null ? null : (switchIndexById.get(item.periodSwitchId) ?? null),
+      actuationMm: mm(item.actuationMm),
+      rapidTriggerSplit: item.rapidTriggerSplit == null ? null : Boolean(item.rapidTriggerSplit),
+      rapidTriggerActuationMm: mm(item.rapidTriggerActuationMm),
+      rapidTriggerPressMm: mm(item.rapidTriggerPressMm),
+      rapidTriggerReleaseMm: mm(item.rapidTriggerReleaseMm),
     })),
   };
+}
+
+function readSetupJson(value: unknown): Record<string, unknown> | null {
+  if (value == null || value === '') return null;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+      return parsed as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  return null;
 }
 
 function serializeLanePeriod(row: KeyboardLanePeriod) {
@@ -210,7 +261,98 @@ function serializeLanePeriod(row: KeyboardLanePeriod) {
     keys: row.keysJson,
     keySignature: row.keySignature,
     isGap: row.keysJson == null,
+    setup: readSetupJson(row.setupJson),
   };
+}
+
+type LoadedBoardPeriod = KeyboardBoardPeriod & {
+  switches?: KeyboardBoardPeriodSwitch[];
+  keyOverrides?: KeyboardBoardPeriodKey[];
+};
+
+function layoutSetupFromLoadedBoard(board: LoadedBoardPeriod) {
+  const switchRows = [...(board.switches ?? [])].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.id - b.id,
+  );
+  const indexById = new Map(switchRows.map((item, index) => [item.id, index]));
+  const switches = switchRows.length
+    ? switchRows.map((item) => ({
+      absent: Boolean(item.absent),
+      switchId: item.switchId,
+      customSwitch: item.customSwitch,
+      stemColor: item.stemColor,
+      baseColor: item.baseColor,
+      topColor: item.topColor,
+      baseOpacity: item.baseOpacity == null ? null : Number(item.baseOpacity),
+    }))
+    : board.sensing === 'membrane'
+      ? []
+      : [{
+        switchId: board.switchId,
+        customSwitch: board.customSwitch,
+        stemColor: board.stemColor,
+        baseColor: board.baseColor,
+        topColor: board.topColor,
+        baseOpacity: board.baseOpacity == null ? null : Number(board.baseOpacity),
+      }];
+  const raw = {
+    switches,
+    keyOverrides: (board.keyOverrides ?? []).map((item) => ({
+      code: item.keyCode,
+      socketEmpty: Boolean(item.socketEmpty),
+      switchId: item.switchId,
+      customSwitch: item.customSwitch,
+      periodSwitchIndex: item.periodSwitchId == null ? null : (indexById.get(item.periodSwitchId) ?? null),
+      actuationMm: mm(item.actuationMm),
+      rapidTriggerSplit: item.rapidTriggerSplit == null ? null : Boolean(item.rapidTriggerSplit),
+      rapidTriggerActuationMm: mm(item.rapidTriggerActuationMm),
+      rapidTriggerPressMm: mm(item.rapidTriggerPressMm),
+      rapidTriggerReleaseMm: mm(item.rapidTriggerReleaseMm),
+    })),
+    switchId: board.switchId,
+    customSwitch: board.customSwitch,
+    actuationMm: mm(board.actuationMm),
+    rapidTriggerSplit: Boolean(board.rapidTriggerSplit),
+    rapidTriggerActuationMm: mm(board.rapidTriggerActuationMm),
+    rapidTriggerPressMm: mm(board.rapidTriggerPressMm),
+    rapidTriggerReleaseMm: mm(board.rapidTriggerReleaseMm),
+    stemColor: board.stemColor,
+    baseColor: board.baseColor,
+    topColor: board.topColor,
+    baseOpacity: board.baseOpacity == null ? null : Number(board.baseOpacity),
+  };
+  if (!board.geometryId) return raw;
+  return layoutSetupRecord(parseLayoutSetup(raw, board.geometryId, board.sensing));
+}
+
+async function backfillMissingLaneSetups(rigId: number, transaction: Transaction) {
+  const boards = await KeyboardBoardPeriod.findAll({
+    where: {rigId},
+    include: [
+      {model: KeyboardBoardPeriodSwitch, as: 'switches'},
+      {model: KeyboardBoardPeriodKey, as: 'keyOverrides'},
+    ],
+    transaction,
+  });
+  const lanes = await KeyboardLane.findAll({
+    where: {rigId},
+    include: [{model: KeyboardLanePeriod, as: 'periods'}],
+    transaction,
+  });
+  for (const lane of lanes) {
+    const periods = (lane as KeyboardLane & {periods?: KeyboardLanePeriod[]}).periods ?? [];
+    for (const period of periods) {
+      if (period.setupJson != null || period.keysJson == null) continue;
+      const dated = coveringBoardPeriod(boards, sinceKey(period.sinceDate));
+      const board = dated && !dated.isGap && dated.geometryId
+        ? dated
+        : [...boards].reverse().find((row) => !row.isGap && row.geometryId) ?? null;
+      if (!board) continue;
+      await period.update({
+        setupJson: layoutSetupFromLoadedBoard(board as LoadedBoardPeriod),
+      }, {transaction});
+    }
+  }
 }
 
 function serializeRig(row: KeyboardRig & {
@@ -226,6 +368,7 @@ function serializeRig(row: KeyboardRig & {
         geometry?: KeyboardGeometry | null;
         product?: KeyboardProduct | null;
         switch?: KeyboardSwitch | null;
+        switches?: BoardPeriodSwitchRow[];
         keyOverrides?: KeyboardBoardPeriodKey[];
       }),
     ),
@@ -362,18 +505,43 @@ function assertKeysOnBoard(
   }
 }
 
-async function replaceKeyOverrides(
+async function replaceBoardPeriodDetails(
   boardPeriodId: number,
   spec: BoardSpecInput,
   transaction: Transaction,
 ) {
   await KeyboardBoardPeriodKey.destroy({where: {boardPeriodId}, transaction});
+  await KeyboardBoardPeriodSwitch.destroy({where: {boardPeriodId}, transaction});
+  const createdIds: number[] = [];
+  for (const [index, row] of (spec.switches ?? []).entries()) {
+    const created = await KeyboardBoardPeriodSwitch.create(
+      {
+        boardPeriodId,
+        sortOrder: index,
+        absent: Boolean(row.absent),
+        switchId: row.switchId ?? null,
+        customSwitch: row.customSwitch ?? null,
+        stemColor: row.stemColor ?? null,
+        baseColor: row.baseColor ?? null,
+        topColor: row.topColor ?? null,
+        baseOpacity: row.baseOpacity ?? null,
+      },
+      {transaction},
+    );
+    createdIds.push(created.id);
+  }
   const rows = (spec.keyOverrides ?? []).map((row) => ({
     boardPeriodId,
     keyCode: row.code,
     socketEmpty: Boolean(row.socketEmpty),
     switchId: row.switchId ?? null,
     customSwitch: row.customSwitch ?? null,
+    periodSwitchId: row.periodSwitchIndex == null ? null : createdIds[row.periodSwitchIndex] ?? null,
+    actuationMm: row.actuationMm ?? null,
+    rapidTriggerSplit: row.rapidTriggerSplit ?? null,
+    rapidTriggerActuationMm: row.rapidTriggerActuationMm ?? null,
+    rapidTriggerPressMm: row.rapidTriggerPressMm ?? null,
+    rapidTriggerReleaseMm: row.rapidTriggerReleaseMm ?? null,
   }));
   if (rows.length) {
     await KeyboardBoardPeriodKey.bulkCreate(rows, {transaction});
@@ -477,6 +645,7 @@ type SnapshotLanePeriod = {
   untilDate: string | null;
   untilAuto: boolean;
   keys: string[] | null;
+  setup?: unknown;
 };
 
 type RigSnapshot = {
@@ -509,8 +678,7 @@ function parseRigSnapshot(raw: unknown): RigSnapshot {
     const sinceDate = parseSinceDate(rec.sinceDate);
     const until = parseUntilFields(rec, sinceDate);
     if (rec.isGap) return {sinceDate, ...until, isGap: true, spec: null};
-    const specInput = Array.isArray(rec.keyOverrides) ? rec : {...rec, keyOverrides: []};
-    return {sinceDate, ...until, isGap: false, spec: parseBoardSpecInput(specInput)};
+    return {sinceDate, ...until, isGap: false, spec: parseBoardSpecInput(rec)};
   });
   const lanes = lanesRaw.map((item) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
@@ -528,7 +696,17 @@ function parseRigSnapshot(raw: unknown): RigSnapshot {
       const row = period as Record<string, unknown>;
       const keys = row.keys == null ? null : parseKeysArray(row.keys);
       const sinceDate = parseSinceDate(row.sinceDate);
-      return {sinceDate, ...parseUntilFields(row, sinceDate), keys: keys && keys.length ? keys : null};
+      let setup: unknown;
+      if (!('setup' in row)) setup = undefined;
+      else if (row.setup == null) setup = null;
+      else if (typeof row.setup === 'object' && !Array.isArray(row.setup)) setup = row.setup;
+      else throw new KeyboardSetupError(400, 'Invalid layout setup');
+      return {
+        sinceDate,
+        ...parseUntilFields(row, sinceDate),
+        keys: keys && keys.length ? keys : null,
+        setup,
+      };
     });
     const named = typeof rec.name === 'string' ? rec.name : null;
     return {name: named, periods};
@@ -573,6 +751,7 @@ async function writeSnapshot(rig: KeyboardRig, snapshot: RigSnapshot, transactio
         untilDate: period.untilDate,
         untilAuto: period.untilAuto,
         keys,
+        setup: period.setup,
         boardPeriods,
         transaction,
       });
@@ -667,13 +846,19 @@ async function writeBoardPeriod(opts: {
     const geo = await assertGeometry(spec.geometryId, transaction);
     await assertProduct(spec.productId, geo.id, transaction);
     await assertSwitch(spec.switchId, transaction);
+    for (const row of spec.switches ?? []) {
+      await assertSwitch(row.switchId, transaction);
+    }
     for (const row of spec.keyOverrides ?? []) {
       await assertSwitch(row.switchId, transaction);
     }
+    const storedKeys = parseStoredKeys(geo.keysJson);
+    const bindable = bindableCodeSet(storedKeys);
+    assertBoardSpecFitsGeometry(spec, storedKeys.map((key) => key.code), bindable);
+    readySpec = promoteSharedBoardDefaults(spec, bindable);
     geometryId = geo.id;
-    productId = spec.productId ?? null;
-    switchId = spec.switchId ?? null;
-    readySpec = spec;
+    productId = readySpec.productId ?? null;
+    switchId = readySpec.switchId ?? null;
   }
 
   const payload = {
@@ -709,7 +894,7 @@ async function writeBoardPeriod(opts: {
   } else {
     row = await KeyboardBoardPeriod.create(payload, {transaction});
   }
-  await replaceKeyOverrides(row.id, readySpec ?? {geometryId: 0, keyOverrides: []}, transaction);
+  await replaceBoardPeriodDetails(row.id, readySpec ?? {geometryId: 0, keyOverrides: []}, transaction);
   return row;
 }
 
@@ -720,6 +905,7 @@ async function writeLanePeriod(opts: {
   untilDate: string | null;
   untilAuto: boolean;
   keys: string[] | null;
+  setup?: unknown;
   boardPeriods: KeyboardBoardPeriod[];
   transaction: Transaction;
 }) {
@@ -739,6 +925,7 @@ async function writeLanePeriod(opts: {
 
   let keysJson: string[] | null = null;
   let signature: string | null = null;
+  let storedSetup: object | null | undefined;
   if (keys != null) {
     if (canonicalizeKeys(keys).length !== lane.keyCount) {
       throw new KeyboardSetupError(400, `This lane requires exactly ${lane.keyCount} keys`);
@@ -751,8 +938,28 @@ async function writeLanePeriod(opts: {
       throw new KeyboardSetupError(400, 'Cannot bind keys while this rig has no board');
     }
     const geometry = await assertGeometry(board.geometryId, transaction);
-    const spec = parseBoardSpecInput({
+    let laneSpec: BoardSpecInput | null = null;
+    if (opts.setup !== undefined) {
+      if (opts.setup == null) {
+        storedSetup = null;
+      } else {
+        laneSpec = parseLayoutSetup(opts.setup, board.geometryId, board.sensing);
+        const storedKeys = parseStoredKeys(geometry.keysJson);
+        assertBoardSpecFitsGeometry(
+          laneSpec,
+          storedKeys.map((key) => key.code),
+          bindableCodeSet(storedKeys),
+        );
+        await assertSwitch(laneSpec.switchId, transaction);
+        for (const row of laneSpec.switches ?? []) {
+          await assertSwitch(row.switchId, transaction);
+        }
+        storedSetup = layoutSetupRecord(laneSpec);
+      }
+    }
+    const spec = laneSpec ?? parseBoardSpecInput({
       geometryId: board.geometryId,
+      sensing: board.sensing,
       keyOverrides: (
         await KeyboardBoardPeriodKey.findAll({where: {boardPeriodId: board.id}, transaction})
       ).map((row) => ({
@@ -765,6 +972,8 @@ async function writeLanePeriod(opts: {
     assertKeysOnBoard(keys, geometry, spec);
     keysJson = canonicalizeKeys(keys);
     signature = keySignature(keysJson);
+  } else {
+    storedSetup = null;
   }
 
   if (keysJson) {
@@ -790,7 +999,16 @@ async function writeLanePeriod(opts: {
     ]);
   }
 
-  const payload = {laneId: lane.id, sinceDate, untilDate, untilAuto, keysJson, keySignature: signature};
+  const payload: {
+    laneId: number;
+    sinceDate: string | null;
+    untilDate: string | null;
+    untilAuto: boolean;
+    keysJson: string[] | null;
+    keySignature: string | null;
+    setupJson?: object | null;
+  } = {laneId: lane.id, sinceDate, untilDate, untilAuto, keysJson, keySignature: signature};
+  if (storedSetup !== undefined) payload.setupJson = storedSetup;
   if (match) {
     await match.update(payload, {transaction});
     return match;
@@ -817,6 +1035,7 @@ export async function saveRigRevision(
     if ('name' in raw) {
       await rig.update({name: parseOptionalName(raw.name, MAX_RIG_NAME_LENGTH)}, {transaction});
     }
+    await backfillMissingLaneSetups(rig.id, transaction);
     if (!skipBoard) {
       await writeBoardPeriod({
         rig,
@@ -864,6 +1083,7 @@ export async function saveRigRevision(
         untilDate: laneUntil.untilDate,
         untilAuto: laneUntil.untilAuto,
         keys,
+        setup: 'setup' in rec ? rec.setup : undefined,
         boardPeriods,
         transaction,
       });
@@ -1521,7 +1741,10 @@ export async function updateSwitchRow(id: number, raw: Record<string, unknown>) 
 }
 
 export async function deleteSwitchRow(id: number) {
-  const used = await KeyboardBoardPeriod.count({where: {switchId: id}});
+  const used =
+    (await KeyboardBoardPeriod.count({where: {switchId: id}}))
+    + (await KeyboardBoardPeriodSwitch.count({where: {switchId: id}}))
+    + (await KeyboardBoardPeriodKey.count({where: {switchId: id}}));
   if (used) throw new KeyboardSetupError(409, 'Switch is used by player setups');
   const row = await KeyboardSwitch.findByPk(id);
   if (!row) throw new KeyboardSetupError(404, 'Switch not found');
