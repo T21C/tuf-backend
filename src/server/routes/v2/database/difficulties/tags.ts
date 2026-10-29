@@ -33,6 +33,8 @@ import {
   rematerializeCommunityTagsForTagIds,
 } from '@/server/services/data/communityTagVoteService.js';
 import { parseCommunityTagKnobFields } from '@/misc/utils/data/communityTagEligibility.js';
+import { isAutomaticLevelTagName } from '@/misc/utils/data/automaticLevelTags.js';
+import { checkLevelOwnership } from '@/server/domain/levels/levelOwnership.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 /**
@@ -400,7 +402,7 @@ router.post(
     let transaction: any;
     try {
       transaction = await sequelize.transaction();
-      const { name, color, icon, group, groupId, isCommunity, passWarningEnabled } = req.body;
+      const { name, color, icon, group, groupId, isCommunity, passWarningEnabled, charterManagable } = req.body;
       const iconFile = req.file;
 
       if (!name || !color) {
@@ -471,6 +473,7 @@ router.post(
         sortOrder: lastSortOrder + 1,
         isCommunity: parseFormBoolean(isCommunity) ?? false,
         passWarningEnabled: parseFormBoolean(passWarningEnabled) ?? true,
+        charterManagable: parseFormBoolean(charterManagable) ?? false,
         description: knobs.description ?? null,
         wilsonZ: knobs.wilsonZ ?? null,
         scoreOn: knobs.scoreOn ?? null,
@@ -514,7 +517,7 @@ router.put(
     try {
       transaction = await sequelize.transaction();
       const tagId = parseInt(req.params.id);
-      const { name, color, icon, group, groupId, isCommunity, passWarningEnabled } = req.body;
+      const { name, color, icon, group, groupId, isCommunity, passWarningEnabled, charterManagable } = req.body;
       const iconFile = req.file;
 
       const tag = await LevelTag.findByPk(tagId);
@@ -597,6 +600,10 @@ router.put(
       const nextPassWarningEnabled = parseFormBoolean(passWarningEnabled);
       if (nextPassWarningEnabled !== undefined) {
         updateData.passWarningEnabled = nextPassWarningEnabled;
+      }
+      const nextCharterManagable = parseFormBoolean(charterManagable);
+      if (nextCharterManagable !== undefined) {
+        updateData.charterManagable = nextCharterManagable;
       }
 
       let knobs: ReturnType<typeof parseCommunityTagKnobFields> = {};
@@ -807,6 +814,69 @@ router.post(
       await safeTransactionRollback(transaction);
       logger.error('Error assigning tags to level:', error);
       return res.status(500).json({ error: 'Failed to assign tags to level' });
+    }
+  },
+);
+
+router.post(
+  '/levels/:levelId([0-9]{1,20})/charter-tags',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postLevelCharterTags',
+    summary: 'Set charter-managed tags on a level',
+    description: 'Replaces only charterManagable tags. Caller must own the level. Other tags stay.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { levelId: { schema: { type: 'string' } } },
+    requestBody: { description: 'tagIds', schema: { type: 'object', properties: { tagIds: { type: 'array', items: { type: 'number' } } }, required: ['tagIds'] }, required: true },
+    responses: { 200: { description: 'Charter tags updated' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: Awaited<ReturnType<typeof sequelize.transaction>> | undefined;
+    try {
+      transaction = await sequelize.transaction();
+      const levelId = parseInt(req.params.levelId, 10);
+      const { tagIds } = req.body;
+      if (!Array.isArray(tagIds)) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'tagIds must be an array' });
+      }
+      const uniqueIds = [...new Set(tagIds.map((id: unknown) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+      const { canEdit, errorMessage } = await checkLevelOwnership(levelId, req.user, transaction);
+      if (!canEdit) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({ error: errorMessage || 'You are not authorized to edit this level' });
+      }
+      const posted = uniqueIds.length
+        ? await LevelTag.findAll({ where: { id: { [Op.in]: uniqueIds } }, transaction })
+        : [];
+      if (posted.length !== uniqueIds.length || posted.some((tag) => !tag.charterManagable || isAutomaticLevelTagName(tag.name))) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Only charter-managed tags can be changed here' });
+      }
+      const existing = await LevelTagAssignment.findAll({
+        where: { levelId },
+        include: [{ model: LevelTag, as: 'tag', attributes: ['id', 'charterManagable', 'name'] }],
+        transaction,
+      });
+      for (const assignment of existing) {
+        const tag = (assignment as LevelTagAssignment & { tag?: LevelTag }).tag;
+        if (!tag?.charterManagable || isAutomaticLevelTagName(tag.name)) continue;
+        if (!uniqueIds.includes(assignment.tagId)) {
+          await assignment.destroy({ transaction });
+        }
+      }
+      const present = new Set(existing.map((assignment) => assignment.tagId));
+      for (const tagId of uniqueIds) {
+        if (present.has(tagId)) continue;
+        await LevelTagAssignment.create({ levelId, tagId }, { transaction });
+      }
+      await transaction.commit();
+      return res.json(await loadSerializedAssignedTags(levelId));
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error updating charter tags:', error);
+      return res.status(500).json({ error: 'Failed to update charter tags' });
     }
   },
 );

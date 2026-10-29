@@ -243,11 +243,11 @@ const levelOwnEditLimiter = createUserRateLimiter({
 });
 
 // Helper functions for level updates
-const handleRatingChanges = async (
+export async function handleRatingChanges(
   level: Level,
   req: Request,
   transaction: Transaction,
-): Promise<{settledRatingId: number | null}> => {
+): Promise<{settledRatingId: number | null}> {
   if (
     typeof req.body.toRate === 'boolean' &&
     req.body.toRate !== level.toRate
@@ -455,7 +455,7 @@ async function finalizePassScoreRecalc(
 }
 
 /** DB recalc (transaction) then search index + notifications — correct commit order. */
-async function executeLevelPassScoreRecalc(
+export async function executeLevelPassScoreRecalc(
   levelId: number,
   updateData: Record<string, unknown>,
 ): Promise<PassScoreRecalcResult> {

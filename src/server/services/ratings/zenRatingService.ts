@@ -117,6 +117,7 @@ export async function dealZenDeck(
     myRated: 'hide',
     zeroClears: false,
     rankReady: false,
+    flows: [1, 2],
     vote: 'exclude',
     excludeUniversals: false,
     includeRequestBands,

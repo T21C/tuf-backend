@@ -29,6 +29,7 @@ class LevelTag extends Model<
   declare scoringMode: CreationOptional<string | null>;
   declare allowedBands: CreationOptional<string[] | null>;
   declare requireTopPlay: CreationOptional<boolean | null>;
+  declare charterManagable: CreationOptional<boolean>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
   declare tagGroup?: LevelTagGroup | null;
@@ -114,6 +115,11 @@ LevelTag.init(
       type: DataTypes.BOOLEAN,
       allowNull: true,
       comment: 'Require top play + 1 to vote; null inherits group, true/false overrides.',
+    },
+    charterManagable: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,

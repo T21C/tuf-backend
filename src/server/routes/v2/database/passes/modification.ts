@@ -23,7 +23,7 @@ import {
 import { sanitizeJudgements } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { parseAdofaiVersion } from '@/misc/utils/pass/adofaiVersion.js';
 import { preparePassJudgementsForPersist } from '@/misc/utils/pass/passEraApply.js';
-import { deriveKeyFlags, normalizeKeyCount } from '@/misc/utils/pass/keyCount.js';
+import { deriveKeyFlags, MAX_PASS_KEY_COUNT, normalizeKeyCount } from '@/misc/utils/pass/keyCount.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { User } from '@/models/index.js';
 import Creator from '@/models/credits/Creator.js';
@@ -879,6 +879,145 @@ router.patch(
       await safeTransactionRollback(transaction);
       logger.error('Error updating pass feeling rating:', error);
       return res.status(500).json({ error: 'Failed to update pass feeling rating' });
+    }
+  },
+);
+
+router.patch(
+  '/:id([0-9]{1,20})/self',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'updateOwnPass',
+    summary: 'Update own pass details',
+    description: 'Update player-managed fields on a pass the caller owns: feelingRating, expectedRating, details, and keyCount. Does not change score, video, or judgements. feelingRating is required and may be any non-empty text up to 500 characters. expectedRating and details are optional. keyCount is optional and, when set, must be an integer from 1 to 64; is12K and is16K are derived from it.',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: {
+      description: 'Player-managed pass fields',
+      schema: {
+        type: 'object',
+        required: ['feelingRating'],
+        properties: {
+          feelingRating: { type: 'string', maxLength: FEELING_RATING_MAX_LENGTH },
+          expectedRating: { type: 'string', nullable: true },
+          details: { type: 'string', nullable: true },
+          keyCount: { type: 'integer', nullable: true, minimum: 1, maximum: MAX_PASS_KEY_COUNT },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Updated pass' },
+      400: { description: 'Invalid feeling rating, details, or key count' },
+      401: { description: 'Authentication required' },
+      403: { description: 'Not pass owner' },
+      404: { description: 'Pass not found' },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+    try {
+      const rawFeeling = req.body?.feelingRating;
+      if (rawFeeling === undefined || rawFeeling === null) {
+        return res.status(400).json({ error: 'feelingRating is required' });
+      }
+      const feelingRating = sanitizeTextInput(
+        typeof rawFeeling === 'string' ? rawFeeling : String(rawFeeling),
+      );
+      if (!feelingRating) {
+        return res.status(400).json({ error: 'feelingRating cannot be empty' });
+      }
+      if (feelingRating.length > FEELING_RATING_MAX_LENGTH) {
+        return res.status(400).json({ error: 'feelingRating is too long' });
+      }
+
+      const rawExpected = req.body?.expectedRating;
+      let expectedRating: string | null = null;
+      if (rawExpected !== undefined && rawExpected !== null && rawExpected !== '') {
+        if (typeof rawExpected !== 'string') {
+          return res.status(400).json({ error: 'expectedRating must be a string' });
+        }
+        expectedRating = sanitizeTextInput(rawExpected) || null;
+      }
+
+      let details: string | null;
+      try {
+        details = sanitizePassDetails(req.body?.details ?? null);
+      } catch (err: any) {
+        if (err?.code === 400) {
+          return res.status(400).json({ error: err.error });
+        }
+        throw err;
+      }
+
+      const rawKeyCount = req.body?.keyCount;
+      let keyCount: number | null = null;
+      if (rawKeyCount !== undefined && rawKeyCount !== null && rawKeyCount !== '') {
+        keyCount = normalizeKeyCount(rawKeyCount);
+        if (keyCount === null) {
+          return res.status(400).json({
+            error: `keyCount must be an integer between 1 and ${MAX_PASS_KEY_COUNT}`,
+          });
+        }
+      }
+      const keyFlags = deriveKeyFlags(keyCount);
+
+      transaction = await sequelize.transaction();
+      const id = parseInt(req.params.id);
+      const user = req.user;
+
+      if (!user || !user.playerId) {
+        await safeTransactionRollback(transaction);
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      const pass = await Pass.findOne({
+        where: { id },
+        include: [
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['id'],
+          },
+        ],
+        transaction,
+      });
+
+      if (!pass) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Pass not found' });
+      }
+
+      if (pass.playerId !== user.playerId) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({ error: 'You can only update your own passes' });
+      }
+
+      const update = {
+        feelingRating,
+        expectedRating,
+        details,
+        keyCount,
+        is12K: keyFlags.is12K,
+        is16K: keyFlags.is16K,
+      };
+      await pass.update(update, { transaction });
+      await transaction.commit();
+
+      await elasticsearchService.indexPass(pass.id);
+
+      return res.json({
+        message: 'Pass updated successfully',
+        pass: {
+          ...pass.toJSON(),
+          ...update,
+        },
+      });
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error updating own pass:', error);
+      return res.status(500).json({ error: 'Failed to update pass' });
     }
   },
 );

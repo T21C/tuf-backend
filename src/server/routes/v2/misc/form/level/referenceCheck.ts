@@ -45,7 +45,7 @@ export async function assertRequestedTagIdsExist(
   if (tagIds.length === 0) return;
   const tags = await LevelTag.findAll({
     where: { id: { [Op.in]: tagIds } },
-    attributes: ['id', 'name'],
+    attributes: ['id', 'name', 'charterManagable'],
     transaction,
   });
   if (tags.length !== tagIds.length) {
@@ -53,6 +53,9 @@ export async function assertRequestedTagIdsExist(
   }
   if (tags.some((tag) => isAutomaticLevelTagName(tag.name))) {
     throw formError.bad('Tags read from the level file are set by the parser, not by request', { field: 'tagIds' });
+  }
+  if (tags.some((tag) => !tag.charterManagable)) {
+    throw formError.bad('Only charter-managed tags can be requested', { field: 'tagIds' });
   }
 }
 
