@@ -18,11 +18,26 @@ interface RatingAttributes {
   discordMessageUrl: string | null;
   discordPostError: string | null;
   discordThreadClosed: boolean;
+  autoraterCombined: Record<string, unknown> | null;
+  autoRankBlockedBy: string | null;
+  autoRankBlockReason: string | null;
+  autoRankBlockedAt: Date | null;
 }
 
 type RatingCreationAttributes = Optional<
   RatingAttributes,
-  'id' | 'averageDifficultyId' | 'communityDifficultyId' | 'settledDiffId' | 'clearsAtSettle' | 'discordMessageUrl' | 'discordPostError' | 'discordThreadClosed'
+  | 'id'
+  | 'averageDifficultyId'
+  | 'communityDifficultyId'
+  | 'settledDiffId'
+  | 'clearsAtSettle'
+  | 'discordMessageUrl'
+  | 'discordPostError'
+  | 'discordThreadClosed'
+  | 'autoraterCombined'
+  | 'autoRankBlockedBy'
+  | 'autoRankBlockReason'
+  | 'autoRankBlockedAt'
 >;
 
 class Rating
@@ -48,6 +63,10 @@ class Rating
   declare discordMessageUrl: string | null;
   declare discordPostError: string | null;
   declare discordThreadClosed: boolean;
+  declare autoraterCombined: Record<string, unknown> | null;
+  declare autoRankBlockedBy: string | null;
+  declare autoRankBlockReason: string | null;
+  declare autoRankBlockedAt: Date | null;
 }
 
 Rating.init(
@@ -118,6 +137,26 @@ Rating.init(
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,
+    },
+    autoraterCombined: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    autoRankBlockedBy: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      defaultValue: null,
+    },
+    autoRankBlockReason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+    },
+    autoRankBlockedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
   },
   {

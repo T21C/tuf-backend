@@ -26,6 +26,8 @@ import { parseZenIncludeBands } from '@/server/services/ratings/zenRatingConstan
 import {
   attachSerializedAccuracySamples,
 } from '@/server/services/ratings/ratingAccuracyService.js';
+import { attachRatingFlow } from '@/server/services/ratings/ratingFlowAttach.js';
+import type { RatingFlowId } from '@/misc/utils/data/ratingFlow.js';
 
 const DISCORD_VOTE_LEVEL_IDS_SQL = `(SELECT DISTINCT levelId FROM level_requests WHERE type = 'rerate' AND linkedRatingId IS NOT NULL AND discordThreadClosed = 0 AND (immediateSettle = 1 OR status = 'discord_vote' OR discordMessageUrl IS NOT NULL) UNION SELECT DISTINCT levelId FROM ratings WHERE discordMessageUrl IS NOT NULL AND discordThreadClosed = 0 AND confirmedAt IS NULL)`;
 
@@ -49,6 +51,8 @@ export interface RatingListQuery {
   myRated: ShowHideOnly;
   zeroClears: boolean;
   rankReady: boolean;
+  /** When set, keep rows whose computed flow is in this list. Applied after hydrate. */
+  flows: RatingFlowId[] | null;
   vote: VoteFilter;
   excludeUniversals: boolean;
   /** When set, keep only these request bands from the proposal string. */
@@ -191,6 +195,9 @@ export function parseRatingListQuery(
     reqQuery.rankReady === true ||
     reqQuery.rankReady === 'true' ||
     reqQuery.rankReady === '1';
+  const flowNumber = Number(reqQuery.flow);
+  const flows: RatingFlowId[] | null =
+    flowNumber === 1 || flowNumber === 2 || flowNumber === 3 ? [flowNumber] : null;
 
   let vote: VoteFilter;
   if (reqQuery.vote === 'only' || reqQuery.vote === 'exclude') {
@@ -213,6 +220,7 @@ export function parseRatingListQuery(
     myRated,
     zeroClears,
     rankReady,
+    flows,
     vote,
     excludeUniversals: false,
     includeRequestBands,
@@ -230,6 +238,7 @@ export function ratingListPageCacheKey(params: RatingListQuery): string {
     fourVote: params.fourVote,
     zeroClears: params.zeroClears,
     rankReady: params.rankReady,
+    flows: params.flows ?? null,
     vote: params.vote ?? null,
     excludeUniversals: params.excludeUniversals,
     includeRequestBands: params.includeRequestBands ?? null,
@@ -420,6 +429,7 @@ export async function hydrateRatingListRows(
     );
     rows.push(plain);
   }
+  await attachRatingFlow(rows);
   return rows;
 }
 
@@ -547,11 +557,9 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
 
   const managerCountSql = managerDetailCountSql(params.rankReady);
   const havingParts: string[] = [];
-  if (params.rankReady) {
-    havingParts.push(`${managerCountSql} >= 2`);
-  } else if (params.fourVote === 'hide') {
+  if (!params.rankReady && params.fourVote === 'hide') {
     havingParts.push(`${MANAGER_DETAIL_COUNT_SQL} < 4`);
-  } else if (params.fourVote === 'only') {
+  } else if (!params.rankReady && params.fourVote === 'only') {
     havingParts.push(`${MANAGER_DETAIL_COUNT_SQL} >= 4`);
   }
 
@@ -576,6 +584,7 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
   };
 
   const bandFiltered = Boolean(includeBandSet && includeBandSet.size < 3);
+  const memoryPage = Boolean(params.flows?.length) || params.rankReady;
 
   const findOptions: any = {
     where: ratingWhere,
@@ -583,7 +592,7 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
     order: orderClause,
     subQuery: false,
   };
-  if (!bandFiltered) {
+  if (!bandFiltered && !memoryPage) {
     findOptions.limit = params.limit;
     findOptions.offset = params.offset;
   }
@@ -597,7 +606,7 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
   }
 
   let total = 0;
-  if (!bandFiltered) {
+  if (!bandFiltered && !memoryPage) {
     if (havingParts.length > 0) {
       const countRows = await Rating.findAll({
         where: ratingWhere,
@@ -637,18 +646,32 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
   const ratings = await Rating.findAll(findOptions);
   let pageRatings = ratings;
   if (bandFiltered && includeBandSet) {
-    const filtered = ratings.filter((row) => {
+    pageRatings = ratings.filter((row) => {
       const level = row.level as { rerateNum?: string | null } | undefined;
       const band = requestPguBand(level?.rerateNum, row.requesterFR);
       return includeBandSet.has(band);
     });
-    total = filtered.length;
-    pageRatings = filtered.slice(params.offset, params.offset + params.limit);
+    if (!memoryPage) {
+      total = pageRatings.length;
+      pageRatings = pageRatings.slice(params.offset, params.offset + params.limit);
+    }
   }
 
   let results = await hydrateRatingListRows(pageRatings);
 
-  if (!bandFiltered && params.excludeUniversals) {
+  if (memoryPage) {
+    if (params.flows?.length) {
+      const allowed = new Set(params.flows);
+      results = results.filter((row) => allowed.has(row.flow as RatingFlowId));
+    }
+    if (params.rankReady) {
+      results = results.filter((row) => row.settleActor === 'admin');
+    }
+    total = results.length;
+    results = results.slice(params.offset, params.offset + params.limit);
+  }
+
+  if (!bandFiltered && !memoryPage && params.excludeUniversals) {
     results = results.filter((row) => {
       const level = row.level as { rerateNum?: string | null } | undefined;
       return !isUniversalRatingProposal(
@@ -813,6 +836,7 @@ export async function buildCompleteRatingById(
       : Boolean(plain.discordThreadClosed),
   });
 
+  await attachRatingFlow([plain]);
   return plain;
 }
 

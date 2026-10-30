@@ -68,6 +68,7 @@ import { broadcastRatingUpsert } from '@/server/services/ratings/ratingListServi
 import { ensureOpenRating } from '@/server/services/ratings/openRatingService.js';
 import { postUqClearRatingThread } from '@/server/services/ratings/ratingDiscordThread.js';
 import { voteThreadLabel } from '@/misc/utils/data/ratingThread.js';
+import { isFloorQName } from '@/misc/utils/data/ratingFlow.js';
 import { syncVoteWeightsForLevel } from '@/server/services/data/communityTagVoteService.js';
 import type { SubmissionQueuePayload } from './submissionJobTypes.js';
 
@@ -740,8 +741,12 @@ async function approvePassSubmission(
   }
 
   let createdRatingId: number | null = null;
-  if (level.clears === 0 && difficulty.name.includes('Q') && speed === 1) {
-    const isUq = difficulty.name.includes('UQ');
+  if (
+    level.clears === 0 &&
+    speed === 1 &&
+    (isFloorQName(difficulty.name, 'G') || isFloorQName(difficulty.name, 'U'))
+  ) {
+    const isUq = isFloorQName(difficulty.name, 'U');
     const reqFr = isUq
       ? voteThreadLabel((submission.feelingDifficulty || '').trim() || difficulty.name)
       : (submission.feelingDifficulty ?? '');

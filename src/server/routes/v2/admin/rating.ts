@@ -64,6 +64,12 @@ import {
   countOfficialRatingsInUtcMonth,
   enqueueTufStellarNomineeIfEligible,
 } from '@/server/services/ratings/tufStellarNomineeService.js';
+import {
+  RatingActionError,
+  blockAutoRank,
+  settleExactFlow1,
+  unblockAutoRank,
+} from '@/server/services/ratings/ratingSettleService.js';
 
 const router: Router = Router();
 
@@ -890,5 +896,82 @@ router.delete(
     }
   }
 );
+
+router.post(
+  '/:id/settle',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postAdminRatingSettle',
+    summary: 'Settle an exact Flow 1 match',
+    description: 'Applies the agreed difficulty when the server says a rater may settle. The one-step-off case is rejected.',
+    tags: ['Admin', 'Rating'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Rating settled' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'User not found' });
+      const complete = await settleExactFlow1(Number(req.params.id), req.user!);
+      return res.json({ message: 'Rating settled', complete });
+    } catch (error) {
+      return sendRatingActionError(res, error, 'Failed to settle rating');
+    }
+  },
+);
+
+router.post(
+  '/:id/block',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postAdminRatingBlock',
+    summary: 'Block auto rank on an open rating',
+    description: 'Any rater can block auto rank for this open rating. Optional reason.',
+    tags: ['Admin', 'Rating'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Auto rank blocked' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'User not found' });
+      const complete = await blockAutoRank(Number(req.params.id), req.user!, req.body?.reason);
+      return res.json({ message: 'Auto rank blocked', complete });
+    } catch (error) {
+      return sendRatingActionError(res, error, 'Failed to block auto rank');
+    }
+  },
+);
+
+router.post(
+  '/:id/unblock',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postAdminRatingUnblock',
+    summary: 'Clear an auto rank block',
+    description: 'Super admins can remove a rater block from an open rating.',
+    tags: ['Admin', 'Rating'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Auto rank unblocked' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'User not found' });
+      const complete = await unblockAutoRank(Number(req.params.id), req.user!);
+      return res.json({ message: 'Auto rank unblocked', complete });
+    } catch (error) {
+      return sendRatingActionError(res, error, 'Failed to unblock auto rank');
+    }
+  },
+);
+
+function sendRatingActionError(res: Response, error: unknown, fallback: string) {
+  if (error instanceof RatingActionError) {
+    return res.status(error.statusCode).json({ error: error.message });
+  }
+  logger.error(fallback, error);
+  return res.status(500).json({ error: fallback });
+}
 
 export default router;
