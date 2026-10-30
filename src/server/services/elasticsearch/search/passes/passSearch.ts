@@ -24,7 +24,7 @@ import {
   resolveSearchSeed,
   wrapQueryWithSeededRandom,
 } from '@/server/services/elasticsearch/search/tools/seededRandomSort.js';
-import { filterValueToAdofaiVersion } from '@/misc/utils/pass/adofaiVersion.js';
+import { filterValueToAdofaiVersions } from '@/misc/utils/pass/adofaiVersion.js';
 import type { FacetQueryV1 } from '@/misc/utils/search/facetQuery.js';
 import { buildFacetDomainClause } from '@/misc/utils/search/facetQuery.js';
 
@@ -97,9 +97,11 @@ export async function searchPasses(query: string, filters: any = {}, userPlayerI
     }
 
     if (filters.adofaiVersionFilter && filters.adofaiVersionFilter !== 'all') {
-      const version = filterValueToAdofaiVersion(String(filters.adofaiVersionFilter));
-      if (version != null) {
-        must.push(termField('adofaiVersion', version));
+      const versions = filterValueToAdofaiVersions(String(filters.adofaiVersionFilter));
+      if (versions?.length === 1) {
+        must.push(termField('adofaiVersion', versions[0]));
+      } else if (versions?.length) {
+        must.push(termsField('adofaiVersion', versions));
       }
     }
 

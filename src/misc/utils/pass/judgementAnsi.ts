@@ -25,6 +25,5 @@ export function formatJudgementAnsi(
 export function adofaiEraWebhookLabel(adofaiVersion: unknown): string | null {
   const n = typeof adofaiVersion === 'number' ? adofaiVersion : Number(adofaiVersion);
   if (n === ADOFAI_VERSION.V2) return 'ADOFAI v2';
-  if (n === ADOFAI_VERSION.PRE_3_4_0) return '<3.4.0';
   return null;
 }

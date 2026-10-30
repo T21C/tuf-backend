@@ -193,6 +193,35 @@ export function cardBandFromTier(tier: string | null | undefined): CardBand {
   return null;
 }
 
+const PGU_BAND_RANK: Record<'P' | 'G' | 'U', number> = { P: 0, G: 1, U: 2 };
+
+/** Band of one human rating. A range that crosses bands uses the higher band. */
+function bandFromRaterRating(rating: string): CardBand {
+  const text = String(rating ?? '').trim();
+  if (!text) return null;
+  if (mentionsSpecial(text, 'Impossible')) return 'Impossible';
+  const direct = cardBandFromTier(text);
+  if (direct) return direct;
+  let band: 'P' | 'G' | 'U' | null = null;
+  for (const part of parseRatingRange(text, new Set(['Impossible', 'Censored']))) {
+    const next = cardBandFromTier(part);
+    if (next !== 'P' && next !== 'G' && next !== 'U') continue;
+    if (!band || PGU_BAND_RANK[next] > PGU_BAND_RANK[band]) band = next;
+  }
+  return band;
+}
+
+/** Flow 2 color comes only from non-community, non-AutoRater votes. */
+function raterCardBand(humans: FlowDetail[]): CardBand {
+  const bands = humans
+    .map((detail) => bandFromRaterRating(detail.rating))
+    .filter((band): band is Exclude<CardBand, null> => band != null);
+  if (bands.length === 0) return null;
+  if (bands.some((band) => band === 'Impossible')) return 'Impossible';
+  const first = bands[0];
+  return bands.every((band) => band === first) ? first : null;
+}
+
 export function evaluateRatingFlow(input: {
   diffId: number;
   diffName: string | null;
@@ -211,20 +240,28 @@ export function evaluateRatingFlow(input: {
   const modelImpossible = (autoraterModelLabels(input.combinedTier) ?? [])
     .some((label) => label.toLowerCase() === 'impossible');
   const flow = assignFlow(input, decisionBand);
-  const cardBand: CardBand = flow === 2 ? null : (modelImpossible ? 'Impossible' : decisionBand);
-  const indicators = {
+  const humans = humanDetails(input.details, input.autoraterUserId);
+  const manualFlow = flow !== 1;
+  const cardBand: CardBand = flow === 2
+    ? raterCardBand(humans)
+    : (modelImpossible ? 'Impossible' : decisionBand);
+  const rawIndicators = {
     judgementLimit: input.tags.some((tag) => tag.name === 'Judgement Limit'),
     keyLimit: input.tags.some((tag) => tag.name === 'Key Limiter' || KEY_LIMIT_NAME.test(tag.name)),
   };
-  const humans = humanDetails(input.details, input.autoraterUserId);
+  const indicators = manualFlow
+    ? { judgementLimit: false, keyLimit: false }
+    : rawIndicators;
   const managerImpossible = humans.some((detail) => mentionsSpecial(detail.rating, 'Impossible'));
   const managerCensored = humans.some((detail) => mentionsSpecial(detail.rating, 'Censored'));
-  const autoRankDisabled = input.manuallyBlocked
-    || indicators.judgementLimit
-    || indicators.keyLimit
+  const autoRankDisabled = !manualFlow && (
+    input.manuallyBlocked
+    || rawIndicators.judgementLimit
+    || rawIndicators.keyLimit
     || managerImpossible
     || managerCensored
-    || modelImpossible;
+    || modelImpossible
+  );
 
   if (flow === 3) {
     return finish({
@@ -260,12 +297,13 @@ export function evaluateRatingFlow(input: {
 }
 
 function finish(partial: Omit<RatingFlowDecision, 'showRankable' | 'showRatingOff'>): RatingFlowDecision {
-  const showRankable = partial.rankState === 'rankable'
-    && (partial.flow !== 1 || !partial.autoRankDisabled);
+  const showRankable = partial.flow === 1
+    && partial.rankState === 'rankable'
+    && !partial.autoRankDisabled;
   return {
     ...partial,
     showRankable,
-    showRatingOff: partial.rankState === 'ratingOff',
+    showRatingOff: partial.flow === 1 && partial.rankState === 'ratingOff',
   };
 }
 
