@@ -1,7 +1,7 @@
 const tierPattern = '(?:[PGU](?:[1-9]|1[0-9]|20)|Impossible|Censored)';
 const tier = new RegExp(`^${tierPattern}$`);
 const average = new RegExp(`^(${tierPattern})(?: (low|mid|high))?$`);
-const display = new RegExp(`^(${tierPattern})(?: (?:low|mid|high))? \\(${tierPattern}, ${tierPattern}, ${tierPattern}, ${tierPattern}\\)$`);
+const display = new RegExp(`^(${tierPattern})(?: (?:low|mid|high))? \\((${tierPattern}), (${tierPattern}), (${tierPattern}), (${tierPattern})\\)$`);
 
 export interface AutoraterRatingResult {
   tufid: number;
@@ -32,4 +32,11 @@ export function validateAutoraterResult(value: unknown, levelId: number): Autora
 export function ratingForAverage(rating: string, userId: string, autoraterId?: string): string {
   if (!autoraterId || userId !== autoraterId) return rating;
   return display.exec(rating)?.[1] ?? rating;
+}
+
+/** RR, V2, V2.1, and V2.2 labels from a stored V2 display string. */
+export function autoraterModelLabels(rating: string | null | undefined): string[] | null {
+  const match = display.exec(String(rating ?? '').trim());
+  if (!match) return null;
+  return [match[2], match[3], match[4], match[5]];
 }

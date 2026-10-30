@@ -11,7 +11,7 @@ import type { UserAttributes } from '@/models/auth/User.js';
 import { permissionFlags } from '@/config/constants.js';
 import { canApplyAutoRank, hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { isDiscordVoteCard } from '@/misc/utils/data/RatingUtils.js';
-import { evaluateRatingFlow, resolveCombinedTier } from '@/misc/utils/data/ratingFlow.js';
+import { autoraterVoteText, evaluateRatingFlow } from '@/misc/utils/data/ratingFlow.js';
 import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
@@ -249,7 +249,7 @@ async function decisionFor(loaded: Awaited<ReturnType<typeof loadOpenRating>>) {
       discordMessageUrl: rating.discordMessageUrl,
       discordThreadClosed: rating.discordThreadClosed,
     }),
-    combinedTier: resolveCombinedTier(details, autoraterUserId, rating.autoraterCombined),
+    combinedTier: autoraterVoteText(details, autoraterUserId, rating.autoraterCombined),
     details,
     autoraterUserId,
     tags: (level.tags || []).map((tag) => ({ name: tag.name })),

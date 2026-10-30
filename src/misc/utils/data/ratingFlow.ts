@@ -1,5 +1,5 @@
 import { parseQRange } from '@/misc/utils/data/communityTagEligibility.js';
-import { ratingForAverage } from '@/misc/utils/data/autoraterResult.js';
+import { autoraterModelLabels, ratingForAverage } from '@/misc/utils/data/autoraterResult.js';
 import { parseRatingRange } from '@/misc/utils/data/RatingUtils.js';
 
 export type RatingFlowId = 1 | 2 | 3;
@@ -88,6 +88,27 @@ export function resolveCombinedTier(
 ): string | null {
   return combinedTierFromDetails(details, autoraterUserId)
     ?? combinedTierFromAutorater(readStoredCombined(storedCombined)?.tier);
+}
+
+/** Raw AutoRater vote, including the four model labels when the V2 string is stored. */
+export function autoraterVoteText(
+  details: FlowDetail[],
+  autoraterUserId: string | null,
+  storedCombined: unknown,
+): string | null {
+  if (autoraterUserId) {
+    const vote = details.find((detail) => !detail.isCommunityRating && detail.userId === autoraterUserId);
+    const text = vote?.rating?.trim();
+    if (text) return text;
+  }
+  return readStoredCombined(storedCombined)?.tier ?? null;
+}
+
+/** P/G/U of the AutoRater average. Missing or non-PGU votes are not a hide band. */
+export function autoraterHideBand(rating: string | null | undefined): 'P' | 'G' | 'U' | null {
+  const band = cardBandFromTier(combinedTierFromAutorater(rating));
+  if (band === 'P' || band === 'G' || band === 'U') return band;
+  return null;
 }
 
 export function parseAutoraterCombined(payload: unknown): AutoraterCombined | null {
@@ -186,15 +207,24 @@ export function evaluateRatingFlow(input: {
   difficulties: FlowDifficulty[];
 }): RatingFlowDecision {
   const combinedTier = combinedTierFromAutorater(input.combinedTier);
-  const cardBand = cardBandFromTier(combinedTier);
-  const flow = assignFlow(input, cardBand);
+  const decisionBand = cardBandFromTier(combinedTier);
+  const modelImpossible = (autoraterModelLabels(input.combinedTier) ?? [])
+    .some((label) => label.toLowerCase() === 'impossible');
+  const flow = assignFlow(input, decisionBand);
+  const cardBand: CardBand = flow === 2 ? null : (modelImpossible ? 'Impossible' : decisionBand);
   const indicators = {
     judgementLimit: input.tags.some((tag) => tag.name === 'Judgement Limit'),
     keyLimit: input.tags.some((tag) => tag.name === 'Key Limiter' || KEY_LIMIT_NAME.test(tag.name)),
   };
   const humans = humanDetails(input.details, input.autoraterUserId);
-  const special = humans.some((detail) => mentionsSpecial(detail.rating, 'Impossible') || mentionsSpecial(detail.rating, 'Censored'));
-  const autoRankDisabled = input.manuallyBlocked || indicators.judgementLimit || indicators.keyLimit || special;
+  const managerImpossible = humans.some((detail) => mentionsSpecial(detail.rating, 'Impossible'));
+  const managerCensored = humans.some((detail) => mentionsSpecial(detail.rating, 'Censored'));
+  const autoRankDisabled = input.manuallyBlocked
+    || indicators.judgementLimit
+    || indicators.keyLimit
+    || managerImpossible
+    || managerCensored
+    || modelImpossible;
 
   if (flow === 3) {
     return finish({
@@ -210,7 +240,7 @@ export function evaluateRatingFlow(input: {
 
   const ladder = buildLadder(input.difficulties);
   const agreement = flow === 1
-    ? agreeFlow1(combinedTier, cardBand, humans, ladder, input.difficulties)
+    ? agreeFlow1(combinedTier, decisionBand, humans, ladder, input.difficulties)
     : agreeFlow2(combinedTier, humans, ladder);
 
   let settleActor: SettleActor = null;

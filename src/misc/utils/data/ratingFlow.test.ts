@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  autoraterHideBand,
   combinedTierFromAutorater,
   evaluateRatingFlow,
   explicitRequestBand,
@@ -180,6 +181,7 @@ test('cleared unranked G moves to flow 2', () => {
     details: [detail(1, 'G17'), detail(2, 'G18')],
   });
   assert.equal(decision.flow, 2);
+  assert.equal(decision.cardBand, null);
   assert.equal(decision.rankState, 'rankable');
   assert.equal(decision.settleActor, 'admin');
 });
@@ -193,6 +195,59 @@ test('UQ0 and discord votes are flow 3', () => {
 test('GQ0 and a P rerate are flow 2', () => {
   assert.equal(evaluate({ diffId: 4, diffName: 'GQ0 (G1~G4)', clears: 1 }).flow, 2);
   assert.equal(evaluate({ diffId: 12, diffName: 'P8', rerateNum: 'P10' }).flow, 2);
+});
+
+test('one manager Censored blocks auto rank and a community Censored does not', () => {
+  const manager = evaluate({
+    combinedTier: 'P12',
+    details: [
+      detail(1, 'P12'),
+      { id: 2, userId: 'user-2', rating: 'Censored', isCommunityRating: false },
+    ],
+  });
+  assert.equal(manager.cardBand, 'P');
+  assert.equal(manager.autoRankDisabled, true);
+  assert.equal(manager.settleActor, 'admin');
+  assert.equal(manager.showRankable, false);
+
+  const community = evaluate({
+    combinedTier: 'P12',
+    details: [
+      detail(1, 'P12'),
+      { id: 2, userId: 'user-2', rating: 'Censored', isCommunityRating: true },
+    ],
+  });
+  assert.equal(community.autoRankDisabled, false);
+  assert.equal(community.settleActor, 'rater');
+});
+
+test('an Impossible model blocks auto rank and colors the card', () => {
+  const decision = evaluate({
+    combinedTier: 'P12 mid (P12, Impossible, P12, P11)',
+    details: [detail(1, 'P12')],
+  });
+  assert.equal(decision.flow, 1);
+  assert.equal(decision.cardBand, 'Impossible');
+  assert.equal(decision.autoRankDisabled, true);
+  assert.equal(decision.rankState, 'rankable');
+  assert.equal(decision.settleActor, 'admin');
+  assert.equal(decision.showRankable, false);
+  assert.equal(autoraterHideBand('P12 mid (P12, Impossible, P12, P11)'), 'P');
+  assert.equal(autoraterHideBand('U7 high (U8, U7, U6, U7)'), 'U');
+  assert.equal(autoraterHideBand(null), null);
+});
+
+test('flow 2 drops the autorater color even when a model is Impossible', () => {
+  const decision = evaluate({
+    diffId: 12,
+    diffName: 'P8',
+    rerateNum: 'P10',
+    combinedTier: 'G17 high (G17, Impossible, G16, G18)',
+    details: [detail(1, 'G17'), detail(2, 'G18')],
+  });
+  assert.equal(decision.flow, 2);
+  assert.equal(decision.cardBand, null);
+  assert.equal(decision.autoRankDisabled, true);
 });
 
 test('Impossible and Censored human votes disable rater settle without recoloring', () => {
