@@ -11,10 +11,10 @@ import { passMetaFlagsToDb } from './passMetaFlags.js';
 
 export function resolveSubmitAdofaiVersion(body: Record<string, unknown>): AdofaiVersion {
   if (body.adofaiVersion !== undefined && body.adofaiVersion !== null && body.adofaiVersion !== '') {
-    return parseAdofaiVersion(body.adofaiVersion, ADOFAI_VERSION.PRE_3_4_0);
+    return parseAdofaiVersion(body.adofaiVersion, ADOFAI_VERSION.V3_4_0);
   }
   const legacy = body.isAdofaiV2 === true || body.isAdofaiV2 === 'true';
-  return legacy ? ADOFAI_VERSION.V2 : ADOFAI_VERSION.PRE_3_4_0;
+  return legacy ? ADOFAI_VERSION.V2 : ADOFAI_VERSION.V3_4_0;
 }
 
 export function constrainXPerfect(

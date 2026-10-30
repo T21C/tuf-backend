@@ -227,7 +227,7 @@ router.get(
     operationId: 'getAdminRatings',
     summary: 'Unconfirmed ratings (paged)',
     description:
-      'Paged pending ratings (confirmedAt null, toRate true). Hybrid ES text search + MySQL filters. Query includeP/includeG/includeU (default all on) hides cards by the AutoRater average band, same as Zen Mode. Cards with no AutoRater vote stay listed. Cached public pages; myRated hide/only uncached.',
+      'Paged pending ratings (confirmedAt null, toRate true). Hybrid ES text search + MySQL filters. Query includeP/includeG/includeU (default all on) hides cards by the AutoRater average band, same as Zen Mode. Cards with no AutoRater vote stay listed. fourVote hide/only compares the non-community rating count with fourVoteMin (default 4). Cached public pages; myRated hide/only uncached.',
     tags: ['Admin', 'Rating'],
     responses: { 200: { description: 'Paged ratings list' }, ...standardErrorResponses500 },
   }),

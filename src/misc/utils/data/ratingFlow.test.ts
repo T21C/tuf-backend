@@ -181,9 +181,11 @@ test('cleared unranked G moves to flow 2', () => {
     details: [detail(1, 'G17'), detail(2, 'G18')],
   });
   assert.equal(decision.flow, 2);
-  assert.equal(decision.cardBand, null);
+  assert.equal(decision.cardBand, 'G');
   assert.equal(decision.rankState, 'rankable');
   assert.equal(decision.settleActor, 'admin');
+  assert.equal(decision.showRankable, false);
+  assert.equal(decision.autoRankDisabled, false);
 });
 
 test('UQ0 and discord votes are flow 3', () => {
@@ -237,17 +239,56 @@ test('an Impossible model blocks auto rank and colors the card', () => {
   assert.equal(autoraterHideBand(null), null);
 });
 
-test('flow 2 drops the autorater color even when a model is Impossible', () => {
+test('flow 2 color follows the raters and ignores AutoRater', () => {
   const decision = evaluate({
     diffId: 12,
     diffName: 'P8',
     rerateNum: 'P10',
     combinedTier: 'G17 high (G17, Impossible, G16, G18)',
-    details: [detail(1, 'G17'), detail(2, 'G18')],
+    details: [
+      detail(1, 'G17'),
+      detail(2, 'G18'),
+      { id: 3, userId: 'autorater', rating: 'P1', isCommunityRating: false },
+    ],
   });
   assert.equal(decision.flow, 2);
-  assert.equal(decision.cardBand, null);
-  assert.equal(decision.autoRankDisabled, true);
+  assert.equal(decision.cardBand, 'G');
+  assert.equal(decision.autoRankDisabled, false);
+  assert.equal(decision.showRankable, false);
+  assert.equal(decision.indicators.judgementLimit, false);
+
+  const mixed = evaluate({
+    diffId: 12,
+    diffName: 'P8',
+    rerateNum: 'P10',
+    details: [detail(1, 'P12'), detail(2, 'G17')],
+  });
+  assert.equal(mixed.cardBand, null);
+
+  const impossible = evaluate({
+    diffId: 12,
+    diffName: 'P8',
+    rerateNum: 'P10',
+    details: [detail(1, 'G17'), detail(2, 'Impossible')],
+  });
+  assert.equal(impossible.cardBand, 'Impossible');
+  assert.equal(impossible.autoRankDisabled, false);
+  assert.equal(impossible.showRankable, false);
+});
+
+test('flow 3 stays manual even with an auto-rank tag', () => {
+  const decision = evaluate({
+    diffId: 8,
+    diffName: 'UQ0 (U1~U4)',
+    combinedTier: 'U2',
+    details: [detail(1, 'U2')],
+    tags: [{ name: 'Judgement Limit' }],
+  });
+  assert.equal(decision.flow, 3);
+  assert.equal(decision.autoRankDisabled, false);
+  assert.equal(decision.showRankable, false);
+  assert.equal(decision.indicators.judgementLimit, false);
+  assert.equal(decision.settleActor, null);
 });
 
 test('Impossible and Censored human votes disable rater settle without recoloring', () => {
