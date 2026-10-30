@@ -17,7 +17,6 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import {
   isDiscordVoteCard,
   isUniversalRatingProposal,
-  requestPguBand,
   includeRequestBandsFromFlags,
   type RequestPguBand,
 } from '@/misc/utils/data/RatingUtils.js';
@@ -27,7 +26,7 @@ import {
   attachSerializedAccuracySamples,
 } from '@/server/services/ratings/ratingAccuracyService.js';
 import { attachRatingFlow } from '@/server/services/ratings/ratingFlowAttach.js';
-import type { RatingFlowId } from '@/misc/utils/data/ratingFlow.js';
+import { autoraterHideBand, type RatingFlowId } from '@/misc/utils/data/ratingFlow.js';
 
 const DISCORD_VOTE_LEVEL_IDS_SQL = `(SELECT DISTINCT levelId FROM level_requests WHERE type = 'rerate' AND linkedRatingId IS NOT NULL AND discordThreadClosed = 0 AND (immediateSettle = 1 OR status = 'discord_vote' OR discordMessageUrl IS NOT NULL) UNION SELECT DISTINCT levelId FROM ratings WHERE discordMessageUrl IS NOT NULL AND discordThreadClosed = 0 AND confirmedAt IS NULL)`;
 
@@ -107,6 +106,25 @@ function normalizeIncludeRequestBands(
         band === 'P' || band === 'G' || band === 'U'
     )
   );
+}
+
+async function autoraterBandsByRatingId(ratingIds: number[]): Promise<Map<number, RequestPguBand>> {
+  const autoraterId = (process.env.AUTORATER_UUID || '').trim();
+  const bands = new Map<number, RequestPguBand>();
+  if (!autoraterId || ratingIds.length === 0) return bands;
+  const details = await RatingDetail.findAll({
+    where: {
+      ratingId: { [Op.in]: ratingIds },
+      userId: autoraterId,
+      isCommunityRating: false,
+    },
+    attributes: ['ratingId', 'rating'],
+  });
+  for (const detail of details) {
+    const band = autoraterHideBand(detail.rating);
+    if (band) bands.set(detail.ratingId, band);
+  }
+  return bands;
 }
 
 export function parseCommaSeparatedIds(query: string): number[] | null {
@@ -646,9 +664,10 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
   const ratings = await Rating.findAll(findOptions);
   let pageRatings = ratings;
   if (bandFiltered && includeBandSet) {
+    const autoraterBands = await autoraterBandsByRatingId(ratings.map((row) => row.id));
     pageRatings = ratings.filter((row) => {
-      const level = row.level as { rerateNum?: string | null } | undefined;
-      const band = requestPguBand(level?.rerateNum, row.requesterFR);
+      const band = autoraterBands.get(row.id);
+      if (!band) return true;
       return includeBandSet.has(band);
     });
     if (!memoryPage) {

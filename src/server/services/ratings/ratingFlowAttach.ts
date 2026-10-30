@@ -1,8 +1,8 @@
 import Difficulty from '@/models/levels/Difficulty.js';
 import User from '@/models/auth/User.js';
 import {
+  autoraterVoteText,
   evaluateRatingFlow,
-  resolveCombinedTier,
   type FlowDetail,
   type RatingFlowDecision,
 } from '@/misc/utils/data/ratingFlow.js';
@@ -51,7 +51,7 @@ export async function attachRatingFlow(rows: Record<string, unknown>[]): Promise
       clears: Number(level?.clears ?? 0) || 0,
       rerateNum: typeof level?.rerateNum === 'string' ? level.rerateNum : null,
       isDiscordVote: row.isDiscordVote === true,
-      combinedTier: resolveCombinedTier(details, autoraterUserId, row.autoraterCombined),
+      combinedTier: autoraterVoteText(details, autoraterUserId, row.autoraterCombined),
       details,
       autoraterUserId,
       tags,
