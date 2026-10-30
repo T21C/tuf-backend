@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  combinedTierFromAutorater,
   evaluateRatingFlow,
   explicitRequestBand,
   parseAutoraterCombined,
+  resolveCombinedTier,
   type FlowDifficulty,
   type FlowDetail,
 } from './ratingFlow.js';
@@ -58,6 +60,22 @@ test('explicitRequestBand ignores text that is not a rating', () => {
   assert.equal(explicitRequestBand('GQ0'), 'G');
 });
 
+test('parseAutoraterCombined reads an AutoRater V2 rating result', () => {
+  const parsed = parseAutoraterCombined({
+    tufid: 17158,
+    rating_result: 'U7 high (U8, U7, U6, U7)',
+    avg: 'U7 high',
+    rr: 'U8',
+    v2: 'U7',
+    v21: 'U6',
+    v22: 'U7',
+  });
+  assert.equal(parsed?.tier, 'U7');
+  assert.equal(parsed?.rule, 'U7 high');
+  assert.deepEqual(parsed?.used, ['U8', 'U7', 'U6', 'U7']);
+  assert.equal(parsed?.value, null);
+});
+
 test('parseAutoraterCombined reads the embed combined tier', () => {
   const parsed = parseAutoraterCombined({
     rating: {
@@ -72,6 +90,28 @@ test('parseAutoraterCombined reads the embed combined tier', () => {
   assert.equal(parsed?.value, 37.3925);
   assert.deepEqual(parsed?.used, ['rr', 'v22']);
   assert.equal(parsed?.modelFingerprint, 'abc');
+});
+
+test('resolveCombinedTier uses the saved AutoRater display string', () => {
+  assert.equal(combinedTierFromAutorater('P12 low (P12, P11, P12, P13)'), 'P12');
+  assert.equal(combinedTierFromAutorater('Impossible (Impossible, Impossible, Impossible, Impossible)'), 'Impossible');
+  assert.equal(combinedTierFromAutorater('not a rating'), null);
+  assert.equal(resolveCombinedTier([
+    { id: 2, userId: 'human', rating: 'P11', isCommunityRating: false },
+    { id: 1, userId: 'autorater', rating: 'P12 mid (P11, P12, P12, P13)', isCommunityRating: false },
+  ], 'autorater', null), 'P12');
+});
+
+test('flow 1 uses the V2 AVG tier from the display string', () => {
+  const decision = evaluate({
+    combinedTier: 'P12 mid (P11, P12, P12, P13)',
+    details: [detail(1, 'P12')],
+  });
+  assert.equal(decision.flow, 1);
+  assert.equal(decision.cardBand, 'P');
+  assert.equal(decision.rankState, 'rankable');
+  assert.equal(decision.settleActor, 'rater');
+  assert.equal(decision.suggestedDiffName, 'P12');
 });
 
 test('flow 1 exact P match is settlable by a rater', () => {

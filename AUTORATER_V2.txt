@@ -1,0 +1,40 @@
+# AutoRater V2 integration
+
+`AutoraterService` requests `GET /rating-result?tufid={rating.levelId}` from
+`https://auto-rater-cat-v2-api-production.up.railway.app`. Optional
+`AUTORATER_API_URL` overrides that base URL. `OWOSEAN_API_URL` is no longer used
+by this service. Keep the existing `AUTORATER_UUID` account configuration.
+
+The response must belong to the requested level and contain a complete, consistent
+AVG/RR/V2/V2.1/V2.2 display string. The exact `rating_result` is stored as the rating;
+the legacy reason is cleared. No iframe HTML is stored in the database. The frontend
+creates a fixed-origin iframe using the selected level ID.
+
+The machine remains one non-community vote, using only the AVG tier when calculating
+the existing manager average. The parenthesized component estimates do not become
+extra votes. Existing human and legacy rating strings keep their previous behavior.
+No database migration or automatic historical backfill is performed.
+
+Manual rerating remains super-admin-only and settled ratings are rejected. Approved
+new submissions still use the same service automatically. External inference has a
+190-second timeout and happens before a transaction begins. The service rechecks
+the rating under a row lock, then writes the detail and averages in one levels-pool
+transaction. Invalid responses, timeouts, settlement races and write failures keep
+the previous saved result. Ensure deployment request/proxy timeouts accommodate
+the longer upstream request.
+
+Upstream failures expose the first non-empty string from `detail.message`,
+`detail`, `error`, or `message` in the route's existing `error` field, followed by
+"The previous rating has been kept." Missing or malformed messages use the
+existing generic failure text. HTTP status mapping and transactional writes are
+unchanged; no frontend change is required to display the reason.
+
+Run the affected tests:
+
+```sh
+node --import tsx --test src/misc/utils/data/RatingUtils.test.ts src/misc/utils/data/autoraterResult.test.ts src/server/services/data/AutoraterService.test.ts
+```
+
+The service tests mock the HTTP client and database operations; they do not write
+to TUF or claim to exercise a live database. Also run the TypeScript check and
+the repository security lint before deploying.

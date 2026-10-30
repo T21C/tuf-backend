@@ -2,7 +2,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import User from '@/models/auth/User.js';
 import {
   evaluateRatingFlow,
-  readStoredCombined,
+  resolveCombinedTier,
   type FlowDetail,
   type RatingFlowDecision,
 } from '@/misc/utils/data/ratingFlow.js';
@@ -39,7 +39,6 @@ export async function attachRatingFlow(rows: Record<string, unknown>[]): Promise
     const level = asRecord(row.level);
     const diffId = typeof level?.diffId === 'number' ? level.diffId : Number(level?.diffId ?? 0);
     const diff = Number.isFinite(diffId) ? byId.get(diffId) : undefined;
-    const combined = readStoredCombined(row.autoraterCombined);
     const levelTags = level && Array.isArray(level.tags) ? level.tags : [];
     const tags = levelTags
       .map((tag) => asRecord(tag))
@@ -52,7 +51,7 @@ export async function attachRatingFlow(rows: Record<string, unknown>[]): Promise
       clears: Number(level?.clears ?? 0) || 0,
       rerateNum: typeof level?.rerateNum === 'string' ? level.rerateNum : null,
       isDiscordVote: row.isDiscordVote === true,
-      combinedTier: combined?.tier ?? null,
+      combinedTier: resolveCombinedTier(details, autoraterUserId, row.autoraterCombined),
       details,
       autoraterUserId,
       tags,

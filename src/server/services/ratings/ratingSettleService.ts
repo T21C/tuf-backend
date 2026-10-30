@@ -11,7 +11,7 @@ import type { UserAttributes } from '@/models/auth/User.js';
 import { permissionFlags } from '@/config/constants.js';
 import { canApplyAutoRank, hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { isDiscordVoteCard } from '@/misc/utils/data/RatingUtils.js';
-import { evaluateRatingFlow, readStoredCombined } from '@/misc/utils/data/ratingFlow.js';
+import { evaluateRatingFlow, resolveCombinedTier } from '@/misc/utils/data/ratingFlow.js';
 import { sseManager, SSE_SOURCES } from '@/misc/utils/server/sse.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
@@ -231,7 +231,13 @@ async function decisionFor(loaded: Awaited<ReturnType<typeof loadOpenRating>>) {
   const difficulties = await Difficulty.findAll({
     attributes: ['id', 'name', 'type', 'sortOrder'],
   });
-  const combined = readStoredCombined(rating.autoraterCombined);
+  const autoraterUserId = process.env.AUTORATER_UUID ?? null;
+  const details = (rating.details || []).map((detail) => ({
+    id: detail.id,
+    userId: detail.userId,
+    rating: detail.rating,
+    isCommunityRating: detail.isCommunityRating,
+  }));
   return evaluateRatingFlow({
     diffId: level.diffId,
     diffName: level.difficulty?.name ?? null,
@@ -243,14 +249,9 @@ async function decisionFor(loaded: Awaited<ReturnType<typeof loadOpenRating>>) {
       discordMessageUrl: rating.discordMessageUrl,
       discordThreadClosed: rating.discordThreadClosed,
     }),
-    combinedTier: combined?.tier ?? null,
-    details: (rating.details || []).map((detail) => ({
-      id: detail.id,
-      userId: detail.userId,
-      rating: detail.rating,
-      isCommunityRating: detail.isCommunityRating,
-    })),
-    autoraterUserId: process.env.AUTORATER_UUID ?? null,
+    combinedTier: resolveCombinedTier(details, autoraterUserId, rating.autoraterCombined),
+    details,
+    autoraterUserId,
     tags: (level.tags || []).map((tag) => ({ name: tag.name })),
     manuallyBlocked: Boolean(rating.autoRankBlockedBy),
     difficulties: difficulties.map((row) => ({

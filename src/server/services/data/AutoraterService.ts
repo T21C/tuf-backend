@@ -1,22 +1,18 @@
 import axios from 'axios';
-import sequelize from '@/config/db.js';
 import Level from '@/models/levels/Level.js';
 import Rating from '@/models/levels/Rating.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import { calculateAverageRating } from '@/misc/utils/data/RatingUtils.js';
-import { parseAutoraterCombined } from '@/misc/utils/data/ratingFlow.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
-import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { broadcastRatingUpsert } from '@/server/services/ratings/ratingListService.js';
+import { validateAutoraterResult } from '@/misc/utils/data/autoraterResult.js';
+import type {Transaction} from 'sequelize';
 
 const AUTORATER_UUID = process.env.AUTORATER_UUID;
 if (!AUTORATER_UUID) {
   throw new Error('AUTORATER_UUID is not set');
 }
 const autoraterUserId: string = AUTORATER_UUID;
-
-const AUTORATER_EMBED_URL = 'https://www.auto-rater-cat.com/embed/tuf';
 
 export class AutoraterError extends Error {
   constructor(
@@ -46,11 +42,9 @@ class AutoraterService {
   }
 
   async autorateRating(ratingId: number): Promise<AutorateResult> {
-    let transaction: Awaited<ReturnType<typeof sequelize.transaction>> | undefined;
+    let transaction: Transaction | undefined;
     try {
-      transaction = await sequelize.transaction();
-
-      const rating = await Rating.findByPk(ratingId, {transaction});
+      const rating = await Rating.findByPk(ratingId);
       if (!rating) {
         throw new AutoraterError('Rating not found', 404);
       }
@@ -66,66 +60,59 @@ class AutoraterService {
         throw new AutoraterError('Level not found', 404);
       }
 
-      const response = await axios.get(`${AUTORATER_EMBED_URL}/${rating.levelId}/rating`, {
-        timeout: 20000,
+      const apiUrl = (process.env.AUTORATER_API_URL ||
+        'https://auto-rater-cat-v2-api-production.up.railway.app').replace(/\/+$/, '');
+      const response = await axios.get(`${apiUrl}/rating-result`, {
+        params: {tufid: rating.levelId},
+        timeout: 190000,
       });
       if (response.status !== 200) {
-        throw new AutoraterError('Failed to autorate level', 502, response.data);
+        throw new AutoraterError('Failed to autorate level', 502);
       }
 
-      const combined = parseAutoraterCombined(response.data);
-      if (!combined) {
-        const inProgress = Boolean((response.data as { rating_in_progress?: boolean })?.rating_in_progress);
-        throw new AutoraterError(
-          inProgress ? 'Autorater result is still in progress' : 'Autorater has no combined tier',
-          409,
-          response.data,
-        );
+      let result;
+      try {
+        result = validateAutoraterResult(response.data, rating.levelId);
+      } catch {
+        throw new AutoraterError('AutoRater returned an invalid rating result', 502);
       }
 
-      const comment = [
-        `Combined: ${combined.tier}${combined.value != null ? ` (${combined.value})` : ''}`,
-        combined.rule ? `Rule: ${combined.rule}` : '',
-        combined.used.length > 0 ? `Used: ${combined.used.join(', ')}` : '',
-      ].filter(Boolean).join('\n');
+      // Do not hold a database connection during model inference. Recheck settlement
+      // under the same levels-pool transaction used to save the detail and averages.
+      transaction = await Rating.sequelize!.transaction();
+      const current = await Rating.findByPk(ratingId, {transaction, lock: transaction.LOCK.UPDATE});
+      if (!current) throw new AutoraterError('Rating not found', 404);
+      if (current.confirmedAt != null || current.levelId !== rating.levelId) {
+        throw new AutoraterError('Rating changed while AutoRater was running', 409);
+      }
+      const currentLevel = await Level.findByPk(current.levelId, {transaction});
+      if (!currentLevel || currentLevel.isDeleted || currentLevel.isHidden) {
+        throw new AutoraterError('Level not found', 404);
+      }
 
       await RatingDetail.upsert({
-        ratingId,
+        ratingId: ratingId,
         userId: autoraterUserId,
-        rating: combined.tier,
-        comment,
+        rating: result.rating_result,
+        comment: '',
         isCommunityRating: false,
-      });
+      }, {transaction});
 
       const details = await RatingDetail.findAll({
-        where: { ratingId },
+        where: { ratingId: ratingId },
         transaction,
       });
       const averageDifficulty = await calculateAverageRating(details, transaction);
+      logger.debug(`[AutoraterService] averageDifficulty: ${averageDifficulty} for rating ${ratingId}`);
       const communityDifficulty = await calculateAverageRating(details, transaction, true);
       await Rating.update(
         {
           averageDifficultyId: averageDifficulty?.id ?? null,
           communityDifficultyId: communityDifficulty?.id ?? null,
-          autoraterCombined: {
-            tier: combined.tier,
-            value: combined.value,
-            used: combined.used,
-            rule: combined.rule,
-            modelFingerprint: combined.modelFingerprint,
-          },
         },
         { where: { id: ratingId }, transaction },
       );
       await transaction.commit();
-      transaction = undefined;
-
-      await CacheInvalidation.invalidateTag('admin:ratings').catch((cacheError) => {
-        logger.error('admin ratings cache invalidation failed after autorate', cacheError);
-      });
-      await broadcastRatingUpsert(ratingId, rating.levelId).catch((broadcastError) => {
-        logger.error('rating list broadcast failed after autorate', broadcastError);
-      });
 
       return { response: response.data };
     } catch (error) {
@@ -134,7 +121,16 @@ class AutoraterService {
         throw error;
       }
       if (axios.isAxiosError(error)) {
-        throw new AutoraterError('Failed to autorate level', error.response?.status || 500, error.response?.data);
+        const upstreamStatus = error.response?.status;
+        const status = error.code === 'ECONNABORTED' ? 504
+          : upstreamStatus && [404, 413, 422, 503, 504].includes(upstreamStatus) ? upstreamStatus : 502;
+        const data = error.response?.data;
+        const reason = [data?.detail?.message, data?.detail, data?.error, data?.message]
+          .find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim();
+        throw new AutoraterError(
+          `${reason || 'Failed to autorate level.'} The previous rating has been kept.`,
+          status,
+        );
       }
       logger.error('Error autorating level:', error);
       throw new AutoraterError('Failed to autorate level', 500);

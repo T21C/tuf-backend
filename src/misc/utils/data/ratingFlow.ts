@@ -1,4 +1,5 @@
 import { parseQRange } from '@/misc/utils/data/communityTagEligibility.js';
+import { ratingForAverage } from '@/misc/utils/data/autoraterResult.js';
 import { parseRatingRange } from '@/misc/utils/data/RatingUtils.js';
 
 export type RatingFlowId = 1 | 2 | 3;
@@ -60,9 +61,51 @@ interface Ladder {
 
 const KEY_LIMIT_NAME = /key(?:\s+base)?\s+limit/i;
 
+/** AVG tier from an AutoRater V2 display string, or a plain ladder name. */
+export function combinedTierFromAutorater(rating: string | null | undefined): string | null {
+  const text = String(rating ?? '').trim();
+  if (!text) return null;
+  const tier = ratingForAverage(text, 'autorater', 'autorater').replace(/ (low|mid|high)$/i, '').trim();
+  if (!tier) return null;
+  if (cardBandFromTier(tier) == null && !/^censored$/i.test(tier)) return null;
+  return tier;
+}
+
+export function combinedTierFromDetails(
+  details: FlowDetail[],
+  autoraterUserId: string | null,
+): string | null {
+  if (!autoraterUserId) return null;
+  const vote = details.find((detail) => !detail.isCommunityRating && detail.userId === autoraterUserId);
+  return vote ? combinedTierFromAutorater(vote.rating) : null;
+}
+
+/** Prefer the saved AutoRater vote. Fall back to a previously stored combined blob. */
+export function resolveCombinedTier(
+  details: FlowDetail[],
+  autoraterUserId: string | null,
+  storedCombined: unknown,
+): string | null {
+  return combinedTierFromDetails(details, autoraterUserId)
+    ?? combinedTierFromAutorater(readStoredCombined(storedCombined)?.tier);
+}
+
 export function parseAutoraterCombined(payload: unknown): AutoraterCombined | null {
   const root = asRecord(payload);
   if (!root) return null;
+  if (typeof root.rating_result === 'string') {
+    const tier = combinedTierFromAutorater(root.rating_result);
+    if (!tier) return null;
+    const used = [root.rr, root.v2, root.v21, root.v22]
+      .filter((item): item is string => typeof item === 'string' && item.length > 0);
+    return {
+      tier,
+      value: null,
+      used,
+      rule: typeof root.avg === 'string' ? root.avg : '',
+      modelFingerprint: null,
+    };
+  }
   const rating = asRecord(root.rating) ?? root;
   const result = asRecord(rating.result);
   const combined = asRecord(result?.combined) ?? asRecord(rating.combined);
@@ -142,7 +185,8 @@ export function evaluateRatingFlow(input: {
   manuallyBlocked: boolean;
   difficulties: FlowDifficulty[];
 }): RatingFlowDecision {
-  const cardBand = cardBandFromTier(input.combinedTier);
+  const combinedTier = combinedTierFromAutorater(input.combinedTier);
+  const cardBand = cardBandFromTier(combinedTier);
   const flow = assignFlow(input, cardBand);
   const indicators = {
     judgementLimit: input.tags.some((tag) => tag.name === 'Judgement Limit'),
@@ -166,8 +210,8 @@ export function evaluateRatingFlow(input: {
 
   const ladder = buildLadder(input.difficulties);
   const agreement = flow === 1
-    ? agreeFlow1(input.combinedTier, cardBand, humans, ladder, input.difficulties)
-    : agreeFlow2(input.combinedTier, humans, ladder);
+    ? agreeFlow1(combinedTier, cardBand, humans, ladder, input.difficulties)
+    : agreeFlow2(combinedTier, humans, ladder);
 
   let settleActor: SettleActor = null;
   if (agreement.rankState === 'rankable') {
