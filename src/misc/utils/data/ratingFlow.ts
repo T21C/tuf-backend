@@ -193,35 +193,6 @@ export function cardBandFromTier(tier: string | null | undefined): CardBand {
   return null;
 }
 
-const PGU_BAND_RANK: Record<'P' | 'G' | 'U', number> = { P: 0, G: 1, U: 2 };
-
-/** Band of one human rating. A range that crosses bands uses the higher band. */
-function bandFromRaterRating(rating: string): CardBand {
-  const text = String(rating ?? '').trim();
-  if (!text) return null;
-  if (mentionsSpecial(text, 'Impossible')) return 'Impossible';
-  const direct = cardBandFromTier(text);
-  if (direct) return direct;
-  let band: 'P' | 'G' | 'U' | null = null;
-  for (const part of parseRatingRange(text, new Set(['Impossible', 'Censored']))) {
-    const next = cardBandFromTier(part);
-    if (next !== 'P' && next !== 'G' && next !== 'U') continue;
-    if (!band || PGU_BAND_RANK[next] > PGU_BAND_RANK[band]) band = next;
-  }
-  return band;
-}
-
-/** Flow 2 color comes only from non-community, non-AutoRater votes. */
-function raterCardBand(humans: FlowDetail[]): CardBand {
-  const bands = humans
-    .map((detail) => bandFromRaterRating(detail.rating))
-    .filter((band): band is Exclude<CardBand, null> => band != null);
-  if (bands.length === 0) return null;
-  if (bands.some((band) => band === 'Impossible')) return 'Impossible';
-  const first = bands[0];
-  return bands.every((band) => band === first) ? first : null;
-}
-
 export function evaluateRatingFlow(input: {
   diffId: number;
   diffName: string | null;
@@ -244,7 +215,7 @@ export function evaluateRatingFlow(input: {
   const humans = humanDetails(input.details, input.autoraterUserId);
   const manualFlow = flow !== 1;
   const cardBand: CardBand = flow === 2
-    ? raterCardBand(humans)
+    ? decisionBand
     : (modelImpossible ? 'Impossible' : decisionBand);
   const rawIndicators = {
     judgementLimit: input.tags.some((tag) => tag.name === 'Judgement Limit'),

@@ -298,7 +298,7 @@ test('an Impossible model blocks auto rank and colors the card', () => {
   assert.equal(autoraterHideBand(null), null);
 });
 
-test('flow 2 color follows the raters and ignores AutoRater', () => {
+test('flow 2 color follows the AutoRater estimate', () => {
   const decision = evaluate({
     diffId: 12,
     diffName: 'P8',
@@ -306,8 +306,8 @@ test('flow 2 color follows the raters and ignores AutoRater', () => {
     clears: 1,
     combinedTier: 'G17 high (G17, Impossible, G16, G18)',
     details: [
-      detail(1, 'G17'),
-      detail(2, 'G18'),
+      detail(1, 'P12'),
+      detail(2, 'P13'),
       { id: 3, userId: 'autorater', rating: 'P1', isCommunityRating: false },
     ],
   });
@@ -317,25 +317,24 @@ test('flow 2 color follows the raters and ignores AutoRater', () => {
   assert.equal(decision.showRankable, false);
   assert.equal(decision.indicators.judgementLimit, false);
 
-  const mixed = evaluate({
+  const none = evaluate({
     diffId: 12,
     diffName: 'P8',
     rerateNum: 'P10',
     clears: 1,
     details: [detail(1, 'P12'), detail(2, 'G17')],
   });
-  assert.equal(mixed.cardBand, null);
+  assert.equal(none.cardBand, null);
 
-  const impossible = evaluate({
+  const impossibleAvg = evaluate({
     diffId: 12,
     diffName: 'P8',
     rerateNum: 'P10',
     clears: 1,
-    details: [detail(1, 'G17'), detail(2, 'Impossible')],
+    combinedTier: 'Impossible (Impossible, Impossible, Impossible, Impossible)',
+    details: [detail(1, 'P12')],
   });
-  assert.equal(impossible.cardBand, 'Impossible');
-  assert.equal(impossible.autoRankDisabled, false);
-  assert.equal(impossible.showRankable, false);
+  assert.equal(impossibleAvg.cardBand, 'Impossible');
 });
 
 test('flow 3 stays manual even with an auto-rank tag', () => {
