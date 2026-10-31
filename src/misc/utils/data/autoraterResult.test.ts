@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {validateAutoraterResult, ratingForAverage} from './autoraterResult.js';
+import {autoraterLean, validateAutoraterResult, ratingForAverage} from './autoraterResult.js';
 
 const result = {
   tufid: 17158, rating_result: 'U7 high (U8, U7, U6, U7)',
@@ -14,6 +14,15 @@ test('keeps the API display string exactly and checks the requested level', () =
     {...result, rating_result: 'U7 high (U6, U7, U8, U7)'}, {...result, rr: '<iframe>'}]) {
     assert.throws(() => validateAutoraterResult(invalid, 17158));
   }
+});
+
+test('autoraterLean reads low mid high from AVG and display strings', () => {
+  assert.equal(autoraterLean(result.rating_result), 'high');
+  assert.equal(autoraterLean('P1 high (P1, P2, P1, P1)'), 'high');
+  assert.equal(autoraterLean('P12 low'), 'low');
+  assert.equal(autoraterLean('G20 mid (G19, U1, G20, G20)'), 'mid');
+  assert.equal(autoraterLean('P12'), null);
+  assert.equal(autoraterLean('Impossible (Impossible, Impossible, Impossible, Impossible)'), null);
 });
 
 test('one AutoRater vote uses AVG, never averages the component models as a range', () => {

@@ -40,3 +40,11 @@ export function autoraterModelLabels(rating: string | null | undefined): string[
   if (!match) return null;
   return [match[2], match[3], match[4], match[5]];
 }
+
+/** low / mid / high from an AVG or V2 display string. */
+export function autoraterLean(rating: string | null | undefined): 'low' | 'mid' | 'high' | null {
+  const head = String(rating ?? '').trim().split(' (')[0];
+  const value = average.exec(head)?.[2]?.toLowerCase();
+  if (value === 'low' || value === 'mid' || value === 'high') return value;
+  return null;
+}

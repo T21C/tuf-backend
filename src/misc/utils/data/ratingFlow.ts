@@ -1,5 +1,5 @@
 import { parseQRange } from '@/misc/utils/data/communityTagEligibility.js';
-import { autoraterModelLabels, ratingForAverage } from '@/misc/utils/data/autoraterResult.js';
+import { autoraterLean, autoraterModelLabels, ratingForAverage } from '@/misc/utils/data/autoraterResult.js';
 import { parseRatingRange } from '@/misc/utils/data/RatingUtils.js';
 
 export type RatingFlowId = 1 | 2 | 3;
@@ -193,35 +193,6 @@ export function cardBandFromTier(tier: string | null | undefined): CardBand {
   return null;
 }
 
-const PGU_BAND_RANK: Record<'P' | 'G' | 'U', number> = { P: 0, G: 1, U: 2 };
-
-/** Band of one human rating. A range that crosses bands uses the higher band. */
-function bandFromRaterRating(rating: string): CardBand {
-  const text = String(rating ?? '').trim();
-  if (!text) return null;
-  if (mentionsSpecial(text, 'Impossible')) return 'Impossible';
-  const direct = cardBandFromTier(text);
-  if (direct) return direct;
-  let band: 'P' | 'G' | 'U' | null = null;
-  for (const part of parseRatingRange(text, new Set(['Impossible', 'Censored']))) {
-    const next = cardBandFromTier(part);
-    if (next !== 'P' && next !== 'G' && next !== 'U') continue;
-    if (!band || PGU_BAND_RANK[next] > PGU_BAND_RANK[band]) band = next;
-  }
-  return band;
-}
-
-/** Flow 2 color comes only from non-community, non-AutoRater votes. */
-function raterCardBand(humans: FlowDetail[]): CardBand {
-  const bands = humans
-    .map((detail) => bandFromRaterRating(detail.rating))
-    .filter((band): band is Exclude<CardBand, null> => band != null);
-  if (bands.length === 0) return null;
-  if (bands.some((band) => band === 'Impossible')) return 'Impossible';
-  const first = bands[0];
-  return bands.every((band) => band === first) ? first : null;
-}
-
 export function evaluateRatingFlow(input: {
   diffId: number;
   diffName: string | null;
@@ -236,6 +207,7 @@ export function evaluateRatingFlow(input: {
   difficulties: FlowDifficulty[];
 }): RatingFlowDecision {
   const combinedTier = combinedTierFromAutorater(input.combinedTier);
+  const lean = autoraterLean(input.combinedTier);
   const decisionBand = cardBandFromTier(combinedTier);
   const modelImpossible = (autoraterModelLabels(input.combinedTier) ?? [])
     .some((label) => label.toLowerCase() === 'impossible');
@@ -243,7 +215,7 @@ export function evaluateRatingFlow(input: {
   const humans = humanDetails(input.details, input.autoraterUserId);
   const manualFlow = flow !== 1;
   const cardBand: CardBand = flow === 2
-    ? raterCardBand(humans)
+    ? decisionBand
     : (modelImpossible ? 'Impossible' : decisionBand);
   const rawIndicators = {
     judgementLimit: input.tags.some((tag) => tag.name === 'Judgement Limit'),
@@ -277,7 +249,7 @@ export function evaluateRatingFlow(input: {
 
   const ladder = buildLadder(input.difficulties);
   const agreement = flow === 1
-    ? agreeFlow1(combinedTier, decisionBand, humans, ladder, input.difficulties)
+    ? agreeFlow1(combinedTier, decisionBand, humans, ladder, input.difficulties, lean)
     : agreeFlow2(combinedTier, humans, ladder);
 
   let settleActor: SettleActor = null;
@@ -318,19 +290,24 @@ function assignFlow(
   cardBand: CardBand,
 ): RatingFlowId {
   if (input.isDiscordVote) return 3;
-  if (isFloorQName(input.diffName, 'U')) return 3;
-  const rerateBand = explicitRequestBand(input.rerateNum);
-  if (rerateBand === 'U') return 3;
+  const rerateNum = String(input.rerateNum ?? '').trim();
+  const rerateBand = explicitRequestBand(rerateNum);
   const unranked = input.diffId === 0 || /^unranked$/i.test(String(input.diffName ?? '').trim());
   const cleared = input.clears >= 1;
+  const currentU = cardBand === 'U' || /^U/i.test(String(input.diffName ?? '').trim());
+  if (rerateNum && !cleared) return 1;
+  if (isFloorQName(input.diffName, 'U')) return 3;
+  if (rerateBand === 'U' && cleared) return 3;
   if (unranked && cleared && cardBand === 'U') return 3;
+  if (currentU && cleared && !unranked) return 3;
   if (isFloorQName(input.diffName, 'G')) return 2;
   if (rerateBand === 'P' || rerateBand === 'G') return 2;
   if (unranked && cleared && cardBand === 'G') return 2;
   if (unranked) return 1;
-  if (cardBand === 'U' || /^U/i.test(String(input.diffName ?? '').trim())) return 3;
   return 2;
 }
+
+type AutoraterLean = 'low' | 'mid' | 'high';
 
 function agreeFlow1(
   combinedTier: string | null,
@@ -338,14 +315,15 @@ function agreeFlow1(
   humans: FlowDetail[],
   ladder: Ladder,
   difficulties: FlowDifficulty[],
+  lean: AutoraterLean | null,
 ): { rankState: RankState; suggestedDiffName: string | null; raterMaySettle: boolean } {
   if (!combinedTier || cardBand == null || cardBand === 'Impossible') {
     return { rankState: humans.length > 0 ? 'ratingOff' : 'waiting', suggestedDiffName: null, raterMaySettle: false };
   }
   if (cardBand === 'G' || cardBand === 'U') {
-    return agreeQBucket(combinedTier, humans, ladder, difficulties);
+    return agreeQBucket(combinedTier, humans, ladder, difficulties, lean);
   }
-  return agreePoint(combinedTier, humans, ladder);
+  return agreePoint(combinedTier, humans, ladder, lean);
 }
 
 function agreeQBucket(
@@ -353,6 +331,7 @@ function agreeQBucket(
   humans: FlowDetail[],
   ladder: Ladder,
   difficulties: FlowDifficulty[],
+  lean: AutoraterLean | null,
 ): { rankState: RankState; suggestedDiffName: string | null; raterMaySettle: boolean } {
   const catBucket = qBucketKey(combinedTier, ladder);
   if (!catBucket) {
@@ -364,11 +343,18 @@ function agreeQBucket(
   if (votes.length === 0) {
     return { rankState: 'waiting', suggestedDiffName: null, raterMaySettle: false };
   }
-  if (votes.some((bucket) => bucket !== catBucket)) {
+  const allowed = leanAdjacentQBuckets(catBucket, lean);
+  if (votes.some((bucket) => !allowed.has(bucket))) {
     return { rankState: 'ratingOff', suggestedDiffName: null, raterMaySettle: false };
   }
-  const [letter, tierText] = catBucket.split(':');
-  const suggested = qDifficultyName(letter as 'G' | 'U', Number(tierText), difficulties);
+  const first = votes[0];
+  if (votes.some((bucket) => bucket !== first)) {
+    return { rankState: 'ratingOff', suggestedDiffName: null, raterMaySettle: false };
+  }
+  const parts = qBucketParts(first);
+  const suggested = parts
+    ? qDifficultyName(parts.letter, parts.tier, difficulties)
+    : null;
   if (!suggested) {
     return { rankState: 'ratingOff', suggestedDiffName: null, raterMaySettle: false };
   }
@@ -379,6 +365,7 @@ function agreePoint(
   combinedTier: string,
   humans: FlowDetail[],
   ladder: Ladder,
+  lean: AutoraterLean | null,
 ): { rankState: RankState; suggestedDiffName: string | null; raterMaySettle: boolean } {
   const cat = ladder.byName.get(normalizeToken(combinedTier));
   const points = humans
@@ -395,6 +382,11 @@ function agreePoint(
   if (distance === 0) {
     return { rankState: 'rankable', suggestedDiffName: cat.name, raterMaySettle: true };
   }
+  const leanStep = lean === 'high' ? 1 : lean === 'low' ? -1 : 0;
+  if (leanStep !== 0 && first.index === cat.index + leanStep
+    && points.every((point) => point.index === first.index)) {
+    return { rankState: 'rankable', suggestedDiffName: first.name, raterMaySettle: true };
+  }
   if (distance >= 2) {
     return { rankState: 'ratingOff', suggestedDiffName: null, raterMaySettle: false };
   }
@@ -408,6 +400,26 @@ function agreePoint(
     return { rankState: 'ratingOff', suggestedDiffName: null, raterMaySettle: false };
   }
   return { rankState: 'rankable', suggestedDiffName: second.name, raterMaySettle: false };
+}
+
+function qBucketParts(bucket: string): { letter: 'G' | 'U'; tier: number } | null {
+  const [letter, tierText] = bucket.split(':');
+  if (letter !== 'G' && letter !== 'U') return null;
+  const tier = Number(tierText);
+  if (!Number.isInteger(tier)) return null;
+  return { letter, tier };
+}
+
+function leanAdjacentQBuckets(catBucket: string, lean: AutoraterLean | null): Set<string> {
+  const allowed = new Set([catBucket]);
+  const step = lean === 'high' ? 1 : lean === 'low' ? -1 : 0;
+  const parts = qBucketParts(catBucket);
+  if (!parts || step === 0) return allowed;
+  const nextTier = parts.tier + step;
+  if (nextTier >= 0 && nextTier <= 4) {
+    allowed.add(`${parts.letter}:${nextTier}`);
+  }
+  return allowed;
 }
 
 function agreeFlow2(
