@@ -24,6 +24,8 @@ function ladder(): FlowDifficulty[] {
     { id: 200, name: 'GQ0 (G1~G4)', type: 'SPECIAL', sortOrder: 200 },
     { id: 201, name: 'GQ4 (G17~G20)', type: 'SPECIAL', sortOrder: 201 },
     { id: 202, name: 'UQ0 (U1~U4)', type: 'SPECIAL', sortOrder: 202 },
+    { id: 206, name: 'UQ1 (U5~U8)', type: 'SPECIAL', sortOrder: 206 },
+    { id: 207, name: 'UQ2 (U9~U12)', type: 'SPECIAL', sortOrder: 207 },
     { id: 203, name: 'Impossible', type: 'SPECIAL', sortOrder: 300 },
     { id: 204, name: 'Censored', type: 'SPECIAL', sortOrder: 301 },
     { id: 205, name: 'Unranked', type: 'SPECIAL', sortOrder: 0 },
@@ -162,6 +164,53 @@ test('P20 to G1 is one ladder step', () => {
   assert.equal(decision.rankState, 'waiting');
 });
 
+test('flow 1 high or low lets a rater settle one step in that direction', () => {
+  const high = evaluate({
+    combinedTier: 'P1 high (P1, P2, P1, P1)',
+    details: [detail(1, 'P2')],
+  });
+  assert.equal(high.flow, 1);
+  assert.equal(high.rankState, 'rankable');
+  assert.equal(high.settleActor, 'rater');
+  assert.equal(high.suggestedDiffName, 'P2');
+  assert.equal(high.showRankable, true);
+
+  const low = evaluate({
+    combinedTier: 'P12 low (P12, P11, P12, P12)',
+    details: [detail(1, 'P11')],
+  });
+  assert.equal(low.rankState, 'rankable');
+  assert.equal(low.settleActor, 'rater');
+  assert.equal(low.suggestedDiffName, 'P11');
+
+  const wrongWay = evaluate({
+    combinedTier: 'P12 high (P12, P13, P12, P12)',
+    details: [detail(1, 'P11')],
+  });
+  assert.equal(wrongWay.rankState, 'waiting');
+  assert.equal(wrongWay.showRankable, false);
+});
+
+test('flow 1 U high lets a rater settle the next Q bucket', () => {
+  const decision = evaluate({
+    combinedTier: 'U8 high (U8, U9, U8, U8)',
+    details: [detail(1, 'UQ2')],
+  });
+  assert.equal(decision.flow, 1);
+  assert.equal(decision.cardBand, 'U');
+  assert.equal(decision.rankState, 'rankable');
+  assert.equal(decision.settleActor, 'rater');
+  assert.equal(decision.suggestedDiffName, 'UQ2 (U9~U12)');
+  assert.equal(decision.showRankable, true);
+
+  const sameBucket = evaluate({
+    combinedTier: 'U8 high (U8, U9, U8, U8)',
+    details: [detail(1, 'U7')],
+  });
+  assert.equal(sameBucket.suggestedDiffName, 'UQ1 (U5~U8)');
+  assert.equal(sameBucket.settleActor, 'rater');
+});
+
 test('flow 1 G agreement settles the Q bucket', () => {
   const decision = evaluate({
     combinedTier: 'G17',
@@ -188,15 +237,25 @@ test('cleared unranked G moves to flow 2', () => {
   assert.equal(decision.autoRankDisabled, false);
 });
 
-test('UQ0 and discord votes are flow 3', () => {
+test('UQ0, discord votes, and cleared U rerates are flow 3', () => {
   assert.equal(evaluate({ diffId: 8, diffName: 'UQ0 (U1~U4)', combinedTier: 'U2' }).flow, 3);
   assert.equal(evaluate({ isDiscordVote: true, rerateNum: 'U12', diffId: 40, diffName: 'U5' }).flow, 3);
-  assert.equal(evaluate({ diffId: 40, diffName: 'G12', rerateNum: 'U8' }).flow, 3);
+  assert.equal(evaluate({ diffId: 40, diffName: 'G12', rerateNum: 'U8', clears: 1 }).flow, 3);
+  assert.equal(evaluate({ diffId: 45, diffName: 'U5', rerateNum: 'U8', clears: 1 }).flow, 3);
 });
 
-test('GQ0 and a P rerate are flow 2', () => {
+test('uncleared rerate requests are flow 1', () => {
+  assert.equal(evaluate({ diffId: 12, diffName: 'P8', rerateNum: 'P10' }).flow, 1);
+  assert.equal(evaluate({ diffId: 40, diffName: 'G12', rerateNum: 'G14' }).flow, 1);
+  assert.equal(evaluate({ diffId: 40, diffName: 'G12', rerateNum: 'U8' }).flow, 1);
+  assert.equal(evaluate({ diffId: 45, diffName: 'U5', rerateNum: 'U8' }).flow, 1);
+  assert.equal(evaluate({ diffId: 45, diffName: 'U5', rerateNum: 'U12~U14' }).flow, 1);
+  assert.equal(evaluate({ diffId: 45, diffName: 'U5' }).flow, 2);
+});
+
+test('GQ0 and a cleared P rerate are flow 2', () => {
   assert.equal(evaluate({ diffId: 4, diffName: 'GQ0 (G1~G4)', clears: 1 }).flow, 2);
-  assert.equal(evaluate({ diffId: 12, diffName: 'P8', rerateNum: 'P10' }).flow, 2);
+  assert.equal(evaluate({ diffId: 12, diffName: 'P8', rerateNum: 'P10', clears: 1 }).flow, 2);
 });
 
 test('one manager Censored blocks auto rank and a community Censored does not', () => {
@@ -244,6 +303,7 @@ test('flow 2 color follows the raters and ignores AutoRater', () => {
     diffId: 12,
     diffName: 'P8',
     rerateNum: 'P10',
+    clears: 1,
     combinedTier: 'G17 high (G17, Impossible, G16, G18)',
     details: [
       detail(1, 'G17'),
@@ -261,6 +321,7 @@ test('flow 2 color follows the raters and ignores AutoRater', () => {
     diffId: 12,
     diffName: 'P8',
     rerateNum: 'P10',
+    clears: 1,
     details: [detail(1, 'P12'), detail(2, 'G17')],
   });
   assert.equal(mixed.cardBand, null);
@@ -269,6 +330,7 @@ test('flow 2 color follows the raters and ignores AutoRater', () => {
     diffId: 12,
     diffName: 'P8',
     rerateNum: 'P10',
+    clears: 1,
     details: [detail(1, 'G17'), detail(2, 'Impossible')],
   });
   assert.equal(impossible.cardBand, 'Impossible');
