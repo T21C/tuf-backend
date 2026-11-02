@@ -8,6 +8,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 
 const testEnv = {
   AUTORATER_UUID: 'preview-bot', CDN_URL: 'http://127.0.0.1:1',
+  AUTORATER_API_URL: '',
   JOB_PROGRESS_INGEST_SECRET: 'test-only', CDN_INGEST_SECRET: 'test-only',
 };
 const previousEnv = Object.fromEntries(Object.keys(testEnv).map(key => [key, process.env[key]]));
@@ -43,7 +44,7 @@ function setup(t: TestContext) {
   ]);
   const update = t.mock.method(Rating, 'update', async () => [1]);
   const request = t.mock.method(axios, 'get', async (url: string, options: {params: {tufid: number}; timeout: number}) => {
-    assert.ok(url.endsWith('/rating-result'));
+    assert.equal(url, 'https://www.auto-rater-cat.com/rating-result');
     assert.equal(options.params.tufid, 17158);
     assert.equal(options.timeout, 190000);
     assert.equal(begin.mock.callCount(), 0, 'inference must not hold a database transaction');
@@ -70,6 +71,20 @@ test('invalid upstream results do not replace the existing rating', async t => {
   await assert.rejects(autoraterService.autorateRating(14577), {statusCode: 502});
   assert.equal(state.save.mock.callCount(), 0);
   assert.equal(state.begin.mock.callCount(), 0);
+});
+
+test('honors an explicit API origin and removes trailing slashes', async t => {
+  setup(t);
+  process.env.AUTORATER_API_URL = 'https://autorater.example///';
+  t.mock.method(axios, 'get', async (url: string) => {
+    assert.equal(url, 'https://autorater.example/rating-result');
+    return {status: 200, data: response};
+  });
+  try {
+    await autoraterService.autorateRating(14577);
+  } finally {
+    process.env.AUTORATER_API_URL = '';
+  }
 });
 
 const keptRatingMessage = 'The previous rating has been kept.';
