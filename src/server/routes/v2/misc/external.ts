@@ -9,11 +9,11 @@ const router = Router();
 
 router.post(
   '/autorate/:ratingId([0-9]{1,20})',
-  Auth.superAdmin(),
+  Auth.rater(),
   ApiDoc({
     operationId: 'postExternalAutorate',
     summary: 'Trigger autorate',
-    description: 'Trigger external autorater for a rating (super admin)',
+    description: 'Trigger external autorater for a rating (rater or super admin)',
     tags: ['Admin', 'External'],
     security: ['bearerAuth'],
     params: { ratingId: { schema: { type: 'string' } } },

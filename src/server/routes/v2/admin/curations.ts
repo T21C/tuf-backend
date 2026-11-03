@@ -52,17 +52,27 @@ const router: Router = Router();
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
+const CURATION_MANAGER_FLAGS = [
+  permissionFlags.SUPER_ADMIN,
+  permissionFlags.HEAD_CURATOR,
+  permissionFlags.CURATOR,
+];
+
+function userCanManageCurations(user: Request['user']): boolean {
+  return hasAnyFlag(user, CURATION_MANAGER_FLAGS);
+}
+
 // Middleware to verify curation management permissions
 const requireCurationPermission = (req: Request, res: Response, next: NextFunction) => {
   const { id } = req.params;
 
-  // Super admins can manage all curations
+  // Super admins and head curators can manage all curations
   if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
     return next();
   }
 
-  // Regular curators and raters need to check if they can assign the curation type
-  if (hasAnyFlag(req.user, [permissionFlags.CURATOR, permissionFlags.RATER])) {
+  // Regular curators need to check if they can assign the curation type
+  if (hasAnyFlag(req.user, [permissionFlags.CURATOR])) {
     return Curation.findByPk(id, {
       include: [{ model: CurationType, as: 'types', through: { attributes: [] } }],
     }).then((curation) => {
@@ -100,26 +110,16 @@ const requireCurationManagementPermission = (req: Request, res: Response, next: 
 
 // Middleware to verify curation creation permissions (for POST requests)
 const requireCurationCreationPermission = (req: Request, res: Response, next: NextFunction) => {
-  // Super admins and head curators can create all curations
-  if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
-    return next();
-  }
-
-  // Regular curators and raters can create curations
-  if (hasAnyFlag(req.user, [permissionFlags.CURATOR, permissionFlags.RATER])) {
+  if (userCanManageCurations(req.user)) {
     return next();
   }
 
   return res.status(403).json({error: 'You do not have permission to create curations'});
 };
 
-// Combined authentication and permission middleware for curator OR rater
-const requireCuratorOrRater = (req: Request, res: Response, next: NextFunction) => {
-  // First run base authentication
+const requireCurationManager = (req: Request, res: Response, next: NextFunction) => {
   return Auth.user()(req, res, (err) => {
     if (err) return next(err);
-
-    // Then check permissions
     return requireCurationCreationPermission(req, res, next);
   });
 };
@@ -1120,7 +1120,7 @@ function userCanAssignCurationTypeAbilities(req: Request, typeAbilities: bigint)
   if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
     return true;
   }
-  if (hasAnyFlag(req.user, [permissionFlags.CURATOR, permissionFlags.RATER])) {
+  if (hasAnyFlag(req.user, [permissionFlags.CURATOR])) {
     return canAssignCurationType(BigInt(req.user.permissionFlags || 0), typeAbilities);
   }
   return false;
@@ -1147,6 +1147,9 @@ function userCanManageExistingCurationTypes(
 ): boolean {
   if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
     return true;
+  }
+  if (!hasAnyFlag(req.user, [permissionFlags.CURATOR])) {
+    return false;
   }
   if (types.length === 0) return true;
   const flags = BigInt(req.user?.permissionFlags || 0);
@@ -1192,12 +1195,12 @@ async function resolveBulkCurationCandidates(
 // Create curation (single) or bulk-create/merge types (levelIds + typeIds)
 router.post(
   '/',
-  requireCuratorOrRater,
+  requireCurationManager,
   ApiDoc({
     operationId: 'postAdminCuration',
     summary: 'Create curation',
     description:
-      'Single: body { levelId }. Bulk: body { levelIds, typeIds, validateOnly? } — create or merge types onto existing curations with family-tier step-up (C/V/O/H; skips FORCE_DESCRIPTION). Curator or rater.',
+      'Single: body { levelId }. Bulk: body { levelIds, typeIds, validateOnly? } — create or merge types onto existing curations with family-tier step-up (C/V/O/H; skips FORCE_DESCRIPTION). Curator or above.',
     tags: ['Admin', 'Curations'],
     security: ['bearerAuth'],
     requestBody: {
@@ -1545,7 +1548,7 @@ const curationIncludeForLevelResponse = [
 // Replace all curations for a level (create / update / delete) in one request
 router.put(
   '/level/:levelId([0-9]{1,20})',
-  requireCuratorOrRater,
+  requireCurationManager,
   ApiDoc({
     operationId: 'putAdminCurationsForLevel',
     summary: 'Bulk sync curations for a level',
@@ -2191,12 +2194,7 @@ function canIncludeUnavailableWeeklySchedules(req: Request): boolean {
   const value = Array.isArray(raw) ? raw[0] : raw;
   const requested = value === '1' || value === 'true';
   if (!requested) return false;
-  return hasAnyFlag(req.user, [
-    permissionFlags.SUPER_ADMIN,
-    permissionFlags.HEAD_CURATOR,
-    permissionFlags.CURATOR,
-    permissionFlags.RATER,
-  ]);
+  return userCanManageCurations(req.user);
 }
 
 // Get curation schedules
