@@ -246,6 +246,18 @@ export function parseQRange(name: string | null | undefined): ParsedQRange | nul
   return null;
 }
 
+/**
+ * Rating flow for a Q-family difficulty. GQ0–4 and Qq are 2; UQ0–4 and bare Q0–4 are 3.
+ * Qq is not a PGU plateau, so it stays out of parseQRange and is recognized here only.
+ */
+export function qDifficultyFlow(name: string | null | undefined): 2 | 3 | null {
+  const head = String(name || '').trim().toUpperCase();
+  if (/^QQ(?:\s|\(|$)/.test(head)) return 2;
+  const parsed = parseQRange(name);
+  if (!parsed) return null;
+  return parsed.letter === 'U' ? 3 : 2;
+}
+
 /** Floor of the mapped PGU bucket: GQ1 → G5, UQ1 / Q1 → U5. */
 export function qRangeToPguFloorName(name: string | null | undefined): string | null {
   const parsed = parseQRange(name);

@@ -1,4 +1,4 @@
-import { parseQRange } from '@/misc/utils/data/communityTagEligibility.js';
+import { parseQRange, qDifficultyFlow } from '@/misc/utils/data/communityTagEligibility.js';
 import { autoraterLean, autoraterModelLabels, ratingForAverage } from '@/misc/utils/data/autoraterResult.js';
 import { parseRatingRange } from '@/misc/utils/data/RatingUtils.js';
 
@@ -160,11 +160,6 @@ export function readStoredCombined(raw: unknown): AutoraterCombined | null {
   return parseStoredShape(raw) ?? parseAutoraterCombined(raw);
 }
 
-export function isFloorQName(name: string | null | undefined, letter: 'G' | 'U'): boolean {
-  const parsed = parseQRange(name);
-  return parsed?.letter === letter && parsed.tier === 0;
-}
-
 export function explicitRequestBand(raw: string | null | undefined): RequestBand | null {
   const primary = String(raw ?? '').trim();
   if (!primary) return null;
@@ -296,11 +291,12 @@ function assignFlow(
   const cleared = input.clears >= 1;
   const currentU = cardBand === 'U' || /^U/i.test(String(input.diffName ?? '').trim());
   if (rerateNum && !cleared) return 1;
-  if (isFloorQName(input.diffName, 'U')) return 3;
+  const qFlow = qDifficultyFlow(input.diffName);
+  if (qFlow === 3) return 3;
   if (rerateBand === 'U' && cleared) return 3;
   if (unranked && cleared && cardBand === 'U') return 3;
   if (currentU && cleared && !unranked) return 3;
-  if (isFloorQName(input.diffName, 'G')) return 2;
+  if (qFlow === 2) return 2;
   if (rerateBand === 'P' || rerateBand === 'G') return 2;
   if (unranked && cleared && cardBand === 'G') return 2;
   if (unranked) return 1;
