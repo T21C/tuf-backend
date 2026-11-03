@@ -90,6 +90,7 @@ router.get(
       offset: { schema: { type: 'integer' } },
       limit: { schema: { type: 'integer' } },
       byCreatorId: { description: 'Filter to levels this creator charted or VFXed (excludes special thanks)', schema: { type: 'string' } },
+      toRateFilter: { description: 'Super admin only. show | hide | only — whether the level is currently in the rating queue (Level.toRate)', schema: { type: 'string' } },
       withLikeState: { description: 'Annotate each result with isLiked for the current user (requires auth)', schema: { type: 'boolean' } },
       withClearState: { description: 'Annotate each result with isCleared / isPurePerfect / isPureXPerfect for the current player (requires auth)', schema: { type: 'boolean' } },
     },
@@ -105,6 +106,7 @@ router.get(
       sort,
       seed: seedQuery,
       deletedFilter,
+      toRateFilter,
       clearedFilter,
       availableDlFilter,
       curatedTypesFilter,
@@ -178,6 +180,11 @@ router.get(
       }
     }
 
+    const isSuperAdmin = hasFlag(req.user, permissionFlags.SUPER_ADMIN);
+    const toRateFilterValue = toRateFilter === 'hide' || toRateFilter === 'only' || toRateFilter === 'show'
+      ? toRateFilter
+      : undefined;
+
     // Search using Elasticsearch
     const { hits, total } = await elasticsearchService.searchLevels(
       query as string,
@@ -187,6 +194,7 @@ router.get(
         sort: sortStr,
         seed,
         deletedFilter: deletedFilter as string,
+        ...(isSuperAdmin && toRateFilterValue ? { toRateFilter: toRateFilterValue } : {}),
         clearedFilter: clearedFilter as string,
         availableDlFilter: availableDlFilter as string,
         curatedTypesFilter: curatedTypesFilter as string,
@@ -201,7 +209,7 @@ router.get(
         limit,
         likedLevelIds
       },
-      hasFlag(req.user, permissionFlags.SUPER_ADMIN)
+      isSuperAdmin
     );
 
     const duration = Date.now() - startTime;

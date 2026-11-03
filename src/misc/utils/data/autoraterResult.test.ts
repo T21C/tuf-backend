@@ -1,11 +1,28 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {autoraterLean, validateAutoraterResult, ratingForAverage} from './autoraterResult.js';
+import {autoraterLean, autoraterModelLabels, validateAutoraterResult, ratingForAverage} from './autoraterResult.js';
 
 const result = {
   tufid: 17158, rating_result: 'U7 high (U8, U7, U6, U7)',
   avg: 'U7 high', rr: 'U8', v2: 'U7', v21: 'U6', v22: 'U7',
 };
+
+test('accepts P0 without changing the display string or counting model labels as votes', () => {
+  const p0 = {tufid: 17663, avg: 'P0', rr: 'P0', v2: 'P0', v21: 'P0', v22: 'P0',
+    rating_result: 'P0 (P0, P0, P0, P0)'};
+  assert.equal(validateAutoraterResult(p0, 17663), p0);
+  assert.equal(ratingForAverage(p0.rating_result, 'bot', 'bot'), 'P0');
+  assert.deepEqual(autoraterModelLabels(p0.rating_result), ['P0', 'P0', 'P0', 'P0']);
+  assert.equal(autoraterLean(p0.rating_result), null);
+  const mixed = {...result, rr: 'P0', rating_result: 'U7 high (P0, U7, U6, U7)'};
+  assert.equal(validateAutoraterResult(mixed, 17158), mixed);
+  for (const invalid of [
+    {...p0, tufid: 1}, {...p0, v22: null}, {...p0, rr: 'P1'},
+    ...['G0', 'U0', 'P00', 'P21', 'P-1'].map(label => ({...p0, avg: label,
+      rr: label, v2: label, v21: label, v22: label,
+      rating_result: `${label} (${label}, ${label}, ${label}, ${label})`})),
+  ]) assert.throws(() => validateAutoraterResult(invalid, 17663));
+});
 
 test('keeps the API display string exactly and checks the requested level', () => {
   assert.equal(validateAutoraterResult(result, 17158), result);

@@ -89,6 +89,24 @@ test('collectLevelReferenceIds keeps the first valid ids and ignores broken text
   assert.deepEqual(collectLevelReferenceIds('harder than #12 and #12, see #0 #34'), [12, 34]);
 });
 
+test('collectLevelReferenceIds treats site level URLs as the same mention as #id', () => {
+  assert.deepEqual(
+    collectLevelReferenceIds('see https://tuforums.com/levels/8470 and #12'),
+    [8470, 12],
+  );
+  assert.deepEqual(collectLevelReferenceIds('https://www.tuforums.com/levels/8470/'), [8470]);
+  assert.deepEqual(collectLevelReferenceIds('http://tufstaging.online/levels/15.'), [15]);
+  assert.deepEqual(collectLevelReferenceIds('https://staging.tuforums.com/levels/8?ref=1#top'), [8]);
+  assert.deepEqual(collectLevelReferenceIds('http://localhost:5173/levels/4'), [4]);
+  assert.deepEqual(
+    collectLevelReferenceIds('https://tuforums.com/levels/8470?x=#99 same #8470'),
+    [8470],
+  );
+  assert.deepEqual(collectLevelReferenceIds('https://example.com/levels/9 #3'), [3]);
+  assert.deepEqual(collectLevelReferenceIds('https://tuforums.com/levels/8470/passes'), []);
+  assert.deepEqual(collectLevelReferenceIds('xhttps://tuforums.com/levels/7?x=#99 #3'), [3]);
+});
+
 test('rerate comparison labels are artist, song, and parenthesized suffix', () => {
   assert.equal(rerateComparisonLabel('Frums', 'multi_arm', ''), 'Frums - multi_arm');
   assert.equal(rerateComparisonLabel('meganeko', 'Feral', 'All Beats'), 'meganeko - Feral (All Beats)');

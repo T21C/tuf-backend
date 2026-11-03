@@ -49,6 +49,8 @@ export interface RatingListQuery {
   fourVote: ShowHideOnly;
   /** Non-community rating count used by fourVote hide/only. Defaults to 4. */
   fourVoteMin: number;
+  /** Computed agreement state. Applied after hydrate. `all` keeps every state. */
+  rankState: 'all' | 'rankable' | 'ratingOff';
   myRated: ShowHideOnly;
   zeroClears: boolean;
   /** When set, keep rows whose computed flow is in this list. Applied after hydrate. */
@@ -73,6 +75,12 @@ const MANAGER_DETAIL_COUNT_SQL = `(
   SELECT COUNT(*) FROM rating_details AS rd
   WHERE rd.ratingId = Rating.id AND rd.isCommunityRating = 0
 )`;
+
+function parseRankStateFilter(value: unknown): 'all' | 'rankable' | 'ratingOff' {
+  const text = String(value || '').trim();
+  if (text === 'rankable' || text === 'ratingOff') return text;
+  return 'all';
+}
 
 function parseFourVoteMin(value: unknown): number {
   if (value == null || value === '') return 4;
@@ -190,6 +198,7 @@ export function parseRatingListQuery(
   }
   const fourVote = normalizeShowHideOnly(reqQuery.fourVote);
   const fourVoteMin = parseFourVoteMin(reqQuery.fourVoteMin);
+  const rankState = parseRankStateFilter(reqQuery.rankState);
   const myRated = parseMyRated(reqQuery, userId);
   const zeroClears =
     reqQuery.zeroClears === true ||
@@ -218,6 +227,7 @@ export function parseRatingListQuery(
     lowDiff,
     fourVote,
     fourVoteMin,
+    rankState,
     myRated,
     zeroClears,
     flows,
@@ -237,6 +247,7 @@ export function ratingListPageCacheKey(params: RatingListQuery): string {
     lowDiff: params.lowDiff,
     fourVote: params.fourVote,
     fourVoteMin: params.fourVoteMin,
+    rankState: params.rankState,
     zeroClears: params.zeroClears,
     flows: params.flows ?? null,
     vote: params.vote ?? null,
@@ -580,7 +591,8 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
   };
 
   const bandFiltered = Boolean(includeBandSet && includeBandSet.size < 3);
-  const memoryPage = Boolean(params.flows?.length);
+  const rankStateFiltered = params.rankState === 'rankable' || params.rankState === 'ratingOff';
+  const memoryPage = Boolean(params.flows?.length) || rankStateFiltered;
 
   const findOptions: any = {
     where: ratingWhere,
@@ -660,6 +672,9 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
     if (params.flows?.length) {
       const allowed = new Set(params.flows);
       results = results.filter((row) => allowed.has(row.flow as RatingFlowId));
+    }
+    if (rankStateFiltered) {
+      results = results.filter((row) => row.rankState === params.rankState);
     }
     total = results.length;
     results = results.slice(params.offset, params.offset + params.limit);

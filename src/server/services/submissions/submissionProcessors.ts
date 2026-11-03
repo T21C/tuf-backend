@@ -68,7 +68,7 @@ import { broadcastRatingUpsert } from '@/server/services/ratings/ratingListServi
 import { ensureOpenRating } from '@/server/services/ratings/openRatingService.js';
 import { postUqClearRatingThread } from '@/server/services/ratings/ratingDiscordThread.js';
 import { voteThreadLabel } from '@/misc/utils/data/ratingThread.js';
-import { isFloorQName } from '@/misc/utils/data/ratingFlow.js';
+import { qDifficultyFlow } from '@/misc/utils/data/communityTagEligibility.js';
 import { syncVoteWeightsForLevel } from '@/server/services/data/communityTagVoteService.js';
 import type { SubmissionQueuePayload } from './submissionJobTypes.js';
 
@@ -694,6 +694,7 @@ async function approvePassSubmission(
     feelingRating: submission.feelingDifficulty || null,
     expectedRating: submission.expectedDifficulty || null,
     details: submission.details || null,
+    feelingExplanation: submission.feelingExplanation || null,
     accuracy,
     scoreV2,
     isAnnounced: false,
@@ -741,12 +742,9 @@ async function approvePassSubmission(
   }
 
   let createdRatingId: number | null = null;
-  if (
-    level.clears === 0 &&
-    speed === 1 &&
-    (isFloorQName(difficulty.name, 'G') || isFloorQName(difficulty.name, 'U'))
-  ) {
-    const isUq = isFloorQName(difficulty.name, 'U');
+  const qFlow = qDifficultyFlow(difficulty.name);
+  if (level.clears === 0 && speed === 1 && qFlow != null) {
+    const isUq = qFlow === 3;
     const reqFr = isUq
       ? voteThreadLabel((submission.feelingDifficulty || '').trim() || difficulty.name)
       : (submission.feelingDifficulty ?? '');
@@ -765,7 +763,7 @@ async function approvePassSubmission(
         previousDiffId: level.diffId,
         previousBaseScore: level.baseScore || difficulty.baseScore || 0,
         rerateNum: reqFr.substring(0, 60) || '',
-        rerateReason: 'cleared',
+        rerateReason: (submission.feelingExplanation || '').trim() || 'cleared',
       }, { where: { id: submission.levelId }, transaction });
     }
   }
@@ -862,7 +860,7 @@ async function processPassApprove(
         }),
       );
       const difficultyName = String(newPass.level?.difficulty?.name || '');
-      if (difficultyName.includes('UQ')) {
+      if (qDifficultyFlow(difficultyName) === 3) {
         if (actorId) {
           await postUqClearRatingThread({
             ratingId: createdRatingId,

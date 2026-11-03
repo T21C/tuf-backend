@@ -63,6 +63,17 @@ test('explicitRequestBand ignores text that is not a rating', () => {
   assert.equal(explicitRequestBand('GQ0'), 'G');
 });
 
+test('P0 AutoRater results keep their tier and use the P card and filter band', () => {
+  const rating = 'P0 (P0, P0, P0, P0)';
+  assert.equal(combinedTierFromAutorater(rating), 'P0');
+  assert.equal(autoraterHideBand(rating), 'P');
+  assert.equal(autoraterHideBand('P0'), 'P');
+  assert.equal(evaluate({combinedTier: rating}).cardBand, 'P');
+  for (const invalid of ['G0', 'U0', 'P00', 'P21']) {
+    assert.equal(autoraterHideBand(invalid), null);
+  }
+});
+
 test('parseAutoraterCombined reads an AutoRater V2 rating result', () => {
   const parsed = parseAutoraterCombined({
     tufid: 17158,
@@ -237,8 +248,10 @@ test('cleared unranked G moves to flow 2', () => {
   assert.equal(decision.autoRankDisabled, false);
 });
 
-test('UQ0, discord votes, and cleared U rerates are flow 3', () => {
-  assert.equal(evaluate({ diffId: 8, diffName: 'UQ0 (U1~U4)', combinedTier: 'U2' }).flow, 3);
+test('UQ tiers, discord votes, and cleared U rerates are flow 3', () => {
+  for (let tier = 0; tier <= 4; tier += 1) {
+    assert.equal(evaluate({ diffId: 8, diffName: `UQ${tier} (U1~U4)`, combinedTier: 'U2' }).flow, 3);
+  }
   assert.equal(evaluate({ isDiscordVote: true, rerateNum: 'U12', diffId: 40, diffName: 'U5' }).flow, 3);
   assert.equal(evaluate({ diffId: 40, diffName: 'G12', rerateNum: 'U8', clears: 1 }).flow, 3);
   assert.equal(evaluate({ diffId: 45, diffName: 'U5', rerateNum: 'U8', clears: 1 }).flow, 3);
@@ -253,8 +266,11 @@ test('uncleared rerate requests are flow 1', () => {
   assert.equal(evaluate({ diffId: 45, diffName: 'U5' }).flow, 2);
 });
 
-test('GQ0 and a cleared P rerate are flow 2', () => {
-  assert.equal(evaluate({ diffId: 4, diffName: 'GQ0 (G1~G4)', clears: 1 }).flow, 2);
+test('GQ tiers, Qq, and a cleared P rerate are flow 2', () => {
+  for (let tier = 0; tier <= 4; tier += 1) {
+    assert.equal(evaluate({ diffId: 4, diffName: `GQ${tier} (G1~G4)`, clears: 1 }).flow, 2);
+  }
+  assert.equal(evaluate({ diffId: 9, diffName: 'Qq', clears: 1 }).flow, 2);
   assert.equal(evaluate({ diffId: 12, diffName: 'P8', rerateNum: 'P10', clears: 1 }).flow, 2);
 });
 

@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import type { Transaction } from 'sequelize';
+import { Op, type Transaction } from 'sequelize';
 
 import sequelize from '@/config/db.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -29,6 +29,8 @@ import { notifyPassSubmissionSubmitted } from '@/server/services/notifications/p
 
 import { formError } from '../shared/errors.js';
 import { assertPassKeyCountForDifficulty, MAX_PASS_KEY_COUNT } from '@/misc/utils/pass/keyCount.js';
+import { isGqOrUqDifficulty } from '@/misc/utils/data/communityTagEligibility.js';
+import { collectLevelReferenceIds, rerateComparisonLabel } from '@/misc/utils/data/levelRequestValidation.js';
 import { parseAndSanitizePassForm, type PassFormSanitised } from './dto.js';
 import { applyResolvedVideoLinkToPayload } from '../shared/videoUrl.js';
 import { preparePassJudgementsForPersist } from '@/misc/utils/pass/passEraApply.js';
@@ -99,6 +101,12 @@ export async function createPassSubmission(
         { field: 'keyCount' },
       );
     }
+    const feelingExplanation = isGqOrUqDifficulty(level.difficulty?.name)
+      ? sanitized.feelingExplanation
+      : null;
+    if (feelingExplanation) {
+      await assertFeelingExplanationComparisons(feelingExplanation, sanitized.levelId, transaction);
+    }
     const prepared = preparePassJudgementsForPersist({
       judgements: sanitized.judgements,
       adofaiVersion: sanitized.adofaiVersion,
@@ -128,6 +136,7 @@ export async function createPassSubmission(
         feelingDifficulty: sanitized.feelingDifficulty,
         expectedDifficulty: sanitized.expectedDifficulty,
         details: sanitized.details,
+        feelingExplanation,
         keyCount: sanitized.keyCount,
         title: sanitized.title,
         videoLink: sanitized.videoLink,
@@ -237,6 +246,30 @@ function mapPassSubmissionDbError(err: unknown): unknown {
     return formError.bad(msg, { details: { code } });
   }
   return err;
+}
+
+async function assertFeelingExplanationComparisons(
+  text: string,
+  excludeLevelId: number,
+  transaction: Transaction,
+): Promise<void> {
+  const ids = collectLevelReferenceIds(text).filter((id) => id !== excludeLevelId);
+  if (ids.length === 0) return;
+  const levels = await Level.findAll({
+    where: { id: { [Op.in]: ids } },
+    attributes: ['id', 'song', 'artist', 'suffix', 'toRate'],
+    transaction,
+  });
+  const byId = new Map(levels.map((level) => [level.id, level]));
+  for (const id of ids) {
+    const level = byId.get(id);
+    if (!level?.toRate) continue;
+    const label = rerateComparisonLabel(level.artist, level.song, level.suffix);
+    throw formError.bad(
+      `${label} is currently being rerated, it cannot be used for comparison`,
+      { field: 'feelingExplanation', details: { label, levelId: level.id } },
+    );
+  }
 }
 
 async function loadLevelOr404(levelId: number, transaction: Transaction): Promise<Level> {

@@ -232,6 +232,12 @@ export function maxVotableSortOrder(
   return nextByOrder?.sortOrder ?? topDiff.sortOrder;
 }
 
+/** GQ0–GQ4 or UQ0–UQ4, including labels like `UQ2 (U9~U12)`. Bare Q and Qq are not. */
+export function isGqOrUqDifficulty(name: string | null | undefined): boolean {
+  const n = String(name || '').trim().toUpperCase();
+  return /^GQ[0-4](?:\s|\(|$)/.test(n) || /^UQ[0-4](?:\s|\(|$)/.test(n);
+}
+
 /** Inverse of client pguNumberToQTier: GQ1 / UQ1 / Q1 → tier 1 (four PGU ranks per bucket). */
 export function parseQRange(name: string | null | undefined): ParsedQRange | null {
   const n = String(name || '').trim().toUpperCase();
@@ -244,6 +250,18 @@ export function parseQRange(name: string | null | undefined): ParsedQRange | nul
   const q = n.match(/^Q([0-4])(?:\s|\(|$)/);
   if (q) return { letter: 'U', tier: Number(q[1]) };
   return null;
+}
+
+/**
+ * Rating flow for a Q-family difficulty. GQ0–4 and Qq are 2; UQ0–4 and bare Q0–4 are 3.
+ * Qq is not a PGU plateau, so it stays out of parseQRange and is recognized here only.
+ */
+export function qDifficultyFlow(name: string | null | undefined): 2 | 3 | null {
+  const head = String(name || '').trim().toUpperCase();
+  if (/^QQ(?:\s|\(|$)/.test(head)) return 2;
+  const parsed = parseQRange(name);
+  if (!parsed) return null;
+  return parsed.letter === 'U' ? 3 : 2;
 }
 
 /** Floor of the mapped PGU bucket: GQ1 → G5, UQ1 / Q1 → U5. */

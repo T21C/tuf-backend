@@ -21,7 +21,9 @@ import {
   parseCommunityTagKnobFields,
   parseScoringMode,
   parseQRange,
+  isGqOrUqDifficulty,
   pguBandFromDifficultyName,
+  qDifficultyFlow,
   qRangeToPguFloorName,
   resolveCommunityTagSettings,
   tagAllowedForDifficulty,
@@ -409,6 +411,19 @@ test('G15 top play can vote on G16 and below, not U1', () => {
   );
 });
 
+test('isGqOrUqDifficulty matches GQ0-4 and UQ0-4 only', () => {
+  assert.equal(isGqOrUqDifficulty('GQ1'), true);
+  assert.equal(isGqOrUqDifficulty('GQ0 (G1~G4)'), true);
+  assert.equal(isGqOrUqDifficulty('UQ2 (U9~U12)'), true);
+  assert.equal(isGqOrUqDifficulty('UQ4'), true);
+  assert.equal(isGqOrUqDifficulty('Q1'), false);
+  assert.equal(isGqOrUqDifficulty('Qq'), false);
+  assert.equal(isGqOrUqDifficulty('QQ'), false);
+  assert.equal(isGqOrUqDifficulty('G12'), false);
+  assert.equal(isGqOrUqDifficulty('U5'), false);
+  assert.equal(isGqOrUqDifficulty(null), false);
+});
+
 test('parseQRange maps GQ, UQ, and Q0-4 onto PGU buckets', () => {
   assert.deepEqual(parseQRange('GQ1'), { letter: 'G', tier: 1 });
   assert.deepEqual(parseQRange('UQ1'), { letter: 'U', tier: 1 });
@@ -421,6 +436,20 @@ test('parseQRange maps GQ, UQ, and Q0-4 onto PGU buckets', () => {
   assert.equal(qRangeToPguFloorName('UQ2 (U9~U12)'), 'U9');
   assert.equal(qRangeToPguFloorName('Qq'), null);
   assert.equal(qRangeToPguFloorName('Grandmaster'), null);
+});
+
+test('qDifficultyFlow sends every GQ tier and Qq to 2, and every UQ tier to 3', () => {
+  for (let tier = 0; tier <= 4; tier += 1) {
+    assert.equal(qDifficultyFlow(`GQ${tier}`), 2);
+    assert.equal(qDifficultyFlow(`GQ${tier} (G1~G4)`), 2);
+    assert.equal(qDifficultyFlow(`UQ${tier}`), 3);
+    assert.equal(qDifficultyFlow(`UQ${tier} (U1~U4)`), 3);
+    assert.equal(qDifficultyFlow(`Q${tier}`), 3);
+  }
+  assert.equal(qDifficultyFlow('Qq'), 2);
+  assert.equal(qDifficultyFlow('QQ (legacy)'), 2);
+  assert.equal(qDifficultyFlow('G12'), null);
+  assert.equal(qDifficultyFlow('U5'), null);
 });
 
 test('Q-range top-play uses the mapped PGU floor and +1 rule', () => {

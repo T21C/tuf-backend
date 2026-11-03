@@ -61,7 +61,7 @@ class AutoraterService {
       }
 
       const apiUrl = (process.env.AUTORATER_API_URL ||
-        'https://auto-rater-cat-v2-api-production.up.railway.app').replace(/\/+$/, '');
+        'https://www.auto-rater-cat.com').replace(/\/+$/, '');
       const response = await axios.get(`${apiUrl}/rating-result`, {
         params: {tufid: rating.levelId},
         timeout: 190000,
