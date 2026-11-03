@@ -20,6 +20,7 @@ import {
 import { buildAvailableDlHideClause, buildAvailableDlOnlyClause } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryLevelFilters.js';
 import {
   boolMust,
+  boolMustNot,
   boolShould,
   boolShouldOnly,
   nestedQuery,
@@ -209,8 +210,14 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       must.push(idsQuery(filters.likedLevelIds));
     }
 
-    // Rating queue: Level.toRate (do not use indexed `rating` — that is confirmed-only)
-    if (filters.toRate === true || filters.toRate === 'true') {
+    // Rating queue: Level.toRate (do not use indexed `rating` — that is confirmed-only).
+    // show/hide/only is super-admin only; a boolean `toRate` still means "only".
+    const toRateFilter = filters.toRateFilter;
+    if (isSuperAdmin && toRateFilter === 'only') {
+      must.push(termField('toRate', true));
+    } else if (isSuperAdmin && toRateFilter === 'hide') {
+      must.push(boolMustNot([termField('toRate', true)]));
+    } else if (filters.toRate === true || filters.toRate === 'true') {
       must.push(termField('toRate', true));
     }
 

@@ -115,6 +115,7 @@ export async function dealZenDeck(
     lowDiff: 'show',
     fourVote: 'hide',
     fourVoteMin: 4,
+    rankState: 'all',
     myRated: 'hide',
     zeroClears: false,
     flows: [1, 2],

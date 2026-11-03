@@ -282,14 +282,52 @@ export function rerateComparisonLabel(artist: unknown, song: unknown, suffix: un
   return `${artistPart} - ${songPart} ${wrapped}`;
 }
 
+const LEVEL_REFERENCE_URL_TAIL = /[.,;:!?'")\]]/;
+
+/** Public site hosts. Keep aligned with client `PUBLIC_LEVEL_HOSTS`. */
+const LEVEL_REFERENCE_HOSTS = ['tuforums.com', 'tufstaging.online', 'staging.tuforums.com'];
+
+function levelReferenceHostPattern(): string {
+  const hosts = new Set<string>();
+  for (const host of LEVEL_REFERENCE_HOSTS) {
+    hosts.add(host);
+    hosts.add(`www.${host}`);
+  }
+  const literals = [...hosts].sort((a, b) => b.length - a.length).map((host) => host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  literals.push('localhost(?::\\d+)?', '127\\.0\\.0\\.1(?::\\d+)?');
+  return literals.join('|');
+}
+
+/** Include a level URL's query and hash so a `#id` inside it is not a second mention. */
+function extendLevelReferenceUrl(source: string, end: number): number {
+  if (source[end] !== '?' && source[end] !== '#') return end;
+  let i = end + 1;
+  while (i < source.length && !/\s/.test(source[i])) i += 1;
+  while (i > end && LEVEL_REFERENCE_URL_TAIL.test(source[i - 1])) i -= 1;
+  return i;
+}
+
+/**
+ * Level ids mentioned as `#123` or a site level URL (`https://tuforums.com/levels/123`).
+ * Stops at {@link LEVEL_REFERENCE_ID_LIMIT}.
+ */
 export function collectLevelReferenceIds(text: string): number[] {
   const source = typeof text === 'string' ? text : '';
-  const pattern = /#(\d+)/gi;
+  const pattern = new RegExp(
+    `https?:\\/\\/(?:${levelReferenceHostPattern()})\\/levels\\/(\\d+)\\/?(?=$|[?#\\s]|[.,;:!?'")\\]])|#(\\d+)`,
+    'gi',
+  );
   const ids: number[] = [];
   const seen = new Set<number>();
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(source)) !== null) {
-    const levelId = parseInt(match[1], 10);
+    const fromUrl = match[1] != null;
+    if (fromUrl && match.index > 0 && /[A-Za-z0-9]/.test(source[match.index - 1])) {
+      pattern.lastIndex = extendLevelReferenceUrl(source, match.index + match[0].length);
+      continue;
+    }
+    const levelId = parseInt(fromUrl ? match[1] : match[2], 10);
+    if (fromUrl) pattern.lastIndex = extendLevelReferenceUrl(source, match.index + match[0].length);
     if (!Number.isInteger(levelId) || levelId <= 0 || seen.has(levelId)) continue;
     seen.add(levelId);
     ids.push(levelId);
