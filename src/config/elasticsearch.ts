@@ -517,6 +517,12 @@ export const passMapping = {
           keyword: { type: 'keyword' as const, ignore_above: 256 },
         },
       },
+      feelingExplanation: {
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 },
+        },
+      },
       keyCount: { type: 'integer' as const },
       vidTitle: { type: 'text' as const },
       videoLink: {

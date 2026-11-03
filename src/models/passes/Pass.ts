@@ -23,6 +23,7 @@ class Pass
   declare feelingRating: string | null;
   declare expectedRating: string | null;
   declare details: string | null;
+  declare feelingExplanation: string | null;
   declare keyCount: number | null;
   declare submissionSource: 'video' | 'auto_submission';
   declare autoSubmissionRunId: string | null;
@@ -97,6 +98,12 @@ Pass.init(
       allowNull: true,
       defaultValue: null,
       comment: 'Optional website-only plain-text details of the pass',
+    },
+    feelingExplanation: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Optional explanation of the feeling rating, used for GQ/UQ clears',
     },
     submissionSource: {
       type: DataTypes.STRING(32),

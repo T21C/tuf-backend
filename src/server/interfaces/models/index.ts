@@ -137,6 +137,7 @@ export interface IPass extends IBaseModel {
   feelingRating: string | null;
   expectedRating: string | null;
   details?: string | null;
+  feelingExplanation?: string | null;
   keyCount: number | null;
   vidTitle: string | null;
   videoLink: string | null;
@@ -303,6 +304,7 @@ export interface IPassSubmission extends IBaseModel {
   passer: string;
   feelingDifficulty: string;
   details?: string | null;
+  feelingExplanation?: string | null;
   title: string;
   videoLink: string;
   rawTime: Date;

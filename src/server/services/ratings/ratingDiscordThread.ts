@@ -122,12 +122,12 @@ export async function postUqClearRatingThread(input: {
 }): Promise<void> {
   const requested = websiteRatingLabel(input.requestedRating);
   const labeled = voteThreadLabel(requested || input.requestedRating);
-  const reason = 'cleared';
   try {
     const rating = await Rating.findByPk(input.ratingId);
     if (!rating || rating.confirmedAt != null || rating.discordMessageUrl) return;
     const level = await Level.findByPk(input.levelId);
     if (!level?.toRate) return;
+    const reason = String(level.rerateReason || '').trim() || 'cleared';
 
     await level.update({rerateNum: labeled});
     await rating.update({
@@ -141,7 +141,7 @@ export async function postUqClearRatingThread(input: {
         levelId: input.levelId,
         requestedRating: requested || labeled,
         reason,
-        comparisonLevelIds: collectLevelReferenceIds(reason),
+        comparisonLevelIds: collectLevelReferenceIds(reason).filter((id) => id !== input.levelId),
         actorUserId: input.actorUserId,
         embedTitle: `Rating #${input.ratingId} (Auto)`,
         ping: true,

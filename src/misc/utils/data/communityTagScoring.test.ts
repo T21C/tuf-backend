@@ -21,6 +21,7 @@ import {
   parseCommunityTagKnobFields,
   parseScoringMode,
   parseQRange,
+  isGqOrUqDifficulty,
   pguBandFromDifficultyName,
   qDifficultyFlow,
   qRangeToPguFloorName,
@@ -408,6 +409,19 @@ test('G15 top play can vote on G16 and below, not U1', () => {
     canVoteByTopPlay({ name: 'Grandmaster', type: 'SPECIAL', sortOrder: 99 }, null, pgu),
     false,
   );
+});
+
+test('isGqOrUqDifficulty matches GQ0-4 and UQ0-4 only', () => {
+  assert.equal(isGqOrUqDifficulty('GQ1'), true);
+  assert.equal(isGqOrUqDifficulty('GQ0 (G1~G4)'), true);
+  assert.equal(isGqOrUqDifficulty('UQ2 (U9~U12)'), true);
+  assert.equal(isGqOrUqDifficulty('UQ4'), true);
+  assert.equal(isGqOrUqDifficulty('Q1'), false);
+  assert.equal(isGqOrUqDifficulty('Qq'), false);
+  assert.equal(isGqOrUqDifficulty('QQ'), false);
+  assert.equal(isGqOrUqDifficulty('G12'), false);
+  assert.equal(isGqOrUqDifficulty('U5'), false);
+  assert.equal(isGqOrUqDifficulty(null), false);
 });
 
 test('parseQRange maps GQ, UQ, and Q0-4 onto PGU buckets', () => {

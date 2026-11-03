@@ -232,6 +232,12 @@ export function maxVotableSortOrder(
   return nextByOrder?.sortOrder ?? topDiff.sortOrder;
 }
 
+/** GQ0–GQ4 or UQ0–UQ4, including labels like `UQ2 (U9~U12)`. Bare Q and Qq are not. */
+export function isGqOrUqDifficulty(name: string | null | undefined): boolean {
+  const n = String(name || '').trim().toUpperCase();
+  return /^GQ[0-4](?:\s|\(|$)/.test(n) || /^UQ[0-4](?:\s|\(|$)/.test(n);
+}
+
 /** Inverse of client pguNumberToQTier: GQ1 / UQ1 / Q1 → tier 1 (four PGU ranks per bucket). */
 export function parseQRange(name: string | null | undefined): ParsedQRange | null {
   const n = String(name || '').trim().toUpperCase();

@@ -28,6 +28,7 @@ class PassSubmission extends BaseModel {
   declare feelingDifficulty: string | null;
   declare expectedDifficulty: string | null;
   declare details: string | null;
+  declare feelingExplanation: string | null;
   declare keyCount: number | null;
   declare title: string | null;
   declare rawTime: Date | null;
@@ -162,6 +163,12 @@ PassSubmission.init(
       allowNull: true,
       defaultValue: null,
       comment: 'Optional website-only plain-text details supplied with the pass submission',
+    },
+    feelingExplanation: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Optional explanation of the feeling rating supplied with a GQ/UQ clear',
     },
     keyCount: {
       type: DataTypes.INTEGER,

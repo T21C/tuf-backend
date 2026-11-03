@@ -694,6 +694,7 @@ async function approvePassSubmission(
     feelingRating: submission.feelingDifficulty || null,
     expectedRating: submission.expectedDifficulty || null,
     details: submission.details || null,
+    feelingExplanation: submission.feelingExplanation || null,
     accuracy,
     scoreV2,
     isAnnounced: false,
@@ -762,7 +763,7 @@ async function approvePassSubmission(
         previousDiffId: level.diffId,
         previousBaseScore: level.baseScore || difficulty.baseScore || 0,
         rerateNum: reqFr.substring(0, 60) || '',
-        rerateReason: 'cleared',
+        rerateReason: (submission.feelingExplanation || '').trim() || 'cleared',
       }, { where: { id: submission.levelId }, transaction });
     }
   }

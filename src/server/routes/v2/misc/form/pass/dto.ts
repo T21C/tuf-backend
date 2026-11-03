@@ -1,4 +1,4 @@
-import { sanitizePassDetails, sanitizeTextInput, validateDateInput, validateFloatInput } from '../shared/sanitize.js';
+import { sanitizeFeelingExplanation, sanitizePassDetails, sanitizeTextInput, validateDateInput, validateFloatInput } from '../shared/sanitize.js';
 import { cleanVideoUrl } from '../shared/videoUrl.js';
 import { formError } from '../shared/errors.js';
 import { sanitizeJudgements } from '@/misc/utils/pass/SanitizeJudgements.js';
@@ -22,6 +22,7 @@ export interface PassFormSanitised {
   feelingDifficulty: string;
   expectedDifficulty: string | null;
   details: string | null;
+  feelingExplanation: string | null;
   keyCount: number | null;
   title: string;
   rawTime: Date;
@@ -107,6 +108,7 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
   const passerRequest = asBool(body.passerRequest);
   const expectedDifficulty = optionalSanitizedText(body, 'expectedDifficulty');
   const details = sanitizePassDetails(body.details);
+  const feelingExplanation = sanitizeFeelingExplanation(body.feelingExplanation);
 
   let passerId: number | null = null;
   if (body.passerId !== undefined && body.passerId !== null && body.passerId !== '') {
@@ -125,6 +127,7 @@ export function parseAndSanitizePassForm(body: Record<string, unknown>): PassFor
     feelingDifficulty,
     expectedDifficulty,
     details,
+    feelingExplanation,
     keyCount,
     title,
     rawTime,
