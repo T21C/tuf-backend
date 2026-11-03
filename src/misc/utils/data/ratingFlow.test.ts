@@ -63,6 +63,17 @@ test('explicitRequestBand ignores text that is not a rating', () => {
   assert.equal(explicitRequestBand('GQ0'), 'G');
 });
 
+test('P0 AutoRater results keep their tier and use the P card and filter band', () => {
+  const rating = 'P0 (P0, P0, P0, P0)';
+  assert.equal(combinedTierFromAutorater(rating), 'P0');
+  assert.equal(autoraterHideBand(rating), 'P');
+  assert.equal(autoraterHideBand('P0'), 'P');
+  assert.equal(evaluate({combinedTier: rating}).cardBand, 'P');
+  for (const invalid of ['G0', 'U0', 'P00', 'P21']) {
+    assert.equal(autoraterHideBand(invalid), null);
+  }
+});
+
 test('parseAutoraterCombined reads an AutoRater V2 rating result', () => {
   const parsed = parseAutoraterCombined({
     tufid: 17158,

@@ -1,4 +1,4 @@
-const tierPattern = '(?:[PGU](?:[1-9]|1[0-9]|20)|Impossible|Censored)';
+const tierPattern = '(?:P0|[PGU](?:[1-9]|1[0-9]|20)|Impossible|Censored)';
 const tier = new RegExp(`^${tierPattern}$`);
 const average = new RegExp(`^(${tierPattern})(?: (low|mid|high))?$`);
 const display = new RegExp(`^(${tierPattern})(?: (?:low|mid|high))? \\((${tierPattern}), (${tierPattern}), (${tierPattern}), (${tierPattern})\\)$`);
