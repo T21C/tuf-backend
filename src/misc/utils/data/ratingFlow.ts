@@ -180,6 +180,7 @@ export function explicitRequestBand(raw: string | null | undefined): RequestBand
 export function cardBandFromTier(tier: string | null | undefined): CardBand {
   const text = String(tier ?? '').trim();
   if (!text) return null;
+  if (/^P0$/i.test(text)) return 'P';
   if (/^impossible$/i.test(text)) return 'Impossible';
   const q = parseQRange(text);
   if (q) return q.letter === 'G' ? 'G' : 'U';

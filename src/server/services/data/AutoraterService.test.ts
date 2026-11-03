@@ -39,6 +39,7 @@ function setup(t: TestContext) {
   t.mock.method(RatingDetail, 'findAll', async () => [{isCommunityRating: false,
     dataValues: {userId: 'preview-bot', rating: response.rating_result}}]);
   t.mock.method(Difficulty, 'findAll', async () => [
+    {id: 2355445, name: 'P0', sortOrder: 73, type: 'SPECIAL'},
     {id: 47, name: 'U7', sortOrder: 51, type: 'PGU'},
     {id: 48, name: 'U8', sortOrder: 52, type: 'PGU'},
   ]);
@@ -73,6 +74,28 @@ test('invalid upstream results do not replace the existing rating', async t => {
   assert.equal(state.begin.mock.callCount(), 0);
 });
 
+for (const votes of [1, 4]) {
+  test(`persists P0 and counts it as one special vote alongside ${votes - 1} human votes`, async t => {
+    const state = setup(t);
+    const p0 = {...response, avg: 'P0', rr: 'P0', v2: 'P0', v21: 'P0', v22: 'P0',
+      rating_result: 'P0 (P0, P0, P0, P0)'};
+    state.request.mock.mockImplementation(async () => ({status: 200, data: p0}));
+    t.mock.method(RatingDetail, 'findAll', async () => Array.from({length: votes}, (_, index) => ({
+      isCommunityRating: false,
+      dataValues: {userId: index === 0 ? 'preview-bot' : `human-${index}`,
+        rating: index === 0 ? p0.rating_result : 'P0'},
+    })));
+    const result = await autoraterService.autorateRating(14577);
+    assert.deepEqual(result.response, p0);
+    const saved = state.save.mock.calls[0].arguments[0] as {rating: string};
+    assert.equal(saved.rating, p0.rating_result);
+    assert.deepEqual(state.update.mock.calls[0].arguments[0], {
+      averageDifficultyId: votes === 4 ? 2355445 : null, communityDifficultyId: null,
+    });
+    assert.equal(state.transaction.commit.mock.callCount(), 1);
+    assert.equal(state.transaction.rollback.mock.callCount(), 0);
+  });
+}
 test('honors an explicit API origin and removes trailing slashes', async t => {
   setup(t);
   process.env.AUTORATER_API_URL = 'https://autorater.example///';
