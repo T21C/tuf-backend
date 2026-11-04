@@ -4,6 +4,7 @@ import { redis } from '@/server/services/core/RedisService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { coalesceHttpCache, createInflightRegistry, INFLIGHT_CACHE_LIMIT } from './inflightWork.js';
 
 /**
  * Configuration for cache behavior
@@ -40,12 +41,57 @@ const DEFAULT_CONFIG: Required<Omit<CacheConfig, 'superKeyGenerator' | 'varyByQu
   addHeaders: true,
 };
 
-/**
- * Map to track pending promises for cache keys
- * Prevents cache stampede/thundering herd when multiple concurrent requests
- * hit the same cache key that's not yet cached
- */
-const pendingPromises = new Map<string, Promise<void>>();
+/** Shared by the middleware and the decorator. Capped so a key leak cannot grow without bound. */
+const httpCacheFlights = createInflightRegistry(INFLIGHT_CACHE_LIMIT);
+
+function tagsForRequest(req: Request, config: CacheConfig): string[] {
+  if (!config.tags) return [];
+  return typeof config.tags === 'function' ? config.tags(req) : config.tags;
+}
+
+function attachCacheTags(cacheKey: string, tags: string[]): Promise<void> {
+  if (tags.length === 0) return Promise.resolve();
+  return Promise.all(
+    tags.map((tag) => {
+      const tagKey = `cache:tags:${tag}`;
+      return redis.sAdd(tagKey, cacheKey).catch((err) => {
+        logger.error(`Cache tag error for ${tagKey}:`, err);
+      });
+    }),
+  ).then(() => undefined);
+}
+
+async function serveCachedGet(
+  req: Request,
+  res: Response,
+  cacheKey: string,
+  ttlSec: number,
+  addHeaders: boolean,
+  config: CacheConfig,
+  proceed: () => unknown,
+): Promise<unknown> {
+  return coalesceHttpCache({
+    registry: httpCacheFlights,
+    cacheKey,
+    ttlSec,
+    addHeaders,
+    res,
+    read: () => redis.get(cacheKey),
+    readTtl: () => redis.ttl(cacheKey),
+    write: (payload) => redis.set(cacheKey, payload, ttlSec),
+    registerTags: () => attachCacheTags(cacheKey, tagsForRequest(req, config)),
+    proceed,
+    onTimeout: () => {
+      logger.warn(`Pending cache fill timed out for key: ${cacheKey}`);
+    },
+    onWriteError: (error) => {
+      logger.error('Cache SET error:', error);
+    },
+    onTagError: (error) => {
+      logger.error('Cache tagging error:', error);
+    },
+  });
+}
 
 /**
  * Determine user role/cache group based on permissions
@@ -178,134 +224,20 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
 
     const cacheKey = generateCacheKey(req, mergedConfig);
 
+    let started = false;
     try {
-      // Try to get from cache
-      const cached = await redis.get<{ body: unknown; statusCode: number }>(cacheKey);
-
-      if (cached) {
-        if (mergedConfig.addHeaders) {
-          res.setHeader('X-Cache', 'HIT');
-          const ttl = await redis.ttl(cacheKey);
-          if (ttl > 0) {
-            res.setHeader('X-Cache-TTL', ttl);
-          }
-        }
-
-        res.status(cached.statusCode).json(cached.body);
+      await serveCachedGet(req, res, cacheKey, mergedConfig.ttl, mergedConfig.addHeaders, config, () => {
+        started = true;
+        next();
+      });
+    } catch (error) {
+      logger.error('Cache middleware error:', error);
+      if (res.headersSent) return;
+      if (!started) {
+        next();
         return;
       }
-
-      // Check if there's already a pending promise for this cache key
-      // This prevents cache stampede when multiple concurrent requests hit the same cache key
-      const pendingPromise = pendingPromises.get(cacheKey);
-      if (pendingPromise) {
-        //logger.debug(`Cache MISS (awaiting pending): ${cacheKey}`);
-
-        // Wait for the pending request to complete and cache the result
-        await pendingPromise;
-
-        // Try cache again - it should be populated now
-        const cachedAfterWait = await redis.get<{ body: unknown; statusCode: number }>(cacheKey);
-        if (cachedAfterWait) {
-          if (mergedConfig.addHeaders) {
-            res.setHeader('X-Cache', 'HIT');
-            const ttl = await redis.ttl(cacheKey);
-            if (ttl > 0) {
-              res.setHeader('X-Cache-TTL', ttl);
-            }
-          }
-
-          res.status(cachedAfterWait.statusCode).json(cachedAfterWait.body);
-          return;
-        }
-
-        // If still not cached (shouldn't happen, but handle gracefully)
-        logger.warn(`Cache still MISS after pending promise: ${cacheKey}`);
-      }
-
-      //logger.debug(`Cache MISS: ${cacheKey}`);
-
-      // Create a promise that resolves when the response is cached
-      let resolvePending: () => void;
-      const executionPromise = new Promise<void>((resolve) => {
-        resolvePending = resolve;
-      });
-
-      // Store the promise so other concurrent requests can await it
-      pendingPromises.set(cacheKey, executionPromise);
-
-      // Set a timeout to clean up pending promise if handler doesn't respond (safety net)
-      const timeout = setTimeout(() => {
-        if (pendingPromises.has(cacheKey)) {
-          logger.warn(`Pending promise timeout for cache key: ${cacheKey}`);
-          pendingPromises.delete(cacheKey);
-          resolvePending(); // Resolve so other requests don't hang
-        }
-      }, 60000); // 60 second timeout
-
-      // Store original json method to intercept response
-      const originalJson = res.json.bind(res);
-
-      const cleanup = () => {
-        clearTimeout(timeout);
-        if (pendingPromises.has(cacheKey)) {
-          pendingPromises.delete(cacheKey);
-          resolvePending(); // Resolve so other requests don't hang
-        }
-      };
-
-      res.json = function (body: unknown): Response {
-        clearTimeout(timeout);
-
-        // Only cache successful responses
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          redis.set(cacheKey, { body, statusCode: res.statusCode }, mergedConfig.ttl)
-            .then(() => {
-              // Add cache key to tag sets for invalidation tracking
-              if (config.tags) {
-                const tags = typeof config.tags === 'function' ? config.tags(req) : config.tags;
-                if (tags.length > 0) {
-                  const tagPromises = tags.map(tag => {
-                    const tagKey = `cache:tags:${tag}`;
-                    return redis.sAdd(tagKey, cacheKey).catch(err =>
-                      logger.error(`Cache tag error for ${tagKey}:`, err)
-                    );
-                  });
-                  Promise.all(tagPromises).catch(err =>
-                    logger.error('Cache tagging error:', err)
-                  );
-                }
-              }
-
-              // Remove from pending promises and resolve
-              cleanup();
-            })
-            .catch(err => {
-              logger.error('Cache SET error:', err);
-              // Remove from pending promises even on error
-              cleanup();
-            });
-        } else {
-          // Non-successful response - don't cache, but still resolve promise
-          cleanup();
-        }
-
-        if (mergedConfig.addHeaders) {
-          res.setHeader('X-Cache', 'MISS');
-        }
-
-        return originalJson(body);
-      };
-
-      // Handle response finish/close events to clean up if res.json() wasn't called
-      res.once('finish', cleanup);
-      res.once('close', cleanup);
-
-      next();
-    } catch (error) {
-      // On cache error, just proceed without caching
-      logger.error('Cache middleware error:', error);
-      next();
+      next(error);
     }
   };
 }
@@ -349,126 +281,26 @@ export function Cached(config: CacheConfig = {}) {
       }
 
       const cacheKey = generateCacheKey(req, mergedConfig);
-
+      let started = false;
       try {
-        // Try to get from cache
-        const cached = await redis.get<{ body: unknown; statusCode: number }>(cacheKey);
-
-        if (cached) {
-          if (mergedConfig.addHeaders) {
-            res.setHeader('X-Cache', 'HIT');
-            const ttl = await redis.ttl(cacheKey);
-            if (ttl > 0) {
-              res.setHeader('X-Cache-TTL', ttl);
-            }
-          }
-
-          return res.status(cached.statusCode).json(cached.body);
-        }
-
-        // Check if there's already a pending promise for this cache key
-        const pendingPromise = pendingPromises.get(cacheKey);
-        if (pendingPromise) {
-          //logger.debug(`Cache MISS (awaiting pending, decorator): ${cacheKey}`);
-
-          // Wait for the pending request to complete and cache the result
-          await pendingPromise;
-
-          // Try cache again - it should be populated now
-          const cachedAfterWait = await redis.get<{ body: unknown; statusCode: number }>(cacheKey);
-          if (cachedAfterWait) {
-            if (mergedConfig.addHeaders) {
-              res.setHeader('X-Cache', 'HIT');
-              const ttl = await redis.ttl(cacheKey);
-              if (ttl > 0) {
-                res.setHeader('X-Cache-TTL', ttl);
-              }
-            }
-
-            return res.status(cachedAfterWait.statusCode).json(cachedAfterWait.body);
-          }
-
-          logger.warn(`Cache still MISS after pending promise (decorator): ${cacheKey}`);
-        }
-
-        //logger.debug(`Cache MISS (decorator): ${cacheKey}`);
-
-        // Create a promise that resolves when the response is cached
-        let resolvePending: () => void;
-        const executionPromise = new Promise<void>((resolve) => {
-          resolvePending = resolve;
-        });
-
-        // Store the promise so other concurrent requests can await it
-        pendingPromises.set(cacheKey, executionPromise);
-
-        // Set a timeout to clean up pending promise if handler doesn't respond (safety net)
-        const timeout = setTimeout(() => {
-          if (pendingPromises.has(cacheKey)) {
-            logger.warn(`Pending promise timeout for cache key (decorator): ${cacheKey}`);
-            pendingPromises.delete(cacheKey);
-            resolvePending();
-          }
-        }, 60000); // 60 second timeout
-
-        // Store original json method
-        const originalJson = res.json.bind(res);
-
-        const cleanup = () => {
-          clearTimeout(timeout);
-          if (pendingPromises.has(cacheKey)) {
-            pendingPromises.delete(cacheKey);
-            resolvePending();
-          }
-        };
-
-        res.json = function (body: unknown): Response {
-          clearTimeout(timeout);
-
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            redis.set(cacheKey, { body, statusCode: res.statusCode }, mergedConfig.ttl)
-              .then(() => {
-                // Add cache key to tag sets for invalidation tracking
-                if (config.tags) {
-                  const tags = typeof config.tags === 'function' ? config.tags(req) : config.tags;
-                  if (tags.length > 0) {
-                    const tagPromises = tags.map(tag => {
-                      const tagKey = `cache:tags:${tag}`;
-                      return redis.sAdd(tagKey, cacheKey).catch(err =>
-                        logger.error(`Cache tag error for ${tagKey}:`, err)
-                      );
-                    });
-                    Promise.all(tagPromises).catch(err =>
-                      logger.error('Cache tagging error:', err)
-                    );
-                  }
-                }
-
-                cleanup();
-              })
-              .catch(err => {
-                logger.error('Cache SET error:', err);
-                cleanup();
-              });
-          } else {
-            cleanup();
-          }
-
-          if (mergedConfig.addHeaders) {
-            res.setHeader('X-Cache', 'MISS');
-          }
-
-          return originalJson(body);
-        };
-
-        // Handle response finish/close events to clean up if res.json() wasn't called
-        res.once('finish', cleanup);
-        res.once('close', cleanup);
-
-        return originalMethod.apply(this, [req, res, ...args]);
+        return await serveCachedGet(
+          req,
+          res,
+          cacheKey,
+          mergedConfig.ttl,
+          mergedConfig.addHeaders,
+          config,
+          () => {
+            started = true;
+            return originalMethod.apply(this, [req, res, ...args]);
+          },
+        );
       } catch (error) {
         logger.error('Cache decorator error:', error);
-        return originalMethod.apply(this, [req, res, ...args]);
+        if (!started && !res.headersSent) {
+          return originalMethod.apply(this, [req, res, ...args]);
+        }
+        throw error;
       }
     };
 

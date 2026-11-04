@@ -1,5 +1,11 @@
 import { redis } from '@/server/services/core/RedisService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import {
+  createInflightRegistry,
+  fillCacheOnce,
+  INFLIGHT_CACHE_LIMIT,
+  layerFlightKey,
+} from './inflightWork.js';
 
 /**
  * Stacked cache layers — independent Redis blobs assembled inside a route handler.
@@ -27,6 +33,9 @@ import { logger } from '@/server/services/core/LoggerService.js';
  */
 
 const TAG_KEY_PREFIX = 'cache:tags:';
+
+/** One registry per process. Same storage key + TTL + tag set share a single fill. */
+const layerFills = createInflightRegistry(INFLIGHT_CACHE_LIMIT);
 
 function cacheTagKey(tag: string): string {
   return `${TAG_KEY_PREFIX}${tag}`;
@@ -106,6 +115,11 @@ export interface GetOrFetchCacheLayerParams<T> {
 
 /**
  * Read-through helper: returns cached value or runs `fetch`, stores, tags.
+ *
+ * Concurrent misses for the same storage key, TTL, and tag set share one fetch
+ * in this process. Plain values are copied per caller. Class instances and
+ * other exotic objects are generated again after that shared attempt finishes,
+ * so one caller cannot mutate another caller's result.
  */
 export async function getOrFetchCacheLayer<T>({
   storageKey,
@@ -113,13 +127,15 @@ export async function getOrFetchCacheLayer<T>({
   tags,
   fetch,
 }: GetOrFetchCacheLayerParams<T>): Promise<{ value: T; hit: boolean }> {
-  const cached = await redis.get<T>(storageKey);
-  if (cached != null) {
-    return { value: cached, hit: true };
-  }
-  const value = await fetch();
-  await writeCacheLayer(storageKey, value, ttlSec, tags);
-  return { value, hit: false };
+  return fillCacheOnce({
+    registry: layerFills,
+    flightKey: layerFlightKey(storageKey, ttlSec, tags),
+    read: () => redis.get<T>(storageKey),
+    write: async (value) => {
+      await writeCacheLayer(storageKey, value, ttlSec, tags);
+    },
+    produce: fetch,
+  });
 }
 
 /**

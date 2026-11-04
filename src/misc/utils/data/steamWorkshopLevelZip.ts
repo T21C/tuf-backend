@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import axios from 'axios';
 import type { Readable } from 'stream';
 import {
@@ -103,6 +104,7 @@ type SteamPublishedFileDetail = {
  */
 async function assertSteamWorkshopItemDownloadable(
   publishedFileId: string,
+  requestId: string,
   signal?: AbortSignal,
 ): Promise<void> {
   try {
@@ -119,6 +121,7 @@ async function assertSteamWorkshopItemDownloadable(
 
     if (res.status !== 200 || !res.data || typeof res.data !== 'object') {
       logger.warn('Steam Workshop preflight: unexpected HTTP response', {
+        requestId,
         publishedFileId,
         status: res.status,
       });
@@ -129,24 +132,52 @@ async function assertSteamWorkshopItemDownloadable(
       ?.response?.publishedfiledetails;
     const detail = Array.isArray(details) ? details[0] : undefined;
     if (!detail || typeof detail !== 'object') {
-      logger.warn('Steam Workshop preflight: missing publishedfiledetails', { publishedFileId });
+      logger.warn('Steam Workshop preflight: missing publishedfiledetails', {
+        requestId,
+        publishedFileId,
+      });
       return;
     }
 
+    const expectedApp = expectedWorkshopAppId();
+    const consumerRaw = detail.consumer_app_id ?? detail.consumer_appid;
+    const consumerAppId =
+      consumerRaw != null && String(consumerRaw) !== '' ? String(consumerRaw) : null;
+
     if (detail.result !== STEAM_E_RESULT_OK) {
+      logger.warn('Steam Workshop preflight: rejected, agent will not be called', {
+        requestId,
+        publishedFileId,
+        reason: 'steam_result',
+        steamResult: detail.result ?? null,
+        consumerAppId,
+        expectedAppId: expectedApp,
+      });
       throw { error: 'Steam Workshop item not found', code: 404 };
     }
 
-    const expectedApp = expectedWorkshopAppId();
-    if (expectedApp) {
-      const consumerRaw = detail.consumer_app_id ?? detail.consumer_appid;
-      if (consumerRaw != null && String(consumerRaw) !== '' && String(consumerRaw) !== expectedApp) {
-        throw {
-          error: 'Steam Workshop item not found',
-          code: 404,
-        };
-      }
+    if (expectedApp && consumerAppId != null && consumerAppId !== expectedApp) {
+      logger.warn('Steam Workshop preflight: rejected, agent will not be called', {
+        requestId,
+        publishedFileId,
+        reason: 'consumer_app_mismatch',
+        steamResult: detail.result ?? null,
+        consumerAppId,
+        expectedAppId: expectedApp,
+      });
+      throw {
+        error: 'Steam Workshop item not found',
+        code: 404,
+      };
     }
+
+    logger.info('Steam Workshop preflight: passed', {
+      requestId,
+      publishedFileId,
+      steamResult: detail.result ?? null,
+      consumerAppId,
+      expectedAppId: expectedApp,
+    });
   } catch (err: unknown) {
     if (typeof err === 'object' && err !== null && 'error' in err && 'code' in err) {
       const o = err as { error?: unknown; code?: unknown };
@@ -158,6 +189,7 @@ async function assertSteamWorkshopItemDownloadable(
       throw { error: 'Steam Workshop download was cancelled', code: 499 };
     }
     logger.warn('Steam Workshop preflight failed; continuing to agent', {
+      requestId,
       publishedFileId,
       message: err instanceof Error ? err.message : String(err),
     });
@@ -274,11 +306,20 @@ export async function downloadSteamWorkshopItemToZipBuffer(
     throw { error: 'Invalid Steam Workshop item id', code: 400 };
   }
 
-  await assertSteamWorkshopItemDownloadable(publishedFileId, options?.signal);
+  const requestId = randomUUID();
+  logger.info('Steam Workshop download: start', { requestId, publishedFileId });
+
+  await assertSteamWorkshopItemDownloadable(publishedFileId, requestId, options?.signal);
 
   const base = agentBaseUrl();
   const secret = process.env.STEAM_WORKSHOP_AGENT_SECRET?.trim();
   if (!base || !secret) {
+    logger.warn('Steam Workshop download: agent not configured, request not sent', {
+      requestId,
+      publishedFileId,
+      hasUrl: Boolean(base),
+      hasSecret: Boolean(secret),
+    });
     throw {
       error:
         'Steam Workshop import is not configured (set STEAM_WORKSHOP_AGENT_URL and STEAM_WORKSHOP_AGENT_SECRET on the API server).',
@@ -295,6 +336,12 @@ export async function downloadSteamWorkshopItemToZipBuffer(
   await options?.onPhase?.('agent');
 
   const url = `${base}/v1/workshop/item.zip`;
+  logger.info('Steam Workshop download: calling agent', {
+    requestId,
+    publishedFileId,
+    appId: body.appId ?? null,
+    agentUrl: url,
+  });
 
   try {
     const res = await axios.post<Readable>(url, body, {
@@ -306,6 +353,7 @@ export async function downloadSteamWorkshopItemToZipBuffer(
       headers: {
         Authorization: `Bearer ${secret}`,
         'Content-Type': 'application/json',
+        'X-Tuf-Workshop-Request-Id': requestId,
       },
       validateStatus: () => true,
     });
@@ -313,6 +361,15 @@ export async function downloadSteamWorkshopItemToZipBuffer(
     if (res.status !== 200) {
       const errBuf = await readStreamToBufferLimit(res.data, 65536);
       const parsed = parseAgentErrorBody(errBuf);
+      const bodySnippet = errBuf.toString('utf8').trim().slice(0, 500);
+      logger.warn('Steam Workshop download: agent returned error', {
+        requestId,
+        publishedFileId,
+        status: res.status,
+        agentError: parsed?.error ?? null,
+        agentCode: parsed?.code ?? null,
+        bodySnippet: bodySnippet || null,
+      });
       if (parsed) {
         throw { error: parsed.error, code: parsed.code };
       }
@@ -340,9 +397,23 @@ export async function downloadSteamWorkshopItemToZipBuffer(
     }
 
     await assertValidArchiveBuffer(buf, `workshop-${publishedFileId}.zip`);
+    logger.info('Steam Workshop download: agent returned zip', {
+      requestId,
+      publishedFileId,
+      bytes: buf.length,
+    });
     return buf;
   } catch (err: unknown) {
     if (axios.isAxiosError(err)) {
+      logger.warn('Steam Workshop download: agent request did not complete', {
+        requestId,
+        publishedFileId,
+        agentUrl: url,
+        code: err.code ?? null,
+        message: err.message,
+        reachedAgent: Boolean(err.response),
+        status: err.response?.status ?? null,
+      });
       if (err.code === 'ERR_CANCELED') {
         throw { error: 'Steam Workshop download was cancelled', code: 499 };
       }
