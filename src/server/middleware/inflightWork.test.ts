@@ -396,13 +396,21 @@ test('a timed out fill releases the waiter to run its own handler', async () => 
     },
   });
 
-  const first = run(fakeRes());
-  const second = run(fakeRes());
-  await first;
-  assert.equal(produces, 1);
-  await second;
-  assert.equal(produces, 2);
-  await delay(50);
-  assert.equal(timeouts, 2);
-  assert.equal(registry.size(), 0);
+  // The fill timer is unref'd so a stuck request cannot hold the process open.
+  // A referenced timer has to stay active or the test runner treats the loop as
+  // idle and cancels this test before that timer can release the waiter.
+  const keepAlive = setInterval(() => undefined, 20);
+  try {
+    const first = run(fakeRes());
+    const second = run(fakeRes());
+    await first;
+    assert.equal(produces, 1);
+    await second;
+    assert.equal(produces, 2);
+    await delay(50);
+    assert.equal(timeouts, 2);
+    assert.equal(registry.size(), 0);
+  } finally {
+    clearInterval(keepAlive);
+  }
 });
