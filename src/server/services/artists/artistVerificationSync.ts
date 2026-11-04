@@ -1,3 +1,5 @@
+import http from 'node:http';
+import https from 'node:https';
 import axios from 'axios';
 import {Op} from 'sequelize';
 import {getSequelizeForModelGroup} from '@/config/db.js';
@@ -27,6 +29,35 @@ import {
 export const DEFAULT_ARTIST_VERIFICATION_URL = 'https://7thbe.at/wapi/getArtists';
 const FETCH_TIMEOUT_MS = 60_000;
 const IMAGE_TIMEOUT_MS = 45_000;
+const FEED_FETCH_ATTEMPTS = 3;
+const FEED_RETRY_DELAYS_MS = [1_000, 2_000];
+
+/**
+ * Node's happy-eyeballs default aborts the in-flight IPv4 connect after 250ms
+ * when IPv6 is unreachable, then throws AggregateError
+ * `ETIMEDOUT <v4>:443; ENETUNREACH <v6>:443 - Local (:::0)`.
+ * This host has no IPv6 route, so the fallback family needs a normal handshake window.
+ */
+const FEED_SOCKET_OPTIONS = {
+  keepAlive: true,
+  autoSelectFamily: true,
+  autoSelectFamilyAttemptTimeout: 10_000,
+} as const;
+const feedHttpAgent = new http.Agent(FEED_SOCKET_OPTIONS);
+const feedHttpsAgent = new https.Agent(FEED_SOCKET_OPTIONS);
+
+const RETRYABLE_FEED_CODES = [
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'ECONNABORTED',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'EAI_AGAIN',
+  'ENOTFOUND',
+  'EPIPE',
+  'ERR_NETWORK',
+];
 
 const sequelize = getSequelizeForModelGroup('levels');
 
@@ -86,16 +117,61 @@ function readFeedArtists(data: unknown): unknown[] {
   return body.artists;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function transportErrorText(error: unknown, depth = 0): string {
+  if (!error || typeof error !== 'object' || depth > 4) return '';
+  const err = error as {code?: unknown; message?: unknown; cause?: unknown; errors?: unknown};
+  const parts: string[] = [];
+  if (typeof err.code === 'string') parts.push(err.code);
+  if (typeof err.message === 'string') parts.push(err.message);
+  if (Array.isArray(err.errors)) {
+    for (const child of err.errors) parts.push(transportErrorText(child, depth + 1));
+  }
+  if (err.cause) parts.push(transportErrorText(err.cause, depth + 1));
+  return parts.join(' ');
+}
+
+/** Connect/DNS failures only. An HTTP response or a bad feed body is not retried. */
+function isRetryableFeedTransportError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  if ('response' in error && (error as {response?: unknown}).response) return false;
+  const text = transportErrorText(error);
+  return RETRYABLE_FEED_CODES.some((code) => text.includes(code));
+}
+
 async function fetchArtistFeed(url: string): Promise<unknown[]> {
-  const response = await axios.get(url, {
-    timeout: FETCH_TIMEOUT_MS,
-    headers: {
-      Accept: 'application/json',
-      'User-Agent': 'TUF-Website/artist-verification-sync',
-    },
-    validateStatus: (status) => status >= 200 && status < 300,
-  });
-  return readFeedArtists(response.data);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= FEED_FETCH_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await axios.get(url, {
+        timeout: FETCH_TIMEOUT_MS,
+        httpAgent: feedHttpAgent,
+        httpsAgent: feedHttpsAgent,
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'TUF-Website/artist-verification-sync',
+        },
+        validateStatus: (status) => status >= 200 && status < 300,
+      });
+      return readFeedArtists(response.data);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= FEED_FETCH_ATTEMPTS || !isRetryableFeedTransportError(error)) throw error;
+      const delayMs = FEED_RETRY_DELAYS_MS[attempt - 1] ?? FEED_RETRY_DELAYS_MS.at(-1) ?? 1_000;
+      logger.warn('Artist verification feed fetch failed, retrying', {
+        url,
+        attempt,
+        attempts: FEED_FETCH_ATTEMPTS,
+        delayMs,
+        error: errorMessage(error),
+      });
+      await sleep(delayMs);
+    }
+  }
+  throw lastError;
 }
 
 async function downloadEvidenceImage(url: string): Promise<Buffer | null> {
