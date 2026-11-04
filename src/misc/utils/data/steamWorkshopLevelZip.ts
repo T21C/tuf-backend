@@ -24,7 +24,10 @@ import { logger } from '@/server/services/core/LoggerService.js';
 const STEAM_PUBLISHED_FILE_DETAILS_URL =
   'https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/';
 const STEAM_E_RESULT_OK = 1;
+/** Anonymous GetPublishedFileDetails returns this for some public items as well as real misses. */
+const STEAM_E_RESULT_FILE_NOT_FOUND = 9;
 const STEAM_PREFLIGHT_TIMEOUT_MS = 10_000;
+const COMMUNITY_PAGE_MAX_BYTES = 1_000_000;
 
 /** Published file id as decimal string (may exceed JS safe integer). */
 export function parseSteamWorkshopPublishedFileId(input: string): string | null {
@@ -97,9 +100,63 @@ type SteamPublishedFileDetail = {
   consumer_appid?: number | string;
 };
 
+function communityFileDetailsUrl(publishedFileId: string): string {
+  return `https://steamcommunity.com/sharedfiles/filedetails/?id=${publishedFileId}`;
+}
+
+/** App id from the item's own subscribe/share markup. The hub chrome is not enough. */
+function readCommunityWorkshopAppId(html: string, publishedFileId: string): string | null {
+  if (!/^\d+$/.test(publishedFileId)) return null;
+  const match = html.match(
+    new RegExp(
+      `(?:SubscribeItem|ShowSharePublishedFilePopup|ShowAddToCollection)\\(\\s*['"]${publishedFileId}['"]\\s*,\\s*['"](\\d+)['"]`,
+    ),
+  );
+  return match?.[1] ?? null;
+}
+
+function rejectWorkshopPreflight(
+  requestId: string,
+  publishedFileId: string,
+  fields: Record<string, unknown>,
+): never {
+  logger.warn('Steam Workshop preflight: rejected, agent will not be called', {
+    requestId,
+    publishedFileId,
+    ...fields,
+  });
+  throw { error: 'Steam Workshop item not found', code: 404 };
+}
+
+/**
+ * Result 9 has no consumer app id. The public file page still includes one for a real item
+ * (`SubscribeItem('id', 'appId')`) and omits it for a genuine miss.
+ * A failed page request does not reject; the caller continues to the agent.
+ */
+async function communityAppIdForFileNotFoundResult(
+  publishedFileId: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const res = await axios.get<string>(communityFileDetailsUrl(publishedFileId), {
+    timeout: STEAM_PREFLIGHT_TIMEOUT_MS,
+    signal,
+    responseType: 'text',
+    maxContentLength: COMMUNITY_PAGE_MAX_BYTES,
+    maxBodyLength: COMMUNITY_PAGE_MAX_BYTES,
+    headers: {
+      Accept: 'text/html',
+      'User-Agent': 'TUF-Website/workshop-preflight',
+    },
+    validateStatus: () => true,
+  });
+  if (typeof res.data !== 'string' || !res.data) return null;
+  return readCommunityWorkshopAppId(res.data, publishedFileId);
+}
+
 /**
  * Fast existence / app-id check via Steam Web API (no key required).
- * Throws 404 when Steam reports the item missing or wrong app.
+ * Throws 404 when the item is missing or for the wrong app.
+ * Result 9 is confirmed against the public workshop page before rejecting.
  * On Steam API outage / malformed response: logs and returns (caller may still hit the agent).
  */
 async function assertSteamWorkshopItemDownloadable(
@@ -144,31 +201,65 @@ async function assertSteamWorkshopItemDownloadable(
     const consumerAppId =
       consumerRaw != null && String(consumerRaw) !== '' ? String(consumerRaw) : null;
 
-    if (detail.result !== STEAM_E_RESULT_OK) {
-      logger.warn('Steam Workshop preflight: rejected, agent will not be called', {
+    if (detail.result === STEAM_E_RESULT_FILE_NOT_FOUND) {
+      if (expectedApp && consumerAppId != null && consumerAppId !== expectedApp) {
+        rejectWorkshopPreflight(requestId, publishedFileId, {
+          reason: 'consumer_app_mismatch',
+          steamResult: detail.result,
+          consumerAppId,
+          expectedAppId: expectedApp,
+        });
+      }
+      logger.info('Steam Workshop preflight: result 9, checking community page', {
         requestId,
         publishedFileId,
+        expectedAppId: expectedApp,
+      });
+      const communityAppId = await communityAppIdForFileNotFoundResult(publishedFileId, signal);
+      if (!communityAppId) {
+        rejectWorkshopPreflight(requestId, publishedFileId, {
+          reason: 'steam_result',
+          steamResult: detail.result,
+          consumerAppId,
+          communityAppId: null,
+          expectedAppId: expectedApp,
+        });
+      }
+      if (expectedApp && communityAppId !== expectedApp) {
+        rejectWorkshopPreflight(requestId, publishedFileId, {
+          reason: 'consumer_app_mismatch',
+          steamResult: detail.result,
+          consumerAppId: communityAppId,
+          expectedAppId: expectedApp,
+        });
+      }
+      logger.info('Steam Workshop preflight: passed', {
+        requestId,
+        publishedFileId,
+        steamResult: detail.result,
+        consumerAppId: communityAppId,
+        expectedAppId: expectedApp,
+        source: 'community_page',
+      });
+      return;
+    }
+
+    if (detail.result !== STEAM_E_RESULT_OK) {
+      rejectWorkshopPreflight(requestId, publishedFileId, {
         reason: 'steam_result',
         steamResult: detail.result ?? null,
         consumerAppId,
         expectedAppId: expectedApp,
       });
-      throw { error: 'Steam Workshop item not found', code: 404 };
     }
 
     if (expectedApp && consumerAppId != null && consumerAppId !== expectedApp) {
-      logger.warn('Steam Workshop preflight: rejected, agent will not be called', {
-        requestId,
-        publishedFileId,
+      rejectWorkshopPreflight(requestId, publishedFileId, {
         reason: 'consumer_app_mismatch',
         steamResult: detail.result ?? null,
         consumerAppId,
         expectedAppId: expectedApp,
       });
-      throw {
-        error: 'Steam Workshop item not found',
-        code: 404,
-      };
     }
 
     logger.info('Steam Workshop preflight: passed', {
