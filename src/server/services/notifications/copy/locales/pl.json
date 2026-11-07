@@ -132,6 +132,12 @@
           "body": "{{creatorName}} opublikował {{song}} — {{artist}}."
         }
       }
+    },
+    "admin": {
+      "notice": {
+        "title": "Wiadomość od {{actorName}}",
+        "body": "{{message}}"
+      }
     }
   }
 }

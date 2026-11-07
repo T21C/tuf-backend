@@ -132,6 +132,12 @@
           "body": "{{creatorName}}님이 {{song}} — {{artist}} 를 공개했습니다."
         }
       }
+    },
+    "admin": {
+      "notice": {
+        "title": "{{actorName}}님의 알림",
+        "body": "{{message}}"
+      }
     }
   }
 }

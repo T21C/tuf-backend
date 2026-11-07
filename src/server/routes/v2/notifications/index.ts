@@ -14,8 +14,11 @@ import {
   getChartClearMuteState,
   setChartClearMuted,
 } from '@/server/services/notifications/chartClearNotify.js';
+import {normalizePushDeviceKey, type PushUpsertIntent} from '@/server/services/notifications/pushDevice.js';
 import {
   deletePushSubscription,
+  listPushDevices,
+  revokePushSubscriptionById,
   upsertPushSubscription,
 } from '@/server/services/notifications/PushSubscriptionService.js';
 
@@ -352,13 +355,85 @@ router.get(
   },
 );
 
+router.get(
+  '/push/devices',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getPushDevices',
+    summary: 'List attached push devices',
+    description:
+      'Active Web Push browsers for the authenticated user. There is no device limit. Query deviceKey marks the browser that sent it.',
+    tags: ['Notifications'],
+    security: ['bearerAuth'],
+    query: {
+      deviceKey: {description: 'This browser’s device key', schema: {type: 'string'}},
+    },
+    responses: {
+      200: {
+        description: 'Attached devices',
+        schema: {
+          type: 'object',
+          properties: {devices: {type: 'array', items: {type: 'object'}}},
+        },
+      },
+      ...standardErrorResponses401404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({error: 'User not authenticated'});
+      if (!isPushAvailable()) return pushUnavailable(res);
+      const deviceKey = normalizePushDeviceKey(req.query.deviceKey);
+      const devices = await listPushDevices(userId, deviceKey);
+      return res.json({devices});
+    } catch (error) {
+      logger.error('Error listing push devices:', error);
+      return res.status(500).json({error: 'Failed to list push devices'});
+    }
+  },
+);
+
+router.delete(
+  '/push/devices/:id',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deletePushDevice',
+    summary: 'Detach one push device',
+    description: 'Stops Web Push for one saved browser. Other attached browsers stay subscribed.',
+    tags: ['Notifications'],
+    security: ['bearerAuth'],
+    params: {id: {schema: {type: 'string', pattern: '^[0-9]{1,20}$'}}},
+    responses: {
+      200: {schema: successMessageSchema},
+      ...standardErrorResponses401404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({error: 'User not authenticated'});
+      if (!isPushAvailable()) return pushUnavailable(res);
+      const id = parsePositiveInt(req.params.id);
+      if (!id) return res.status(400).json({error: 'Invalid device id'});
+      const removed = await revokePushSubscriptionById(userId, id);
+      if (!removed) return res.status(404).json({error: 'Push device not found'});
+      return res.json({message: 'OK'});
+    } catch (error) {
+      logger.error('Error detaching push device:', error);
+      return res.status(500).json({error: 'Failed to detach push device'});
+    }
+  },
+);
+
 router.post(
   '/push/subscribe',
   Auth.user(),
   ApiDoc({
     operationId: 'postPushSubscribe',
     summary: 'Save a Web Push subscription',
-    description: 'Upserts this browser PushSubscription and locale for the authenticated user.',
+    description:
+      'Attaches this browser as its own device, or refreshes one that is already attached. Other devices are left in place. intent=refresh does not create a device.',
     tags: ['Notifications'],
     security: ['bearerAuth'],
     requestBody: {
@@ -373,12 +448,24 @@ router.post(
             properties: {p256dh: {type: 'string'}, auth: {type: 'string'}},
           },
           locale: {type: 'string'},
+          deviceKey: {type: 'string'},
+          intent: {type: 'string', enum: ['attach', 'refresh']},
         },
         required: ['endpoint', 'keys'],
       },
     },
     responses: {
-      200: {schema: successMessageSchema},
+      200: {
+        description: 'Attach or refresh result',
+        schema: {
+          type: 'object',
+          properties: {
+            attached: {type: 'boolean'},
+            revoked: {type: 'boolean'},
+            device: {type: 'object', nullable: true},
+          },
+        },
+      },
       400: {schema: errorResponseSchema},
       ...standardErrorResponses401404500,
     },
@@ -388,14 +475,20 @@ router.post(
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({error: 'User not authenticated'});
       if (!isPushAvailable()) return pushUnavailable(res);
-      await upsertPushSubscription(userId, {
-        endpoint: req.body?.endpoint,
-        expirationTime: req.body?.expirationTime,
-        keys: req.body?.keys,
-        locale: req.body?.locale,
-        userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null,
-      });
-      return res.json({message: 'OK'});
+      const intent: PushUpsertIntent = req.body?.intent === 'refresh' ? 'refresh' : 'attach';
+      const result = await upsertPushSubscription(
+        userId,
+        {
+          endpoint: req.body?.endpoint,
+          expirationTime: req.body?.expirationTime,
+          keys: req.body?.keys,
+          locale: req.body?.locale,
+          deviceKey: req.body?.deviceKey,
+          userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null,
+        },
+        intent,
+      );
+      return res.json(result);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('Invalid')) {
         return res.status(400).json({error: error.message});

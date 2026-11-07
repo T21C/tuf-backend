@@ -15,6 +15,8 @@ import { isValidUsername, normalizeUsername } from '@/misc/utils/auth/username.j
 import sequelize from '@/config/db.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import {notificationService} from '@/server/services/notifications/NotificationService.js';
+import {NOTIFICATION_TYPES} from '@/server/services/notifications/types.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
@@ -744,6 +746,55 @@ router.get(
       return res.status(500).json({error: 'Failed to fetch user'});
     }
   }
+);
+
+router.post(
+  '/:userId/notice',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postAdminUserNotice',
+    summary: 'Send a custom notice to a user',
+    description:
+      'Super admin only. Delivers an inbox notification. The title is "Notice from" the sending admin, and the body is the notes in the request. The recipient cannot mute this type.',
+    tags: ['Admin', 'Users'],
+    security: ['bearerAuth'],
+    params: {
+      userId: { description: 'Target user UUID', schema: { type: 'string', format: 'uuid' } },
+    },
+    responses: {
+      200: { description: 'Notice sent' },
+      400: { description: 'Notes missing or too long' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.params;
+      const body = (req.body || {}) as { message?: unknown };
+      const message = typeof body.message === 'string' ? body.message.trim() : '';
+      if (!message || message.length > 4000) {
+        return res.status(400).json({ error: 'Notes are required' });
+      }
+
+      const target = await User.findByPk(userId);
+      if (!target) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const actorName = (req.user?.nickname || req.user?.username || '').trim() || null;
+      await notificationService.notify({
+        type: NOTIFICATION_TYPES.AdminNotice,
+        payload: { message, actorName },
+        recipients: { userIds: [userId] },
+        actorId: req.user?.id ?? null,
+      });
+
+      return res.json({ message: 'Notice sent' });
+    } catch (error: unknown) {
+      logger.error('Admin user notice failed:', error);
+      return res.status(500).json({ error: 'Failed to send notice' });
+    }
+  },
 );
 
 router.post(

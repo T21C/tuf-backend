@@ -70,7 +70,7 @@ async function dispatchPush(notificationId: number): Promise<void> {
           },
         })
       : Promise.resolve(null),
-    PushSubscription.findAll({where: {userId: row.userId}}),
+    PushSubscription.findAll({where: {userId: row.userId, revokedAt: null}}),
   ]);
 
   if (!subscriptions.length) return;

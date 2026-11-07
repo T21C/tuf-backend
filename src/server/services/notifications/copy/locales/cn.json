@@ -132,6 +132,12 @@
           "body": "{{creatorName}} 发布了 {{song}} — {{artist}}。"
         }
       }
+    },
+    "admin": {
+      "notice": {
+        "title": "来自{{actorName}}的通知",
+        "body": "{{message}}"
+      }
     }
   }
 }
