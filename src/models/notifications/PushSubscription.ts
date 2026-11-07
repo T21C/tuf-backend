@@ -13,13 +13,15 @@ export interface PushSubscriptionAttributes {
   expirationTime: Date | null;
   userAgent: string | null;
   locale: string;
+  deviceKey: string | null;
+  revokedAt: Date | null;
   createdAt: Date;
   lastSeenAt: Date;
 }
 
 type PushSubscriptionCreationAttributes = Optional<
   PushSubscriptionAttributes,
-  'id' | 'expirationTime' | 'userAgent' | 'locale' | 'createdAt' | 'lastSeenAt'
+  'id' | 'expirationTime' | 'userAgent' | 'locale' | 'deviceKey' | 'revokedAt' | 'createdAt' | 'lastSeenAt'
 >;
 
 class PushSubscription
@@ -34,6 +36,8 @@ class PushSubscription
   declare expirationTime: Date | null;
   declare userAgent: string | null;
   declare locale: string;
+  declare deviceKey: string | null;
+  declare revokedAt: Date | null;
   declare createdAt: Date;
   declare lastSeenAt: Date;
 
@@ -79,6 +83,14 @@ PushSubscription.init(
       allowNull: false,
       defaultValue: 'en',
     },
+    deviceKey: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+    },
+    revokedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -97,6 +109,7 @@ PushSubscription.init(
     indexes: [
       {name: 'push_subscriptions_endpoint', unique: true, fields: ['endpoint']},
       {name: 'push_subscriptions_user_id', fields: ['userId']},
+      {name: 'push_subscriptions_user_device', unique: true, fields: ['userId', 'deviceKey']},
     ],
   },
 );

@@ -23,11 +23,12 @@ export const NOTIFICATION_TYPES = {
   FollowingPlayerPass: 'following.player.pass',
   FollowingCreatorLevel: 'following.creator.level',
   RequestUpdated: 'request.updated',
+  AdminNotice: 'admin.notice',
 } as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];
 
-export const NOTIFICATION_CATEGORIES = ['submissions', 'chart', 'clears', 'following'] as const;
+export const NOTIFICATION_CATEGORIES = ['submissions', 'chart', 'clears', 'following', 'notices'] as const;
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
@@ -130,6 +131,13 @@ export const followingCreatorLevelPayloadSchema = z.object({
 
 export type FollowingCreatorLevelPayload = z.infer<typeof followingCreatorLevelPayloadSchema>;
 
+export const adminNoticePayloadSchema = z.object({
+  message: z.string().trim().min(1).max(4000),
+  actorName: z.string().nullable().optional(),
+});
+
+export type AdminNoticePayload = z.infer<typeof adminNoticePayloadSchema>;
+
 export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.PassSubmissionSubmitted]: PassSubmissionPayload;
   [NOTIFICATION_TYPES.PassSubmissionApproved]: PassSubmissionPayload;
@@ -153,6 +161,7 @@ export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.ChartCleared]: FollowingPlayerPassPayload;
   [NOTIFICATION_TYPES.FollowingPlayerPass]: FollowingPlayerPassPayload;
   [NOTIFICATION_TYPES.FollowingCreatorLevel]: FollowingCreatorLevelPayload;
+  [NOTIFICATION_TYPES.AdminNotice]: AdminNoticePayload;
 };
 
 export type NotificationChannelDefaults = Record<NotificationChannel, boolean>;
@@ -195,14 +204,17 @@ function def<K extends NotificationType>(
   category: NotificationCategory,
   payload: z.ZodType<NotificationPayloadByType[K]>,
   href: (payload: NotificationPayloadByType[K]) => string | null,
-  extras?: {defaults?: Partial<NotificationChannelDefaults>},
+  extras?: {
+    defaults?: Partial<NotificationChannelDefaults>;
+    lockedChannels?: NotificationLockedChannels;
+  },
 ): NotificationTypeDefinition<K> {
   return {
     id,
     category,
     payload,
     defaults: extras?.defaults ? {...DEFAULT_CHANNELS, ...extras.defaults} : DEFAULT_CHANNELS,
-    lockedChannels: {},
+    lockedChannels: extras?.lockedChannels ?? {},
     i18nKey: `notifications.types.${id}`,
     href,
   };
@@ -343,6 +355,13 @@ const notificationTypeRegistry: {
     'submissions',
     requestUpdatedPayloadSchema,
     (payload) => `/submissions?tab=requests&request=${payload.requestId}`,
+  ),
+  [NOTIFICATION_TYPES.AdminNotice]: def(
+    NOTIFICATION_TYPES.AdminNotice,
+    'notices',
+    adminNoticePayloadSchema,
+    () => null,
+    {lockedChannels: {inApp: true}},
   ),
 };
 

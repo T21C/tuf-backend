@@ -146,7 +146,8 @@ class NotificationService {
       const pref = prefByUser.get(userId);
       const categoryPref = categoryPrefByUser.get(userId);
       if (!channelEnabled(definition, 'inApp', pref?.inApp)) continue;
-      if (!categoryInAppEnabled(categoryPref?.inApp)) continue;
+      const inAppLockedOn = Boolean(definition.lockedChannels.inApp) && definition.defaults.inApp;
+      if (!inAppLockedOn && !categoryInAppEnabled(categoryPref?.inApp)) continue;
 
       let row: Notification;
       try {
