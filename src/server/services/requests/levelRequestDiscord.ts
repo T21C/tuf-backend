@@ -3,7 +3,6 @@ import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import CurationType from '@/models/curations/CurationType.js';
-import {DiscordGuild} from '@/models/discord/index.js';
 import {clientUrlEnv} from '@/config/app.config.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import type LevelRequest from '@/models/levels/LevelRequest.js';
@@ -30,52 +29,9 @@ import {
   normalizePositiveIdList,
 } from '@/misc/utils/data/levelRequestValidation.js';
 import {excludeAutomaticTagIds, isRequestableLevelTag, loadSerializedAssignedTags} from '@/server/services/data/levelTagGroupService.js';
+import {curationTypeEmojiMarkup} from '@/misc/utils/data/curationTypeEmojis.js';
 
 export {discordJumpTarget, logRatingThreadFailure as logRequestDiscordFailure};
-
-type GuildEmojiRow = {id?: string; name?: string; animated?: boolean};
-
-let guildEmojiCache: {at: number; byName: Map<string, string>} | null = null;
-const GUILD_EMOJI_TTL_MS = 10 * 60 * 1000;
-
-async function guildEmojiMarkupByName(): Promise<Map<string, string>> {
-  const now = Date.now();
-  if (guildEmojiCache && now - guildEmojiCache.at < GUILD_EMOJI_TTL_MS) {
-    return guildEmojiCache.byName;
-  }
-  const guild = await DiscordGuild.findOne({
-    where: {isActive: true},
-    order: [['id', 'ASC']],
-  });
-  const guildId = guild?.guildId;
-  const token = guild?.getDataValue('botToken') || process.env.DISCORD_BOT_TOKEN || '';
-  if (!guildId || !token) {
-    return guildEmojiCache?.byName ?? new Map();
-  }
-  try {
-    const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}/emojis`, {
-      headers: {Authorization: `Bot ${token}`},
-    });
-    if (!response.ok) {
-      logger.warn('[level-request] Guild emoji lookup failed', {status: response.status});
-      return guildEmojiCache?.byName ?? new Map();
-    }
-    const rows = (await response.json()) as GuildEmojiRow[];
-    const byName = new Map<string, string>();
-    for (const row of rows) {
-      if (!row?.id || !row?.name) continue;
-      const markup = row.animated ? `<a:${row.name}:${row.id}>` : `<:${row.name}:${row.id}>`;
-      byName.set(row.name.toLowerCase(), markup);
-    }
-    guildEmojiCache = {at: now, byName};
-    return byName;
-  } catch (error) {
-    logger.warn('[level-request] Guild emoji lookup failed', {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return guildEmojiCache?.byName ?? new Map();
-  }
-}
 
 async function requestedCurationEmojis(typeIds: unknown): Promise<string> {
   const ids = Array.isArray(typeIds)
@@ -87,13 +43,11 @@ async function requestedCurationEmojis(typeIds: unknown): Promise<string> {
     attributes: ['id', 'name'],
   });
   const byId = new Map(types.map((type) => [type.id, type]));
-  const emojis = await guildEmojiMarkupByName();
   return ids
     .map((id) => {
       const type = byId.get(id);
       if (!type) return '';
-      const key = String(type.name || '').toLowerCase();
-      return emojis.get(key) || type.name || `#${id}`;
+      return curationTypeEmojiMarkup(type.name) || type.name || `#${id}`;
     })
     .filter(Boolean)
     .join(' ');

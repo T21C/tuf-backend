@@ -18,7 +18,7 @@ export const JWT_SECRET: string = rawSecret;
 export const ACCESS_TOKEN_TTL_SEC = 15 * 60;
 
 /** Refresh token lifetime in days (sliding via rotation). */
-export const REFRESH_TOKEN_TTL_DAYS = 30;
+export const REFRESH_TOKEN_TTL_DAYS = 90;
 
 /** Refresh token lifetime in seconds. */
 export const REFRESH_TOKEN_TTL_SEC = REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60;
@@ -42,7 +42,7 @@ export const OAUTH_PENDING_TTL_SEC = 10 * 60;
 export const OAUTH_PENDING_COOKIE = 'oauthPending';
 
 /** Trusted-device cookie / row lifetime in days. */
-export const TRUSTED_DEVICE_TTL_DAYS = 120;
+export const TRUSTED_DEVICE_TTL_DAYS = 180;
 
 /** Trusted-device lifetime in seconds. */
 export const TRUSTED_DEVICE_TTL_SEC = TRUSTED_DEVICE_TTL_DAYS * 24 * 60 * 60;
