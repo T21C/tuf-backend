@@ -85,6 +85,20 @@ describe('isWrongJudgement', () => {
     assert.equal(getEffectiveTilecount(8, 8), 0);
   });
 
+  it('accepts judgements that match tilecount minus auto tiles when midspins are already excluded', () => {
+    const j = emptyJudgements();
+    j.earlySingle = 2;
+    j.ePerfect = 19;
+    j.perfect = 2506;
+    j.lPerfect = 21;
+    j.lateSingle = 5;
+    assert.equal(2 + 19 + 2506 + 21 + 5, 2553);
+    assert.equal(getEffectiveTilecount(2579, 26), 2553);
+    assert.equal(isWrongJudgement(j, {tilecount: 2579, autoTileCount: 26}), false);
+    j.perfect = 2490;
+    assert.equal(isWrongJudgement(j, {tilecount: 2579, autoTileCount: 26}), true);
+  });
+
   it('flags hit totals that do not match tilecount minus auto tiles', () => {
     const j = emptyJudgements();
     j.perfect = 90;

@@ -24,6 +24,7 @@ import {
   type SubmissionRequestedBy,
 } from './submissionJobTypes.js';
 import { SUBMISSION_WORKER_LOCK_KEY } from './submissionWorkerLock.js';
+import { broadcastSubmissionQueueChange } from './submissionQueueEvents.js';
 
 export {
   buildSteps,
@@ -383,6 +384,7 @@ export const SubmissionJobService = {
     await saveItem(updated);
     await redis.sRem(CONVEYOR_KEY, submissionItemKey(kind, itemId));
     broadcast('submission.item.completed', { item: updated });
+    broadcastSubmissionQueueChange({ kind, id: itemId, change: 'removed' });
     sseManager.broadcastToSources([SSE_SOURCES.admin], {
       type: 'submissionUpdate',
       data: {
