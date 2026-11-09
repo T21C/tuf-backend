@@ -27,10 +27,12 @@ import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import {
   hydratePackItemRowsWithReferencedLevels,
   invalidatePackLevelsCachesForLevelIds,
+  invalidatePackLevelsLayers,
   invalidatePackStructureLayers,
   packDetailLayerTagsForFullInvalidation,
   resolvePackItemsWithStackedCache,
 } from '@/server/services/packs/packDetailCacheService.js';
+import { commitPackItemDraft } from '@/server/services/packs/commitPackItemDraft.js';
 import { prunePackCdnMetadataForThirdParty } from '@/server/services/packs/prunePackCdnMetadataForThirdParty.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
@@ -1880,6 +1882,96 @@ router.post(
     return res.status(500).json({ error: 'Failed to add item to pack' });
   }
   }
+);
+
+// PUT /packs/:id/items/commit - Replace pack items with a full draft tree
+router.put(
+  '/:id/items/commit',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putPackItemsCommit',
+    summary: 'Commit pack item draft',
+    description:
+      'Replace the pack item tree in one transaction. Positive ids are updates, negative ids are creates, omitted saved ids are deletes.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: {
+      description: 'items: nested draft tree (id, type, name, description, levelId, children)',
+      schema: {
+        type: 'object',
+        properties: { items: { type: 'array', items: { type: 'object' } } },
+        required: ['items'],
+      },
+      required: true,
+    },
+    responses: {
+      200: { description: 'Tree committed' },
+      400: { schema: errorResponseSchema },
+      403: { schema: errorResponseSchema },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+
+    try {
+      transaction = await sequelize.transaction();
+      const resolvedPackId = await resolvePackId(req.params.id, transaction);
+      if (!resolvedPackId) {
+        throw { error: 'Invalid pack ID or link code', code: 400 };
+      }
+
+      const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
+      if (!pack) {
+        throw { error: 'Pack not found', code: 404 };
+      }
+
+      if (!canEditPack(pack, req.user)) {
+        throw { error: 'Access denied', code: 403 };
+      }
+
+      const packQuota = await resolvePackQuotaForUser(req.user!);
+      await commitPackItemDraft({
+        packId: resolvedPackId,
+        items: req.body?.items,
+        maxItems: packQuota.maxItems,
+        transaction,
+      });
+
+      await transaction.commit();
+      transaction = null;
+
+      await invalidatePackStructureLayers(resolvedPackId);
+      await invalidatePackLevelsLayers(resolvedPackId);
+
+      const linkCode = pack.linkCode ?? null;
+      const [clearSets, { flatItemsMerged: mergedFlat }] = await Promise.all([
+        fetchClearSets(req.user?.playerId),
+        resolvePackItemsWithStackedCache(resolvedPackId, linkCode, []),
+      ]);
+
+      const itemsWithClears = mergedFlat.map((item: any) => ({
+        ...item,
+        ...flagsFromClearSets(item.levelId, clearSets),
+      }));
+
+      const items = await annotateReferencedLevelsWithLikeState(
+        itemsWithClears,
+        req.user?.id,
+      );
+
+      return res.json({ items: buildItemTree(items) });
+    } catch (error: any) {
+      await safeTransactionRollback(transaction);
+      if (error.code) {
+        if (error.code === 500) logger.error('Error committing pack items:', error);
+        return res.status(error.code).json(error);
+      }
+      logger.error('Error committing pack items:', error);
+      return res.status(500).json({ error: 'Failed to commit pack items' });
+    }
+  },
 );
 
 // PUT /packs/:id/items/:itemId - Update item

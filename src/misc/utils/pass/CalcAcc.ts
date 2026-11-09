@@ -96,7 +96,8 @@ export function tilecount(inp: IJudgements | unknown): number {
 
 /**
  * Achievable manual judgements: persisted tilecount minus auto-play tiles.
- * Returns null when tilecount is missing or not a finite number.
+ * Persisted tilecount already excludes non-auto midspins, so midspinCount is
+ * not subtracted here. Returns null when tilecount is missing or not finite.
  */
 export function getEffectiveTilecount(
   levelTilecount: unknown,

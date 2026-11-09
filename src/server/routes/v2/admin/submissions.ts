@@ -25,7 +25,7 @@ import LevelSubmissionTeamRequest from '@/models/submissions/LevelSubmissionTeam
 import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import User from '@/models/auth/User.js';
-import { Op, fn, col, literal } from 'sequelize';
+import { Op, fn, col, literal, type Includeable, type Order, type WhereOptions } from 'sequelize';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { appendSongSuffix } from '@/misc/utils/data/levelHelpers.js';
@@ -60,6 +60,14 @@ import {
   searchPendingLevelSubmissionIds,
   searchPendingPassSubmissionIds,
 } from '@/server/services/submissions/submissionQueueSearch.js';
+import {
+  encodePendingSubmissionCursor,
+  cursorFromPendingRow,
+  parsePendingSubmissionListQuery,
+  pendingKeysetWhere,
+  pendingQueueRevision,
+} from '@/server/services/submissions/pendingSubmissionCursor.js';
+import { broadcastSubmissionQueueChange } from '@/server/services/submissions/submissionQueueEvents.js';
 
 const router: Router = Router();
 
@@ -185,6 +193,12 @@ async function setPendingSubmissionLock(
     });
   }
   await submission.update({ isLocked });
+  broadcastSubmissionQueueChange({
+    kind,
+    id,
+    change: isLocked ? 'locked' : 'unlocked',
+    isLocked,
+  });
   return res.json({ submission });
 }
 
@@ -393,6 +407,76 @@ interface CreatorRequest {
   creator?: CreatorWithCredits;
 }
 
+const PENDING_QUEUE_ORDER: Order = [
+  ['isLocked', 'ASC'],
+  ['createdAt', 'DESC'],
+  ['id', 'DESC'],
+];
+
+function orderRowsByIds<T extends { id: number }>(rows: T[], ids: number[]): T[] {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return ids.flatMap((id) => {
+    const row = byId.get(id);
+    return row ? [row] : [];
+  });
+}
+
+async function loadOrderedPending(
+  model: typeof LevelSubmission | typeof PassSubmission,
+  where: WhereOptions,
+  include: Includeable[],
+  limit?: number,
+): Promise<{ rows: Array<LevelSubmission | PassSubmission>; hasMore: boolean; nextCursor: string | null }> {
+  const finder = model as typeof LevelSubmission;
+  if (limit == null) {
+    const rows = await finder.findAll({ where, include });
+    return { rows, hasMore: false, nextCursor: null };
+  }
+
+  const idRows = await finder.findAll({
+    where,
+    attributes: ['id', 'isLocked', 'createdAt'],
+    order: PENDING_QUEUE_ORDER,
+    limit: limit + 1,
+  });
+  const hasMore = idRows.length > limit;
+  const pageRows = hasMore ? idRows.slice(0, limit) : idRows;
+  const ids = pageRows.map((row) => row.id);
+  const last = pageRows[pageRows.length - 1];
+  const nextCursor = hasMore && last
+    ? encodePendingSubmissionCursor(cursorFromPendingRow(last))
+    : null;
+  if (ids.length === 0) return { rows: [], hasMore, nextCursor };
+
+  const hydrated = await finder.findAll({
+    where: { id: { [Op.in]: ids }, status: 'pending' },
+    include,
+  });
+  const byId = new Map(hydrated.map((row) => [row.id, row]));
+  const rows = ids.flatMap((id) => {
+    const row = byId.get(id);
+    return row ? [row] : [];
+  });
+  return { rows, hasMore, nextCursor };
+}
+
+async function pendingRevision(
+  model: {
+    count: (options: { where: WhereOptions }) => Promise<number>;
+    max: (field: string, options: { where: WhereOptions }) => Promise<unknown>;
+  },
+  where: WhereOptions,
+): Promise<{ total: number; revision: string }> {
+  const [total, latest] = await Promise.all([
+    model.count({ where }),
+    model.max('updatedAt', { where }),
+  ]);
+  return {
+    total,
+    revision: pendingQueueRevision(total, latest as Date | string | number | null | undefined),
+  };
+}
+
 // Get all level submissions
 router.get(
   '/levels',
@@ -423,17 +507,56 @@ router.get(
   ApiDoc({
     operationId: 'getAdminLevelSubmissionsPending',
     summary: 'List pending level submissions',
-    description: 'List pending level submissions with full includes. Super admin.',
+    description:
+      'Page pending level submissions with full includes. Query: limit (default 15, max 30), cursor (keyset), q (same search as the pending search endpoint). ids reloads specific pending rows and skips paging. Order is unlocked first, then newest. The page revision changes when the pending set is created, locked, or removed so concurrent admins can resync without offset drift. Super admin.',
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
-    responses: { 200: { description: 'Pending level submissions' }, ...standardErrorResponses500 },
+    query: {
+      limit: { schema: { type: 'integer' } },
+      cursor: { schema: { type: 'string' } },
+      q: { schema: { type: 'string' } },
+      ids: { schema: { type: 'string' } },
+    },
+    responses: { 200: { description: 'Pending level submission page' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
   try {
-    const pendingLevelSubmissions = await LevelSubmission.findAll({
-      where: { status: 'pending' },
-      order: [['isLocked', 'ASC'], ['createdAt', 'DESC']],
-      include: [
+    const parsed = parsePendingSubmissionListQuery(req.query);
+    if ('error' in parsed) {
+      return res.status(400).json({ error: parsed.error });
+    }
+
+    const matchIds = parsed.ids
+      ? parsed.ids
+      : parsed.q
+        ? await searchPendingLevelSubmissionIds(parsed.q)
+        : null;
+    if (matchIds && matchIds.length === 0) {
+      return res.json({
+        items: [],
+        page: {
+          limit: parsed.limit,
+          hasMore: false,
+          nextCursor: null,
+          total: 0,
+          revision: '0:0',
+        },
+      });
+    }
+
+    const filterWhere: WhereOptions = matchIds
+      ? { status: 'pending', id: { [Op.in]: matchIds } }
+      : { status: 'pending' };
+    const pageWhere: WhereOptions = !parsed.ids && parsed.cursor
+      ? { [Op.and]: [filterWhere, pendingKeysetWhere(parsed.cursor)] }
+      : filterWhere;
+    const summaryPromise = parsed.ids
+      ? Promise.resolve({ total: 0, revision: '' })
+      : pendingRevision(LevelSubmission, filterWhere);
+    const loadedLevels = await loadOrderedPending(
+      LevelSubmission,
+      pageWhere,
+      [
         {
           model: LevelSubmissionCreatorRequest,
           as: 'creatorRequests',
@@ -533,8 +656,13 @@ router.get(
             }
           ]
         }
-      ]
-    });
+      ],
+      parsed.ids ? undefined : parsed.limit,
+    );
+    const summary = await summaryPromise;
+    const pendingLevelSubmissions = (parsed.ids
+      ? orderRowsByIds(loadedLevels.rows, parsed.ids)
+      : loadedLevels.rows) as LevelSubmission[];
 
     const recordStats = await getSubmitterRecordStats(
       LevelSubmission,
@@ -579,7 +707,16 @@ router.get(
 
     await attachYoutubeIdsToLevelRows(submissionsWithStats as Array<Record<string, unknown>>);
 
-    return res.json(submissionsWithStats);
+    return res.json({
+      items: submissionsWithStats,
+      page: {
+        limit: parsed.ids ? submissionsWithStats.length : parsed.limit,
+        hasMore: parsed.ids ? false : loadedLevels.hasMore,
+        nextCursor: parsed.ids ? null : loadedLevels.nextCursor,
+        total: parsed.ids ? submissionsWithStats.length : summary.total,
+        revision: parsed.ids ? '' : summary.revision,
+      },
+    });
   } catch (error) {
     logger.error('Error fetching pending level submissions:', error);
     return res.status(500).json({ error: 'Failed to fetch pending level submissions' });
@@ -653,16 +790,56 @@ router.get(
   ApiDoc({
     operationId: 'getAdminPassSubmissionsPending',
     summary: 'List pending pass submissions',
-    description: 'List pending pass submissions with includes. Super admin.',
+    description:
+      'Page pending pass submissions with includes. Query: limit (default 15, max 30), cursor (keyset), q (same search as the pending search endpoint). ids reloads specific pending rows and skips paging. Order is unlocked first, then newest. The page revision changes when the pending set is created, locked, or removed so concurrent admins can resync without offset drift. Super admin.',
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
-    responses: { 200: { description: 'Pending pass submissions' }, ...standardErrorResponses500 },
+    query: {
+      limit: { schema: { type: 'integer' } },
+      cursor: { schema: { type: 'string' } },
+      q: { schema: { type: 'string' } },
+      ids: { schema: { type: 'string' } },
+    },
+    responses: { 200: { description: 'Pending pass submission page' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
     try {
-      const submissions = await PassSubmission.findAll({
-        where: {status: 'pending'},
-        include: [
+      const parsed = parsePendingSubmissionListQuery(req.query);
+      if ('error' in parsed) {
+        return res.status(400).json({ error: parsed.error });
+      }
+
+      const matchIds = parsed.ids
+        ? parsed.ids
+        : parsed.q
+          ? await searchPendingPassSubmissionIds(parsed.q)
+          : null;
+      if (matchIds && matchIds.length === 0) {
+        return res.json({
+          items: [],
+          page: {
+            limit: parsed.limit,
+            hasMore: false,
+            nextCursor: null,
+            total: 0,
+            revision: '0:0',
+          },
+        });
+      }
+
+      const filterWhere: WhereOptions = matchIds
+        ? { status: 'pending', id: { [Op.in]: matchIds } }
+        : { status: 'pending' };
+      const pageWhere: WhereOptions = !parsed.ids && parsed.cursor
+        ? { [Op.and]: [filterWhere, pendingKeysetWhere(parsed.cursor)] }
+        : filterWhere;
+      const summaryPromise = parsed.ids
+        ? Promise.resolve({ total: 0, revision: '' })
+        : pendingRevision(PassSubmission, filterWhere);
+      const loadedPasses = await loadOrderedPending(
+        PassSubmission,
+        pageWhere,
+        [
           {
             model: Player,
             as: 'assignedPlayer',
@@ -692,8 +869,12 @@ router.get(
             attributes: ['id', 'username', 'playerId']
           }
         ],
-        order: [['isLocked', 'ASC'], ['createdAt', 'DESC']],
-      });
+        parsed.ids ? undefined : parsed.limit,
+      );
+      const summary = await summaryPromise;
+      const submissions = (parsed.ids
+        ? orderRowsByIds(loadedPasses.rows, parsed.ids)
+        : loadedPasses.rows) as PassSubmission[];
 
       const recordStats = await getSubmitterRecordStats(
         PassSubmission,
@@ -711,7 +892,16 @@ router.get(
 
       await attachYoutubeIdsToPassRows(submissionsWithStats as Array<Record<string, unknown>>);
 
-      return res.json(submissionsWithStats);
+      return res.json({
+        items: submissionsWithStats,
+        page: {
+          limit: parsed.ids ? submissionsWithStats.length : parsed.limit,
+          hasMore: parsed.ids ? false : loadedPasses.hasMore,
+          nextCursor: parsed.ids ? null : loadedPasses.nextCursor,
+          total: parsed.ids ? submissionsWithStats.length : summary.total,
+          revision: parsed.ids ? '' : summary.revision,
+        },
+      });
     } catch (error) {
       logger.error('Error fetching pending pass submissions:', error);
       return res

@@ -21,6 +21,7 @@ import Song from '@/models/songs/Song.js';
 import { OAuthProvider, User } from '@/models/index.js';
 
 import { levelSubmissionHook } from '@/server/routes/v2/webhooks/webhook.js';
+import { broadcastSubmissionQueueChange } from '@/server/services/submissions/submissionQueueEvents.js';
 import {
   isUuidJobId,
   jobProgressService,
@@ -273,6 +274,11 @@ export async function createLevelSubmission(
     sseManager.broadcastToSources([SSE_SOURCES.admin], {
       type: 'submissionUpdate',
       data: { action: 'create', submissionId: rowIds.submissionId, submissionType: 'level' },
+    });
+    broadcastSubmissionQueueChange({
+      kind: 'level',
+      id: rowIds.submissionId,
+      change: 'created',
     });
 
     if (ingested) {

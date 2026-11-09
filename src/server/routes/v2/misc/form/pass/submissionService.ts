@@ -26,6 +26,7 @@ import {
 } from '@/misc/utils/pass/scoreService.js';
 import { passSubmissionHook } from '@/server/routes/v2/webhooks/webhook.js';
 import { notifyPassSubmissionSubmitted } from '@/server/services/notifications/passSubmissionNotify.js';
+import { broadcastSubmissionQueueChange } from '@/server/services/submissions/submissionQueueEvents.js';
 
 import { formError } from '../shared/errors.js';
 import { assertPassKeyCountForDifficulty, MAX_PASS_KEY_COUNT } from '@/misc/utils/pass/keyCount.js';
@@ -224,6 +225,11 @@ export async function createPassSubmission(
     sseManager.broadcastToSources([SSE_SOURCES.admin], {
       type: 'submissionUpdate',
       data: { action: 'create', submissionId: submission.id, submissionType: 'pass' },
+    });
+    broadcastSubmissionQueueChange({
+      kind: 'pass',
+      id: submission.id,
+      change: 'created',
     });
 
     return {
