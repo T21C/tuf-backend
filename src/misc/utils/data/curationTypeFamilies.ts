@@ -83,3 +83,14 @@ export function mergeCurationTypesByFamilyTier(
 export function curationTypeIdSetsEqual(a: number[], b: number[]): boolean {
   return sameIdSet(a, b);
 }
+
+export type CurationRatingBucket = 'chart' | 'vfx' | 'misc';
+
+/** Chart = C/O, VFX = V, everything else (including H and Epic) is misc. */
+export function curationTypeRatingBucket(name: string | null | undefined): CurationRatingBucket {
+  const parsed = parseCurationFamilyTier(name);
+  if (!parsed) return 'misc';
+  if (parsed.letter === 'C' || parsed.letter === 'O') return 'chart';
+  if (parsed.letter === 'V') return 'vfx';
+  return 'misc';
+}

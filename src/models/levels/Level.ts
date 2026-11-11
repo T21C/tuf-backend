@@ -50,6 +50,9 @@ class Level
   declare toRate: boolean;
   declare rerateReason: string;
   declare rerateNum: string;
+  declare toCuration: boolean;
+  declare curationRerateReason: string;
+  declare curationRerateNum: string;
   declare previousDiffId: number;
   declare isAnnounced: boolean;
   declare isDeleted: boolean;
@@ -188,6 +191,18 @@ Level.init(
       allowNull: true,
     },
     rerateNum: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    toCuration: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+    },
+    curationRerateReason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    curationRerateNum: {
       type: DataTypes.TEXT,
       allowNull: true,
     },

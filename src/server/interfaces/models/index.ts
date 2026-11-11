@@ -92,6 +92,9 @@ export interface ILevel extends IBaseModel {
   toRate: boolean;
   rerateReason?: string;
   rerateNum: string;
+  toCuration?: boolean;
+  curationRerateReason?: string;
+  curationRerateNum?: string;
   previousDiffId?: number;
   isAnnounced: boolean;
   isDeleted: boolean;

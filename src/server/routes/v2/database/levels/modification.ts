@@ -47,6 +47,10 @@ import {
 } from '@/server/services/ratings/ratingAccuracyService.js';
 import {ensureOpenRating} from '@/server/services/ratings/openRatingService.js';
 import {
+  confirmOpenCurationRating,
+  ensureOpenCurationRating,
+} from '@/server/services/curations/openCurationRatingService.js';
+import {
   attachOpenRatingToLevelRequest,
   completeLevelRequestForSettledRating,
 } from '@/server/services/requests/levelRequestService.js';
@@ -302,6 +306,23 @@ export async function handleRatingChanges(
   }
   return {settledRatingId: null};
 };
+
+export async function handleCurationChanges(
+  level: Level,
+  req: Request,
+  transaction: Transaction,
+): Promise<void> {
+  if (
+    typeof req.body.toCuration === 'boolean' &&
+    req.body.toCuration !== Boolean(level.toCuration)
+  ) {
+    if (req.body.toCuration) {
+      await ensureOpenCurationRating(level.id, transaction);
+      return;
+    }
+    await confirmOpenCurationRating(level.id, transaction, req.user?.id ?? null);
+  }
+}
 
 const handleLowDiffFlag = async (
   level: Level,
@@ -757,6 +778,7 @@ router.put(
 
     // Handle rating-related changes
     const {settledRatingId} = await handleRatingChanges(level, req, transaction);
+    await handleCurationChanges(level, req, transaction);
     await handleLowDiffFlag(level, req, transaction);
 
     if (
@@ -876,6 +898,9 @@ router.put(
     updateData.rerateNum = sanitizeTextInput(req.body.rerateNum);
     updateData.toRate = req.body.toRate ?? level.toRate;
     updateData.rerateReason = sanitizeTextInput(req.body.rerateReason);
+    updateData.curationRerateNum = sanitizeTextInput(req.body.curationRerateNum);
+    updateData.toCuration = req.body.toCuration ?? level.toCuration;
+    updateData.curationRerateReason = sanitizeTextInput(req.body.curationRerateReason);
     updateData.isExternallyAvailable = req.body.isExternallyAvailable ?? level.isExternallyAvailable;
 
     await Level.update(updateData, {

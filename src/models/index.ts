@@ -48,7 +48,7 @@ import DirectiveAction from './announcements/DirectiveAction.js';
 import RateLimit from './auth/RateLimit.js';
 import LevelSearchView from './levels/LevelSearchView.js';
 import AuditLog from './admin/AuditLog.js';
-import {CurationType, Curation, CurationSchedule} from './curations/index.js';
+import {CurationType, Curation, CurationSchedule, CurationRating, CurationRatingDetail} from './curations/index.js';
 import {LevelPack, LevelPackItem} from './packs/index.js';
 import Artist from './artists/Artist.js';
 import ArtistAlias from './artists/ArtistAlias.js';
@@ -173,6 +173,8 @@ export const db = {
     CurationType,
     Curation,
     CurationSchedule,
+    CurationRating,
+    CurationRatingDetail,
     LevelPack,
     LevelPackItem,
     Artist,
