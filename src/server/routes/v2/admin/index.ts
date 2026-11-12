@@ -1,5 +1,6 @@
 import {Router} from 'express';
 import ratingRoutes from './rating.js';
+import curationRatingRoutes from './curationRating.js';
 import submissionRoutes from './submissions.js';
 import backupRoutes from './backup.js';
 import usersRoutes from './users.js';
@@ -27,6 +28,7 @@ const router: Router = Router();
 router.use(requireAdminAuth);
 
 router.use('/rating', ratingRoutes);
+router.use('/curation-rating', curationRatingRoutes);
 router.use('/submissions', submissionRoutes);
 router.use('/backup', backupRoutes);
 router.use('/users', usersRoutes);

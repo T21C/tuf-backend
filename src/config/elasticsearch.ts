@@ -317,6 +317,19 @@ export const levelMapping = {
         }
       },
       toRate: { type: 'boolean' as const },
+      toCuration: { type: 'boolean' as const },
+      curationRerateReason: {
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
+      curationRerateNum: {
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
       rerateReason: {
         type: 'text' as const,
         fields: {

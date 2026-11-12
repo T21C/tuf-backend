@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   curationTypeIdSetsEqual,
+  curationTypeRatingBucket,
   mergeCurationTypesByFamilyTier,
   parseCurationFamilyTier,
 } from './curationTypeFamilies.js';
@@ -49,6 +50,16 @@ test('merge keeps independent families and unions misc names', () => {
     { id: 40, name: 'Featured' },
   ];
   assert.deepEqual(mergeCurationTypesByFamilyTier(existing, incoming), [2, 20, 30, 40]);
+});
+
+test('curationTypeRatingBucket maps C/O to chart, V to vfx, and H plus misc names to misc', () => {
+  assert.equal(curationTypeRatingBucket('C1'), 'chart');
+  assert.equal(curationTypeRatingBucket('O3'), 'chart');
+  assert.equal(curationTypeRatingBucket('V0'), 'vfx');
+  assert.equal(curationTypeRatingBucket('H1'), 'misc');
+  assert.equal(curationTypeRatingBucket('H2'), 'misc');
+  assert.equal(curationTypeRatingBucket('Epic'), 'misc');
+  assert.equal(curationTypeRatingBucket('Legendary'), 'misc');
 });
 
 test('identical merged set is equal for no-op detection', () => {
