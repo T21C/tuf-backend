@@ -11,7 +11,7 @@ export async function replaceLevelCurationTypes(
   picks: CurationRatingPicks,
   assignedBy: string,
   transaction: Transaction,
-): Promise<number[]> {
+): Promise<{previousTypeIds: number[]; typeIds: number[]}> {
   const typeIds = collectedTypeIds(picks);
   const existingRow = await Curation.findOne({
     where: {levelId},
@@ -44,7 +44,7 @@ export async function replaceLevelCurationTypes(
     changedBy: assignedBy,
     transaction,
   });
-  return typeIds;
+  return {previousTypeIds, typeIds};
 }
 
 export async function closeCurationQueue(
@@ -52,7 +52,7 @@ export async function closeCurationQueue(
   transaction: Transaction,
 ): Promise<void> {
   await Level.update(
-    {toCuration: false},
+    {toCuration: false, curationFlow: null},
     {where: {id: levelId}, transaction},
   );
 }

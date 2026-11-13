@@ -49,7 +49,9 @@ import {ensureOpenRating} from '@/server/services/ratings/openRatingService.js';
 import {
   confirmOpenCurationRating,
   ensureOpenCurationRating,
+  resolveCurationFlowForOpen,
 } from '@/server/services/curations/openCurationRatingService.js';
+import {parseCurationFlow} from '@/misc/utils/data/curationFlow.js';
 import {
   attachOpenRatingToLevelRequest,
   completeLevelRequestForSettledRating,
@@ -307,21 +309,33 @@ export async function handleRatingChanges(
   return {settledRatingId: null};
 };
 
+function readCurationBulk(body: Record<string, unknown>): boolean {
+  return body.curationBulk === true || body.curationBulk === 'true' || parseCurationFlow(body.curationFlow) === 'bulk';
+}
+
 export async function handleCurationChanges(
   level: Level,
   req: Request,
   transaction: Transaction,
 ): Promise<void> {
-  if (
-    typeof req.body.toCuration === 'boolean' &&
-    req.body.toCuration !== Boolean(level.toCuration)
-  ) {
-    if (req.body.toCuration) {
-      await ensureOpenCurationRating(level.id, transaction);
-      return;
-    }
+  const body = req.body as Record<string, unknown>;
+  const nextToCuration =
+    typeof body.toCuration === 'boolean' ? body.toCuration : Boolean(level.toCuration);
+  if (nextToCuration) {
+    await ensureOpenCurationRating(level.id, transaction);
+    const flow = await resolveCurationFlowForOpen({
+      levelId: level.id,
+      bulk: readCurationBulk(body),
+      explicit: body.curationFlow,
+      transaction,
+    });
+    body.curationFlow = flow;
+    return;
+  }
+  if (Boolean(level.toCuration)) {
     await confirmOpenCurationRating(level.id, transaction, req.user?.id ?? null);
   }
+  body.curationFlow = null;
 }
 
 const handleLowDiffFlag = async (
@@ -901,6 +915,12 @@ router.put(
     updateData.curationRerateNum = sanitizeTextInput(req.body.curationRerateNum);
     updateData.toCuration = req.body.toCuration ?? level.toCuration;
     updateData.curationRerateReason = sanitizeTextInput(req.body.curationRerateReason);
+    if (updateData.toCuration) {
+      updateData.curationFlow =
+        parseCurationFlow(req.body.curationFlow) ?? level.curationFlow ?? 'recent';
+    } else {
+      updateData.curationFlow = null;
+    }
     updateData.isExternallyAvailable = req.body.isExternallyAvailable ?? level.isExternallyAvailable;
 
     await Level.update(updateData, {

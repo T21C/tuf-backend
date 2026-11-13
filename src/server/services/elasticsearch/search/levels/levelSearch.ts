@@ -29,6 +29,8 @@ import {
   termsField,
   idsQuery,
 } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
+import { curationQueueMustClauses } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/curationQueueEsQuery.js';
+import { parseCurationFlow } from '@/misc/utils/data/curationFlow.js';
 import { buildFieldSearchQuery } from '@/server/services/elasticsearch/search/levels/levelFieldQuery.js';
 import { specLevelCreditsByCreatorId } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQuerySpecs.js';
 import { shouldUseRegularSearch, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/tools/scrollHelpers.js';
@@ -221,6 +223,14 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       must.push(termField('toRate', true));
     }
 
+    if (filters.toCuration === true || filters.toCuration === 'true') {
+      must.push(termField('toCuration', true));
+    }
+    const curationFlow = parseCurationFlow(filters.curationFlow);
+    if (curationFlow) {
+      must.push(termField('curationFlow', curationFlow));
+    }
+
     // Handle difficulty filters
     if (filters.pguRange || filters.specialDifficulties) {
       const difficultyConditions = [];
@@ -333,6 +343,19 @@ export async function searchLevelIds(
     .filter((id) => Number.isFinite(id) && id > 0);
 }
 
+function levelTextShouldClauses(query: string, excludeAliases: boolean): any[] {
+  const searchGroups = parseSearchQueryWithPUA(query.trim(), false);
+  const should: any[] = [];
+  if (searchGroups.length === 0) {
+    return should;
+  }
+  for (const group of searchGroups) {
+    const andConditions = group.terms.map((term) => buildFieldSearchQuery(term, excludeAliases));
+    should.push(andConditions.length === 1 ? andConditions[0] : boolMust(andConditions));
+  }
+  return should;
+}
+
 /**
  * Resolve level IDs matching text search within a known id set (e.g. pending rating queue).
  * Bypasses {@link searchLevels}' public page `limit` cap of 100 — uses size up to the set length
@@ -368,16 +391,8 @@ export async function searchLevelIdsInSet(
     must.push(termField('toRate', true));
     must.push(termField('isHidden', false));
   }
-  const should: any[] = [];
-
-  const searchGroups = parseSearchQueryWithPUA(q.trim(), false);
-  if (searchGroups.length > 0) {
-    const excludeAliases = filters.excludeAliases === true || filters.excludeAliases === 'true';
-    for (const group of searchGroups) {
-      const andConditions = group.terms.map((term) => buildFieldSearchQuery(term, excludeAliases));
-      should.push(andConditions.length === 1 ? andConditions[0] : boolMust(andConditions));
-    }
-  }
+  const excludeAliases = filters.excludeAliases === true || filters.excludeAliases === 'true';
+  const should = levelTextShouldClauses(q, excludeAliases);
 
   if (should.length === 0) {
     return [];
@@ -405,6 +420,56 @@ export async function searchLevelIdsInSet(
       .filter((id) => Number.isFinite(id) && id > 0);
   } catch (error) {
     logger.error('Error in searchLevelIdsInSet:', error);
+    throw error;
+  }
+}
+
+/**
+ * Resolve level IDs matching text search inside the curation rating queue.
+ * Filters on indexed `toCuration` (and optional `curationFlow`) instead of
+ * preloading every pending MySQL id into an `ids` query.
+ */
+export async function searchCurationQueueLevelIds(
+  query: string,
+  filters: { excludeAliases?: boolean | string; flow?: string | null } = {},
+): Promise<number[]> {
+  const normalized = normalizeLevelSearchQuery(query);
+  if (!normalized.ok || !normalized.query) {
+    return [];
+  }
+
+  let q = normalized.query;
+  if (q.length > 255) {
+    q = q.substring(0, 255);
+  }
+
+  const excludeAliases = filters.excludeAliases === true || filters.excludeAliases === 'true';
+  const should = levelTextShouldClauses(q, excludeAliases);
+  if (should.length === 0) {
+    return [];
+  }
+
+  try {
+    const response = await client.search({
+      index: levelIndexName,
+      query: {
+        bool: {
+          must: curationQueueMustClauses({flow: filters.flow}),
+          should,
+          minimum_should_match: 1,
+        },
+      },
+      from: 0,
+      size: LEVEL_ID_FILTER_CAP,
+      _source: false,
+      track_total_hits: false,
+    });
+
+    return response.hits.hits
+      .map((hit) => parseInt(String(hit._id), 10))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  } catch (error) {
+    logger.error('Error in searchCurationQueueLevelIds:', error);
     throw error;
   }
 }

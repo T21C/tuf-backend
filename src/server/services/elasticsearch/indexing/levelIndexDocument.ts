@@ -9,6 +9,7 @@ import {
   sortCurationsByTypeOrder,
 } from '@/misc/utils/data/curationOrdering.js';
 import { projectLevelTagsForIndex } from '@/server/services/elasticsearch/indexing/levelTagIndexProjection.js';
+import { curationFieldsForLevelIndex } from '@/misc/utils/data/curationFlow.js';
 
 function arr<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
@@ -119,6 +120,7 @@ export function buildLevelIndexDocument(level: Level): any {
 
   return {
     ...levelRest,
+    ...curationFieldsForLevelIndex(l),
     bpm,
     tilecount,
     levelLengthInMs,

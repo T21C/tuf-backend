@@ -318,6 +318,7 @@ export const levelMapping = {
       },
       toRate: { type: 'boolean' as const },
       toCuration: { type: 'boolean' as const },
+      curationFlow: { type: 'keyword' as const },
       curationRerateReason: {
         type: 'text' as const,
         fields: {
@@ -1006,10 +1007,23 @@ export const indices = {
   }
 };
 
-/** Payload hashed for levels index (settings + mappings only). */
+/**
+ * Payload hashed for levels index (settings + mappings + indexer version).
+ *
+ * `indexerVersion` is bumped whenever the indexer *logic* changes in a way that
+ * produces different documents without a mapping-only change. Bumping it forces
+ * `reindexLevels()` on the next boot while leaving the ES mapping alone when
+ * the mapping itself is unchanged.
+ *
+ * History:
+ *   1 — 2026-11-13: persist `toCuration` / `curationFlow` / curation rerate
+ *       fields on every level document so the curation rating queue can filter
+ *       and hydrate from ES.
+ */
 const levelMappingHashPayload = {
   settings: levelMapping.settings,
-  mappings: levelMapping.mappings
+  mappings: levelMapping.mappings,
+  indexerVersion: 1,
 };
 
 /**

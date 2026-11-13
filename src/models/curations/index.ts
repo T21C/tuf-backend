@@ -4,6 +4,7 @@ export {default as CurationCurationType} from './CurationCurationType.js';
 export {default as CurationSchedule} from './CurationSchedule.js';
 export {default as CurationRating} from './CurationRating.js';
 export {default as CurationRatingDetail} from './CurationRatingDetail.js';
+export {default as CurationAnnouncementQueue} from './CurationAnnouncementQueue.js';
 
 export type {ICurationType} from './CurationType.js';
 export type {ICuration} from './Curation.js';

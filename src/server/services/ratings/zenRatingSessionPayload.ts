@@ -16,11 +16,18 @@ export type ZenCardOutcome = (typeof ZEN_CARD_OUTCOMES)[number] | null;
 export const ZEN_SESSION_MAX_COMMENT_LENGTH = 10_000;
 export const ZEN_SESSION_MAX_RATING_LENGTH = 254;
 
+export type ZenPendingPicks = {
+  chartTypeId: number | null;
+  vfxTypeId: number | null;
+  miscTypeIds: number[];
+};
+
 export type ZenCardAnswer = {
   rating: string;
   comment: string;
   peeked: boolean;
   viewDurationSeconds: number;
+  picks?: ZenPendingPicks | null;
 } | null;
 
 export type ZenSessionPayload = {
@@ -44,6 +51,7 @@ export type ZenSessionPayload = {
   streak: number;
   pendingRating: string;
   pendingComment: string;
+  pendingPicks: ZenPendingPicks;
 };
 
 export class ZenSessionError extends Error {
@@ -88,6 +96,35 @@ function parseOutcome(value: unknown): ZenCardOutcome {
   return null;
 }
 
+function parseOptionalPositiveInt(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  return n;
+}
+
+export function emptyZenPendingPicks(): ZenPendingPicks {
+  return {chartTypeId: null, vfxTypeId: null, miscTypeIds: []};
+}
+
+export function parseZenPendingPicks(value: unknown): ZenPendingPicks {
+  if (!isPlainObject(value)) return emptyZenPendingPicks();
+  const misc = Array.isArray(value.miscTypeIds) ? value.miscTypeIds : [];
+  const miscTypeIds: number[] = [];
+  const seen = new Set<number>();
+  for (const item of misc) {
+    const id = parseOptionalPositiveInt(item);
+    if (id == null || seen.has(id)) continue;
+    seen.add(id);
+    miscTypeIds.push(id);
+  }
+  return {
+    chartTypeId: parseOptionalPositiveInt(value.chartTypeId),
+    vfxTypeId: parseOptionalPositiveInt(value.vfxTypeId),
+    miscTypeIds,
+  };
+}
+
 function parseAnswer(value: unknown): ZenCardAnswer {
   if (!isPlainObject(value)) return null;
   return {
@@ -95,6 +132,7 @@ function parseAnswer(value: unknown): ZenCardAnswer {
     comment: asBoundedString(value.comment, ZEN_SESSION_MAX_COMMENT_LENGTH),
     peeked: asBool(value.peeked, false),
     viewDurationSeconds: asNonNegInt(value.viewDurationSeconds, 0),
+    picks: parseZenPendingPicks(value.picks),
   };
 }
 
@@ -178,6 +216,7 @@ export function compactZenSessionProgress(
         cardPeeked: false,
         pendingRating: '',
         pendingComment: '',
+        pendingPicks: emptyZenPendingPicks(),
         phase: payload.phase === 'setup' ? 'setup' : 'done',
       },
       changed: true,
@@ -211,6 +250,9 @@ export function compactZenSessionProgress(
       pendingComment: oldCurrentSurvived
         ? payload.pendingComment
         : currentAnswer?.comment || '',
+      pendingPicks: oldCurrentSurvived
+        ? (payload.pendingPicks ?? emptyZenPendingPicks())
+        : currentAnswer?.picks || emptyZenPendingPicks(),
       phase:
         payload.phase === 'stage' && ratingIds.length === 0
           ? 'done'
@@ -309,5 +351,6 @@ export function sanitizeZenSessionPayload(body: unknown): ZenSessionPayload {
       body.pendingComment,
       ZEN_SESSION_MAX_COMMENT_LENGTH
     ),
+    pendingPicks: parseZenPendingPicks(body.pendingPicks),
   };
 }

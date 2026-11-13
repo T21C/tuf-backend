@@ -11,13 +11,23 @@ interface CurationRatingAttributes {
   levelId: number;
   confirmedAt: Date | null;
   settledByUserId: string | null;
+  discordMessageUrl: string | null;
+  discordPostError: string | null;
+  discordThreadClosed: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 type CurationRatingCreationAttributes = Optional<
   CurationRatingAttributes,
-  'id' | 'confirmedAt' | 'settledByUserId' | 'createdAt' | 'updatedAt'
+  | 'id'
+  | 'confirmedAt'
+  | 'settledByUserId'
+  | 'discordMessageUrl'
+  | 'discordPostError'
+  | 'discordThreadClosed'
+  | 'createdAt'
+  | 'updatedAt'
 >;
 
 class CurationRating
@@ -28,6 +38,9 @@ class CurationRating
   declare levelId: number;
   declare confirmedAt: Date | null;
   declare settledByUserId: string | null;
+  declare discordMessageUrl: string | null;
+  declare discordPostError: string | null;
+  declare discordThreadClosed: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -64,6 +77,21 @@ CurationRating.init(
         model: 'users',
         key: 'id',
       },
+    },
+    discordMessageUrl: {
+      type: DataTypes.STRING(512),
+      allowNull: true,
+      defaultValue: null,
+    },
+    discordPostError: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+    },
+    discordThreadClosed: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
   },
   {

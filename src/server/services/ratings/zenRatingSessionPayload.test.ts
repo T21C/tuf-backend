@@ -32,6 +32,7 @@ function samplePayload(
     streak: 0,
     pendingRating: '',
     pendingComment: '',
+    pendingPicks: {chartTypeId: null, vfxTypeId: null, miscTypeIds: []},
     ...overrides,
   };
 }

@@ -5,6 +5,7 @@ import Rating from './levels/Rating.js';
 import LevelRequest from './levels/LevelRequest.js';
 import RatingDetail from './levels/RatingDetail.js';
 import ZenRatingSession from './levels/ZenRatingSession.js';
+import ZenCurationSession from './levels/ZenCurationSession.js';
 import RatingAccuracySample from './levels/RatingAccuracySample.js';
 import RatingAccuracyStats from './levels/RatingAccuracyStats.js';
 import Judgement from './passes/Judgement.js';
@@ -48,7 +49,7 @@ import DirectiveAction from './announcements/DirectiveAction.js';
 import RateLimit from './auth/RateLimit.js';
 import LevelSearchView from './levels/LevelSearchView.js';
 import AuditLog from './admin/AuditLog.js';
-import {CurationType, Curation, CurationSchedule, CurationRating, CurationRatingDetail} from './curations/index.js';
+import {CurationType, Curation, CurationSchedule, CurationRating, CurationRatingDetail, CurationAnnouncementQueue} from './curations/index.js';
 import {LevelPack, LevelPackItem} from './packs/index.js';
 import Artist from './artists/Artist.js';
 import ArtistAlias from './artists/ArtistAlias.js';
@@ -131,6 +132,7 @@ export const db = {
     LevelRequest,
     RatingDetail,
     ZenRatingSession,
+    ZenCurationSession,
     RatingAccuracySample,
     RatingAccuracyStats,
     Judgement,
@@ -175,6 +177,7 @@ export const db = {
     CurationSchedule,
     CurationRating,
     CurationRatingDetail,
+    CurationAnnouncementQueue,
     LevelPack,
     LevelPackItem,
     Artist,
