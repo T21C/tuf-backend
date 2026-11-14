@@ -289,7 +289,7 @@ router.post(
   ApiDoc({
     operationId: 'postAdminRatingZenReport',
     summary: 'Report bad media from Zen Mode',
-    description: 'Sends a Discord webhook report for a Zen Mode card (ratingId, levelId, optional note).',
+    description: 'Sends a Discord webhook report for a Zen Mode card. ratingId, levelId, and a non-empty note are required.',
     tags: ['Admin', 'Rating'],
     security: ['bearerAuth'],
     requestBody: {
@@ -301,7 +301,7 @@ router.post(
           levelId: { type: 'integer' },
           note: { type: 'string' },
         },
-        required: ['ratingId', 'levelId'],
+        required: ['ratingId', 'levelId', 'note'],
       },
       required: true,
     },
@@ -336,6 +336,9 @@ router.post(
       return res.json({ ok: true, delivered: true });
     } catch (error: any) {
       const status = error?.status || 500;
+      if (status === 400) {
+        return res.status(400).json({ error: error?.message || 'A note is required' });
+      }
       if (status === 503) {
         return res.status(503).json({ error: 'Report webhook is not configured', delivered: false });
       }

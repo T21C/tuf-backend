@@ -2,6 +2,7 @@ import {Op, literal, type WhereOptions} from 'sequelize';
 import CurationRating from '@/models/curations/CurationRating.js';
 import CurationRatingDetail from '@/models/curations/CurationRatingDetail.js';
 import Level from '@/models/levels/Level.js';
+import LevelRequest from '@/models/levels/LevelRequest.js';
 import User from '@/models/auth/User.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import Team from '@/models/credits/Team.js';
@@ -22,8 +23,17 @@ import {fetchLevelsByIdsFromElasticsearch} from '@/server/services/elasticsearch
 import {pruneLevelForRatingList} from '@/server/services/elasticsearch/search/levels/ratingReferencedLevelSerialize.js';
 import {normalizeMiscTypeIds} from '@/misc/utils/data/curationRatingPicks.js';
 import {
+  averageCurationRatingPicks,
+  type CurationAverageTypeRef,
+} from '@/misc/utils/data/curationRatingAverage.js';
+import {
+  TERMINAL_LEVEL_REQUEST_STATUSES,
+  curationRequestTypeChanges,
+} from '@/misc/utils/data/levelRequestValidation.js';
+import {
   curationDiscordVoteWhereSql,
   isCurationDiscordVoteCard,
+  resolveCurationListFlows,
   type CurationFlowId,
 } from '@/misc/utils/data/curationFlow.js';
 import {
@@ -143,13 +153,103 @@ const completeLevelIncludes = [
   },
 ];
 
+function currentCurationTypeIdsFromLevel(level: Record<string, unknown> | null | undefined): number[] {
+  const curationRows = level?.curations;
+  const curations = Array.isArray(curationRows) ? curationRows : [];
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  for (const row of curations) {
+    if (!row || typeof row !== 'object') continue;
+    const rec = row as Record<string, unknown>;
+    const fromTypes = Array.isArray(rec.types) ? rec.types : [];
+    const fromTypeIds = Array.isArray(rec.typeIds) ? rec.typeIds : [];
+    const candidates = fromTypes.length
+      ? fromTypes.map((entry) =>
+          entry && typeof entry === 'object' ? (entry as {id?: unknown}).id : entry,
+        )
+      : fromTypeIds;
+    for (const raw of candidates) {
+      const id = Number(raw);
+      if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+async function loadOpenCurationRequestsByLevelId(
+  levelIds: number[],
+): Promise<Map<number, LevelRequest[]>> {
+  const byLevel = new Map<number, LevelRequest[]>();
+  if (levelIds.length === 0) return byLevel;
+  const rows = await LevelRequest.findAll({
+    where: {
+      levelId: {[Op.in]: levelIds},
+      type: {[Op.in]: ['curation', 'curation_rerate']},
+      status: {[Op.notIn]: TERMINAL_LEVEL_REQUEST_STATUSES},
+    },
+    attributes: ['id', 'type', 'levelId', 'payload'],
+    order: [['id', 'ASC']],
+  });
+  for (const row of rows) {
+    const list = byLevel.get(row.levelId) || [];
+    list.push(row);
+    byLevel.set(row.levelId, list);
+  }
+  return byLevel;
+}
+
+function slimCurationRequests(
+  requests: LevelRequest[],
+  currentTypeIds: number[],
+): Record<string, unknown>[] {
+  return requests.map((request) => {
+    const changes = curationRequestTypeChanges(request.type, request.payload, currentTypeIds);
+    return {
+      id: request.id,
+      type: request.type,
+      ...changes,
+    };
+  });
+}
+
+async function attachCurationRequestsToRows(
+  rows: Record<string, unknown>[],
+): Promise<Record<string, unknown>[]> {
+  const levelIds = [
+    ...new Set(
+      rows
+        .map((row) => Number(row.levelId))
+        .filter((id) => Number.isInteger(id) && id > 0),
+    ),
+  ];
+  const requestsByLevel = await loadOpenCurationRequestsByLevelId(levelIds);
+  return rows.map((row) => {
+    const levelId = Number(row.levelId);
+    const level =
+      row.level && typeof row.level === 'object'
+        ? (row.level as Record<string, unknown>)
+        : {};
+    return {
+      ...row,
+      curationRequests: slimCurationRequests(
+        requestsByLevel.get(levelId) || [],
+        currentCurationTypeIdsFromLevel(level),
+      ),
+    };
+  });
+}
+
 function serializeDetail(detail: CurationRatingDetail, complete: boolean) {
   const miscTypeIds = normalizeMiscTypeIds(detail.miscTypeIds);
   const base: Record<string, unknown> = {
     id: detail.id,
     userId: detail.userId,
     chartTypeId: detail.chartTypeId,
+    chartTypeHighId: detail.chartTypeHighId ?? null,
     vfxTypeId: detail.vfxTypeId,
+    vfxTypeHighId: detail.vfxTypeHighId ?? null,
     miscTypeIds,
   };
   if (complete) {
@@ -175,12 +275,14 @@ function toCurationRatingRow(
   level: Record<string, unknown>,
   details: CurationRatingDetail[],
   complete: boolean,
+  types: readonly CurationAverageTypeRef[],
 ): Record<string, unknown> {
   const isDiscordVote = isCurationDiscordVoteCard({
     curationRerateNum: typeof level.curationRerateNum === 'string' ? level.curationRerateNum : null,
     discordMessageUrl: rating.discordMessageUrl,
     discordThreadClosed: rating.discordThreadClosed,
   });
+  const averages = averageCurationRatingPicks(details, types);
   return {
     id: rating.id,
     levelId: rating.levelId,
@@ -190,6 +292,8 @@ function toCurationRatingRow(
     discordPostError: rating.discordPostError,
     discordThreadClosed: rating.discordThreadClosed,
     isDiscordVote,
+    averageChartTypeId: averages.chartTypeId,
+    averageVfxTypeId: averages.vfxTypeId,
     createdAt: rating.createdAt,
     updatedAt: rating.updatedAt,
     level,
@@ -200,13 +304,19 @@ function toCurationRatingRow(
 function serializeRow(
   rating: CurationRating,
   complete: boolean,
+  types: readonly CurationAverageTypeRef[],
 ): Record<string, unknown> | null {
   const levelRaw = rating.level
     ? (rating.level.toJSON() as unknown as Record<string, unknown>)
     : null;
   const level = pruneLevelForRatingList(levelRaw);
   if (!level) return null;
-  return toCurationRatingRow(rating, level, rating.details || [], complete);
+  return toCurationRatingRow(rating, level, rating.details || [], complete, types);
+}
+
+async function loadCurationTypeRefs(): Promise<CurationAverageTypeRef[]> {
+  const rows = await CurationType.findAll({attributes: ['id', 'name']});
+  return rows.map((row) => ({id: row.id, name: row.name}));
 }
 
 async function resolveSearchLevelIds(
@@ -328,18 +438,30 @@ async function hydrateCurationRatingListRows(
   }
 
   const ratingIds = ratings.map((row) => row.id);
-  const details = await CurationRatingDetail.findAll({
-    where: {curationRatingId: ratingIds},
-    attributes: ['id', 'curationRatingId', 'userId', 'chartTypeId', 'vfxTypeId', 'miscTypeIds'],
-    include: [
-      {
-        model: User,
-        as: 'user',
-        attributes: ['id', 'username'],
-        required: false,
-      },
-    ],
-  });
+  const [details, types] = await Promise.all([
+    CurationRatingDetail.findAll({
+      where: {curationRatingId: ratingIds},
+      attributes: [
+        'id',
+        'curationRatingId',
+        'userId',
+        'chartTypeId',
+        'chartTypeHighId',
+        'vfxTypeId',
+        'vfxTypeHighId',
+        'miscTypeIds',
+      ],
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'username'],
+          required: false,
+        },
+      ],
+    }),
+    loadCurationTypeRefs(),
+  ]);
   const detailsByRatingId = new Map<number, CurationRatingDetail[]>();
   for (const detail of details) {
     const list = detailsByRatingId.get(detail.curationRatingId) || [];
@@ -357,13 +479,19 @@ async function hydrateCurationRatingListRows(
         level,
         detailsByRatingId.get(rating.id) || [],
         false,
+        types,
       ),
     );
   }
-  return rows;
+  return attachCurationRequestsToRows(rows);
 }
 
 export async function getCurationRatingListPage(params: CurationRatingListQuery) {
+  const flowFilter = resolveCurationListFlows(params.flow, params.flows);
+  if (flowFilter.kind === 'none') {
+    return {results: [], total: 0, offset: params.offset, limit: params.limit, hasMore: false};
+  }
+
   const searchIds = await resolveSearchLevelIds(params.query, params.flow);
   if (searchIds === 'empty') {
     return {results: [], total: 0, offset: params.offset, limit: params.limit, hasMore: false};
@@ -385,7 +513,8 @@ export async function getCurationRatingListPage(params: CurationRatingListQuery)
     toCuration: true,
     isDeleted: false,
     isHidden: false,
-    ...(params.flow ? {curationFlow: params.flow} : {}),
+    ...(flowFilter.kind === 'one' ? {curationFlow: flowFilter.flow} : {}),
+    ...(flowFilter.kind === 'some' ? {curationFlow: {[Op.in]: flowFilter.flows}} : {}),
   };
 
   const whereAnd: object[] = [];
@@ -410,7 +539,9 @@ export async function getCurationRatingListPage(params: CurationRatingListQuery)
       ? [[literal(DETAIL_COUNT_SQL), params.order]]
       : params.sort === 'id'
         ? [['levelId', params.order]]
-        : [['updatedAt', params.order]];
+        : params.sort === 'createdAt'
+          ? [['createdAt', params.order]]
+          : [['updatedAt', params.order]];
 
   const total = await CurationRating.count({
     where,
@@ -468,7 +599,11 @@ async function loadCompleteCurationRating(where: Record<string, unknown>) {
   });
   if (!rating) return null;
   if (rating.confirmedAt != null || rating.level?.toCuration === false) return null;
-  return serializeRow(rating, true);
+  const types = await loadCurationTypeRefs();
+  const serialized = serializeRow(rating, true, types);
+  if (!serialized) return null;
+  const [withRequests] = await attachCurationRequestsToRows([serialized]);
+  return withRequests || null;
 }
 
 export async function buildCompleteCurationRatingById(id: number) {

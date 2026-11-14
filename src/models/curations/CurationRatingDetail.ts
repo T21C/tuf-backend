@@ -9,7 +9,9 @@ interface CurationRatingDetailAttributes {
   curationRatingId: number;
   userId: string;
   chartTypeId: number | null;
+  chartTypeHighId: number | null;
   vfxTypeId: number | null;
+  vfxTypeHighId: number | null;
   miscTypeIds: number[];
   comment: string | null;
   createdAt?: Date;
@@ -18,7 +20,15 @@ interface CurationRatingDetailAttributes {
 
 type CurationRatingDetailCreationAttributes = Optional<
   CurationRatingDetailAttributes,
-  'id' | 'chartTypeId' | 'vfxTypeId' | 'miscTypeIds' | 'comment' | 'createdAt' | 'updatedAt'
+  | 'id'
+  | 'chartTypeId'
+  | 'chartTypeHighId'
+  | 'vfxTypeId'
+  | 'vfxTypeHighId'
+  | 'miscTypeIds'
+  | 'comment'
+  | 'createdAt'
+  | 'updatedAt'
 >;
 
 class CurationRatingDetail
@@ -29,7 +39,9 @@ class CurationRatingDetail
   declare curationRatingId: number;
   declare userId: string;
   declare chartTypeId: number | null;
+  declare chartTypeHighId: number | null;
   declare vfxTypeId: number | null;
+  declare vfxTypeHighId: number | null;
   declare miscTypeIds: number[];
   declare comment: string | null;
   declare createdAt: Date;
@@ -65,7 +77,17 @@ CurationRatingDetail.init(
       allowNull: true,
       defaultValue: null,
     },
+    chartTypeHighId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+    },
     vfxTypeId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+    },
+    vfxTypeHighId: {
       type: DataTypes.INTEGER,
       allowNull: true,
       defaultValue: null,

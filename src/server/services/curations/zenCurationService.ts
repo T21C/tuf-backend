@@ -6,6 +6,10 @@ import {
 } from '@/server/services/curations/curationRatingListService.js';
 import {sendZenMediaReport} from '@/server/services/ratings/zenRatingService.js';
 import {
+  curationFlowsForZenPools,
+  parseZenCurationPools,
+} from '@/misc/utils/data/curationFlow.js';
+import {
   clampZenRandomness,
   parseZenDeckSize,
   peeksAllowedForDeckSize,
@@ -23,7 +27,7 @@ export async function dealZenCurationDeck(
   const deckSize = parseZenDeckSize(options.deckSize ?? ZEN_DEFAULT_DECK_SIZE);
   const sortRaw = String(options.sort || 'ratings');
   const sort: CurationRatingListSort =
-    sortRaw === 'id' || sortRaw === 'updatedAt' || sortRaw === 'ratings'
+    sortRaw === 'id' || sortRaw === 'updatedAt' || sortRaw === 'createdAt' || sortRaw === 'ratings'
       ? sortRaw
       : 'ratings';
   const order: CurationRatingListOrder =
@@ -33,6 +37,7 @@ export async function dealZenCurationDeck(
       ? ZEN_DEFAULT_RANDOMNESS
       : options.randomness,
   );
+  const pools = parseZenCurationPools(options);
 
   const poolLimit = Math.max(deckSize, ZEN_CANDIDATE_POOL_CAP);
   const page = await getCurationRatingListPage({
@@ -43,6 +48,7 @@ export async function dealZenCurationDeck(
     order,
     myRated: 'hide',
     flow: null,
+    flows: curationFlowsForZenPools(pools),
     vote: 'exclude',
     userId,
   });
@@ -74,6 +80,9 @@ export async function dealZenCurationDeck(
     peeksAllowed: peeksAllowedForDeckSize(cards.length),
     sort,
     order,
+    includeRecent: pools.includeRecent,
+    includeRerate: pools.includeRerate,
+    includeBulk: pools.includeBulk,
     randomness,
     dealtAt: new Date().toISOString(),
     cards,

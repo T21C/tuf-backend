@@ -7,6 +7,7 @@ import {
   requestTeamFromInput,
   collectLevelReferenceIds,
   curationRequestIssue,
+  curationRequestTypeChanges,
   curationRequestTypeForLevel,
   normalizePositiveIdList,
   openRequestTypesFor,
@@ -325,6 +326,34 @@ test('new curation cannot be empty and a rerate cannot match the current types',
   assert.equal(tagRequestIssue([], []), 'unchanged_tags');
   assert.equal(tagRequestIssue([], [5]), null);
   assert.deepEqual(normalizePositiveIdList(['3', 3, 0, -1, 8]), [3, 8]);
+});
+
+test('curationRequestTypeChanges fills add/remove for legacy rerates', () => {
+  assert.deepEqual(curationRequestTypeChanges('curation', {curationTypeIds: [2, 3]}), {
+    curationTypeIds: [2, 3],
+    addCurationTypeIds: [2, 3],
+    removeCurationTypeIds: [],
+  });
+  assert.deepEqual(
+    curationRequestTypeChanges('curation_rerate', {curationTypeIds: [2, 4]}, [1, 2]),
+    {
+      curationTypeIds: [2, 4],
+      addCurationTypeIds: [4],
+      removeCurationTypeIds: [1],
+    },
+  );
+  assert.deepEqual(
+    curationRequestTypeChanges(
+      'curation_rerate',
+      {curationTypeIds: [2], addCurationTypeIds: [9], removeCurationTypeIds: [1]},
+      [1, 2],
+    ),
+    {
+      curationTypeIds: [2],
+      addCurationTypeIds: [9],
+      removeCurationTypeIds: [1],
+    },
+  );
 });
 
 test('terminal requests have no pipeline actions unless a Discord post remains', () => {

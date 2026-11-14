@@ -17,6 +17,9 @@ function samplePayload(
     includeP: true,
     includeG: true,
     includeU: true,
+    includeRecent: true,
+    includeRerate: true,
+    includeBulk: true,
     sortPreset: 'least',
     randomness: 40,
     ratingIds: [11, 22, 33],
@@ -32,16 +35,76 @@ function samplePayload(
     streak: 0,
     pendingRating: '',
     pendingComment: '',
-    pendingPicks: {chartTypeId: null, vfxTypeId: null, miscTypeIds: []},
+    pendingPicks: {
+      chartTypeId: null,
+      chartTypeHighId: null,
+      vfxTypeId: null,
+      vfxTypeHighId: null,
+      chartRating: '',
+      vfxRating: '',
+      miscTypeIds: [],
+    },
     ...overrides,
   };
 }
+
+test('sanitizeZenSessionPayload accepts the date-added sort preset', () => {
+  const parsed = sanitizeZenSessionPayload(samplePayload({sortPreset: 'added'}));
+  assert.equal(parsed.sortPreset, 'added');
+});
+
+test('sanitizeZenSessionPayload defaults curation pools to included', () => {
+  const raw = samplePayload();
+  const parsed = sanitizeZenSessionPayload({
+    ...raw,
+    includeRecent: undefined,
+    includeRerate: undefined,
+    includeBulk: undefined,
+  });
+  assert.equal(parsed.includeRecent, true);
+  assert.equal(parsed.includeRerate, true);
+  assert.equal(parsed.includeBulk, true);
+
+  const hidden = sanitizeZenSessionPayload({
+    ...samplePayload(),
+    includeRecent: false,
+    includeBulk: 'false',
+  });
+  assert.equal(hidden.includeRecent, false);
+  assert.equal(hidden.includeRerate, true);
+  assert.equal(hidden.includeBulk, false);
+});
 
 test('sanitizeZenSessionPayload accepts a valid deck payload', () => {
   const parsed = sanitizeZenSessionPayload(samplePayload());
   assert.equal(parsed.phase, 'stage');
   assert.deepEqual(parsed.ratingIds, [11, 22, 33]);
   assert.equal(parsed.deckSize, 15);
+});
+
+test('sanitizeZenSessionPayload keeps curation range highs on pending picks', () => {
+  const parsed = sanitizeZenSessionPayload(
+    samplePayload({
+      pendingPicks: {
+        chartTypeId: 17,
+        chartTypeHighId: 19,
+        vfxTypeId: 21,
+        vfxTypeHighId: 26,
+        chartRating: 'C1-3',
+        vfxRating: 'V1-3',
+        miscTypeIds: [7],
+      },
+    })
+  );
+  assert.deepEqual(parsed.pendingPicks, {
+    chartTypeId: 17,
+    chartTypeHighId: 19,
+    vfxTypeId: 21,
+    vfxTypeHighId: 26,
+    chartRating: 'C1-3',
+    vfxRating: 'V1-3',
+    miscTypeIds: [7],
+  });
 });
 
 test('sanitizeZenSessionPayload rejects unknown phase, bad deck size, and mismatched arrays', () => {

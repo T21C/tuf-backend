@@ -2,6 +2,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import { parseQRange } from '@/misc/utils/data/communityTagEligibility.js';
 import { ratingForAverage } from '@/misc/utils/data/autoraterResult.js';
+import { rangeNumeric, snapToNearest } from '@/misc/utils/data/ratingNumeric.js';
 
 // Cache for difficulties to avoid repeated DB queries
 let difficultyCache: {
@@ -67,9 +68,9 @@ export function parseRatingRange(
     return [firstPart, lastPart];
   }
 
-  // For number-only second parts in ranges like "U11-13", copy the prefix
-  const firstMatch = firstPart.match(/([PGUpgu]*)(-?\d+)/);
-  const lastMatch = lastPart.match(/([PGUpgu]*)(-?\d+)/);
+  // For number-only second parts in ranges like "U11-13" or "C0-1", copy the prefix
+  const firstMatch = firstPart.match(/^([A-Za-z]*)(-?\d+)$/);
+  const lastMatch = lastPart.match(/^([A-Za-z]*)(-?\d+)$/);
 
   if (firstMatch && lastMatch) {
     /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -309,20 +310,9 @@ export function includeRequestBandsFromFlags(
 }
 
 /** PGU difficulties closest to `targetSortOrder`; on equal distance prefer higher sortOrder (e.g. 40.5 → U1 not G20). */
-function comparePguByDistanceToSortOrder(a: any, b: any, targetSortOrder: number): number {
-  const distA = Math.abs(a.sortOrder - targetSortOrder);
-  const distB = Math.abs(b.sortOrder - targetSortOrder);
-  if (distA !== distB) {
-    return distA - distB;
-  }
-  return b.sortOrder - a.sortOrder;
-}
-
 function pickClosestPguDifficulty(difficultyMap: Map<string, any>, targetSortOrder: number): any | null {
-  const list = Array.from(difficultyMap.values())
-    .filter((d: any) => d.type === 'PGU')
-    .sort((a, b) => comparePguByDistanceToSortOrder(a, b, targetSortOrder));
-  return list[0] ?? null;
+  const list = Array.from(difficultyMap.values()).filter((d: any) => d.type === 'PGU');
+  return snapToNearest(list, (d) => Number(d.sortOrder), targetSortOrder);
 }
 
 /** Set of sortOrder values that exist on at least one PGU difficulty row. */
@@ -428,15 +418,7 @@ async function getRatingPguNumericAndSpecials(
     ? null
     : resolvePartToPguSortOrder(pB, difficultyMap, validPguSortOrders);
 
-  const resolved = [soA, soB].filter((x): x is number => x !== null);
-
-  if (resolved.length === 0) {
-    return {specialRatings, pguNumeric: null};
-  }
-  if (resolved.length === 1) {
-    return {specialRatings, pguNumeric: resolved[0]};
-  }
-  return {specialRatings, pguNumeric: (resolved[0] + resolved[1]) / 2};
+  return {specialRatings, pguNumeric: rangeNumeric(soA, soB)};
 }
 
 // Helper function to calculate minimum difficulty from user input

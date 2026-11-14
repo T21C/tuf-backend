@@ -4,9 +4,20 @@ import {
   isUniversalRatingProposal,
   isDiscordVoteCard,
   isVoteRerateLabel,
+  parseRatingRange,
   requestPguBand,
   includeRequestBandsFromFlags,
 } from './RatingUtils.js';
+
+test('parseRatingRange copies a letter prefix onto a bare second number', () => {
+  assert.deepEqual(parseRatingRange('C0-1', new Set()), ['C0', 'C1']);
+  assert.deepEqual(parseRatingRange('C0~1', new Set()), ['C0', 'C1']);
+  assert.deepEqual(parseRatingRange('V1-3', new Set()), ['V1', 'V3']);
+  assert.deepEqual(parseRatingRange('P12-14', new Set()), ['P12', 'P14']);
+  assert.deepEqual(parseRatingRange('U11-13', new Set()), ['U11', 'U13']);
+  assert.deepEqual(parseRatingRange('G20-U1', new Set()), ['G20', 'U1']);
+  assert.deepEqual(parseRatingRange('C2', new Set()), ['C2']);
+});
 
 test('isVoteRerateLabel matches the rating card VOTE prefix', () => {
   assert.equal(isVoteRerateLabel('vote'), true);

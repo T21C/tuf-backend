@@ -4,9 +4,9 @@ import Level from '@/models/levels/Level.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {CacheInvalidation} from '@/server/middleware/cache.js';
 import {safeTransactionRollback, sanitizeTextInput} from '@/misc/utils/Utility.js';
-import {hasFlag} from '@/misc/utils/auth/permissionUtils.js';
-import {permissionFlags} from '@/config/constants.js';
+import {canModerateCuration} from '@/misc/utils/auth/permissionUtils.js';
 import {LevelRequestError} from '@/server/services/requests/levelRequestService.js';
+import {collectLevelReferenceIds} from '@/misc/utils/data/levelRequestValidation.js';
 import {
   voteThreadLabel,
   websiteRatingLabel,
@@ -26,15 +26,6 @@ const elasticsearchService = ElasticsearchService.getInstance();
 
 type Actor = {id: string; permissionFlags?: bigint | number | string | null};
 
-function isSuperAdmin(user: Actor | null | undefined): boolean {
-  if (!user) return false;
-  try {
-    return hasFlag(BigInt(user.permissionFlags ?? 0), permissionFlags.SUPER_ADMIN);
-  } catch {
-    return false;
-  }
-}
-
 async function publish(ratingId: number, levelId: number) {
   await CacheInvalidation.invalidateTag('admin:curation-ratings').catch((error) => {
     logger.error('Failed to invalidate curation rating cache after a Discord thread change', error);
@@ -49,8 +40,8 @@ async function publish(ratingId: number, levelId: number) {
 
 async function loadOpen(user: Actor, ratingId: number) {
   if (!user?.id) throw new LevelRequestError(401, 'auth', 'Authentication required');
-  if (!isSuperAdmin(user)) {
-    throw new LevelRequestError(403, 'forbidden', 'Super admin access required');
+  if (!canModerateCuration(user.permissionFlags != null ? BigInt(user.permissionFlags) : 0n)) {
+    throw new LevelRequestError(403, 'forbidden', 'Head curator access required');
   }
   const rating = await CurationRating.findByPk(ratingId);
   if (!rating) throw new LevelRequestError(404, 'missing', 'Curation rating not found');
@@ -115,7 +106,9 @@ async function createManualThread(user: Actor, ratingId: number, ping: boolean) 
   try {
     const posted = await createCurationThread({
       levelId,
+      requestedRating: websiteRatingLabel(labeled),
       reason,
+      comparisonLevelIds: collectLevelReferenceIds(reason),
       actorUserId,
       embedTitle: `Curation #${ratingId}`,
       ping,
