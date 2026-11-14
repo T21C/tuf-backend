@@ -29,6 +29,19 @@ function copyHtmlFiles() {
   }
 
   console.log(`Copied ${count} HTML file(s) to ${destDir}`);
+
+  const publicSource = path.join(srcDir, 'public');
+  const publicDestination = path.join(destDir, 'public');
+  if (!fs.existsSync(publicSource)) {
+    throw new Error(`copyHtml: public assets not found: ${publicSource}`);
+  }
+  fs.mkdirSync(publicDestination, { recursive: true });
+  for (const file of fs.readdirSync(publicSource)) {
+    const from = path.join(publicSource, file);
+    if (!fs.statSync(from).isFile()) continue;
+    fs.copyFileSync(from, path.join(publicDestination, file));
+  }
+  console.log(`Copied public assets to ${publicDestination}`);
 }
 
 copyHtmlFiles();

@@ -28,7 +28,7 @@ import {
   describeProductFromXsollaWebhookRawBody,
   describeProductFromAdminGrantRawBody,
 } from '@/server/services/billing/tufStellarBillingEventProduct.js';
-import { isTufStellarFeatureEnabled, stripeConfig } from '@/config/app.config.js';
+import { isAllowedCorsOrigin, isTufStellarFeatureEnabled, stripeConfig } from '@/config/app.config.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { deriveBillingAccessParts } from '@/misc/utils/subscriptions/billingAccessDerivation.js';
 import {
@@ -49,6 +49,7 @@ import { buildBillingPricingDisplayForRequest } from '@/server/services/billing/
 import { loadTufStellarDisplayCurrencyPreference } from '@/server/services/billing/tufStellarDisplayCurrencyPreference.js';
 import { stripeMinorToMajor } from '@/server/services/billing/stripeCurrencyMinorUnits.js';
 import adminGrantsRouter from '@/server/routes/v3/billing/adminGrants.js';
+import { billingCallbackRedirectTarget } from '@/server/services/billing/billingCallbackRedirect.js';
 
 const router: Router = Router();
 
@@ -1226,14 +1227,18 @@ router.get(
   '/callback',
   ApiDoc({
     operationId: 'getBillingCallback',
-    summary: 'Redirect to a specified URL',
-    description: 'Redirect to a specified callback URL when being called from a tunneled URL',
+    summary: 'Return to an allowlisted TUF site URL',
+    description: 'Redirects only to origins this API already trusts, such as tuforums.com or local development.',
     tags: ['Billing'],
   }),
   async (req: Request, res: Response) => {
     try {
-      const url = req.query.url as string;
-      if (!url) return res.status(400).json({ error: { code: 'INVALID_PARAMETER', message: 'No URL provided' } });
+      const url = billingCallbackRedirectTarget(req.query.url, isAllowedCorsOrigin);
+      if (!url) {
+        return res.status(400).json({
+          error: { code: 'INVALID_PARAMETER', message: 'Callback URL is not allowed' },
+        });
+      }
       return res.redirect(url);
     } catch (e) {
       logger.error('GET /v3/billing/callback failed', e);

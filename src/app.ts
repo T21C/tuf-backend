@@ -30,6 +30,7 @@ registerGlobalProcessHandlers();
 
 
 const app: Express = express();
+app.disable('x-powered-by');
 const httpServer = createServer(app);
 
 // Trust only the explicitly configured reverse-proxy boundary. Unset means no
@@ -39,6 +40,16 @@ app.set('trust proxy', parseTrustProxySetting(process.env.TRUST_PROXY));
 // ES Module dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function setPublicDocumentHeaders(res: Response) {
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  );
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+}
 
 // Create Socket.IO instance
 const io = new Server(httpServer, {
@@ -152,11 +163,18 @@ export async function startServer() {
       }),
     );
 
+    app.use(express.static(path.join(__dirname, 'public'), {
+      index: false,
+      maxAge: '7d',
+    }));
+
     // Handle remaining HTML requests
-    app.get('/', (req, res) => {
+    app.get('/', (_req, res) => {
+      setPublicDocumentHeaders(res);
       res.sendFile(path.join(__dirname, 'index.html'));
     });
-    app.get('*', (req, res) => {
+    app.get('*', (_req, res) => {
+      setPublicDocumentHeaders(res);
       return res.status(404).sendFile(path.join(__dirname, 'notFound.html'));
     });
 
