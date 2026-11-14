@@ -4,6 +4,7 @@ import CurationCurationType from './CurationCurationType.js';
 import CurationSchedule from './CurationSchedule.js';
 import CurationRating from './CurationRating.js';
 import CurationRatingDetail from './CurationRatingDetail.js';
+import CurationAnnouncementQueue from './CurationAnnouncementQueue.js';
 import Level from '@/models/levels/Level.js';
 import User from '@/models/auth/User.js';
 
@@ -78,5 +79,19 @@ export function initializeCurationsAssociations() {
   CurationRating.belongsTo(User, {
     foreignKey: 'settledByUserId',
     as: 'settledByUser',
+  });
+
+  Level.hasMany(CurationAnnouncementQueue, {
+    foreignKey: 'levelId',
+    as: 'curationAnnouncementQueueEntries',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  CurationAnnouncementQueue.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
   });
 }

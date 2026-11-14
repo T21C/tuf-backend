@@ -11,6 +11,7 @@ import {
   handleDiscordLevelTargetUpdated,
 } from '@/server/services/outbox/handlers/discord/levelDiscordHandlers.js';
 import {
+  runCurationAnnouncementJob,
   runLevelAnnouncementJob,
   runPassAnnouncementJob,
   runRerateAnnouncementJob,
@@ -75,6 +76,22 @@ export function startDiscordOutboxDispatcher(): void {
         case OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement:
           await runRerateAnnouncementJob(
             parsePayload<OutboxPayloadByType[typeof OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement]>(
+              payloadRaw,
+            ).queueRowIds,
+          );
+          break;
+        case OUTBOX_EVENT_TYPES.DiscordCurationBatchAnnouncement:
+          await runCurationAnnouncementJob(
+            'curation',
+            parsePayload<OutboxPayloadByType[typeof OUTBOX_EVENT_TYPES.DiscordCurationBatchAnnouncement]>(
+              payloadRaw,
+            ).queueRowIds,
+          );
+          break;
+        case OUTBOX_EVENT_TYPES.DiscordCurationRerateBatchAnnouncement:
+          await runCurationAnnouncementJob(
+            'curation_rerate',
+            parsePayload<OutboxPayloadByType[typeof OUTBOX_EVENT_TYPES.DiscordCurationRerateBatchAnnouncement]>(
               payloadRaw,
             ).queueRowIds,
           );

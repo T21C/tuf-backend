@@ -5,9 +5,10 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import Pass from '@/models/passes/Pass.js';
 import Level from '@/models/levels/Level.js';
 import { markQueueRowsAnnounced } from '@/server/services/announcements/levelAnnouncementQueue.js';
+import { markCurationQueueRowsAnnounced } from '@/server/services/announcements/curationAnnouncementQueue.js';
 import { emitFollowFanout } from '@/server/services/notifications/followFanout.js';
 
-export type AnnouncementDeliveryKind = 'pass' | 'level' | 'rerate';
+export type AnnouncementDeliveryKind = 'pass' | 'level' | 'rerate' | 'curation' | 'curation_rerate';
 
 const DELIVERED_TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -106,6 +107,8 @@ export const AnnouncementDeliveryTracker = {
           { isAnnounced: true },
           { where: { id: { [Op.in]: newlyCompleted }, isAnnounced: false } },
         );
+      } else if (kind === 'curation' || kind === 'curation_rerate') {
+        await markCurationQueueRowsAnnounced(newlyCompleted);
       } else {
         await markQueueRowsAnnounced(newlyCompleted);
         const levelIds = newlyCompleted

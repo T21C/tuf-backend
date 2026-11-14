@@ -40,6 +40,11 @@ import {isBannedUntilExpired, isPermissionBanActive} from '@/server/services/acc
 import {notificationService} from '@/server/services/notifications/NotificationService.js';
 import {NOTIFICATION_TYPES} from '@/server/services/notifications/types.js';
 import {ensureOpenRating} from '@/server/services/ratings/openRatingService.js';
+import {
+  CurationQueueError,
+  openLevelOnCurationPage,
+} from '@/server/services/curations/openCurationRatingService.js';
+import {curationFlowForRequestType} from '@/misc/utils/data/curationFlow.js';
 import {broadcastRatingUpsert, buildLevelUpdateSseData} from '@/server/services/ratings/ratingListService.js';
 import {CacheInvalidation} from '@/server/middleware/cache.js';
 import Rating from '@/models/levels/Rating.js';
@@ -1329,6 +1334,34 @@ export async function applyLevelRequestAction(user: Viewer, requestId: number, b
       await notifyRequester(request, {actor: user});
       return serializeLevelRequest(request, user);
     }
+    const flow = curationFlowForRequestType(request.type);
+    if (flow) {
+      let transaction: Transaction | undefined;
+      try {
+        transaction = await sequelize.transaction();
+        const pageReason = await ratingPageReason(request, '', transaction);
+        await openLevelOnCurationPage(request.levelId, {
+          flow,
+          reason: pageReason,
+          transaction,
+        });
+        await request.update(withLastActor(user, {
+          ...notePatch,
+          status: 'accepted',
+          resolvedAt: null,
+        }), {transaction});
+        await transaction.commit();
+      } catch (error) {
+        if (transaction) await safeTransactionRollback(transaction);
+        if (error instanceof CurationQueueError) {
+          throw new LevelRequestError(error.status, error.code, error.message);
+        }
+        throw error;
+      }
+      await tryPostCurationDiscord(request);
+      await notifyRequester(request, {actor: user});
+      return serializeLevelRequest(request, user);
+    }
     await request.update(withLastActor(user, {...notePatch, status: 'accepted', resolvedAt: null}));
     await tryPostCurationDiscord(request);
     await notifyRequester(request, {actor: user});
@@ -1601,6 +1634,28 @@ export async function attachOpenRatingToLevelRequest(
   });
   if (!request) return;
   await request.update({linkedRatingId: ratingId}, {transaction});
+}
+
+export async function completeLevelRequestForSettledCuration(
+  levelId: number,
+  transaction?: Transaction,
+  actorUserId?: string | null,
+) {
+  const request = await LevelRequest.findOne({
+    where: {
+      levelId,
+      type: {[Op.in]: ['curation', 'curation_rerate']},
+      status: 'accepted',
+    },
+    transaction,
+  });
+  if (!request) return;
+  await request.update({
+    status: 'completed',
+    resolvedAt: new Date(),
+    ...(actorUserId ? {lastActorUserId: actorUserId} : {}),
+  }, {transaction});
+  await notifyRequester(request, {transaction});
 }
 
 export async function completeLevelRequestForSettledRating(

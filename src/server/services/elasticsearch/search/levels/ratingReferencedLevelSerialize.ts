@@ -114,6 +114,7 @@ export function pruneLevelForRatingList(
     workshopLink: level.workshopLink,
     toRate: level.toRate ?? true,
     toCuration: level.toCuration === true,
+    curationFlow: level.curationFlow ?? null,
     curationRerateNum: level.curationRerateNum ?? null,
     curationRerateReason: level.curationRerateReason ?? null,
     fileId: level.fileId ?? null,

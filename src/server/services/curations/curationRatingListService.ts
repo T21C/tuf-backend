@@ -17,32 +17,38 @@ import SongAlias from '@/models/songs/SongAlias.js';
 import SongCredit from '@/models/songs/SongCredit.js';
 import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
-import {searchLevelIdsInSet} from '@/server/services/elasticsearch/search/levels/levelSearch.js';
+import {searchCurationQueueLevelIds} from '@/server/services/elasticsearch/search/levels/levelSearch.js';
+import {fetchLevelsByIdsFromElasticsearch} from '@/server/services/elasticsearch/search/levels/fetchLevelsByIdsFromElasticsearch.js';
 import {pruneLevelForRatingList} from '@/server/services/elasticsearch/search/levels/ratingReferencedLevelSerialize.js';
 import {normalizeMiscTypeIds} from '@/misc/utils/data/curationRatingPicks.js';
+import {
+  curationDiscordVoteWhereSql,
+  isCurationDiscordVoteCard,
+  type CurationFlowId,
+} from '@/misc/utils/data/curationFlow.js';
+import {
+  parseCurationQueueCommaIds,
+  type CurationRatingListQuery,
+} from '@/misc/utils/data/curationRatingListQuery.js';
 
-export const CURATION_RATING_LIST_PAGE_SIZE = 30;
-
-export type CurationRatingListSort = 'id' | 'ratings' | 'updatedAt';
-export type CurationRatingListOrder = 'ASC' | 'DESC';
-export type ShowHideOnly = 'show' | 'hide' | 'only';
-
-export interface CurationRatingListQuery {
-  offset: number;
-  limit: number;
-  query: string;
-  sort: CurationRatingListSort;
-  order: CurationRatingListOrder;
-  myRated: ShowHideOnly;
-  userId: string | null;
-}
+export {
+  CURATION_RATING_LIST_PAGE_SIZE,
+  parseCurationRatingListQuery,
+} from '@/misc/utils/data/curationRatingListQuery.js';
+export type {
+  CurationRatingListOrder,
+  CurationRatingListQuery,
+  CurationRatingListSort,
+  CurationVoteFilter,
+  ShowHideOnly,
+} from '@/misc/utils/data/curationRatingListQuery.js';
 
 const DETAIL_COUNT_SQL = `(
   SELECT COUNT(*) FROM curation_rating_details AS crd
   WHERE crd.curationRatingId = CurationRating.id
 )`;
 
-const levelListIncludes = [
+const completeLevelIncludes = [
   {
     model: LevelAlias,
     as: 'aliases',
@@ -121,10 +127,6 @@ const levelListIncludes = [
     ],
   },
   {model: Difficulty, as: 'difficulty', required: false},
-];
-
-const completeLevelIncludes = [
-  ...levelListIncludes,
   {
     model: Curation,
     as: 'curations',
@@ -133,47 +135,13 @@ const completeLevelIncludes = [
       {
         model: CurationType,
         as: 'types',
-        attributes: ['id'],
+        attributes: ['id', 'name', 'icon'],
         through: {attributes: []},
         required: false,
       },
     ],
   },
 ];
-
-function parseSort(value: unknown): CurationRatingListSort {
-  const text = String(value || '').trim();
-  if (text === 'id' || text === 'updatedAt' || text === 'ratings') return text;
-  return 'ratings';
-}
-
-function parseOrder(value: unknown): CurationRatingListOrder {
-  return String(value || '').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-}
-
-function parseMyRated(value: unknown): ShowHideOnly {
-  const text = String(value || '').trim();
-  if (text === 'hide' || text === 'only') return text;
-  return 'show';
-}
-
-export function parseCurationRatingListQuery(
-  query: Record<string, unknown>,
-  userId: string | null,
-): CurationRatingListQuery {
-  const offset = Math.max(0, Math.floor(Number(query.offset) || 0));
-  const limitRaw = Math.floor(Number(query.limit) || CURATION_RATING_LIST_PAGE_SIZE);
-  const limit = Math.min(100, Math.max(1, limitRaw));
-  return {
-    offset,
-    limit,
-    query: typeof query.query === 'string' ? query.query.trim() : '',
-    sort: parseSort(query.sort),
-    order: parseOrder(query.order),
-    myRated: parseMyRated(query.myRated),
-    userId,
-  };
-}
 
 function serializeDetail(detail: CurationRatingDetail, complete: boolean) {
   const miscTypeIds = normalizeMiscTypeIds(detail.miscTypeIds);
@@ -202,6 +170,33 @@ function serializeDetail(detail: CurationRatingDetail, complete: boolean) {
   return base;
 }
 
+function toCurationRatingRow(
+  rating: CurationRating,
+  level: Record<string, unknown>,
+  details: CurationRatingDetail[],
+  complete: boolean,
+): Record<string, unknown> {
+  const isDiscordVote = isCurationDiscordVoteCard({
+    curationRerateNum: typeof level.curationRerateNum === 'string' ? level.curationRerateNum : null,
+    discordMessageUrl: rating.discordMessageUrl,
+    discordThreadClosed: rating.discordThreadClosed,
+  });
+  return {
+    id: rating.id,
+    levelId: rating.levelId,
+    confirmedAt: rating.confirmedAt,
+    settledByUserId: rating.settledByUserId,
+    discordMessageUrl: rating.discordMessageUrl,
+    discordPostError: rating.discordPostError,
+    discordThreadClosed: rating.discordThreadClosed,
+    isDiscordVote,
+    createdAt: rating.createdAt,
+    updatedAt: rating.updatedAt,
+    level,
+    details: details.map((detail) => serializeDetail(detail, complete)),
+  };
+}
+
 function serializeRow(
   rating: CurationRating,
   complete: boolean,
@@ -211,36 +206,19 @@ function serializeRow(
     : null;
   const level = pruneLevelForRatingList(levelRaw);
   if (!level) return null;
-  return {
-    id: rating.id,
-    levelId: rating.levelId,
-    confirmedAt: rating.confirmedAt,
-    settledByUserId: rating.settledByUserId,
-    createdAt: rating.createdAt,
-    updatedAt: rating.updatedAt,
-    level,
-    details: (rating.details || []).map((detail) => serializeDetail(detail, complete)),
-  };
+  return toCurationRatingRow(rating, level, rating.details || [], complete);
 }
 
-async function resolveSearchLevelIds(textQuery: string): Promise<number[] | 'empty' | null> {
+async function resolveSearchLevelIds(
+  textQuery: string,
+  flow: CurationFlowId | null,
+): Promise<number[] | 'empty' | null> {
   if (!textQuery) return null;
-  const pending = await CurationRating.findAll({
-    where: {confirmedAt: null},
-    attributes: ['levelId'],
-    include: [
-      {
-        model: Level,
-        as: 'level',
-        required: true,
-        attributes: [],
-        where: {toCuration: true, isDeleted: false, isHidden: false},
-      },
-    ],
-  });
-  const pendingIds = [...new Set(pending.map((row) => row.levelId))];
-  if (pendingIds.length === 0) return 'empty';
-  const matched = await searchLevelIdsInSet(textQuery, pendingIds, {requireToRate: false});
+  const commaIds = parseCurationQueueCommaIds(textQuery);
+  if (commaIds) {
+    return commaIds.length > 0 ? commaIds : 'empty';
+  }
+  const matched = await searchCurationQueueLevelIds(textQuery, {flow});
   if (matched.length === 0) return 'empty';
   return matched;
 }
@@ -263,65 +241,214 @@ function detailInclude(complete: boolean) {
   };
 }
 
+async function hydrateCurationRatingListRows(
+  ratings: CurationRating[],
+): Promise<Record<string, unknown>[]> {
+  if (ratings.length === 0) return [];
+
+  const levelIds = [...new Set(ratings.map((row) => row.levelId).filter((id) => id > 0))];
+  const esLevels = await fetchLevelsByIdsFromElasticsearch(levelIds);
+  const levelsById = new Map<number, Record<string, unknown>>();
+
+  for (const [id, level] of esLevels) {
+    const pruned = pruneLevelForRatingList(level);
+    if (pruned) levelsById.set(id, pruned);
+  }
+
+  const missingIds = levelIds.filter((id) => !levelsById.has(id));
+  if (missingIds.length > 0) {
+    const mysqlLevels = await Level.findAll({
+      where: {
+        id: missingIds,
+        isDeleted: false,
+        isHidden: false,
+        toCuration: true,
+      },
+      attributes: [
+        'id',
+        'song',
+        'artist',
+        'creator',
+        'diffId',
+        'clears',
+        'rerateNum',
+        'rerateReason',
+        'notes',
+        'suffix',
+        'songId',
+        'team',
+        'videoLink',
+        'dlLink',
+        'workshopLink',
+        'toRate',
+        'toCuration',
+        'curationFlow',
+        'curationRerateNum',
+        'curationRerateReason',
+      ],
+      include: [
+        {
+          association: 'levelCredits',
+          required: false,
+          attributes: ['role', 'sortOrder', 'id'],
+          include: [{association: 'creator', attributes: ['id', 'name'], required: false}],
+        },
+        {
+          association: 'songObject',
+          required: false,
+          attributes: ['id', 'name'],
+        },
+        {
+          association: 'teamObject',
+          required: false,
+          attributes: ['id', 'name'],
+        },
+        {
+          association: 'curations',
+          required: false,
+          include: [
+            {
+              association: 'types',
+              attributes: ['id'],
+              through: {attributes: []},
+              required: false,
+            },
+          ],
+        },
+      ],
+    });
+    for (const level of mysqlLevels) {
+      const pruned = pruneLevelForRatingList(
+        level.toJSON() as unknown as Record<string, unknown>,
+      );
+      if (pruned && typeof pruned.id === 'number') {
+        levelsById.set(pruned.id, pruned);
+      }
+    }
+  }
+
+  const ratingIds = ratings.map((row) => row.id);
+  const details = await CurationRatingDetail.findAll({
+    where: {curationRatingId: ratingIds},
+    attributes: ['id', 'curationRatingId', 'userId', 'chartTypeId', 'vfxTypeId', 'miscTypeIds'],
+    include: [
+      {
+        model: User,
+        as: 'user',
+        attributes: ['id', 'username'],
+        required: false,
+      },
+    ],
+  });
+  const detailsByRatingId = new Map<number, CurationRatingDetail[]>();
+  for (const detail of details) {
+    const list = detailsByRatingId.get(detail.curationRatingId) || [];
+    list.push(detail);
+    detailsByRatingId.set(detail.curationRatingId, list);
+  }
+
+  const rows: Record<string, unknown>[] = [];
+  for (const rating of ratings) {
+    const level = levelsById.get(rating.levelId);
+    if (!level) continue;
+    rows.push(
+      toCurationRatingRow(
+        rating,
+        level,
+        detailsByRatingId.get(rating.id) || [],
+        false,
+      ),
+    );
+  }
+  return rows;
+}
+
 export async function getCurationRatingListPage(params: CurationRatingListQuery) {
-  const searchIds = await resolveSearchLevelIds(params.query);
+  const searchIds = await resolveSearchLevelIds(params.query, params.flow);
   if (searchIds === 'empty') {
     return {results: [], total: 0, offset: params.offset, limit: params.limit, hasMore: false};
   }
 
-  const where: WhereOptions = {confirmedAt: null};
-  const include: object[] = [
-    {
-      model: Level,
-      as: 'level',
-      required: true,
-      where: {
-        toCuration: true,
-        isDeleted: false,
-        isHidden: false,
-        ...(searchIds ? {id: {[Op.in]: searchIds}} : {}),
-      },
-      include: levelListIncludes,
-    },
-    detailInclude(false),
-  ];
+  const ratingWhere: Record<string, unknown> = {confirmedAt: null};
+  if (searchIds) {
+    ratingWhere.levelId = {[Op.in]: searchIds};
+  }
 
   if (params.userId && params.myRated !== 'show') {
-    const existsLiteral = literal(
-      `EXISTS (SELECT 1 FROM curation_rating_details crd WHERE crd.curationRatingId = CurationRating.id AND crd.userId = ${CurationRating.sequelize!.escape(params.userId)})`,
-    );
-    Object.assign(where, {
-      [Op.and]: [params.myRated === 'only' ? existsLiteral : {[Op.not]: existsLiteral}],
-    });
+    const ratedIdsSql = `(SELECT curationRatingId FROM curation_rating_details WHERE userId = ${CurationRating.sequelize!.escape(params.userId)})`;
+    ratingWhere.id = {
+      [params.myRated === 'only' ? Op.in : Op.notIn]: literal(ratedIdsSql),
+    };
   }
+
+  const levelWhere: Record<string, unknown> = {
+    toCuration: true,
+    isDeleted: false,
+    isHidden: false,
+    ...(params.flow ? {curationFlow: params.flow} : {}),
+  };
+
+  const whereAnd: object[] = [];
+  if (params.vote !== 'include') {
+    whereAnd.push(literal(curationDiscordVoteWhereSql(params.vote)));
+  }
+
+  const where: WhereOptions = whereAnd.length
+    ? {...ratingWhere, [Op.and]: whereAnd}
+    : ratingWhere;
+
+  const levelInclude = {
+    model: Level,
+    as: 'level',
+    required: true,
+    attributes: ['id', 'toCuration', 'curationFlow', 'curationRerateNum'],
+    where: levelWhere,
+  };
 
   const order =
     params.sort === 'ratings'
       ? [[literal(DETAIL_COUNT_SQL), params.order]]
       : params.sort === 'id'
-        ? [[{model: Level, as: 'level'}, 'id', params.order]]
+        ? [['levelId', params.order]]
         : [['updatedAt', params.order]];
 
-  const {rows, count} = await CurationRating.findAndCountAll({
+  const total = await CurationRating.count({
     where,
-    include,
+    include: [
+      {
+        ...levelInclude,
+        attributes: [],
+      },
+    ],
+    distinct: true,
+    col: 'id',
+  });
+
+  if (total === 0) {
+    return {results: [], total: 0, offset: params.offset, limit: params.limit, hasMore: false};
+  }
+
+  const rows = await CurationRating.findAll({
+    where,
+    include: [levelInclude],
     offset: params.offset,
     limit: params.limit,
     order: order as any,
-    distinct: true,
     subQuery: false,
   });
 
-  const results = rows
-    .map((row) => serializeRow(row, false))
-    .filter((row): row is Record<string, unknown> => row != null);
+  const results = (await hydrateCurationRatingListRows(rows)).filter((row) => {
+    if (params.vote === 'include') return true;
+    const isVote = row.isDiscordVote === true;
+    return params.vote === 'only' ? isVote : !isVote;
+  });
 
   return {
     results,
-    total: count,
+    total,
     offset: params.offset,
     limit: params.limit,
-    hasMore: params.offset + results.length < count,
+    hasMore: params.offset + rows.length < total,
   };
 }
 

@@ -9,6 +9,8 @@ import Judgement from '@/models/passes/Judgement.js';
 import Player from '@/models/players/Player.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import LevelAnnouncementQueue from '@/models/levels/LevelAnnouncementQueue.js';
+import CurationAnnouncementQueue from '@/models/curations/CurationAnnouncementQueue.js';
+import {createCurationAnnouncementEmbed} from '@/server/services/curations/curationAnnouncementEmbed.js';
 import { getPassAnnouncementConfig, getLevelAnnouncementConfig } from '@/server/routes/v2/webhooks/channelParser.js';
 import {
   createChannelMessages,
@@ -526,6 +528,175 @@ export async function runRerateAnnouncementJob(requestedIds: number[]): Promise<
       err instanceof Error ? err.message : String(err),
     );
     await AnnouncementJobService.releaseConveyor('rerate', queueRowIds);
+    throw err;
+  }
+}
+
+function parseNamedWebhookTargets(
+  hookEnv: string,
+  pingEnv: string,
+  missingMessage: string,
+  logName: string,
+): {webhookUrl: string; ping?: string}[] {
+  const webhookUrls = (process.env[hookEnv] || '')
+    .split(',')
+    .map((url) => url.trim())
+    .filter((url) => url.length > 0);
+
+  let pingRoleIds = (process.env[pingEnv] || '')
+    .split(',')
+    .map((id) => id.trim());
+
+  if (webhookUrls.length === 0) {
+    throw new Error(missingMessage);
+  }
+
+  if (pingRoleIds.length !== webhookUrls.length) {
+    logger.warn(`[${logName}] ${hookEnv} and ${pingEnv} count mismatch; padding missing pings`, {
+      webhookCount: webhookUrls.length,
+      roleIdCount: pingRoleIds.length,
+    });
+    while (pingRoleIds.length < webhookUrls.length) pingRoleIds.push('');
+    if (pingRoleIds.length > webhookUrls.length) {
+      pingRoleIds = pingRoleIds.slice(0, webhookUrls.length);
+    }
+  }
+
+  return webhookUrls.map((webhookUrl, i) => ({
+    webhookUrl,
+    ping: pingRoleIds[i] ? `<@&${pingRoleIds[i]}>` : undefined,
+  }));
+}
+
+export async function runCurationAnnouncementJob(
+  kind: 'curation' | 'curation_rerate',
+  requestedIds: number[],
+): Promise<void> {
+  const queueKind = kind === 'curation_rerate' ? 'RERATE' : 'NEW';
+  const queueRowIds = await AnnouncementJobService.excludeDiscarded(kind, requestedIds);
+  if (queueRowIds.length === 0) return;
+  try {
+    await DiscordWebhookGate.assertNotBlocked();
+    await AnnouncementJobService.markRequestsSending(kind, queueRowIds);
+
+    const rows = await CurationAnnouncementQueue.findAll({
+      where: {
+        id: {[Op.in]: queueRowIds},
+        status: 'PENDING',
+        kind: queueKind,
+      },
+      include: [
+        {
+          model: Level,
+          as: 'level',
+          where: {isDeleted: false},
+          required: true,
+        },
+      ],
+    });
+
+    if (rows.length === 0) {
+      await AnnouncementJobService.markItemsDelivered(kind, queueRowIds);
+      await AnnouncementJobService.releaseConveyor(kind, queueRowIds);
+      return;
+    }
+
+    const targets = parseNamedWebhookTargets(
+      kind === 'curation_rerate' ? 'CURATION_RERATE_ANNOUNCEMENT_HOOK' : 'CURATION_ANNOUNCEMENT_HOOK',
+      kind === 'curation_rerate' ? 'CURATION_RERATE_PING_ROLE_ID' : 'CURATION_PING_ROLE_ID',
+      kind === 'curation_rerate'
+        ? 'CURATION_RERATE_ANNOUNCEMENT_HOOK is not configured'
+        : 'CURATION_ANNOUNCEMENT_HOOK is not configured',
+      kind,
+    );
+    const targetUrls = targets.map((item) => item.webhookUrl);
+    const requiredWebhooksByItemId = new Map<number, string[]>();
+    const levelIdByItemId = new Map<number, number>();
+    const labelByWebhookUrl = new Map<string, string>();
+    for (const row of rows) {
+      requiredWebhooksByItemId.set(row.id, targetUrls);
+      levelIdByItemId.set(row.id, row.levelId);
+    }
+    for (let i = 0; i < targets.length; i++) {
+      labelByWebhookUrl.set(targets[i].webhookUrl, `${kind}-${i}`);
+    }
+
+    await AnnouncementJobService.setItemsPhase(kind, rows.map((row) => row.id), 'resolving');
+    await AnnouncementJobService.seedPendingDestinations({
+      kind,
+      requiredWebhooksByItemId,
+      labelByWebhookUrl,
+    });
+
+    const alreadyDelivered = await AnnouncementDeliveryTracker.buildAlreadyDeliveredSet(
+      kind,
+      rows.map((row) => row.id),
+      targetUrls,
+    );
+
+    const embedPairs = await Promise.all(
+      rows.map(async (row) => ({
+        queueRowId: row.id,
+        embed: await createCurationAnnouncementEmbed({
+          level: row.level!,
+          kind: row.kind,
+          beforeTypeIds: row.beforeTypeIds,
+          afterTypeIds: row.afterTypeIds,
+        }),
+      })),
+    );
+
+    const channels: ChannelMessages[] = [];
+    for (let i = 0; i < targets.length; i++) {
+      const {webhookUrl, ping} = targets[i];
+      const pendingPairs = embedPairs.filter(
+        (pair) =>
+          !alreadyDelivered.has(
+            AnnouncementDeliveryTracker.deliveryPairKey(pair.queueRowId, webhookUrl),
+          ),
+      );
+      if (pendingPairs.length === 0) continue;
+      const messages: ChannelMessage[] = [];
+      for (let j = 0; j < pendingPairs.length; j += 8) {
+        const batch = pendingPairs.slice(j, j + 8);
+        messages.push(
+          createEmbedBatchMessage(
+            batch.map((pair) => pair.embed),
+            j === 0 ? ping : undefined,
+            batch.map((pair) => pair.queueRowId),
+          ),
+        );
+      }
+      channels.push({
+        webhookUrl,
+        channelConfig: {label: `${kind}-${i}`, webhookUrl, ping},
+        messages,
+      });
+    }
+
+    for (const channel of channels) {
+      await sendMessages(channel, channel.channelConfig.ping, {
+        kind,
+        requiredWebhooksByItemId,
+        levelIdByItemId,
+      });
+    }
+
+    if (channels.length === 0) {
+      await AnnouncementJobService.markItemsDelivered(kind, rows.map((row) => row.id));
+      await AnnouncementJobService.releaseConveyor(kind, queueRowIds);
+    }
+  } catch (err) {
+    if (isWebhookRateLimitError(err)) {
+      await AnnouncementJobService.markKindBlocked(kind, err.message);
+      throw err;
+    }
+    await AnnouncementJobService.markItemsFailed(
+      kind,
+      queueRowIds,
+      err instanceof Error ? err.message : String(err),
+    );
+    await AnnouncementJobService.releaseConveyor(kind, queueRowIds);
     throw err;
   }
 }
