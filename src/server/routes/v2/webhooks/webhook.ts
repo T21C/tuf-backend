@@ -51,6 +51,8 @@ import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
 import { markQueueRowsSkipped } from '@/server/services/announcements/levelAnnouncementQueue.js';
+import { markCurationQueueRowsSkipped } from '@/server/services/announcements/curationAnnouncementQueue.js';
+import CurationAnnouncementQueue from '@/models/curations/CurationAnnouncementQueue.js';
 import crypto from 'crypto';
 import { OutboxService } from '@/server/services/outbox/OutboxService.js';
 import { OUTBOX_EVENT_TYPES } from '@/server/services/outbox/events.js';
@@ -880,6 +882,65 @@ async function buildQueueRowLabels(queueRowIds: number[]): Promise<Map<number, s
   return labels;
 }
 
+async function buildCurationQueueRowLabels(queueRowIds: number[]): Promise<Map<number, string>> {
+  const labels = new Map<number, string>();
+  if (queueRowIds.length === 0) return labels;
+  const rows = await CurationAnnouncementQueue.findAll({
+    where: { id: { [Op.in]: queueRowIds } },
+    include: [{ model: Level, as: 'level', attributes: ['song', 'artist', 'suffix'] }],
+  });
+  for (const row of rows) {
+    const song = appendSongSuffix(row.level?.song, row.level?.suffix) || 'Unknown';
+    const artist = row.level?.artist || '';
+    labels.set(row.id, artist ? `${song} — ${artist}` : song);
+  }
+  return labels;
+}
+
+async function queueCurationAnnouncement(
+  req: Request,
+  res: Response,
+  kind: 'curation' | 'curation_rerate',
+) {
+  const blocked = await rejectIfDiscordWebhookBlocked(res);
+  if (blocked) return blocked;
+
+  const {queueRowIds} = req.body;
+  if (!Array.isArray(queueRowIds)) {
+    return res.status(400).json({error: 'queueRowIds must be an array'});
+  }
+
+  const sorted = [...queueRowIds].sort((a, b) => a - b);
+  const labelsByItemId = await buildCurationQueueRowLabels(sorted);
+  const job = await AnnouncementJobService.createOrMergeRequest({
+    kind,
+    itemIds: sorted,
+    labelsByItemId,
+    user: {
+      id: String(req.user?.id || ''),
+      username: req.user?.username,
+      nickname: req.user?.nickname,
+    },
+  });
+
+  if (job.addedItemIds.length > 0) {
+    const nonce = crypto.randomUUID();
+    await OutboxService.emit(
+      kind === 'curation_rerate'
+        ? OUTBOX_EVENT_TYPES.DiscordCurationRerateBatchAnnouncement
+        : OUTBOX_EVENT_TYPES.DiscordCurationBatchAnnouncement,
+      {
+        aggregate: `${kind}_webhook`,
+        aggregateId: nonce,
+        dedupKey: null,
+        payload: {queueRowIds: job.addedItemIds},
+      },
+    );
+  }
+
+  return res.json(announceResponse(job));
+}
+
 function announceResponse(job: Awaited<ReturnType<typeof AnnouncementJobService.createOrMergeRequest>>) {
   return {
     success: true,
@@ -906,8 +967,14 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const kind = String(req.query.kind || '');
-      if (kind !== 'pass' && kind !== 'level' && kind !== 'rerate') {
-        return res.status(400).json({ error: 'kind must be pass, level, or rerate' });
+      if (
+        kind !== 'pass' &&
+        kind !== 'level' &&
+        kind !== 'rerate' &&
+        kind !== 'curation' &&
+        kind !== 'curation_rerate'
+      ) {
+        return res.status(400).json({ error: 'kind must be pass, level, rerate, curation, or curation_rerate' });
       }
       const snapshot = await AnnouncementJobService.getSnapshot(kind);
       return res.json(snapshot);
@@ -1127,6 +1194,56 @@ router.post(
 );
 
 router.post(
+  '/curations',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postWebhooksCurations',
+    summary: 'Send curation webhooks',
+    description: 'Send Discord webhook announcements for new curations. Body: queueRowIds (array). Super admin.',
+    tags: ['Webhooks'],
+    security: ['bearerAuth'],
+    requestBody: docRequestBody('queueRowIds', queueRowIdsBodySchema),
+    responses: {200: {description: 'Webhooks sent'}, ...standardErrorResponses400500},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      return await queueCurationAnnouncement(req, res, 'curation');
+    } catch (error) {
+      logger.error('Error sending curation webhook:', error);
+      return res.status(500).json({
+        error: 'Failed to send webhook',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.post(
+  '/curation-rerates',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postWebhooksCurationRerates',
+    summary: 'Send curation rerate webhooks',
+    description: 'Send Discord webhook announcements for curation rerates. Body: queueRowIds (array). Super admin.',
+    tags: ['Webhooks'],
+    security: ['bearerAuth'],
+    requestBody: docRequestBody('queueRowIds', queueRowIdsBodySchema),
+    responses: {200: {description: 'Webhooks sent'}, ...standardErrorResponses400500},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      return await queueCurationAnnouncement(req, res, 'curation_rerate');
+    } catch (error) {
+      logger.error('Error sending curation rerate webhook:', error);
+      return res.status(500).json({
+        error: 'Failed to send webhook',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.post(
   '/silent-remove/passes',
   Auth.superAdmin(),
   ApiDoc({
@@ -1223,6 +1340,36 @@ router.post(
       logger.error('Error silently removing rerates:', error);
       return res.status(500).json({
         error: 'Failed to silently remove rerates',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+);
+
+router.post(
+  '/silent-remove/curations',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postWebhooksSilentRemoveCurations',
+    summary: 'Silent remove curations',
+    description: 'Mark curation announcement rows as skipped without sending webhooks. Body: queueRowIds (array). Super admin.',
+    tags: ['Webhooks'],
+    security: ['bearerAuth'],
+    requestBody: docRequestBody('queueRowIds', queueRowIdsBodySchema),
+    responses: {200: {description: 'Curations marked'}, ...standardErrorResponses400500},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const {queueRowIds} = req.body;
+      if (!Array.isArray(queueRowIds)) {
+        return res.status(400).json({error: 'queueRowIds must be an array'});
+      }
+      await markCurationQueueRowsSkipped(queueRowIds);
+      return res.json({success: true, message: 'Curations silently removed from announcement list'});
+    } catch (error) {
+      logger.error('Error silently removing curations:', error);
+      return res.status(500).json({
+        error: 'Failed to silently remove curations',
         details: error instanceof Error ? error.message : String(error),
       });
     }

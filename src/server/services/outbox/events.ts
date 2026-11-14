@@ -89,6 +89,10 @@ export type DiscordRerateBatchAnnouncementPayload = {
   queueRowIds: number[];
 };
 
+export type DiscordCurationBatchAnnouncementPayload = {
+  queueRowIds: number[];
+};
+
 export type NotificationCreatedPayload = {
   notificationId: number;
   userId: string;
@@ -118,6 +122,8 @@ export const OUTBOX_EVENT_TYPES = {
   DiscordPassBatchAnnouncement: 'DiscordPassBatchAnnouncement',
   DiscordLevelBatchAnnouncement: 'DiscordLevelBatchAnnouncement',
   DiscordRerateBatchAnnouncement: 'DiscordRerateBatchAnnouncement',
+  DiscordCurationBatchAnnouncement: 'DiscordCurationBatchAnnouncement',
+  DiscordCurationRerateBatchAnnouncement: 'DiscordCurationRerateBatchAnnouncement',
   DiscordTufStellarNominee: 'DiscordTufStellarNominee',
   NotificationCreated: 'NotificationCreated',
   FollowFanout: 'FollowFanout',
@@ -134,6 +140,8 @@ export type OutboxPayloadByType = {
   [OUTBOX_EVENT_TYPES.DiscordPassBatchAnnouncement]: DiscordPassBatchAnnouncementPayload;
   [OUTBOX_EVENT_TYPES.DiscordLevelBatchAnnouncement]: DiscordLevelBatchAnnouncementPayload;
   [OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement]: DiscordRerateBatchAnnouncementPayload;
+  [OUTBOX_EVENT_TYPES.DiscordCurationBatchAnnouncement]: DiscordCurationBatchAnnouncementPayload;
+  [OUTBOX_EVENT_TYPES.DiscordCurationRerateBatchAnnouncement]: DiscordCurationBatchAnnouncementPayload;
   [OUTBOX_EVENT_TYPES.DiscordTufStellarNominee]: DiscordTufStellarNomineePayload;
   [OUTBOX_EVENT_TYPES.NotificationCreated]: NotificationCreatedPayload;
   [OUTBOX_EVENT_TYPES.FollowFanout]: FollowFanoutPayload;

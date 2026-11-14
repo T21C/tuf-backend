@@ -9,11 +9,12 @@ import {
   stringIdParamSpec,
 } from '@/server/schemas/v2/admin/index.js';
 import {logger} from '@/server/services/core/LoggerService.js';
-import {safeTransactionRollback} from '@/misc/utils/Utility.js';
+import {safeTransactionRollback, sanitizeTextInput} from '@/misc/utils/Utility.js';
 import {hasAnyFlag, hasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import {permissionFlags} from '@/config/constants.js';
 import CurationRating from '@/models/curations/CurationRating.js';
 import CurationRatingDetail from '@/models/curations/CurationRatingDetail.js';
+import Level from '@/models/levels/Level.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import {
   assertCurationRatingPicks,
@@ -22,6 +23,11 @@ import {
   parseCurationRatingPicks,
   picksAreEmpty,
 } from '@/misc/utils/data/curationRatingPicks.js';
+import {
+  curationAnnouncementKind,
+  isCurationDiscordVoteCard,
+  parseCurationFlow,
+} from '@/misc/utils/data/curationFlow.js';
 import {
   buildCompleteCurationRatingById,
   buildCompleteCurationRatingByLevelId,
@@ -33,6 +39,20 @@ import {
   replaceLevelCurationTypes,
 } from '@/server/services/curations/curationRatingSettleService.js';
 import {confirmOpenCurationRating} from '@/server/services/curations/openCurationRatingService.js';
+import {enqueueCurationAnnouncement} from '@/server/services/announcements/curationAnnouncementQueue.js';
+import {completeLevelRequestForSettledCuration, LevelRequestError} from '@/server/services/requests/levelRequestService.js';
+import {manageCurationDiscordThread} from '@/server/services/curations/curationDiscordThread.js';
+import {readRatingThreadRequest} from '@/misc/utils/data/ratingThread.js';
+import {dealZenCurationDeck, sendCurationZenMediaReport} from '@/server/services/curations/zenCurationService.js';
+import {
+  assertNormalCurationRatingAllowed,
+  assertZenCurationSubmitAllowed,
+  deleteZenCurationSession,
+  getHydratedZenCurationSession,
+  upsertZenCurationSession,
+} from '@/server/services/curations/zenCurationSessionService.js';
+import {parseZenDeckSize, ZEN_DEFAULT_DECK_SIZE} from '@/server/services/ratings/zenRatingConstants.js';
+import {ZenSessionError} from '@/server/services/ratings/zenRatingSessionPayload.js';
 
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -56,6 +76,25 @@ function canSaveCurationRating(user: Express.Request['user']): boolean {
 
 function canSettleCurationRating(user: Express.Request['user']): boolean {
   return Boolean(user && hasAnyFlag(user, SETTLE_FLAGS));
+}
+
+function readRatedInZen(body: Record<string, unknown>): boolean {
+  return body.ratedInZen === true || body.ratedInZen === 'true' || body.ratedInZen === '1';
+}
+
+async function isLockedCurationVote(
+  rating: CurationRating,
+  transaction?: import('sequelize').Transaction,
+): Promise<boolean> {
+  const level = await Level.findByPk(rating.levelId, {
+    attributes: ['curationRerateNum'],
+    transaction,
+  });
+  return isCurationDiscordVoteCard({
+    curationRerateNum: level?.curationRerateNum,
+    discordMessageUrl: rating.discordMessageUrl,
+    discordThreadClosed: rating.discordThreadClosed,
+  });
 }
 
 router.get(
@@ -85,6 +124,186 @@ router.get(
 );
 
 router.get(
+  '/zen/deal',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getAdminCurationRatingZenDeal',
+    summary: 'Deal a Zen Mode curation deck',
+    description:
+      'Finite snapshot deck for curation Zen Mode (unrated by user, exclude Discord vote). Query: deckSize, sort, order, randomness.',
+    tags: ['Admin', 'Curation Rating'],
+    responses: {200: {description: 'Zen deck'}, ...standardErrorResponses},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({error: 'User not found'});
+      }
+      if (hasFlag(user, permissionFlags.RATING_BANNED)) {
+        return res.status(403).json({error: 'User is banned from rating'});
+      }
+      const query = (req.query || {}) as Record<string, unknown>;
+      try {
+        parseZenDeckSize(query.deckSize ?? ZEN_DEFAULT_DECK_SIZE);
+      } catch (error: any) {
+        return res.status(error?.status || 400).json({error: error?.message || 'Invalid deal options'});
+      }
+      const deck = await dealZenCurationDeck(user.id, query);
+      return res.json(deck);
+    } catch (error) {
+      logger.error('Error dealing curation Zen deck:', error);
+      return res.status(500).json({error: 'Failed to deal Zen deck'});
+    }
+  },
+);
+
+router.post(
+  '/zen/report',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postAdminCurationRatingZenReport',
+    summary: 'Report bad media from curation Zen Mode',
+    tags: ['Admin', 'Curation Rating'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'ratingId, levelId, note',
+      schema: {
+        type: 'object',
+        properties: {
+          ratingId: {type: 'integer'},
+          levelId: {type: 'integer'},
+          note: {type: 'string'},
+        },
+        required: ['ratingId', 'levelId'],
+      },
+      required: true,
+    },
+    responses: {200: {description: 'Report delivered'}, ...standardErrorResponses},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({error: 'User not found'});
+      }
+      if (hasFlag(user, permissionFlags.RATING_BANNED)) {
+        return res.status(403).json({error: 'User is banned from rating'});
+      }
+      const ratingId = Number(req.body?.ratingId);
+      const levelId = Number(req.body?.levelId);
+      if (!Number.isFinite(ratingId) || ratingId <= 0 || !Number.isFinite(levelId) || levelId <= 0) {
+        return res.status(400).json({error: 'ratingId and levelId are required'});
+      }
+      await sendCurationZenMediaReport({
+        reporterId: user.id,
+        reporterName: user.nickname || user.username || user.id,
+        reporterAvatarUrl: user.avatarUrl,
+        reporterPlayerId: user.playerId ?? null,
+        ratingId,
+        levelId,
+        note: typeof req.body?.note === 'string' ? req.body.note : undefined,
+      });
+      return res.json({ok: true, delivered: true});
+    } catch (error: any) {
+      const status = error?.status || 500;
+      if (status === 503) {
+        return res.status(503).json({error: 'Report webhook is not configured', delivered: false});
+      }
+      logger.error('Error sending curation Zen media report:', error);
+      return res.status(500).json({error: 'Failed to send report'});
+    }
+  },
+);
+
+router.get(
+  '/zen/session',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getAdminCurationRatingZenSession',
+    summary: 'Load saved curation Zen Mode session',
+    tags: ['Admin', 'Curation Rating'],
+    responses: {200: {description: 'Zen session or null'}, ...standardErrorResponses},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({error: 'User not found'});
+      }
+      if (hasFlag(user, permissionFlags.RATING_BANNED)) {
+        return res.status(403).json({error: 'User is banned from rating'});
+      }
+      const session = await getHydratedZenCurationSession(user.id);
+      return res.json({session});
+    } catch (error) {
+      logger.error('Error loading curation Zen session:', error);
+      return res.status(500).json({error: 'Failed to load Zen session'});
+    }
+  },
+);
+
+router.put(
+  '/zen/session',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putAdminCurationRatingZenSession',
+    summary: 'Save curation Zen Mode session',
+    tags: ['Admin', 'Curation Rating'],
+    security: ['bearerAuth'],
+    requestBody: {
+      required: true,
+      schema: {type: 'object', additionalProperties: true},
+    },
+    responses: {200: {description: 'Saved Zen session'}, ...standardErrorResponses},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({error: 'User not found'});
+      }
+      if (hasFlag(user, permissionFlags.RATING_BANNED)) {
+        return res.status(403).json({error: 'User is banned from rating'});
+      }
+      const payload = await upsertZenCurationSession(user.id, req.body);
+      return res.json({session: payload});
+    } catch (error) {
+      if (error instanceof ZenSessionError) {
+        return res.status(error.status).json({error: error.message});
+      }
+      logger.error('Error saving curation Zen session:', error);
+      return res.status(500).json({error: 'Failed to save Zen session'});
+    }
+  },
+);
+
+router.delete(
+  '/zen/session',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deleteAdminCurationRatingZenSession',
+    summary: 'Discard curation Zen Mode session',
+    tags: ['Admin', 'Curation Rating'],
+    security: ['bearerAuth'],
+    responses: {200: {description: 'Zen session discarded'}, ...standardErrorResponses},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({error: 'User not found'});
+      }
+      await deleteZenCurationSession(user.id);
+      return res.json({ok: true});
+    } catch (error) {
+      logger.error('Error deleting curation Zen session:', error);
+      return res.status(500).json({error: 'Failed to discard Zen session'});
+    }
+  },
+);
+
+router.get(
   '/by-level/:levelId',
   Auth.addUserToRequest(),
   ApiDoc({
@@ -108,6 +327,36 @@ router.get(
     } catch (error) {
       logger.error('Error fetching curation rating by level:', error);
       return res.status(500).json({error: 'Internal Server Error'});
+    }
+  },
+);
+
+router.post(
+  '/:id([0-9]+)/discord',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postCurationRatingDiscordThread',
+    summary: 'Create, close, or reopen a Discord vote thread for a curation rating',
+    description: 'Body: {action: create|close|reopen, ping?: boolean}. Super admin. Closing returns the chart to website rating.',
+    tags: ['Admin', 'Curation Rating'],
+    security: ['bearerAuth'],
+    params: {id: stringIdParamSpec},
+    responses: {200: {description: 'Discord thread updated'}, ...standardErrorResponses},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({error: 'User not found'});
+      }
+      const {action, ping} = readRatingThreadRequest(req.body);
+      const rating = await manageCurationDiscordThread(req.user, Number(req.params.id), action, ping);
+      return res.json({rating});
+    } catch (error) {
+      if (error instanceof LevelRequestError) {
+        return res.status(error.status).json({error: error.message, code: error.code});
+      }
+      logger.error('Error updating a curation Discord thread:', error);
+      return res.status(500).json({error: 'Failed to update the Discord thread'});
     }
   },
 );
@@ -214,8 +463,30 @@ router.put(
         await safeTransactionRollback(transaction);
         return res.status(409).json({error: 'Cannot change picks after a level has been settled'});
       }
+      if (await isLockedCurationVote(locked, transaction)) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({
+          error: 'Vote cards are settled from Discord and cannot be rated on the site',
+        });
+      }
 
-      await upsertOwnPicks(id, req.user.id, req.body as Record<string, unknown>, transaction);
+      const body = req.body as Record<string, unknown>;
+      const ratedInZen = readRatedInZen(body);
+      try {
+        if (ratedInZen) {
+          await assertZenCurationSubmitAllowed(req.user.id, id);
+        } else {
+          await assertNormalCurationRatingAllowed(req.user.id);
+        }
+      } catch (error) {
+        await safeTransactionRollback(transaction);
+        if (error instanceof ZenSessionError) {
+          return res.status(error.status).json({error: error.message});
+        }
+        throw error;
+      }
+
+      await upsertOwnPicks(id, req.user.id, body, transaction);
       await transaction.commit();
 
       return res.json({
@@ -269,6 +540,12 @@ router.delete(
           error: locked?.confirmedAt ? 'Cannot change picks after settle' : 'Curation rating not found',
         });
       }
+      if (await isLockedCurationVote(locked, transaction)) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({
+          error: 'Vote cards are settled from Discord and cannot be rated on the site',
+        });
+      }
       await CurationRatingDetail.destroy({
         where: {curationRatingId: id, userId},
         transaction,
@@ -292,8 +569,9 @@ router.post(
   Auth.verified(),
   ApiDoc({
     operationId: 'postAdminCurationRatingSettle',
-    summary: 'Settle curation types from the current picks',
-    description: 'Writes the posted chart/vfx/misc picks onto the level curation and closes the queue.',
+    summary: 'Settle published curation types from the popup',
+    description:
+      'Writes the posted chart/vfx/misc picks onto the level, saves the reason, closes the queue, and enqueues the announcement. Does not store the actor’s personal vote.',
     tags: ['Admin', 'Curation Rating'],
     security: ['bearerAuth'],
     params: {id: stringIdParamSpec},
@@ -324,20 +602,55 @@ router.post(
         await safeTransactionRollback(transaction);
         return res.status(409).json({error: 'This curation rating is already settled'});
       }
+      if (await isLockedCurationVote(locked, transaction)) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({
+          error: 'Close the Discord thread before settling on the site',
+        });
+      }
 
-      const picks = await assertCurationRatingPicks(
-        parseCurationRatingPicks(req.body as Record<string, unknown>),
-        transaction,
-      );
+      const level = await Level.findByPk(locked.levelId, {transaction, lock: true});
+      if (!level) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({error: 'Level not found'});
+      }
+
+      const body = req.body as Record<string, unknown>;
+      const picks = await assertCurationRatingPicks(parseCurationRatingPicks(body), transaction);
       if (collectedTypeIds(picks).length === 0) {
         await safeTransactionRollback(transaction);
         return res.status(400).json({error: 'Settle requires at least one curation type'});
       }
 
-      await upsertOwnPicks(id, req.user.id, req.body as Record<string, unknown>, transaction);
-      await replaceLevelCurationTypes(locked.levelId, picks, req.user.id, transaction);
+      const reasonRaw =
+        typeof body.curationRerateReason === 'string'
+          ? body.curationRerateReason
+          : typeof body.reason === 'string'
+            ? body.reason
+            : level.curationRerateReason;
+      await level.update(
+        {curationRerateReason: sanitizeTextInput(reasonRaw)},
+        {transaction},
+      );
+
+      const flow = parseCurationFlow(level.curationFlow);
+      const {previousTypeIds, typeIds} = await replaceLevelCurationTypes(
+        locked.levelId,
+        picks,
+        req.user.id,
+        transaction,
+      );
       await confirmOpenCurationRating(locked.levelId, transaction, req.user.id);
       await closeCurationQueue(locked.levelId, transaction);
+      await enqueueCurationAnnouncement({
+        levelId: locked.levelId,
+        kind: curationAnnouncementKind(flow),
+        beforeTypeIds: previousTypeIds,
+        afterTypeIds: typeIds,
+        enqueuedBy: req.user.id,
+        transaction,
+      });
+      await completeLevelRequestForSettledCuration(locked.levelId, transaction, req.user.id);
       await transaction.commit();
       await elasticsearchService.indexLevel(locked.levelId);
 

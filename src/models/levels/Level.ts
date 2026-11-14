@@ -53,6 +53,7 @@ class Level
   declare toCuration: boolean;
   declare curationRerateReason: string;
   declare curationRerateNum: string;
+  declare curationFlow: string | null;
   declare previousDiffId: number;
   declare isAnnounced: boolean;
   declare isDeleted: boolean;
@@ -205,6 +206,11 @@ Level.init(
     curationRerateNum: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    curationFlow: {
+      type: DataTypes.STRING(16),
+      allowNull: true,
+      defaultValue: null,
     },
     previousDiffId: {
       type: DataTypes.INTEGER,

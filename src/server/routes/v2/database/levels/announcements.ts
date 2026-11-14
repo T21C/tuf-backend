@@ -5,6 +5,7 @@ import { standardErrorResponses500 } from '@/server/schemas/v2/database/levels/i
 import Difficulty from '@/models/levels/Difficulty.js';
 import Level from '@/models/levels/Level.js';
 import LevelAnnouncementQueue from '@/models/levels/LevelAnnouncementQueue.js';
+import CurationAnnouncementQueue from '@/models/curations/CurationAnnouncementQueue.js';
 import { Router, Request, Response } from 'express';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
@@ -122,6 +123,75 @@ router.get(
       return res.status(500).json({error: 'Failed to fetch unannounced rerates'});
     }
   }
+);
+
+async function listPendingCurationAnnouncements(kind: 'NEW' | 'RERATE') {
+  const rows = await CurationAnnouncementQueue.findAll({
+    where: {
+      status: 'PENDING',
+      kind,
+    },
+    include: [
+      {
+        model: Level,
+        as: 'level',
+        where: {isDeleted: false},
+        required: true,
+        include: [{model: Difficulty, as: 'difficulty'}],
+      },
+    ],
+    order: [['createdAt', 'DESC']],
+  });
+  return rows.map((row) => ({
+    queueRowId: row.id,
+    kind: row.kind,
+    beforeTypeIds: row.beforeTypeIds,
+    afterTypeIds: row.afterTypeIds,
+    enqueuedAt: row.createdAt,
+    level: row.level,
+  }));
+}
+
+router.get(
+  '/unannounced/curations',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getLevelsUnannouncedCurations',
+    summary: 'List unannounced new curations',
+    description: 'Pending NEW curation announcement rows (super admin)',
+    tags: ['Levels', 'Admin'],
+    security: ['bearerAuth'],
+    responses: {200: {description: 'List of queue entries'}, ...standardErrorResponses500},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      return res.json(await listPendingCurationAnnouncements('NEW'));
+    } catch (error) {
+      logger.error('Error fetching unannounced curations:', error);
+      return res.status(500).json({error: 'Failed to fetch unannounced curations'});
+    }
+  },
+);
+
+router.get(
+  '/unannounced/curation-rerates',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getLevelsUnannouncedCurationRerates',
+    summary: 'List unannounced curation rerates',
+    description: 'Pending RERATE curation announcement rows (super admin)',
+    tags: ['Levels', 'Admin'],
+    security: ['bearerAuth'],
+    responses: {200: {description: 'List of queue entries'}, ...standardErrorResponses500},
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      return res.json(await listPendingCurationAnnouncements('RERATE'));
+    } catch (error) {
+      logger.error('Error fetching unannounced curation rerates:', error);
+      return res.status(500).json({error: 'Failed to fetch unannounced curation rerates'});
+    }
+  },
 );
 
 export default router;

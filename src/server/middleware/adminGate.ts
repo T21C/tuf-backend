@@ -39,6 +39,7 @@ const PUBLIC_ADMIN_READS: readonly RegExp[] = [
   /^\/curation-rating$/,
   /^\/curation-rating\/by-level\/\d+$/,
   /^\/curation-rating\/\d+$/,
+  /^\/curation-rating\/zen\/deal$/,
   // Zen Mode deal (client/src/pages/admin/RatingZenPage): GET with query filters;
   // still needs a logged-in user for myRated hide/only (Auth on the route).
   /^\/rating\/zen\/deal$/,

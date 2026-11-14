@@ -3,7 +3,7 @@ import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { Auth } from '@/server/middleware/auth.js';
 import { errorResponseSchema } from '@/server/schemas/v2/misc/index.js';
 import fetch from 'node-fetch';
-import axios from 'axios';
+import axios, {type AxiosResponse} from 'axios';
 import path from 'path';
 import fs from 'fs';
 import puppeteer from 'puppeteer';
@@ -25,6 +25,7 @@ import {Buffer} from 'buffer';
 import { Op } from 'sequelize';
 import { seededShuffle } from '@/misc/utils/server/random.js';
 import { coalesceAxiosContentTypeHeader } from '@/misc/utils/http/axiosContentType.js';
+import { normalizeBilibiliImageUrl, resolveBilibiliImageRedirect } from '@/misc/utils/data/bilibiliImageUrl.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { registerShutdownStep } from '@/server/bootstrap/shutdownCoordinator.js';
 import { exec, spawn } from 'child_process';
@@ -706,8 +707,8 @@ router.get(
   '/image-proxy',
   ApiDoc({
     operationId: 'getMediaImageProxy',
-    summary: 'Proxy image by URL',
-    description: 'Fetches an image from a given URL and returns it (avoids CORS). Only allows image formats.',
+    summary: 'Proxy a Bilibili image by URL',
+    description: 'Fetches an image from i.hdslb.com or biliimg.com and returns it. Other hosts are rejected.',
     tags: ['Media'],
     query: { url: { description: 'Image URL to fetch', schema: { type: 'string' }, required: true } },
     responses: {
@@ -738,27 +739,49 @@ router.get(
       'image/tiff'
     ];
 
-    // Quick file extension check, just as a first non-authoritative filter
-    function isValidImageUrl(url: string): boolean {
-      const allowedExts = /\.(png|jpg|jpeg|webp|gif|apng|bmp|ico|icon|heic|heif|avif|tiff?)$/i;
-      return allowedExts.test(url.split('?')[0]);
-    }
-
     try {
-      if (!imageUrl || typeof imageUrl !== 'string' || !isValidImageUrl(imageUrl)) {
+      const normalized = typeof imageUrl === 'string' ? normalizeBilibiliImageUrl(imageUrl) : null;
+      if (!normalized) {
         return res.status(400).send('Invalid or unsupported image URL');
       }
 
       while (attempt <= maxAttempts) {
         try {
-          const response = await axios.get(imageUrl, {
-            responseType: 'arraybuffer',
-            timeout: 10000, // 10 second timeout
-            // Forward a generic browser User-Agent for privacy/compat
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Image Proxy)'
+          let current = normalized;
+          let response: AxiosResponse<ArrayBuffer> | null = null;
+          for (let hop = 0; hop < 3; hop++) {
+            const hopResponse = await axios.get<ArrayBuffer>(current, {
+              responseType: 'arraybuffer',
+              timeout: 10000,
+              maxRedirects: 0,
+              validateStatus: () => true,
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Image Proxy)',
+              },
+            });
+            if (hopResponse.status >= 300 && hopResponse.status < 400) {
+              const location = hopResponse.headers.location;
+              const loc = Array.isArray(location) ? location[0] : location;
+              const next = typeof loc === 'string' ? resolveBilibiliImageRedirect(current, loc) : null;
+              if (!next || next === current) {
+                return res.status(400).send('Invalid or unsupported image URL');
+              }
+              current = next;
+              continue;
             }
-          });
+            response = hopResponse;
+            break;
+          }
+          if (!response) {
+            return res.status(400).send('Invalid or unsupported image URL');
+          }
+          if (response.status >= 400 && response.status < 500) {
+            logger.debug(`Client error (${response.status}) fetching image from ${imageUrl}`);
+            return res.status(response.status).send(`Error fetching image: HTTP ${response.status}`);
+          }
+          if (response.status < 200 || response.status >= 300) {
+            throw new Error(`Image proxy upstream status ${response.status}`);
+          }
 
           const contentType = coalesceAxiosContentTypeHeader(response.headers['content-type']);
 
@@ -772,6 +795,7 @@ router.get(
           }
 
           res.set('Content-Type', contentType);
+          res.set('X-Content-Type-Options', 'nosniff');
           return res.send(response.data);
         } catch (error) {
           // Handle 4XX errors - these are client errors and should not be retried

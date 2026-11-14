@@ -1,14 +1,57 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Not found</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Page not found · The Universal Forums</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/favicon.ico">
+  <style>
+    .tuf-api-home {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background:
+        radial-gradient(ellipse at top, rgba(124, 92, 255, 0.28), transparent 55%),
+        #090909;
+      color: #f9fafb;
+      font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    .tuf-api-home__panel {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      width: min(100%, 36rem);
+    }
+    .tuf-api-home__mark {
+      margin: 0;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      color: #8d70ff;
+    }
+    .tuf-api-home h1 { margin: 0; font-size: 2rem; }
+    .tuf-api-home p { margin: 0; color: #cacaca; line-height: 1.55; }
+    .tuf-api-home__actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+    .tuf-api-home__actions a {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.7rem 1rem;
+      border-radius: 0.4rem;
+      background: #7c5cff;
+      color: #f9fafb;
+      font-weight: 500;
+      text-decoration: none;
+    }
+  </style>
 </head>
-<body>
-    <div id="root">
-        <h1>Not found</h1>
-        <p>The endpoint you requested does not exist.</p>
-    </div>
+<body class="tuf-api-home">
+  <main class="tuf-api-home__panel">
+    <p class="tuf-api-home__mark">THE UNIVERSAL FORUMS</p>
+    <h1>Page not found</h1>
+  </main>
 </body>
 </html>
