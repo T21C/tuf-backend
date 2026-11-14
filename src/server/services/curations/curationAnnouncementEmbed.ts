@@ -4,6 +4,7 @@ import {MessageBuilder} from '@/misc/webhook/index.js';
 import {clientUrlEnv} from '@/config/app.config.js';
 import {curationTypeEmojiMarkup} from '@/misc/utils/data/curationTypeEmojis.js';
 import {getSongDisplayName} from '@/misc/utils/data/levelHelpers.js';
+import {isSilentCurationAnnouncementName} from '@/misc/utils/data/curationTypeFamilies.js';
 
 function asIdList(value: unknown): number[] {
   if (!Array.isArray(value)) return [];
@@ -18,7 +19,12 @@ async function typeLine(typeIds: number[]): Promise<string> {
     attributes: ['id', 'name'],
   });
   const byId = new Map(rows.map((row) => [row.id, row]));
-  return ids
+  const visible = ids.filter((id) => {
+    const name = byId.get(id)?.name;
+    return !isSilentCurationAnnouncementName(name);
+  });
+  if (visible.length === 0) return '—';
+  return visible
     .map((id) => {
       const name = byId.get(id)?.name || `#${id}`;
       return curationTypeEmojiMarkup(name) || name;

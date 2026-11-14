@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  announcedCurationTypeIds,
   curationTypeIdSetsEqual,
   curationTypeRatingBucket,
+  isSilentCurationAnnouncementName,
   mergeCurationTypesByFamilyTier,
   parseCurationFamilyTier,
+  shouldAnnounceCurationTypeChange,
 } from './curationTypeFamilies.js';
 
 test('parseCurationFamilyTier reads C/V/O/H plus optional digits', () => {
@@ -60,6 +63,30 @@ test('curationTypeRatingBucket maps C/O to chart, V to vfx, and H plus misc name
   assert.equal(curationTypeRatingBucket('H2'), 'misc');
   assert.equal(curationTypeRatingBucket('Epic'), 'misc');
   assert.equal(curationTypeRatingBucket('Legendary'), 'misc');
+});
+
+test('C0 and V0 are silent in curation announcements', () => {
+  assert.equal(isSilentCurationAnnouncementName('C0'), true);
+  assert.equal(isSilentCurationAnnouncementName('v0'), true);
+  assert.equal(isSilentCurationAnnouncementName('C1'), false);
+  const types = new Map([
+    [1, {name: 'C0'}],
+    [2, {name: 'C1'}],
+    [3, {name: 'V0'}],
+    [4, {name: 'V1'}],
+  ]);
+  assert.deepEqual(announcedCurationTypeIds([1, 2, 3, 4], types), [2, 4]);
+  assert.equal(shouldAnnounceCurationTypeChange([2], [2, 4]), true);
+  assert.equal(shouldAnnounceCurationTypeChange([2, 4], [2]), true);
+  assert.equal(shouldAnnounceCurationTypeChange([2], [2]), false);
+  assert.equal(shouldAnnounceCurationTypeChange([2], []), false);
+  assert.equal(
+    shouldAnnounceCurationTypeChange(
+      announcedCurationTypeIds([2, 3], types),
+      announcedCurationTypeIds([2], types),
+    ),
+    false,
+  );
 });
 
 test('identical merged set is equal for no-op detection', () => {

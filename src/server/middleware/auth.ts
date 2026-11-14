@@ -357,6 +357,7 @@ export const Auth = {
       requirePermission(
         (user) => hasAnyFlag(user, [
           permissionFlags.CURATOR,
+          permissionFlags.HEAD_CURATOR,
           permissionFlags.SUPER_ADMIN
         ]),
         'Curator access required'

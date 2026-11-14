@@ -6,6 +6,11 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import Level from '@/models/levels/Level.js';
 import LevelAnnouncementQueue from '@/models/levels/LevelAnnouncementQueue.js';
 import CurationAnnouncementQueue from '@/models/curations/CurationAnnouncementQueue.js';
+import CurationType from '@/models/curations/CurationType.js';
+import {
+  announcedCurationTypeIds,
+  shouldAnnounceCurationTypeChange,
+} from '@/misc/utils/data/curationTypeFamilies.js';
 import { Router, Request, Response } from 'express';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
@@ -142,14 +147,34 @@ async function listPendingCurationAnnouncements(kind: 'NEW' | 'RERATE') {
     ],
     order: [['createdAt', 'DESC']],
   });
-  return rows.map((row) => ({
-    queueRowId: row.id,
-    kind: row.kind,
-    beforeTypeIds: row.beforeTypeIds,
-    afterTypeIds: row.afterTypeIds,
-    enqueuedAt: row.createdAt,
-    level: row.level,
-  }));
+  const typeIds = [...new Set(rows.flatMap((row) => [
+    ...(Array.isArray(row.beforeTypeIds) ? row.beforeTypeIds : []),
+    ...(Array.isArray(row.afterTypeIds) ? row.afterTypeIds : []),
+  ]).map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+  const typeRows = typeIds.length > 0
+    ? await CurationType.findAll({where: {id: {[Op.in]: typeIds}}, attributes: ['id', 'name']})
+    : [];
+  const typesById = new Map(typeRows.map((row) => [row.id, row]));
+
+  return rows.flatMap((row) => {
+    const beforeTypeIds = announcedCurationTypeIds(
+      Array.isArray(row.beforeTypeIds) ? row.beforeTypeIds : [],
+      typesById,
+    );
+    const afterTypeIds = announcedCurationTypeIds(
+      Array.isArray(row.afterTypeIds) ? row.afterTypeIds : [],
+      typesById,
+    );
+    if (!shouldAnnounceCurationTypeChange(beforeTypeIds, afterTypeIds)) return [];
+    return [{
+      queueRowId: row.id,
+      kind: row.kind,
+      beforeTypeIds,
+      afterTypeIds,
+      enqueuedAt: row.createdAt,
+      level: row.level,
+    }];
+  });
 }
 
 router.get(

@@ -11,13 +11,22 @@
   <meta property="og:url" content="https://tuforums.com/">
   <link rel="icon" href="/favicon.ico">
   <style>
+    @property --tuf-rainbow-angle {
+      syntax: "<angle>";
+      inherits: true;
+      initial-value: 0deg;
+    }
+    @keyframes tuf-rainbow-spin {
+      to {
+        --tuf-rainbow-angle: 360deg;
+      }
+    }
     .tuf-api-home {
       margin: 0;
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 1.5rem;
       background:#090909;
       color: #f9fafb;
       font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -41,7 +50,57 @@
       line-height: 1.1;
     }
     .tuf-api-home h1 span {
+      position: relative;
+      display: inline-block;
+      isolation: isolate;
       color: #ee3b48;
+      white-space: nowrap;
+      animation: tuf-rainbow-spin 6s linear infinite;
+    }
+    .tuf-api-home h1 span::before,
+    .tuf-api-home h1 span::after {
+      content: attr(data-text);
+      position: absolute;
+      inset: 0;
+      background-image: conic-gradient(
+        from var(--tuf-rainbow-angle),
+        #ff2a2a,
+        #ff8c00,
+        #ffe14a,
+        #3dff6e,
+        #2adfff,
+        #3d6dff,
+        #b44bff,
+        #ff3ec2,
+        #ff2a2a
+      );
+      background-size: 500% 500%;
+      background-position: 50% -500%;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .tuf-api-home h1 span::before {
+      z-index: 0;
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: blur(0.38em);
+      opacity: 0.95;
+    }
+    .tuf-api-home h1 span::after {
+      z-index: 1;
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-mask-image: linear-gradient(#000 0 0);
+      mask-image: linear-gradient(#000 0 0);
+      -webkit-mask-clip: text;
+      mask-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .tuf-api-home h1 span {
+        animation: none;
+      }
     }
     .tuf-api-home p {
       margin: 0;
@@ -79,7 +138,7 @@
 <body class="tuf-api-home">
   <main class="tuf-api-home__panel">
     <img class="tuf-api-home__logo" src="/logo-full.svg" alt="The Universal Forums">
-    <h1>Custom charts for <span>A Dance of Fire and Ice</span></h1>
+    <h1>Everything for <span data-text="A Dance of Fire and Ice">A Dance of Fire and Ice</span></h1>
     <p>
       This is the API for The Universal Forums. Browse levels and the leaderboard on the main site.
     </p>
