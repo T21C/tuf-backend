@@ -7,7 +7,7 @@ import {
 export const ZEN_SESSION_PHASES = ['setup', 'stage', 'done'] as const;
 export type ZenSessionPhase = (typeof ZEN_SESSION_PHASES)[number];
 
-export const ZEN_SESSION_SORT_PRESETS = ['least', 'most', 'id', 'recent'] as const;
+export const ZEN_SESSION_SORT_PRESETS = ['least', 'most', 'id', 'recent', 'added'] as const;
 export type ZenSessionSortPreset = (typeof ZEN_SESSION_SORT_PRESETS)[number];
 
 export const ZEN_CARD_OUTCOMES = ['rated', 'peeked', 'skipped'] as const;
@@ -18,7 +18,11 @@ export const ZEN_SESSION_MAX_RATING_LENGTH = 254;
 
 export type ZenPendingPicks = {
   chartTypeId: number | null;
+  chartTypeHighId: number | null;
   vfxTypeId: number | null;
+  vfxTypeHighId: number | null;
+  chartRating: string;
+  vfxRating: string;
   miscTypeIds: number[];
 };
 
@@ -36,6 +40,9 @@ export type ZenSessionPayload = {
   includeP: boolean;
   includeG: boolean;
   includeU: boolean;
+  includeRecent: boolean;
+  includeRerate: boolean;
+  includeBulk: boolean;
   sortPreset: ZenSessionSortPreset;
   randomness: number;
   ratingIds: number[];
@@ -104,7 +111,15 @@ function parseOptionalPositiveInt(value: unknown): number | null {
 }
 
 export function emptyZenPendingPicks(): ZenPendingPicks {
-  return {chartTypeId: null, vfxTypeId: null, miscTypeIds: []};
+  return {
+    chartTypeId: null,
+    chartTypeHighId: null,
+    vfxTypeId: null,
+    vfxTypeHighId: null,
+    chartRating: '',
+    vfxRating: '',
+    miscTypeIds: [],
+  };
 }
 
 export function parseZenPendingPicks(value: unknown): ZenPendingPicks {
@@ -120,7 +135,11 @@ export function parseZenPendingPicks(value: unknown): ZenPendingPicks {
   }
   return {
     chartTypeId: parseOptionalPositiveInt(value.chartTypeId),
+    chartTypeHighId: parseOptionalPositiveInt(value.chartTypeHighId),
     vfxTypeId: parseOptionalPositiveInt(value.vfxTypeId),
+    vfxTypeHighId: parseOptionalPositiveInt(value.vfxTypeHighId),
+    chartRating: asBoundedString(value.chartRating, ZEN_SESSION_MAX_RATING_LENGTH),
+    vfxRating: asBoundedString(value.vfxRating, ZEN_SESSION_MAX_RATING_LENGTH),
     miscTypeIds,
   };
 }
@@ -141,7 +160,8 @@ function isSortPreset(value: unknown): value is ZenSessionSortPreset {
     value === 'least' ||
     value === 'most' ||
     value === 'id' ||
-    value === 'recent'
+    value === 'recent' ||
+    value === 'added'
   );
 }
 
@@ -333,6 +353,9 @@ export function sanitizeZenSessionPayload(body: unknown): ZenSessionPayload {
     includeP: asBool(body.includeP, true),
     includeG: asBool(body.includeG, true),
     includeU: asBool(body.includeU, true),
+    includeRecent: asBool(body.includeRecent, true),
+    includeRerate: asBool(body.includeRerate, true),
+    includeBulk: asBool(body.includeBulk, true),
     sortPreset: body.sortPreset,
     randomness: clampZenRandomness(body.randomness),
     ratingIds,

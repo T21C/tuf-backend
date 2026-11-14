@@ -16,6 +16,7 @@ import {
   type RatingListOrder,
   type RatingListSort,
 } from '@/server/services/ratings/ratingListService.js';
+import {parseZenReportNote} from '@/server/services/ratings/zenReportNote.js';
 import {
   clampZenRandomness,
   parseZenDeckSize,
@@ -67,7 +68,7 @@ export function parseZenDealOptions(body: Record<string, unknown>): {
 
   const sortRaw = String(body.sort || 'ratings');
   const sort: RatingListSort =
-    sortRaw === 'id' || sortRaw === 'updatedAt' || sortRaw === 'ratings'
+    sortRaw === 'id' || sortRaw === 'updatedAt' || sortRaw === 'createdAt' || sortRaw === 'ratings'
       ? sortRaw
       : 'ratings';
 
@@ -164,8 +165,6 @@ export async function dealZenDeck(
   };
 }
 
-const MAX_REPORT_NOTE_LENGTH = 500;
-
 function formatZenLevelTitle(level: Level): string {
   const artist = getArtistDisplayName(level) || level.artist || 'Unknown Artist';
   const songBase = getSongDisplayName(level) || getSongName(level) || level.song || 'Unknown Song';
@@ -186,6 +185,7 @@ export async function sendZenMediaReport(opts: {
   levelId: number;
   note?: string;
 }): Promise<void> {
+  const note = parseZenReportNote(opts.note);
   const webhookUrl = (process.env.RATING_ZEN_REPORT_WEBHOOK_URL || '').trim();
   if (!webhookUrl) {
     logger.warn('RATING_ZEN_REPORT_WEBHOOK_URL is not set; cannot deliver Zen report');
@@ -193,11 +193,6 @@ export async function sendZenMediaReport(opts: {
     (err as Error & { status?: number }).status = 503;
     throw err;
   }
-
-  const note =
-    typeof opts.note === 'string'
-      ? opts.note.trim().slice(0, MAX_REPORT_NOTE_LENGTH)
-      : '';
 
   const siteUrl = String(clientUrlEnv || '').replace(/\/$/, '');
 
@@ -262,9 +257,7 @@ export async function sendZenMediaReport(opts: {
       false
     );
 
-  if (note) {
-    embed.addField('Note', note, false);
-  }
+  embed.addField('Note', note, false);
 
   await hook.send(embed);
 }

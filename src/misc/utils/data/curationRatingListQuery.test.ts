@@ -22,6 +22,7 @@ test('parseCurationRatingListQuery defaults and clamps list params', () => {
     order: 'ASC',
     myRated: 'show',
     flow: null,
+    flows: null,
     vote: 'include',
     userId: null,
   });
@@ -47,4 +48,10 @@ test('parseCurationRatingListQuery defaults and clamps list params', () => {
   assert.equal(parsed.flow, 'rerate');
   assert.equal(parsed.vote, 'only');
   assert.equal(parsed.userId, 'user-1');
+});
+
+test('parseCurationRatingListQuery accepts date-added sort', () => {
+  const parsed = parseCurationRatingListQuery({sort: 'createdAt', order: 'DESC'}, null);
+  assert.equal(parsed.sort, 'createdAt');
+  assert.equal(parsed.order, 'DESC');
 });

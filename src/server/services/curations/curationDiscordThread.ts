@@ -7,6 +7,7 @@ import {safeTransactionRollback, sanitizeTextInput} from '@/misc/utils/Utility.j
 import {hasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import {permissionFlags} from '@/config/constants.js';
 import {LevelRequestError} from '@/server/services/requests/levelRequestService.js';
+import {collectLevelReferenceIds} from '@/misc/utils/data/levelRequestValidation.js';
 import {
   voteThreadLabel,
   websiteRatingLabel,
@@ -115,7 +116,9 @@ async function createManualThread(user: Actor, ratingId: number, ping: boolean) 
   try {
     const posted = await createCurationThread({
       levelId,
+      requestedRating: websiteRatingLabel(labeled),
       reason,
+      comparisonLevelIds: collectLevelReferenceIds(reason),
       actorUserId,
       embedTitle: `Curation #${ratingId}`,
       ping,

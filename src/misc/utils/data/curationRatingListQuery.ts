@@ -2,7 +2,7 @@ import {parseCurationFlow, type CurationFlowId} from './curationFlow.js';
 
 export const CURATION_RATING_LIST_PAGE_SIZE = 30;
 
-export type CurationRatingListSort = 'id' | 'ratings' | 'updatedAt';
+export type CurationRatingListSort = 'id' | 'ratings' | 'updatedAt' | 'createdAt';
 export type CurationRatingListOrder = 'ASC' | 'DESC';
 export type ShowHideOnly = 'show' | 'hide' | 'only';
 export type CurationVoteFilter = 'include' | 'exclude' | 'only';
@@ -15,13 +15,15 @@ export interface CurationRatingListQuery {
   order: CurationRatingListOrder;
   myRated: ShowHideOnly;
   flow: CurationFlowId | null;
+  /** Explicit pool set for curation Zen. Null uses the single `flow` tab. */
+  flows: CurationFlowId[] | null;
   vote: CurationVoteFilter;
   userId: string | null;
 }
 
 function parseSort(value: unknown): CurationRatingListSort {
   const text = String(value || '').trim();
-  if (text === 'id' || text === 'updatedAt' || text === 'ratings') return text;
+  if (text === 'id' || text === 'updatedAt' || text === 'createdAt' || text === 'ratings') return text;
   return 'ratings';
 }
 
@@ -65,6 +67,7 @@ export function parseCurationRatingListQuery(
     order: parseOrder(query.order),
     myRated: parseMyRated(query.myRated),
     flow: parseCurationFlow(query.flow),
+    flows: null,
     vote: parseVoteFilter(query.vote),
     userId,
   };

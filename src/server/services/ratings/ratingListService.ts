@@ -34,7 +34,7 @@ export const RATING_LIST_PAGE_SIZE = 30;
 export const RATING_LIST_CACHE_TTL_SEC = 300;
 export const RATING_LIST_CACHE_TAG = 'admin:ratings';
 
-export type RatingListSort = 'id' | 'ratings' | 'updatedAt';
+export type RatingListSort = 'id' | 'ratings' | 'updatedAt' | 'createdAt';
 export type RatingListOrder = 'ASC' | 'DESC';
 export type ShowHideOnly = 'show' | 'hide' | 'only';
 export type VoteFilter = 'only' | 'exclude' | undefined;
@@ -182,7 +182,9 @@ export function parseRatingListQuery(
 
   const sortRaw = String(reqQuery.sort || 'id');
   const sort: RatingListSort =
-    sortRaw === 'ratings' || sortRaw === 'updatedAt' ? sortRaw : 'id';
+    sortRaw === 'ratings' || sortRaw === 'updatedAt' || sortRaw === 'createdAt'
+      ? sortRaw
+      : 'id';
   const order: RatingListOrder =
     String(reqQuery.order || 'ASC').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
@@ -578,6 +580,8 @@ async function fetchRatingListPageInternal(params: RatingListQuery): Promise<Rat
     orderClause.push([literal(MANAGER_DETAIL_COUNT_SQL), params.order]);
   } else if (params.sort === 'updatedAt') {
     orderClause.push(['updatedAt', params.order]);
+  } else if (params.sort === 'createdAt') {
+    orderClause.push(['createdAt', params.order]);
   } else {
     orderClause.push(['levelId', params.order]);
   }

@@ -121,7 +121,51 @@ export function samePositiveIdSet(left: number[], right: number[]): boolean {
   return left.every((id) => known.has(id));
 }
 
+export type CurationRequestTypeChanges = {
+  curationTypeIds: number[];
+  addCurationTypeIds: number[];
+  removeCurationTypeIds: number[];
+};
+
 export type CurationRequestIssue = 'curation_empty' | 'unchanged_curation';
+
+/**
+ * Snapshot of requested curation types. Newer rerates store add/remove lists;
+ * older ones only stored the target ids, so those are split against the current set.
+ */
+export function curationRequestTypeChanges(
+  type: string,
+  payload: unknown,
+  currentTypeIds: number[] = [],
+): CurationRequestTypeChanges {
+  const body =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {};
+  const curationTypeIds = normalizePositiveIdList(body.curationTypeIds);
+  if (Array.isArray(body.addCurationTypeIds) || Array.isArray(body.removeCurationTypeIds)) {
+    return {
+      curationTypeIds,
+      addCurationTypeIds: normalizePositiveIdList(body.addCurationTypeIds),
+      removeCurationTypeIds: normalizePositiveIdList(body.removeCurationTypeIds),
+    };
+  }
+  if (type === 'curation_rerate') {
+    const current = normalizePositiveIdList(currentTypeIds);
+    const currentSet = new Set(current);
+    const targetSet = new Set(curationTypeIds);
+    return {
+      curationTypeIds,
+      addCurationTypeIds: curationTypeIds.filter((id) => !currentSet.has(id)),
+      removeCurationTypeIds: current.filter((id) => !targetSet.has(id)),
+    };
+  }
+  return {
+    curationTypeIds,
+    addCurationTypeIds: curationTypeIds,
+    removeCurationTypeIds: [],
+  };
+}
 
 /** New curation needs at least one type. A rerate must actually change the current types. */
 export function curationRequestIssue(

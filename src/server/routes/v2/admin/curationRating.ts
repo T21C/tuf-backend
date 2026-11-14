@@ -130,7 +130,7 @@ router.get(
     operationId: 'getAdminCurationRatingZenDeal',
     summary: 'Deal a Zen Mode curation deck',
     description:
-      'Finite snapshot deck for curation Zen Mode (unrated by user, exclude Discord vote). Query: deckSize, sort, order, randomness.',
+      'Finite snapshot deck for curation Zen Mode (unrated by user, exclude Discord vote). Query: deckSize, sort, order, randomness, includeRecent, includeRerate, includeBulk (default all on; a false flag leaves that pool out of the deck).',
     tags: ['Admin', 'Curation Rating'],
     responses: {200: {description: 'Zen deck'}, ...standardErrorResponses},
   }),
@@ -164,6 +164,7 @@ router.post(
   ApiDoc({
     operationId: 'postAdminCurationRatingZenReport',
     summary: 'Report bad media from curation Zen Mode',
+    description: 'ratingId, levelId, and a non-empty note are required.',
     tags: ['Admin', 'Curation Rating'],
     security: ['bearerAuth'],
     requestBody: {
@@ -175,7 +176,7 @@ router.post(
           levelId: {type: 'integer'},
           note: {type: 'string'},
         },
-        required: ['ratingId', 'levelId'],
+        required: ['ratingId', 'levelId', 'note'],
       },
       required: true,
     },
@@ -207,6 +208,9 @@ router.post(
       return res.json({ok: true, delivered: true});
     } catch (error: any) {
       const status = error?.status || 500;
+      if (status === 400) {
+        return res.status(400).json({error: error?.message || 'A note is required'});
+      }
       if (status === 503) {
         return res.status(503).json({error: 'Report webhook is not configured', delivered: false});
       }
@@ -414,7 +418,9 @@ async function upsertOwnPicks(
       curationRatingId: ratingId,
       userId,
       chartTypeId: picks.chartTypeId,
+      chartTypeHighId: picks.chartTypeHighId,
       vfxTypeId: picks.vfxTypeId,
+      vfxTypeHighId: picks.vfxTypeHighId,
       miscTypeIds: picks.miscTypeIds,
       comment: commentRaw,
     },
@@ -429,7 +435,7 @@ router.put(
   ApiDoc({
     operationId: 'putAdminCurationRating',
     summary: 'Save curation rating picks',
-    description: 'Body: chartTypeId, vfxTypeId, miscTypeIds, comment. Empty picks delete the detail.',
+    description: 'Body: chartRating, vfxRating, or chartTypeId/vfxTypeId (optional highs), miscTypeIds, comment. Empty picks delete the detail.',
     tags: ['Admin', 'Curation Rating'],
     security: ['bearerAuth'],
     params: {id: stringIdParamSpec},
@@ -616,7 +622,12 @@ router.post(
       }
 
       const body = req.body as Record<string, unknown>;
-      const picks = await assertCurationRatingPicks(parseCurationRatingPicks(body), transaction);
+      const parsedPicks = await assertCurationRatingPicks(parseCurationRatingPicks(body), transaction);
+      const picks = {
+        ...parsedPicks,
+        chartTypeHighId: null,
+        vfxTypeHighId: null,
+      };
       if (collectedTypeIds(picks).length === 0) {
         await safeTransactionRollback(transaction);
         return res.status(400).json({error: 'Settle requires at least one curation type'});

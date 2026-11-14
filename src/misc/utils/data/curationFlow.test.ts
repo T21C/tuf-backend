@@ -5,11 +5,50 @@ import {
   curationAnnouncementKind,
   curationFieldsForLevelIndex,
   curationFlowForRequestType,
+  curationFlowsForZenPools,
   isCurationDiscordVoteCard,
   curationDiscordVoteWhereSql,
   parseCurationFlow,
+  parseZenCurationPools,
+  resolveCurationListFlows,
 } from './curationFlow.js';
 import {reasonWithRequester} from './levelRequestValidation.js';
+
+test('parseZenCurationPools defaults every pool on and honors explicit hides', () => {
+  assert.deepEqual(parseZenCurationPools({}), {
+    includeRecent: true,
+    includeRerate: true,
+    includeBulk: true,
+  });
+  assert.deepEqual(
+    parseZenCurationPools({includeRecent: 'false', includeBulk: '0', includeRerate: 'true'}),
+    {includeRecent: false, includeRerate: true, includeBulk: false},
+  );
+  assert.equal(curationFlowsForZenPools(parseZenCurationPools({})), null);
+  assert.deepEqual(
+    curationFlowsForZenPools(parseZenCurationPools({includeRerate: false})),
+    ['recent', 'bulk'],
+  );
+  assert.deepEqual(
+    curationFlowsForZenPools({includeRecent: false, includeRerate: false, includeBulk: false}),
+    [],
+  );
+});
+
+test('resolveCurationListFlows keeps a single tab unless Zen passes a pool list', () => {
+  assert.deepEqual(resolveCurationListFlows('recent', null), {kind: 'one', flow: 'recent'});
+  assert.deepEqual(resolveCurationListFlows(null, null), {kind: 'all'});
+  assert.deepEqual(resolveCurationListFlows('bulk', ['recent', 'rerate']), {
+    kind: 'some',
+    flows: ['recent', 'rerate'],
+  });
+  assert.deepEqual(resolveCurationListFlows(null, ['recent', 'recent', 'nope']), {
+    kind: 'some',
+    flows: ['recent'],
+  });
+  assert.deepEqual(resolveCurationListFlows(null, []), {kind: 'none'});
+  assert.deepEqual(resolveCurationListFlows(null, ['recent', 'rerate', 'bulk']), {kind: 'all'});
+});
 
 test('parseCurationFlow accepts the three stored flows', () => {
   assert.equal(parseCurationFlow('recent'), 'recent');

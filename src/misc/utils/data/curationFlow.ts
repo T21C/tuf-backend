@@ -1,10 +1,75 @@
 export const CURATION_FLOWS = ['recent', 'rerate', 'bulk'] as const;
 export type CurationFlowId = (typeof CURATION_FLOWS)[number];
 
+export type ZenCurationPoolFlags = {
+  includeRecent: boolean;
+  includeRerate: boolean;
+  includeBulk: boolean;
+};
+
+export type CurationListFlowFilter =
+  | {kind: 'all'}
+  | {kind: 'one'; flow: CurationFlowId}
+  | {kind: 'some'; flows: CurationFlowId[]}
+  | {kind: 'none'};
+
+const ZEN_POOL_FLAGS: {flow: CurationFlowId; key: keyof ZenCurationPoolFlags}[] = [
+  {flow: 'recent', key: 'includeRecent'},
+  {flow: 'rerate', key: 'includeRerate'},
+  {flow: 'bulk', key: 'includeBulk'},
+];
+
+function asIncludeFlag(value: unknown, fallback: boolean): boolean {
+  if (value === true || value === 'true' || value === '1') return true;
+  if (value === false || value === 'false' || value === '0') return false;
+  return fallback;
+}
+
 export function parseCurationFlow(value: unknown): CurationFlowId | null {
   const text = String(value ?? '').trim().toLowerCase();
   if (text === 'recent' || text === 'rerate' || text === 'bulk') return text;
   return null;
+}
+
+/** Include flags for curation Zen. Missing flags stay on, same as P/G/U. */
+export function parseZenCurationPools(body: Record<string, unknown>): ZenCurationPoolFlags {
+  return {
+    includeRecent: asIncludeFlag(body.includeRecent, true),
+    includeRerate: asIncludeFlag(body.includeRerate, true),
+    includeBulk: asIncludeFlag(body.includeBulk, true),
+  };
+}
+
+/**
+ * null means every pool, so the list query adds no flow predicate.
+ * An empty array means the deck should be empty.
+ */
+export function curationFlowsForZenPools(flags: ZenCurationPoolFlags): CurationFlowId[] | null {
+  const flows = ZEN_POOL_FLAGS.filter((entry) => flags[entry.key]).map((entry) => entry.flow);
+  if (flows.length === CURATION_FLOWS.length) return null;
+  return flows;
+}
+
+/** Single-tab `flow` unless an explicit `flows` list was passed (Zen pool picker). */
+export function resolveCurationListFlows(
+  flow: CurationFlowId | null,
+  flows: readonly unknown[] | null | undefined,
+): CurationListFlowFilter {
+  if (Array.isArray(flows)) {
+    const selected: CurationFlowId[] = [];
+    const seen = new Set<CurationFlowId>();
+    for (const raw of flows) {
+      const parsed = parseCurationFlow(raw);
+      if (!parsed || seen.has(parsed)) continue;
+      seen.add(parsed);
+      selected.push(parsed);
+    }
+    if (selected.length === 0) return {kind: 'none'};
+    if (selected.length >= CURATION_FLOWS.length) return {kind: 'all'};
+    return {kind: 'some', flows: selected};
+  }
+  if (flow) return {kind: 'one', flow};
+  return {kind: 'all'};
 }
 
 export function assignCurationFlow(input: {
