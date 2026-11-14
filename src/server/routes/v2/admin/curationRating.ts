@@ -10,7 +10,7 @@ import {
 } from '@/server/schemas/v2/admin/index.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {safeTransactionRollback, sanitizeTextInput} from '@/misc/utils/Utility.js';
-import {hasAnyFlag, hasFlag} from '@/misc/utils/auth/permissionUtils.js';
+import {canModerateCuration, hasAnyFlag, hasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import {permissionFlags} from '@/config/constants.js';
 import CurationRating from '@/models/curations/CurationRating.js';
 import CurationRatingDetail from '@/models/curations/CurationRatingDetail.js';
@@ -341,7 +341,7 @@ router.post(
   ApiDoc({
     operationId: 'postCurationRatingDiscordThread',
     summary: 'Create, close, or reopen a Discord vote thread for a curation rating',
-    description: 'Body: {action: create|close|reopen, ping?: boolean}. Super admin. Closing returns the chart to website rating.',
+    description: 'Body: {action: create|close|reopen, ping?: boolean}. Head curator or super admin. Closing returns the chart to website rating.',
     tags: ['Admin', 'Curation Rating'],
     security: ['bearerAuth'],
     params: {id: stringIdParamSpec},
@@ -531,8 +531,8 @@ router.delete(
       const id = parseInt(String(req.params.id), 10);
       const userId = String(req.params.userId);
       const isOwn = req.user.id === userId;
-      if (!isOwn && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
-        return res.status(403).json({error: 'Super admin access required'});
+      if (!isOwn && !canModerateCuration(req.user)) {
+        return res.status(403).json({error: 'Head curator access required'});
       }
       if (isOwn && !canSaveCurationRating(req.user)) {
         return res.status(403).json({error: 'Rater or curator access required'});

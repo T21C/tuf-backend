@@ -88,6 +88,7 @@ import {
 } from '@/misc/utils/data/levelRequestValidation.js';
 import { isRequestableLevelTag, loadSerializedAssignedTags } from '@/server/services/data/levelTagGroupService.js';
 import { isAutomaticLevelTagName } from '@/misc/utils/data/automaticLevelTags.js';
+import { isSilentCurationAnnouncementName } from '@/misc/utils/data/curationTypeFamilies.js';
 import { getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import {
   REQUEST_SEARCH_MAX_Q,
@@ -198,6 +199,12 @@ async function loadLevelOrThrow(levelId: number): Promise<Level> {
 
 function assertNotOnRatingPage(level: Level) {
   if (level.toRate) throw new LevelRequestError(400, 'unsettled', 'This level is still on the rating page');
+}
+
+function assertNotOnCurationPage(level: Level) {
+  if (level.toCuration) {
+    throw new LevelRequestError(400, 'on_curation', 'This level is already on the curation page');
+  }
 }
 
 async function levelIsReference(levelId: number): Promise<boolean> {
@@ -578,10 +585,17 @@ async function buildPayload(type: LevelRequestType, body: Record<string, unknown
     if (curationTypeIds.length > 0) {
       const types = await CurationType.findAll({
         where: {id: {[Op.in]: curationTypeIds}},
-        attributes: ['id'],
+        attributes: ['id', 'name'],
       });
       if (types.length !== curationTypeIds.length) {
         throw new LevelRequestError(400, 'curation_types', 'One or more curation types do not exist');
+      }
+      if (type === 'curation' && types.some((row) => isSilentCurationAnnouncementName(row.name))) {
+        throw new LevelRequestError(
+          400,
+          'curation_placeholder',
+          'C0 and V0 cannot be requested on a new curation',
+        );
       }
     }
     const currentIds = type === 'curation_rerate' ? await currentCurationTypeIds(level.id) : [];
@@ -992,6 +1006,7 @@ export async function createLevelRequest(user: Viewer, levelId: number, body: Re
   }
   if (isCurationRequestType(type)) {
     assertCurationRequestSlot(type, await levelHasCuration(levelId));
+    assertNotOnCurationPage(level);
   }
   await assertNoOpenRequest(levelId, type, user.id);
   if (type === 'rerate') await assertRerateCooldown(levelId);
@@ -1040,6 +1055,7 @@ export async function updateOwnLevelRequest(user: Viewer, requestId: number, bod
   }
   if (isCurationRequestType(request.type)) {
     assertCurationRequestSlot(request.type, await levelHasCuration(request.levelId));
+    assertNotOnCurationPage(level);
   }
   const reason = body.reason === undefined ? request.reason : readReason(request.type, body.reason);
   const nextKind = request.type === 'info_change'
@@ -1256,7 +1272,10 @@ export async function levelRequestEligibility(user: Viewer, levelId: number) {
         await assertRerateCooldown(levelId);
         assertNotOnRatingPage(level);
       }
-      if (isCurationRequestType(type)) assertCurationRequestSlot(type, hasCuration);
+      if (isCurationRequestType(type)) {
+        assertCurationRequestSlot(type, hasCuration);
+        assertNotOnCurationPage(level);
+      }
       await assertNoOpenRequest(level.id, type, user.id);
       result[type] = {allowed: true, code: null};
     } catch (error) {

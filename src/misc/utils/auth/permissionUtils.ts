@@ -61,6 +61,11 @@ export const hasAnyFlag = (user: PermissionInput, permissions: bigint[]): boolea
   return permissions.some(permission => (flags & permission) === permission);
 };
 
+/** Super-admin-equivalent control over curation queue actions (others' votes, Discord threads). */
+export const canModerateCuration = (user: PermissionInput): boolean => {
+  return hasAnyFlag(user, [permissionFlags.HEAD_CURATOR, permissionFlags.SUPER_ADMIN]);
+};
+
 /**
  * Check if a user has all of the specified permissions
  * @param user - User object or permission flags
