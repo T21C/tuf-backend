@@ -1,8 +1,12 @@
-import type {Transaction} from 'sequelize';
+import {Op, type Transaction} from 'sequelize';
 import CurationAnnouncementQueue, {
   type CurationAnnouncementKind,
 } from '@/models/curations/CurationAnnouncementQueue.js';
-import {curationTypeIdSetsEqual} from '@/misc/utils/data/curationTypeFamilies.js';
+import CurationType from '@/models/curations/CurationType.js';
+import {
+  announcedCurationTypeIds,
+  shouldAnnounceCurationTypeChange,
+} from '@/misc/utils/data/curationTypeFamilies.js';
 
 function asIdList(value: unknown): number[] {
   if (!Array.isArray(value)) return [];
@@ -17,6 +21,19 @@ function asIdList(value: unknown): number[] {
   return out;
 }
 
+async function announcedIdsFor(
+  ids: number[],
+  transaction?: Transaction,
+): Promise<number[]> {
+  if (ids.length === 0) return [];
+  const rows = await CurationType.findAll({
+    where: {id: {[Op.in]: ids}},
+    attributes: ['id', 'name'],
+    transaction,
+  });
+  return announcedCurationTypeIds(ids, new Map(rows.map((row) => [row.id, row])));
+}
+
 export async function enqueueCurationAnnouncement(args: {
   levelId: number;
   kind: CurationAnnouncementKind;
@@ -25,9 +42,21 @@ export async function enqueueCurationAnnouncement(args: {
   enqueuedBy?: string | null;
   transaction?: Transaction;
 }): Promise<CurationAnnouncementQueue | null> {
-  const beforeTypeIds = asIdList(args.beforeTypeIds);
-  const afterTypeIds = asIdList(args.afterTypeIds);
-  if (curationTypeIdSetsEqual(beforeTypeIds, afterTypeIds)) {
+  const beforeTypeIds = await announcedIdsFor(asIdList(args.beforeTypeIds), args.transaction);
+  const afterTypeIds = await announcedIdsFor(asIdList(args.afterTypeIds), args.transaction);
+  if (!shouldAnnounceCurationTypeChange(beforeTypeIds, afterTypeIds)) {
+    const existingSilent = await CurationAnnouncementQueue.findOne({
+      where: {levelId: args.levelId, status: 'PENDING'},
+      transaction: args.transaction,
+      lock: args.transaction ? args.transaction.LOCK.UPDATE : undefined,
+    });
+    if (existingSilent) {
+      await existingSilent.update(
+        {status: 'SKIPPED', pendingUniqueKey: null},
+        {transaction: args.transaction},
+      );
+      return existingSilent;
+    }
     return null;
   }
 
@@ -40,8 +69,11 @@ export async function enqueueCurationAnnouncement(args: {
   if (existing) {
     const mergedKind =
       existing.kind === 'NEW' || args.kind === 'NEW' ? 'NEW' : 'RERATE';
-    const mergedAfter = afterTypeIds;
-    if (curationTypeIdSetsEqual(asIdList(existing.beforeTypeIds), mergedAfter)) {
+    const mergedBefore = await announcedIdsFor(
+      asIdList(existing.beforeTypeIds),
+      args.transaction,
+    );
+    if (!shouldAnnounceCurationTypeChange(mergedBefore, afterTypeIds)) {
       await existing.update(
         {status: 'SKIPPED', pendingUniqueKey: null},
         {transaction: args.transaction},
@@ -51,7 +83,8 @@ export async function enqueueCurationAnnouncement(args: {
     await existing.update(
       {
         kind: mergedKind,
-        afterTypeIds: mergedAfter,
+        beforeTypeIds: mergedBefore,
+        afterTypeIds,
         enqueuedBy: args.enqueuedBy ?? existing.enqueuedBy,
       },
       {transaction: args.transaction},

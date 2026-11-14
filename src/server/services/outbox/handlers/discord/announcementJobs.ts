@@ -10,7 +10,13 @@ import Player from '@/models/players/Player.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import LevelAnnouncementQueue from '@/models/levels/LevelAnnouncementQueue.js';
 import CurationAnnouncementQueue from '@/models/curations/CurationAnnouncementQueue.js';
+import CurationType from '@/models/curations/CurationType.js';
 import {createCurationAnnouncementEmbed} from '@/server/services/curations/curationAnnouncementEmbed.js';
+import {markCurationQueueRowsSkipped} from '@/server/services/announcements/curationAnnouncementQueue.js';
+import {
+  announcedCurationTypeIds,
+  shouldAnnounceCurationTypeChange,
+} from '@/misc/utils/data/curationTypeFamilies.js';
 import { getPassAnnouncementConfig, getLevelAnnouncementConfig } from '@/server/routes/v2/webhooks/channelParser.js';
 import {
   createChannelMessages,
@@ -601,6 +607,40 @@ export async function runCurationAnnouncementJob(
       return;
     }
 
+    const typeIds = [...new Set(rows.flatMap((row) => [
+      ...(Array.isArray(row.beforeTypeIds) ? row.beforeTypeIds : []),
+      ...(Array.isArray(row.afterTypeIds) ? row.afterTypeIds : []),
+    ]).map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+    const typeRows = typeIds.length > 0
+      ? await CurationType.findAll({where: {id: {[Op.in]: typeIds}}, attributes: ['id', 'name']})
+      : [];
+    const typesById = new Map(typeRows.map((row) => [row.id, row]));
+    const announceRows: typeof rows = [];
+    const skipIds: number[] = [];
+    for (const row of rows) {
+      const before = announcedCurationTypeIds(
+        Array.isArray(row.beforeTypeIds) ? row.beforeTypeIds : [],
+        typesById,
+      );
+      const after = announcedCurationTypeIds(
+        Array.isArray(row.afterTypeIds) ? row.afterTypeIds : [],
+        typesById,
+      );
+      if (shouldAnnounceCurationTypeChange(before, after)) {
+        announceRows.push(row);
+      } else {
+        skipIds.push(row.id);
+      }
+    }
+    if (skipIds.length > 0) {
+      await markCurationQueueRowsSkipped(skipIds);
+      await AnnouncementJobService.markItemsSkipped(kind, skipIds);
+    }
+    if (announceRows.length === 0) {
+      await AnnouncementJobService.releaseConveyor(kind, queueRowIds);
+      return;
+    }
+
     const targets = parseNamedWebhookTargets(
       kind === 'curation_rerate' ? 'CURATION_RERATE_ANNOUNCEMENT_HOOK' : 'CURATION_ANNOUNCEMENT_HOOK',
       kind === 'curation_rerate' ? 'CURATION_RERATE_PING_ROLE_ID' : 'CURATION_PING_ROLE_ID',
@@ -613,7 +653,7 @@ export async function runCurationAnnouncementJob(
     const requiredWebhooksByItemId = new Map<number, string[]>();
     const levelIdByItemId = new Map<number, number>();
     const labelByWebhookUrl = new Map<string, string>();
-    for (const row of rows) {
+    for (const row of announceRows) {
       requiredWebhooksByItemId.set(row.id, targetUrls);
       levelIdByItemId.set(row.id, row.levelId);
     }
@@ -621,7 +661,7 @@ export async function runCurationAnnouncementJob(
       labelByWebhookUrl.set(targets[i].webhookUrl, `${kind}-${i}`);
     }
 
-    await AnnouncementJobService.setItemsPhase(kind, rows.map((row) => row.id), 'resolving');
+    await AnnouncementJobService.setItemsPhase(kind, announceRows.map((row) => row.id), 'resolving');
     await AnnouncementJobService.seedPendingDestinations({
       kind,
       requiredWebhooksByItemId,
@@ -630,12 +670,12 @@ export async function runCurationAnnouncementJob(
 
     const alreadyDelivered = await AnnouncementDeliveryTracker.buildAlreadyDeliveredSet(
       kind,
-      rows.map((row) => row.id),
+      announceRows.map((row) => row.id),
       targetUrls,
     );
 
     const embedPairs = await Promise.all(
-      rows.map(async (row) => ({
+      announceRows.map(async (row) => ({
         queueRowId: row.id,
         embed: await createCurationAnnouncementEmbed({
           level: row.level!,
@@ -683,7 +723,7 @@ export async function runCurationAnnouncementJob(
     }
 
     if (channels.length === 0) {
-      await AnnouncementJobService.markItemsDelivered(kind, rows.map((row) => row.id));
+      await AnnouncementJobService.markItemsDelivered(kind, announceRows.map((row) => row.id));
       await AnnouncementJobService.releaseConveyor(kind, queueRowIds);
     }
   } catch (err) {

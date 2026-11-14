@@ -84,6 +84,37 @@ export function curationTypeIdSetsEqual(a: number[], b: number[]): boolean {
   return sameIdSet(a, b);
 }
 
+/** C0/V0 are internal placeholders — never posted in curation announcements. */
+export const SILENT_CURATION_ANNOUNCEMENT_NAMES = new Set(['C0', 'V0']);
+
+export function isSilentCurationAnnouncementName(name: string | null | undefined): boolean {
+  return SILENT_CURATION_ANNOUNCEMENT_NAMES.has(String(name ?? '').trim().toUpperCase());
+}
+
+export function announcedCurationTypeIds(
+  ids: readonly number[],
+  typesById: Map<number, {name?: string | null}>,
+): number[] {
+  const out: number[] = [];
+  const seen = new Set<number>();
+  for (const raw of ids) {
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    if (isSilentCurationAnnouncementName(typesById.get(id)?.name)) continue;
+    out.push(id);
+  }
+  return out;
+}
+
+/** After dropping C0/V0, announce only when a visible type set actually changed. */
+export function shouldAnnounceCurationTypeChange(
+  beforeTypeIds: readonly number[],
+  afterTypeIds: readonly number[],
+): boolean {
+  return afterTypeIds.length > 0 && !sameIdSet([...beforeTypeIds], [...afterTypeIds]);
+}
+
 export type CurationRatingBucket = 'chart' | 'vfx' | 'misc';
 
 /** Chart = C/O, VFX = V, everything else (including H and Epic) is misc. */

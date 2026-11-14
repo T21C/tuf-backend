@@ -566,7 +566,7 @@ router.delete(
 
 router.post(
   '/:id/settle',
-  Auth.verified(),
+  Auth.user(),
   ApiDoc({
     operationId: 'postAdminCurationRatingSettle',
     summary: 'Settle published curation types from the popup',
@@ -650,9 +650,17 @@ router.post(
         enqueuedBy: req.user.id,
         transaction,
       });
-      await completeLevelRequestForSettledCuration(locked.levelId, transaction, req.user.id);
       await transaction.commit();
+      transaction = undefined;
       await elasticsearchService.indexLevel(locked.levelId);
+      try {
+        await completeLevelRequestForSettledCuration(locked.levelId, undefined, req.user.id);
+      } catch (error) {
+        logger.error('Failed to complete linked curation request after settle', {
+          levelId: locked.levelId,
+          error,
+        });
+      }
 
       return res.json({
         message: 'Curation rating settled',

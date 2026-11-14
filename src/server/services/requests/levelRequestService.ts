@@ -1641,21 +1641,34 @@ export async function completeLevelRequestForSettledCuration(
   transaction?: Transaction,
   actorUserId?: string | null,
 ) {
-  const request = await LevelRequest.findOne({
+  const requests = await LevelRequest.findAll({
     where: {
       levelId,
       type: {[Op.in]: ['curation', 'curation_rerate']},
-      status: 'accepted',
+      status: {[Op.notIn]: TERMINAL_LEVEL_REQUEST_STATUSES},
     },
+    order: [['id', 'ASC']],
     transaction,
   });
-  if (!request) return;
-  await request.update({
-    status: 'completed',
-    resolvedAt: new Date(),
-    ...(actorUserId ? {lastActorUserId: actorUserId} : {}),
-  }, {transaction});
-  await notifyRequester(request, {transaction});
+  for (const request of requests) {
+    await request.update({
+      status: 'completed',
+      resolvedAt: new Date(),
+      ...(actorUserId ? {lastActorUserId: actorUserId} : {}),
+    }, {transaction});
+    try {
+      await notifyRequester(request, {
+        transaction,
+        actor: actorUserId ? {id: actorUserId} : null,
+      });
+    } catch (error) {
+      logger.error('Failed to notify requester after settling a curation', {
+        requestId: request.id,
+        levelId,
+        error,
+      });
+    }
+  }
 }
 
 export async function completeLevelRequestForSettledRating(
