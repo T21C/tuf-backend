@@ -104,6 +104,20 @@ export type FollowFanoutPayload = {
   ids: number[];
 };
 
+export type ReferenceChangedPayload = {
+  kind: 'added' | 'removed' | 'type' | 'file' | 'rerated' | 'hidden' | 'deleted';
+  levelId: number;
+  difficultyIds: number[];
+  actorId?: string | null;
+  type?: string | null;
+  previousType?: string | null;
+  previousDiffId?: number | null;
+  isHidden?: boolean;
+  fileId?: string | null;
+  dlLink?: string | null;
+  diffId?: number | null;
+};
+
 export type DiscordTufStellarNomineePayload = {
   userId: string;
   username: string;
@@ -127,6 +141,7 @@ export const OUTBOX_EVENT_TYPES = {
   DiscordTufStellarNominee: 'DiscordTufStellarNominee',
   NotificationCreated: 'NotificationCreated',
   FollowFanout: 'FollowFanout',
+  ReferenceChanged: 'ReferenceChanged',
 } as const;
 
 export type OutboxEventType = (typeof OUTBOX_EVENT_TYPES)[keyof typeof OUTBOX_EVENT_TYPES];
@@ -145,4 +160,5 @@ export type OutboxPayloadByType = {
   [OUTBOX_EVENT_TYPES.DiscordTufStellarNominee]: DiscordTufStellarNomineePayload;
   [OUTBOX_EVENT_TYPES.NotificationCreated]: NotificationCreatedPayload;
   [OUTBOX_EVENT_TYPES.FollowFanout]: FollowFanoutPayload;
+  [OUTBOX_EVENT_TYPES.ReferenceChanged]: ReferenceChangedPayload;
 };

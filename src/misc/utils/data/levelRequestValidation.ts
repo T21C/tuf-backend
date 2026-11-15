@@ -72,7 +72,7 @@ export const COMPLETED_LEVEL_REQUEST_STATUSES: LevelRequestStatus[] = [
   'completed_unchanged',
 ];
 
-export const LEVEL_REQUEST_REASON_MAX = 1000;
+export const LEVEL_REQUEST_REASON_MAX = 4000;
 export const RERATE_COOLDOWN_MS = 15 * 60 * 1000;
 export const LEVEL_REFERENCE_ID_LIMIT = 40;
 

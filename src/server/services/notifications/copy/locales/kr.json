@@ -138,6 +138,12 @@
         "title": "{{actorName}}님의 알림",
         "body": "{{message}}"
       }
+    },
+    "reference": {
+      "changed": {
+        "title": "기준 레벨이 변경됨",
+        "body": "{{song}} — {{artist}} 이(가) 변경되었습니다. {{difficultyNames}} 기준 레벨입니다."
+      }
     }
   }
 }

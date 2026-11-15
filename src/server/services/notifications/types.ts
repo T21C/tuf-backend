@@ -24,11 +24,19 @@ export const NOTIFICATION_TYPES = {
   FollowingCreatorLevel: 'following.creator.level',
   RequestUpdated: 'request.updated',
   AdminNotice: 'admin.notice',
+  ReferenceChanged: 'reference.changed',
 } as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];
 
-export const NOTIFICATION_CATEGORIES = ['submissions', 'chart', 'clears', 'following', 'notices'] as const;
+export const NOTIFICATION_CATEGORIES = [
+  'submissions',
+  'chart',
+  'clears',
+  'following',
+  'notices',
+  'references',
+] as const;
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
@@ -138,6 +146,19 @@ export const adminNoticePayloadSchema = z.object({
 
 export type AdminNoticePayload = z.infer<typeof adminNoticePayloadSchema>;
 
+export const referenceChangedPayloadSchema = z.object({
+  kind: z.enum(['added', 'removed', 'type', 'file', 'rerated', 'hidden', 'deleted']),
+  levelId: z.number().int().positive(),
+  song: z.string().nullable(),
+  artist: z.string().nullable(),
+  difficultyNames: z.string(),
+  type: z.string().nullable().optional(),
+  previousType: z.string().nullable().optional(),
+  previousDifficultyName: z.string().nullable().optional(),
+});
+
+export type ReferenceChangedNotificationPayload = z.infer<typeof referenceChangedPayloadSchema>;
+
 export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.PassSubmissionSubmitted]: PassSubmissionPayload;
   [NOTIFICATION_TYPES.PassSubmissionApproved]: PassSubmissionPayload;
@@ -162,6 +183,7 @@ export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.FollowingPlayerPass]: FollowingPlayerPassPayload;
   [NOTIFICATION_TYPES.FollowingCreatorLevel]: FollowingCreatorLevelPayload;
   [NOTIFICATION_TYPES.AdminNotice]: AdminNoticePayload;
+  [NOTIFICATION_TYPES.ReferenceChanged]: ReferenceChangedNotificationPayload;
 };
 
 export type NotificationChannelDefaults = Record<NotificationChannel, boolean>;
@@ -362,6 +384,12 @@ const notificationTypeRegistry: {
     adminNoticePayloadSchema,
     () => null,
     {lockedChannels: {inApp: true}},
+  ),
+  [NOTIFICATION_TYPES.ReferenceChanged]: def(
+    NOTIFICATION_TYPES.ReferenceChanged,
+    'references',
+    referenceChangedPayloadSchema,
+    levelHref,
   ),
 };
 

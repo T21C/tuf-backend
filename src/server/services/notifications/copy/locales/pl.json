@@ -138,6 +138,12 @@
         "title": "Wiadomość od {{actorName}}",
         "body": "{{message}}"
       }
+    },
+    "reference": {
+      "changed": {
+        "title": "Zmiana chartu referencyjnego",
+        "body": "{{song}} — {{artist}} zostało zmienione. To referencja dla {{difficultyNames}}."
+      }
     }
   }
 }

@@ -138,6 +138,12 @@
         "title": "Avis de {{actorName}}",
         "body": "{{message}}"
       }
+    },
+    "reference": {
+      "changed": {
+        "title": "Chart de référence modifié",
+        "body": "{{song}} par {{artist}} a changé. C’est une référence pour {{difficultyNames}}."
+      }
     }
   }
 }

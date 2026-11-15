@@ -36,6 +36,22 @@ test('chart.swapped links to the level that now holds the chart', () => {
   );
 });
 
+test('reference.changed is in-app by default and links to the level', () => {
+  const definition = getNotificationTypeDefinition(NOTIFICATION_TYPES.ReferenceChanged);
+  assert.equal(definition.defaults.inApp, true);
+  assert.equal(definition.category, 'references');
+  assert.equal(
+    definition.href({
+      kind: 'file',
+      levelId: 3042,
+      song: 'Storm',
+      artist: 'Camellia',
+      difficultyNames: 'P13',
+    }),
+    '/levels/3042',
+  );
+});
+
 test('chart.rated is in-app by default and links to the level', () => {
   const definition = getNotificationTypeDefinition(NOTIFICATION_TYPES.ChartRated);
   assert.equal(definition.defaults.inApp, true);
