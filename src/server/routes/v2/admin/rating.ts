@@ -27,6 +27,7 @@ import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { calculateAverageRating, isDiscordVoteCard } from '@/misc/utils/data/RatingUtils.js';
+import { LARGE_TEXT_MAX } from '@/misc/utils/textLimits.js';
 import { LevelRequestError } from '@/server/services/requests/levelRequestService.js';
 import { manageRatingDiscordThread } from '@/server/services/ratings/ratingDiscordThread.js';
 import { readRatingThreadRequest } from '@/misc/utils/data/ratingThread.js';
@@ -72,8 +73,6 @@ import {
 } from '@/server/services/ratings/ratingSettleService.js';
 
 const router: Router = Router();
-
-const MAX_RATING_COMMENT_LENGTH = 10_000;
 
 async function isLockedVoteCard(ratingId: number, levelId: number, transaction: Transaction) {
   const [level, rating, request] = await Promise.all([
@@ -566,10 +565,10 @@ router.put(
         viewDurationSeconds: viewDurationSecondsBody,
       } = req.body;
 
-      if (typeof commentString === 'string' && commentString.length > MAX_RATING_COMMENT_LENGTH) {
+      if (typeof commentString === 'string' && commentString.length > LARGE_TEXT_MAX) {
         return res
           .status(400)
-          .json({ error: `Comment must not exceed ${MAX_RATING_COMMENT_LENGTH} characters` });
+          .json({ error: `Comment must not exceed ${LARGE_TEXT_MAX} characters` });
       }
 
       transaction = await sequelize.transaction();

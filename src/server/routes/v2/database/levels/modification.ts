@@ -34,6 +34,7 @@ import {
   safeTransactionRollback,
   sanitizeTextInput,
 } from '@/misc/utils/Utility.js';
+import { LARGE_TEXT_MAX } from '@/misc/utils/textLimits.js';
 import { optionalReasonFromBody, sanitizeNotes, sanitizeLevelDescription } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
@@ -1129,7 +1130,7 @@ router.delete(
       description: 'Optional reason shown to chart owners.',
       schema: {
         type: 'object',
-        properties: { reason: { type: 'string', maxLength: 4000 } },
+        properties: { reason: { type: 'string', maxLength: LARGE_TEXT_MAX } },
       },
     },
     responses: { 200: { description: 'Level soft deleted' }, ...standardErrorResponses404500 },
@@ -1444,7 +1445,7 @@ router.patch(
       description: 'Optional reason shown to chart owners when hiding.',
       schema: {
         type: 'object',
-        properties: { reason: { type: 'string', maxLength: 4000 } },
+        properties: { reason: { type: 'string', maxLength: LARGE_TEXT_MAX } },
       },
     },
     responses: { 200: { description: 'Hidden toggled' }, ...standardErrorResponses403404500 },

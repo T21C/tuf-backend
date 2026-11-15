@@ -72,7 +72,6 @@ export const COMPLETED_LEVEL_REQUEST_STATUSES: LevelRequestStatus[] = [
   'completed_unchanged',
 ];
 
-export const LEVEL_REQUEST_REASON_MAX = 4000;
 export const RERATE_COOLDOWN_MS = 15 * 60 * 1000;
 export const LEVEL_REFERENCE_ID_LIMIT = 40;
 
@@ -386,8 +385,6 @@ export function rerateCooldownRemainingMs(resolvedAt: Date | string | null | und
   if (Number.isNaN(at)) return 0;
   return Math.max(0, RERATE_COOLDOWN_MS - (now - at));
 }
-
-export const INFO_CHANGE_VALUE_MAX = 4000;
 
 export const CREDIT_REQUEST_ROLES = ['charter', 'vfxer', 'specialThanks'] as const;
 export type CreditRequestRole = (typeof CREDIT_REQUEST_ROLES)[number];

@@ -49,11 +49,10 @@ import {broadcastRatingUpsert, buildLevelUpdateSseData} from '@/server/services/
 import {CacheInvalidation} from '@/server/middleware/cache.js';
 import Rating from '@/models/levels/Rating.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import {parseLargeText} from '@/misc/utils/textLimits.js';
 import {
   COMPLETED_LEVEL_REQUEST_STATUSES,
   INFO_CHANGE_KINDS,
-  INFO_CHANGE_VALUE_MAX,
-  LEVEL_REQUEST_REASON_MAX,
   LEVEL_REQUEST_TYPES,
   RATING_LINK_STATUSES,
   RERATE_COOLDOWN_STATUSES,
@@ -284,8 +283,11 @@ async function ratingPageReason(request: LevelRequest, fallback: string, transac
 
 function readOptionalNote(raw: unknown): string | null | undefined {
   if (raw === undefined) return undefined;
-  if (typeof raw !== 'string' || !raw.trim()) return null;
-  return raw.trim().slice(0, 4000);
+  const parsed = parseLargeText(raw, {label: 'Note'});
+  if (!parsed.ok) {
+    throw new LevelRequestError(400, 'note_length', parsed.message, {max: parsed.max});
+  }
+  return parsed.value || null;
 }
 
 async function refreshRatingSurfaces(levelId: number) {
@@ -479,8 +481,9 @@ async function buildInfoChangePayload(body: Record<string, unknown>, level: Leve
   if (kind === 'video' || kind === 'description' || kind === 'multiple') {
     const value = String(body.value ?? '').trim();
     if (!value) throw new LevelRequestError(400, 'value', 'Enter the new value');
-    if (value.length > INFO_CHANGE_VALUE_MAX) {
-      throw new LevelRequestError(400, 'value_length', 'That value must be at most 4000 characters');
+    const parsed = parseLargeText(value, {label: 'That value'});
+    if (!parsed.ok) {
+      throw new LevelRequestError(400, 'value_length', parsed.message, {max: parsed.max});
     }
     const current = kind === 'video' ? level.videoLink : kind === 'description' ? level.description : null;
     if (current != null && value === String(current).trim()) {
@@ -620,14 +623,17 @@ async function buildPayload(type: LevelRequestType, body: Record<string, unknown
 }
 
 function readReason(type: LevelRequestType, raw: unknown): string {
-  const reason = typeof raw === 'string' ? raw.trim() : '';
-  if (reason.length > LEVEL_REQUEST_REASON_MAX) {
-    throw new LevelRequestError(400, 'reason_length', 'Reason must be at most 1000 characters');
+  const required = type === 'rerate' || type === 'curation_rerate';
+  const parsed = parseLargeText(raw, {required, label: 'Reason'});
+  if (!parsed.ok) {
+    throw new LevelRequestError(
+      400,
+      parsed.code === 'length' ? 'reason_length' : 'reason',
+      parsed.message,
+      {max: parsed.max},
+    );
   }
-  if (!reason && (type === 'rerate' || type === 'curation_rerate')) {
-    throw new LevelRequestError(400, 'reason', 'A reason is required');
-  }
-  return reason;
+  return parsed.value;
 }
 
 async function actorDisplayName(user: Viewer | null | undefined, transaction?: Transaction): Promise<string | null> {
@@ -968,7 +974,7 @@ export async function serializeLevelRequest(
 function rethrowDownloadFailure(err: unknown): never {
   if (err instanceof LevelRequestError) throw err;
   if (err instanceof DownloadAttachError) {
-    throw new LevelRequestError(err.status, err.code, err.message);
+    throw new LevelRequestError(err.status, err.code, err.message, err.details);
   }
   if (err instanceof LevelZipSessionError) {
     throw new LevelRequestError(err.status, err.field || 'upload', err.message, err.details);

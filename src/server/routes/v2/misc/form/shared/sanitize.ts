@@ -1,3 +1,5 @@
+import {LARGE_TEXT_MAX, parseLargeText} from '@/misc/utils/textLimits.js';
+
 /**
  * Small, pure primitives used by every form route. No DB, no I/O, no logging.
  */
@@ -7,22 +9,19 @@ export function sanitizeTextInput(input: string | null | undefined, maxLength = 
   return String(input).trim().slice(0, maxLength);
 }
 
-export const NOTES_MAX_LENGTH = 4000;
+export const NOTES_MAX_LENGTH = LARGE_TEXT_MAX;
 export const LEVEL_DESCRIPTION_MAX_LENGTH = 2000;
-export const FEELING_EXPLANATION_MAX_LENGTH = 1000;
+export const FEELING_EXPLANATION_MAX_LENGTH = LARGE_TEXT_MAX;
 
-/** Optional notes: trim, cap length, empty → null. */
-function sanitizeOptionalPlainText(
-  input: unknown,
-  maxLength: number,
-): string | null {
-  if (typeof input !== 'string') return null;
-  const cleaned = sanitizeTextInput(input, maxLength);
-  return cleaned.length > 0 ? cleaned : null;
+function throwLargeText(parsed: ReturnType<typeof parseLargeText>, fallback: string): never {
+  throw {error: parsed.ok ? fallback : parsed.message, code: 400};
 }
 
 export function sanitizeNotes(input: unknown): string | null {
-  return sanitizeOptionalPlainText(input, NOTES_MAX_LENGTH);
+  if (typeof input !== 'string') return null;
+  const parsed = parseLargeText(input, {label: 'Notes'});
+  if (!parsed.ok) throwLargeText(parsed, 'Notes are too long');
+  return parsed.value.length > 0 ? parsed.value : null;
 }
 
 /** Optional website-only level description: trim, empty → null. Throws if invalid. */
@@ -48,15 +47,9 @@ export function sanitizeFeelingExplanation(input: unknown): string | null {
   if (typeof input !== 'string') {
     throw { error: 'Feeling explanation must be a string', code: 400 };
   }
-  const trimmed = input.trim();
-  if (trimmed.length === 0) return null;
-  if (trimmed.length > FEELING_EXPLANATION_MAX_LENGTH) {
-    throw {
-      error: `Feeling explanation cannot exceed ${FEELING_EXPLANATION_MAX_LENGTH} characters`,
-      code: 400,
-    };
-  }
-  return trimmed;
+  const parsed = parseLargeText(input, {label: 'Feeling explanation'});
+  if (!parsed.ok) throwLargeText(parsed, 'Feeling explanation is too long');
+  return parsed.value.length > 0 ? parsed.value : null;
 }
 
 /** Optional website-only pass details: trim, empty → null. Throws if invalid. */

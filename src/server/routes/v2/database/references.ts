@@ -21,6 +21,12 @@ import {
   setGroupWatch,
 } from '@/server/services/references/referenceWatchService.js';
 import { emitReferenceChanged } from '@/server/services/references/referenceChangeEmit.js';
+import {respondMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
+import {
+  BulkReferencePayloadError,
+  findUnavailableLevelIds,
+  normalizeBulkReferenceUpdates,
+} from '@/server/services/references/bulkReferenceUpdates.js';
 
 interface ILevelWithReference extends Level {
   reference?: {
@@ -529,28 +535,62 @@ router.put(
     security: ['bearerAuth'],
     params: { difficultyId: { schema: { type: 'string' } } },
     requestBody: { description: 'references: array of { levelId, type }', schema: { type: 'object', properties: { references: { type: 'array', items: { type: 'object', properties: { levelId: { type: 'integer' }, type: { type: 'string' } } } } }, required: ['references'] }, required: true },
-    responses: { 200: { description: 'added, removed, updated counts' }, ...standardErrorResponses500 },
+    responses: { 200: { description: 'added, removed, updated counts' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
   try {
     const { difficultyId } = req.params;
-    const { references } = req.body as { references: IReferenceUpdate[] };
+    const diffId = parseInt(difficultyId, 10);
+    let references: IReferenceUpdate[];
+    try {
+      references = normalizeBulkReferenceUpdates(req.body?.references);
+    } catch (error) {
+      if (error instanceof BulkReferencePayloadError) {
+        return res.status(400).json({
+          error: error.message,
+          invalidLevelIds: error.invalidLevelIds,
+          code: 'INVALID_LEVEL_IDS',
+        });
+      }
+      throw error;
+    }
+
+    const difficulty = await Difficulty.findByPk(diffId, {attributes: ['id']});
+    if (!difficulty) {
+      return res.status(404).json({error: 'Difficulty not found'});
+    }
+
+    const requestedLevelIds = references.map((ref) => ref.levelId);
+    if (requestedLevelIds.length > 0) {
+      const existingLevels = await Level.findAll({
+        where: {id: requestedLevelIds},
+        attributes: ['id', 'isDeleted'],
+      });
+      const missingLevelIds = findUnavailableLevelIds(requestedLevelIds, existingLevels);
+      if (missingLevelIds.length > 0) {
+        return res.status(400).json({
+          error: `Level ID(s) not found: ${missingLevelIds.join(', ')}`,
+          missingLevelIds,
+          code: 'MISSING_LEVELS',
+        });
+      }
+    }
 
     // Start a transaction to ensure all operations succeed or none do
     const result = await sequelize.transaction(async (t: Transaction) => {
       // Get current references for this difficulty
       const currentRefs = await Reference.findAll({
-        where: { difficultyId: parseInt(difficultyId) },
+        where: { difficultyId: diffId },
         transaction: t
       });
 
       // Create maps for easier lookup
-      const currentRefMap = new Map(currentRefs.map(ref => [ref.levelId, ref]));
+      const currentRefMap = new Map(currentRefs.map(ref => [Number(ref.levelId), ref]));
       const newRefMap = new Map(references.map(ref => [ref.levelId, ref]));
 
       // Find references to add and remove
       const toAdd = references.filter(ref => !currentRefMap.has(ref.levelId));
-      const toRemove = currentRefs.filter(ref => !newRefMap.has(ref.levelId));
+      const toRemove = currentRefs.filter(ref => !newRefMap.has(Number(ref.levelId)));
       const toUpdate = references.filter(ref =>
         currentRefMap.has(ref.levelId) &&
         currentRefMap.get(ref.levelId)?.type !== ref.type
@@ -562,7 +602,7 @@ router.put(
       // Add new references
       await Promise.all(toAdd.map(ref =>
         Reference.create({
-          difficultyId: parseInt(difficultyId),
+          difficultyId: diffId,
           levelId: ref.levelId,
           type: ref.type,
           createdAt: new Date(),
@@ -595,7 +635,6 @@ router.put(
       };
     });
 
-    const diffId = parseInt(difficultyId, 10);
     const actorId = req.user?.id ?? null;
     try {
       for (const ref of result.toAdd) {
@@ -636,8 +675,9 @@ router.put(
       updated: result.updated,
     });
   } catch (error) {
-    logger.error('Error bulk updating references:', error);
-    return res.status(500).json({ error: 'Failed to bulk update references' });
+    return respondMysqlClientError(res, error, 'Failed to bulk update references', {
+      logLabel: 'Error bulk updating references:',
+    });
   }
   }
 );

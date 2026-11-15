@@ -21,6 +21,7 @@ import {
   createRatingThread,
   reopenRatingThread,
 } from '@/server/services/discord/ratingThread.js';
+import {clipDiscordDescription} from '@/misc/utils/textLimits.js';
 import {appendSongSuffix} from '@/misc/utils/data/levelHelpers.js';
 import {
   appendRerateScoreTargetLines,
@@ -94,10 +95,9 @@ function requestLinkLine(request: LevelRequest): string {
 }
 
 function joinDescription(parts: Array<string | null | undefined>): string {
-  return parts
-    .filter((part): part is string => part != null)
-    .join('\n')
-    .slice(0, 4000);
+  return clipDiscordDescription(
+    parts.filter((part): part is string => part != null).join('\n'),
+  );
 }
 
 async function difficultyMarksByName(): Promise<Map<string, string>> {
@@ -356,21 +356,23 @@ export async function postCurationRequestEmbed(request: LevelRequest, level: Lev
   const removeIds = request.payload?.removeCurationTypeIds;
   const hasDiff = request.type === 'curation_rerate' && (Array.isArray(addIds) || Array.isArray(removeIds));
   const mention = await createdByLine(request.requesterUserId, 'TUF user');
-  const description = hasDiff
-    ? [
-        'Add:',
-        (await requestedCurationEmojis(addIds)) || '—',
-        'Remove:',
-        (await requestedCurationEmojis(removeIds)) || '—',
-        'Reason:',
-        request.reason || '',
-      ].join('\n').slice(0, 4000)
-    : [
-        'Requested curations:',
-        await requestedCurationEmojis(request.payload?.curationTypeIds),
-        'Reason:',
-        request.reason || '',
-      ].join('\n').slice(0, 4000);
+  const description = clipDiscordDescription(
+    hasDiff
+      ? [
+          'Add:',
+          (await requestedCurationEmojis(addIds)) || '—',
+          'Remove:',
+          (await requestedCurationEmojis(removeIds)) || '—',
+          'Reason:',
+          request.reason || '',
+        ].join('\n')
+      : [
+          'Requested curations:',
+          await requestedCurationEmojis(request.payload?.curationTypeIds),
+          'Reason:',
+          request.reason || '',
+        ].join('\n'),
+  );
   const message = await executeWebhook(
     webhookUrl,
     {

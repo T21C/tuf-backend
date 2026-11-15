@@ -4,7 +4,7 @@ import {matchLevelFileBySelection} from '@/externalServices/cdnService/domain/le
 import Level from '@/models/levels/Level.js';
 import LevelRequest from '@/models/levels/LevelRequest.js';
 import User from '@/models/auth/User.js';
-import {INFO_CHANGE_VALUE_MAX} from '@/misc/utils/data/levelRequestValidation.js';
+import {parseLargeText} from '@/misc/utils/textLimits.js';
 import {applyLevelChartStatsFromCdn} from '@/misc/utils/data/levelChartStatsSync.js';
 import {isCdnUrl} from '@/misc/utils/Utility.js';
 import {logger} from '@/server/services/core/LoggerService.js';
@@ -34,12 +34,14 @@ const elasticsearchService = ElasticsearchService.getInstance();
 export class DownloadAttachError extends Error {
   readonly status: number;
   readonly code: string;
+  readonly details?: Record<string, unknown>;
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, details?: Record<string, unknown>) {
     super(message);
     this.name = 'DownloadAttachError';
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -120,8 +122,9 @@ function payloadFromExisting(existing: Record<string, unknown>): Record<string, 
 
 function linkPayload(value: string, level: Level): Record<string, unknown> {
   if (!value) throw new DownloadAttachError(400, 'value', 'Enter the new value');
-  if (value.length > INFO_CHANGE_VALUE_MAX) {
-    throw new DownloadAttachError(400, 'value_length', 'That value must be at most 4000 characters');
+  const parsed = parseLargeText(value, {label: 'That value'});
+  if (!parsed.ok) {
+    throw new DownloadAttachError(400, 'value_length', parsed.message, {max: parsed.max});
   }
   if (CDN_CONFIG.baseUrl && value.startsWith(CDN_CONFIG.baseUrl)) {
     throw new DownloadAttachError(400, 'cdn_link', 'Direct download cannot point to local CDN');

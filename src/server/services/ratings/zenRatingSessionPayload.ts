@@ -1,3 +1,4 @@
+import {LARGE_TEXT_MAX} from '@/misc/utils/textLimits.js';
 import {
   clampZenRandomness,
   parseZenDeckSize,
@@ -13,7 +14,7 @@ export type ZenSessionSortPreset = (typeof ZEN_SESSION_SORT_PRESETS)[number];
 export const ZEN_CARD_OUTCOMES = ['rated', 'peeked', 'skipped'] as const;
 export type ZenCardOutcome = (typeof ZEN_CARD_OUTCOMES)[number] | null;
 
-export const ZEN_SESSION_MAX_COMMENT_LENGTH = 10_000;
+export const ZEN_SESSION_MAX_COMMENT_LENGTH = LARGE_TEXT_MAX;
 export const ZEN_SESSION_MAX_RATING_LENGTH = 254;
 
 export type ZenPendingPicks = {

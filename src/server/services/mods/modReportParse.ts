@@ -1,6 +1,7 @@
+import {LARGE_TEXT_MAX} from '@/misc/utils/textLimits.js';
 import {parseHttpUrl, VERSION_MAX, type ParseResult} from './modFields.js';
 
-export const REPORT_NOTE_MAX = 4000;
+export const REPORT_NOTE_MAX = LARGE_TEXT_MAX;
 export const REPORT_REASONS = ['deprecated', 'abuse', 'duplicate'] as const;
 
 export type ModReportReason = (typeof REPORT_REASONS)[number];
