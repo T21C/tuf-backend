@@ -1,6 +1,6 @@
 import {Request, Response, Router} from 'express';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
-import { errorResponseSchema, standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec } from '@/server/schemas/v2/database/index.js';
+import { errorResponseSchema, standardErrorResponses, standardErrorResponses401500, standardErrorResponses404500, standardErrorResponses500, idParamSpec } from '@/server/schemas/v2/database/index.js';
 import {Op, Transaction} from 'sequelize';
 import Reference from '@/models/levels/References.js';
 import Difficulty from '@/models/levels/Difficulty.js';
@@ -13,6 +13,14 @@ import Creator from '@/models/credits/Creator.js';
 import Team from '@/models/credits/Team.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { sortLevelCredits } from '@/misc/utils/Utility.js';
+import { isWatchablePguDifficultyName } from '@/server/services/references/pguDifficulty.js';
+import {
+  listWatchDifficultyIds,
+  ReferenceWatchError,
+  setDifficultyWatch,
+  setGroupWatch,
+} from '@/server/services/references/referenceWatchService.js';
+import { emitReferenceChanged } from '@/server/services/references/referenceChangeEmit.js';
 
 interface ILevelWithReference extends Level {
   reference?: {
@@ -80,7 +88,7 @@ router.get(
         [{model: Level, as: 'referenceLevels'}, 'id', 'ASC'], // Order levels by ID
       ],
     }).then(difficulties => {
-      return difficulties.filter(diff => /^[PGU]+[0-9]+$/.test(diff.name));
+      return difficulties.filter(diff => isWatchablePguDifficultyName(diff.name));
     });
 
     // Transform the data into a more usable format
@@ -212,6 +220,109 @@ router.get(
   }
 );
 
+router.get(
+  '/watches',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getReferenceWatches',
+    summary: 'List watched reference difficulties',
+    description: 'Returns PGU difficulty ids the signed-in user is watching.',
+    tags: ['Database', 'References'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'difficultyIds' }, ...standardErrorResponses401500 },
+  }),
+  async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({error: 'User not authenticated'});
+    try {
+      const difficultyIds = await listWatchDifficultyIds(userId);
+      return res.json({difficultyIds});
+    } catch (error) {
+      logger.error('Error fetching reference watches:', error);
+      return res.status(500).json({error: 'Failed to fetch reference watches'});
+    }
+  },
+);
+
+router.put(
+  '/watches/group',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putReferenceWatchesGroup',
+    summary: 'Watch or unwatch a PGU group',
+    description: 'Insert or remove watches for every P/G/U difficulty in the group.',
+    tags: ['Database', 'References'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'group and watched',
+      schema: {
+        type: 'object',
+        properties: { group: { type: 'string', enum: ['P', 'G', 'U'] }, watched: { type: 'boolean' } },
+        required: ['group', 'watched'],
+      },
+      required: true,
+    },
+    responses: { 200: { description: 'difficultyIds' }, ...standardErrorResponses401500 },
+  }),
+  async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({error: 'User not authenticated'});
+    if (typeof req.body?.watched !== 'boolean') {
+      return res.status(400).json({error: 'watched must be a boolean'});
+    }
+    try {
+      const difficultyIds = await setGroupWatch(userId, String(req.body.group ?? ''), req.body.watched);
+      return res.json({difficultyIds});
+    } catch (error) {
+      if (error instanceof ReferenceWatchError) {
+        return res.status(error.status).json({error: error.message});
+      }
+      logger.error('Error updating reference watch group:', error);
+      return res.status(500).json({error: 'Failed to update reference watches'});
+    }
+  },
+);
+
+router.put(
+  '/watches/:difficultyId([0-9]{1,20})',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putReferenceWatch',
+    summary: 'Watch or unwatch a difficulty',
+    description: 'Insert or remove a watch for one PGU difficulty.',
+    tags: ['Database', 'References'],
+    security: ['bearerAuth'],
+    params: { difficultyId: { schema: { type: 'string' } } },
+    requestBody: {
+      description: 'watched',
+      schema: { type: 'object', properties: { watched: { type: 'boolean' } }, required: ['watched'] },
+      required: true,
+    },
+    responses: { 200: { description: 'difficultyIds' }, ...standardErrorResponses401500 },
+  }),
+  async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({error: 'User not authenticated'});
+    if (typeof req.body?.watched !== 'boolean') {
+      return res.status(400).json({error: 'watched must be a boolean'});
+    }
+    try {
+      const difficultyIds = await setDifficultyWatch(
+        userId,
+        parseInt(req.params.difficultyId, 10),
+        req.body.watched,
+      );
+      return res.json({difficultyIds});
+    } catch (error) {
+      if (error instanceof ReferenceWatchError) {
+        return res.status(error.status).json({error: error.message});
+      }
+      logger.error('Error updating reference watch:', error);
+      return res.status(500).json({error: 'Failed to update reference watch'});
+    }
+  },
+);
+
 // Create a new reference
 router.post(
   '/',
@@ -249,6 +360,18 @@ router.post(
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+
+    try {
+      await emitReferenceChanged({
+        kind: 'added',
+        levelId: Number(levelId),
+        difficultyIds: [Number(difficultyId)],
+        type: type ?? null,
+        actorId: req.user?.id ?? null,
+      });
+    } catch (emitError) {
+      logger.error('Error emitting reference added:', emitError);
+    }
 
     return res.status(201).json(reference);
   } catch (error) {
@@ -297,12 +420,49 @@ router.put(
         .json({error: 'Reference with these IDs already exists'});
     }
 
+    const previousDifficultyId = Number(reference.difficultyId);
+    const previousLevelId = Number(reference.levelId);
+    const previousType = reference.type ?? null;
+
     await reference.update({
       difficultyId,
       levelId,
       type,
       updatedAt: new Date(),
     });
+
+    const nextDifficultyId = Number(difficultyId);
+    const nextLevelId = Number(levelId);
+    const actorId = req.user?.id ?? null;
+    try {
+      if (previousDifficultyId !== nextDifficultyId || previousLevelId !== nextLevelId) {
+        await emitReferenceChanged({
+          kind: 'removed',
+          levelId: previousLevelId,
+          difficultyIds: [previousDifficultyId],
+          type: previousType,
+          actorId,
+        });
+        await emitReferenceChanged({
+          kind: 'added',
+          levelId: nextLevelId,
+          difficultyIds: [nextDifficultyId],
+          type: type ?? null,
+          actorId,
+        });
+      } else if ((previousType ?? '') !== (type ?? '')) {
+        await emitReferenceChanged({
+          kind: 'type',
+          levelId: nextLevelId,
+          difficultyIds: [nextDifficultyId],
+          type: type ?? null,
+          previousType,
+          actorId,
+        });
+      }
+    } catch (emitError) {
+      logger.error('Error emitting reference update:', emitError);
+    }
 
     return res.json(reference);
   } catch (error) {
@@ -334,7 +494,21 @@ router.delete(
         return res.status(404).json({error: 'Reference not found'});
       }
 
+      const removedLevelId = Number(reference.levelId);
+      const removedDifficultyId = Number(reference.difficultyId);
+      const removedType = reference.type ?? null;
       await reference.destroy();
+      try {
+        await emitReferenceChanged({
+          kind: 'removed',
+          levelId: removedLevelId,
+          difficultyIds: [removedDifficultyId],
+          type: removedType,
+          actorId: req.user?.id ?? null,
+        });
+      } catch (emitError) {
+        logger.error('Error emitting reference removed:', emitError);
+      }
       return res.json({message: 'Reference deleted successfully'});
     } catch (error) {
       logger.error('Error deleting reference:', error);
@@ -407,11 +581,60 @@ router.put(
       return {
         added: toAdd.length,
         removed: toRemove.length,
-        updated: toUpdate.length
+        updated: toUpdate.length,
+        toAdd,
+        toRemove: toRemove.map((ref) => ({
+          levelId: Number(ref.levelId),
+          type: ref.type ?? null,
+        })),
+        toUpdate: toUpdate.map((ref) => ({
+          levelId: ref.levelId,
+          type: ref.type,
+          previousType: currentRefMap.get(ref.levelId)?.type ?? null,
+        })),
       };
     });
 
-    return res.json(result);
+    const diffId = parseInt(difficultyId, 10);
+    const actorId = req.user?.id ?? null;
+    try {
+      for (const ref of result.toAdd) {
+        await emitReferenceChanged({
+          kind: 'added',
+          levelId: ref.levelId,
+          difficultyIds: [diffId],
+          type: ref.type ?? null,
+          actorId,
+        });
+      }
+      for (const ref of result.toRemove) {
+        await emitReferenceChanged({
+          kind: 'removed',
+          levelId: ref.levelId,
+          difficultyIds: [diffId],
+          type: ref.type,
+          actorId,
+        });
+      }
+      for (const ref of result.toUpdate) {
+        await emitReferenceChanged({
+          kind: 'type',
+          levelId: ref.levelId,
+          difficultyIds: [diffId],
+          type: ref.type ?? null,
+          previousType: ref.previousType,
+          actorId,
+        });
+      }
+    } catch (emitError) {
+      logger.error('Error emitting bulk reference changes:', emitError);
+    }
+
+    return res.json({
+      added: result.added,
+      removed: result.removed,
+      updated: result.updated,
+    });
   } catch (error) {
     logger.error('Error bulk updating references:', error);
     return res.status(500).json({ error: 'Failed to bulk update references' });
