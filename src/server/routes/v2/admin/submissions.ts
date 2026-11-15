@@ -54,6 +54,7 @@ import { isAdofaiV2FromVersion } from '@/misc/utils/pass/adofaiVersion.js';
 import { preparePassJudgementsForPersist } from '@/misc/utils/pass/passEraApply.js';
 import { SubmissionJobService } from '@/server/services/submissions/SubmissionJobService.js';
 import type { SubmissionAction, SubmissionKind } from '@/server/services/submissions/submissionJobTypes.js';
+import { LARGE_TEXT_MAX } from '@/misc/utils/textLimits.js';
 import { optionalReasonFromBody } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 import { youtubeChannelService } from '@/server/services/accounts/YouTubeChannelService.js';
 import {
@@ -1003,7 +1004,7 @@ router.put(
       description: 'Optional reason shown to the submitter.',
       schema: {
         type: 'object',
-        properties: { reason: { type: 'string', maxLength: 4000 } },
+        properties: { reason: { type: 'string', maxLength: LARGE_TEXT_MAX } },
       },
     },
     responses: { 202: { description: 'Queued' }, 409: { description: 'Submission is locked' }, ...standardErrorResponses404500 },
@@ -1076,7 +1077,7 @@ router.put(
       description: 'Optional reason shown to the submitter.',
       schema: {
         type: 'object',
-        properties: { reason: { type: 'string', maxLength: 4000 } },
+        properties: { reason: { type: 'string', maxLength: LARGE_TEXT_MAX } },
       },
     },
     responses: { 202: { description: 'Queued' }, 409: { description: 'Submission is locked' }, ...standardErrorResponses500 },

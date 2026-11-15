@@ -9,6 +9,7 @@ import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
 import User from '@/models/auth/User.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
+import {clipDiscordDescription} from '@/misc/utils/textLimits.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {sortCurationTypesByOrder} from '@/misc/utils/data/curationOrdering.js';
 import {
@@ -280,13 +281,13 @@ export async function createCurationThread(input: {
       .trim();
     return `[${label}](${levelUrl(levelId)})`;
   }))).filter((line): line is string => Boolean(line));
-  const description = [
+  const description = clipDiscordDescription([
     'Reason:',
     input.reason || '',
     '',
     'Comparisons:',
     comparisonLines.join('\n') || '—',
-  ].join('\n').slice(0, 4000);
+  ].join('\n'));
   const mention = await createdByLine(input.actorUserId);
   const team = teamPing(input.ping === true);
   const videoUrl = await followUpVideoUrl(input.levelId, chart);

@@ -53,10 +53,10 @@ import {
 } from '@/server/services/curations/zenCurationSessionService.js';
 import {parseZenDeckSize, ZEN_DEFAULT_DECK_SIZE} from '@/server/services/ratings/zenRatingConstants.js';
 import {ZenSessionError} from '@/server/services/ratings/zenRatingSessionPayload.js';
+import {LARGE_TEXT_MAX} from '@/misc/utils/textLimits.js';
 
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
-const MAX_COMMENT_LENGTH = 10_000;
 
 const SETTLE_FLAGS = [
   permissionFlags.CURATOR,
@@ -401,8 +401,8 @@ async function upsertOwnPicks(
 ) {
   const picks = await assertCurationRatingPicks(parseCurationRatingPicks(body), transaction);
   const commentRaw = typeof body.comment === 'string' ? body.comment : '';
-  if (commentRaw.length > MAX_COMMENT_LENGTH) {
-    throw new CurationRatingPickError(400, `Comment must not exceed ${MAX_COMMENT_LENGTH} characters`);
+  if (commentRaw.length > LARGE_TEXT_MAX) {
+    throw new CurationRatingPickError(400, `Comment must not exceed ${LARGE_TEXT_MAX} characters`);
   }
 
   if (picksAreEmpty(picks)) {

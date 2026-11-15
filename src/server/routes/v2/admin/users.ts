@@ -17,6 +17,7 @@ import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import {notificationService} from '@/server/services/notifications/NotificationService.js';
 import {NOTIFICATION_TYPES} from '@/server/services/notifications/types.js';
+import {LARGE_TEXT_MAX} from '@/misc/utils/textLimits.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
@@ -772,7 +773,7 @@ router.post(
       const { userId } = req.params;
       const body = (req.body || {}) as { message?: unknown };
       const message = typeof body.message === 'string' ? body.message.trim() : '';
-      if (!message || message.length > 4000) {
+      if (!message || message.length > LARGE_TEXT_MAX) {
         return res.status(400).json({ error: 'Notes are required' });
       }
 

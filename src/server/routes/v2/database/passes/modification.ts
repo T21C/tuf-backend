@@ -13,6 +13,7 @@ import sequelize, { getSequelizeForModelGroup } from '@/config/db.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { updateWorldsFirstFlags, updateWorldsFirstPPStatus } from './index.js';
 import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
+import { LARGE_TEXT_MAX } from '@/misc/utils/textLimits.js';
 import { optionalReasonFromBody, sanitizePassDetails } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 import { IJudgements, unwrapJudgements } from '@/misc/utils/pass/CalcAcc.js';
 import { isWrongJudgementFromChart } from '@/misc/utils/pass/wrongJudgementSync.js';
@@ -465,7 +466,7 @@ router.delete(
       description: 'Optional reason shown to the pass owner.',
       schema: {
         type: 'object',
-        properties: { reason: { type: 'string', maxLength: 4000 } },
+        properties: { reason: { type: 'string', maxLength: LARGE_TEXT_MAX } },
       },
     },
     responses: { 200: { description: 'Deleted pass and message' }, 404: { description: 'Pass not found' }, ...standardErrorResponses500 },

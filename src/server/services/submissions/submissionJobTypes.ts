@@ -1,3 +1,5 @@
+import {LARGE_TEXT_MAX} from '@/misc/utils/textLimits.js';
+
 export type SubmissionKind = 'level' | 'pass';
 export type SubmissionAction = 'approve' | 'decline';
 
@@ -128,7 +130,7 @@ export function parseQueuePayload(raw: string): SubmissionQueuePayload | null {
       return null;
     }
     const reason = typeof parsed.reason === 'string'
-      ? parsed.reason.slice(0, 4000)
+      ? parsed.reason.slice(0, LARGE_TEXT_MAX)
       : parsed.reason === null
         ? null
         : undefined;

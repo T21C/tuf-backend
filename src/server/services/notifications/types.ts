@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {LARGE_TEXT_MAX} from '@/misc/utils/textLimits.js';
 
 export const NOTIFICATION_TYPES = {
   PassSubmissionSubmitted: 'pass.submission.submitted',
@@ -46,7 +47,7 @@ export const chartSnapshotPayloadSchema = z.object({
   levelId: z.number().int().positive(),
   song: z.string().nullable(),
   artist: z.string().nullable(),
-  reason: z.string().max(4000).nullable().optional(),
+  reason: z.string().max(LARGE_TEXT_MAX).nullable().optional(),
 });
 
 export type ChartSnapshotPayload = z.infer<typeof chartSnapshotPayloadSchema>;
@@ -69,7 +70,7 @@ export const chartSubmissionPayloadSchema = z.object({
   levelId: z.number().int().positive().nullable(),
   song: z.string().nullable(),
   artist: z.string().nullable(),
-  reason: z.string().max(4000).nullable().optional(),
+  reason: z.string().max(LARGE_TEXT_MAX).nullable().optional(),
 });
 
 export type ChartSubmissionPayload = z.infer<typeof chartSubmissionPayloadSchema>;
@@ -95,7 +96,7 @@ export const requestUpdatedPayloadSchema = z.object({
   artist: z.string().nullable(),
   suffix: z.string().nullable().optional(),
   event: z.enum(['status', 'note']).optional(),
-  publicNote: z.string().max(4000).nullable().optional(),
+  publicNote: z.string().max(LARGE_TEXT_MAX).nullable().optional(),
   actorName: z.string().nullable().optional(),
   requestedRating: z.string().nullable().optional(),
   previousDifficulty: z.string().nullable().optional(),
@@ -140,7 +141,7 @@ export const followingCreatorLevelPayloadSchema = z.object({
 export type FollowingCreatorLevelPayload = z.infer<typeof followingCreatorLevelPayloadSchema>;
 
 export const adminNoticePayloadSchema = z.object({
-  message: z.string().trim().min(1).max(4000),
+  message: z.string().trim().min(1).max(LARGE_TEXT_MAX),
   actorName: z.string().nullable().optional(),
 });
 

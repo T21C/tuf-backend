@@ -8,6 +8,7 @@ import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import User from '@/models/auth/User.js';
 import Rating from '@/models/levels/Rating.js';
 import Pass from '@/models/passes/Pass.js';
+import {clipDiscordDescription} from '@/misc/utils/textLimits.js';
 import {normalizePguRequest} from '@/misc/utils/data/levelRequestValidation.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {
@@ -276,13 +277,13 @@ export async function createRatingThread(input: {
     const label = `${emoji} ${withCreator(row.song || `#${levelId}`, creatorLabel(row))}`.replace(/\s+/g, ' ').trim();
     return `[${label}](${levelUrl(levelId)})`;
   }))).filter((line): line is string => Boolean(line));
-  const description = [
+  const description = clipDiscordDescription([
     'Reason:',
     input.reason || '',
     '',
     'Comparisons:',
     comparisonLines.join('\n') || '—',
-  ].join('\n').slice(0, 4000);
+  ].join('\n'));
   const mention = await createdByLine(input.actorUserId);
   const team = ratingTeamPing(input.ping === true);
   const videoUrl = await topScoreClearVideoUrl(input.levelId);
