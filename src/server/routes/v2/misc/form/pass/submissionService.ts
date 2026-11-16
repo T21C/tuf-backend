@@ -50,6 +50,29 @@ export interface CreatePassSubmissionResult {
   message: string;
 }
 
+export interface UpdatePassSubmissionInput {
+  userId: string;
+  submissionId: number;
+  formPayload: Record<string, unknown>;
+}
+
+export interface UpdatePassSubmissionResult {
+  success: true;
+  message: string;
+  submission: Record<string, unknown>;
+}
+
+const OWNER_PASS_INCLUDES = [
+  { model: PassSubmissionJudgements, as: 'judgements' },
+  { model: PassSubmissionFlags, as: 'flags' },
+  {
+    model: Player,
+    as: 'assignedPlayer',
+    required: false,
+    attributes: ['id', 'name'],
+  },
+];
+
 /**
  * Pure-JSON pass submission flow. The pass branch is much simpler than the
  * level branch — no uploads, no evidence, no multi-phase orchestration.
@@ -243,6 +266,215 @@ export async function createPassSubmission(
   }
 }
 
+export async function getOwnedPassSubmission(
+  userId: string,
+  submissionId: number,
+): Promise<Record<string, unknown>> {
+  const submission = await PassSubmission.findOne({
+    where: { id: submissionId, userId },
+    include: [...OWNER_PASS_INCLUDES],
+  });
+  if (!submission) throw formError.notFound('Submission not found');
+  return submission.get({ plain: true }) as Record<string, unknown>;
+}
+
+/**
+ * Owner update of a pending pass submission. Video URL is resolved/cleaned;
+ * upload time and title are not overwritten from video metadata. rawTime comes
+ * from the editor as-is when valid, otherwise the stored value is kept.
+ */
+export async function updatePassSubmission(
+  input: UpdatePassSubmissionInput,
+): Promise<UpdatePassSubmissionResult> {
+  const { userId, submissionId, formPayload } = input;
+
+  const existing = await PassSubmission.findOne({
+    where: { id: submissionId, userId },
+    include: [...OWNER_PASS_INCLUDES],
+  });
+  if (!existing) throw formError.notFound('Submission not found');
+  if (existing.status !== 'pending') {
+    throw formError.bad('Only pending pass submissions can be edited');
+  }
+
+  const resolvedPayload = await applyResolvedVideoLinkToPayload(
+    flattenEditorPassPayload(formPayload, existing),
+  );
+  const sanitized = parseAndSanitizePassForm(resolvedPayload);
+
+  let transaction: Transaction | undefined;
+  try {
+    transaction = await sequelize.transaction();
+
+    const submission = await PassSubmission.findOne({
+      where: { id: submissionId, userId },
+      include: [...OWNER_PASS_INCLUDES],
+      transaction,
+    });
+    if (!submission) throw formError.notFound('Submission not found');
+    if (submission.status !== 'pending') {
+      throw formError.bad('Only pending pass submissions can be edited');
+    }
+
+    const playerId = sanitized.passerId;
+    if (playerId == null) {
+      throw formError.bad('Missing or invalid required field: playerId', { field: 'playerId' });
+    }
+    const player = await Player.findByPk(playerId, { transaction });
+    if (!player) throw formError.notFound('Player not found');
+    sanitized.passer = player.name;
+    sanitized.passerId = player.id;
+    sanitized.passerRequest = false;
+
+    const level = await loadLevelOr404(sanitized.levelId, transaction);
+    try {
+      assertPassKeyCountForDifficulty(level.difficulty?.name, sanitized.keyCount);
+    } catch (err) {
+      throw formError.bad(
+        err instanceof Error
+          ? err.message
+          : `Missing or invalid keyCount — must be an integer between 1 and ${MAX_PASS_KEY_COUNT}`,
+        { field: 'keyCount' },
+      );
+    }
+
+    const feelingExplanation = isGqOrUqDifficulty(level.difficulty?.name)
+      ? submission.feelingExplanation
+      : null;
+
+    const prepared = preparePassJudgementsForPersist({
+      judgements: sanitized.judgements,
+      adofaiVersion: sanitized.adofaiVersion,
+      isXPerfectMode: sanitized.isXPerfectMode,
+      passMetaFlags: submission.flags?.passMetaFlags ?? 0,
+      midspinCount: (level as { midspinCount?: unknown }).midspinCount,
+    });
+    await assertNoDuplicatePassSubmission(sanitized, prepared, transaction, submission.id);
+    await assertNoDuplicatePass(sanitized, prepared, transaction);
+
+    const { score, accuracy } = computeScoreAndAccuracy(sanitized, prepared.judgements, level);
+    if (!Number.isFinite(score) || !Number.isFinite(accuracy)) {
+      throw formError.bad('Computed score/accuracy is not a finite number', {
+        details: { score, accuracy, levelId: sanitized.levelId },
+      });
+    }
+
+    await submission.update(
+      {
+        levelId: sanitized.levelId,
+        speed: sanitized.speed,
+        scoreV2: score,
+        accuracy,
+        passer: sanitized.passer,
+        passerId: sanitized.passerId,
+        passerRequest: false,
+        feelingDifficulty: sanitized.feelingDifficulty,
+        expectedDifficulty: sanitized.expectedDifficulty,
+        details: sanitized.details,
+        feelingExplanation,
+        keyCount: sanitized.keyCount,
+        videoLink: sanitized.videoLink,
+        rawTime: sanitized.rawTime,
+        assignedPlayerId: sanitized.passerId,
+        is12K: sanitized.is12K,
+        is16K: sanitized.is16K,
+        isNoHoldTap: sanitized.isNoHoldTap,
+      },
+      { transaction },
+    );
+
+    if (submission.judgements) {
+      await submission.judgements.update({ ...prepared.judgements }, { transaction });
+    } else {
+      await PassSubmissionJudgements.create(
+        { ...prepared.judgements, passSubmissionId: submission.id },
+        { transaction },
+      );
+    }
+
+    await PassSubmissionFlags.upsert(
+      {
+        passSubmissionId: submission.id,
+        is12K: sanitized.is12K,
+        isNoHoldTap: sanitized.isNoHoldTap,
+        is16K: sanitized.is16K,
+        isAdofaiV2: prepared.isAdofaiV2,
+        adofaiVersion: sanitized.adofaiVersion,
+        isXPerfectMode: prepared.isXPerfectMode,
+        passMetaFlags: prepared.passMetaFlagsDb,
+      },
+      { transaction },
+    );
+
+    await submission.reload({
+      include: [...OWNER_PASS_INCLUDES],
+      transaction,
+    });
+
+    await transaction.commit();
+    transaction = undefined;
+
+    sseManager.broadcastToSources([SSE_SOURCES.admin], {
+      type: 'submissionUpdate',
+      data: {
+        action: 'update',
+        submissionId: String(submission.id),
+        submissionType: 'pass',
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Pass submission updated successfully',
+      submission: submission.get({ plain: true }) as Record<string, unknown>,
+    };
+  } catch (err) {
+    if (transaction) await safeTransactionRollback(transaction);
+    throw mapPassSubmissionDbError(err);
+  }
+}
+
+function flattenEditorPassPayload(
+  body: Record<string, unknown>,
+  existing: PassSubmission,
+): Record<string, unknown> {
+  const nested =
+    body.judgements && typeof body.judgements === 'object'
+      ? (body.judgements as Record<string, unknown>)
+      : {};
+  const vidUploadTime = body.vidUploadTime ?? body.rawTime;
+  const rawTime = validateDateInput(vidUploadTime) ?? existing.rawTime ?? new Date();
+  const feelingRaw = body.feelingDifficulty ?? body.feelingRating;
+  const feelingTrimmed = typeof feelingRaw === 'string' ? feelingRaw.trim() : '';
+  return {
+    levelId: body.levelId,
+    videoLink: body.videoLink,
+    title: existing.title || '',
+    rawTime,
+    passer: existing.passer,
+    passerId: body.playerId ?? body.passerId ?? existing.passerId,
+    passerRequest: false,
+    speed: body.speed,
+    feelingDifficulty: feelingTrimmed || existing.feelingDifficulty || '',
+    expectedDifficulty: body.expectedDifficulty ?? body.expectedRating,
+    details: body.details,
+    keyCount: body.keyCount,
+    isNoHoldTap: body.isNoHoldTap,
+    isAdofaiV2: body.isAdofaiV2,
+    adofaiVersion: body.adofaiVersion,
+    isXPerfectMode: body.isXPerfectMode,
+    earlyDouble: nested.earlyDouble ?? body.earlyDouble,
+    earlySingle: nested.earlySingle ?? body.earlySingle,
+    ePerfect: nested.ePerfect ?? body.ePerfect,
+    perfectMinus: nested.perfectMinus ?? body.perfectMinus,
+    perfect: nested.perfect ?? body.perfect,
+    perfectPlus: nested.perfectPlus ?? body.perfectPlus,
+    lPerfect: nested.lPerfect ?? body.lPerfect,
+    lateSingle: nested.lateSingle ?? body.lateSingle,
+    lateDouble: nested.lateDouble ?? body.lateDouble,
+  };
+}
+
 function mapPassSubmissionDbError(err: unknown): unknown {
   const parent = (err as { parent?: { code?: string; sqlMessage?: string }; original?: { code?: string } })
     ?.parent;
@@ -292,6 +524,7 @@ async function assertNoDuplicatePassSubmission(
   sanitized: PassFormSanitised,
   prepared: ReturnType<typeof preparePassJudgementsForPersist>,
   transaction: Transaction,
+  excludeSubmissionId?: number,
 ): Promise<void> {
   const existingSubmission = await PassSubmission.findOne({
     where: {
@@ -303,6 +536,7 @@ async function assertNoDuplicatePassSubmission(
       title: sanitized.title,
       videoLink: sanitized.videoLink,
       rawTime: sanitized.rawTime,
+      ...(excludeSubmissionId != null ? { id: { [Op.ne]: excludeSubmissionId } } : {}),
     },
     transaction,
   });
