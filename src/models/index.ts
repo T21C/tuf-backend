@@ -24,6 +24,7 @@ import RefreshToken from './auth/RefreshToken.js';
 import StepUpCode from './auth/StepUpCode.js';
 import TrustedDevice from './auth/TrustedDevice.js';
 import PasskeyCredential from './auth/PasskeyCredential.js';
+import TotpRecoveryCode from './auth/TotpRecoveryCode.js';
 import WebAuthnChallenge from './auth/WebAuthnChallenge.js';
 import Creator from './credits/Creator.js';
 import LevelCredit from './levels/LevelCredit.js';
@@ -148,6 +149,7 @@ export const db = {
     StepUpCode,
     TrustedDevice,
     PasskeyCredential,
+    TotpRecoveryCode,
     WebAuthnChallenge,
     Creator,
     LevelCredit,
@@ -269,6 +271,7 @@ export {
   StepUpCode,
   TrustedDevice,
   PasskeyCredential,
+  TotpRecoveryCode,
   WebAuthnChallenge,
   RateLimit,
   ProfileActionLog,

@@ -1,29 +1,28 @@
-import { hasVerifiedEmail } from '@/server/services/accounts/AccountCredentialService.js';
-import PasskeyCredential from '@/models/auth/PasskeyCredential.js';
+import {hasVerifiedEmail} from '@/server/services/accounts/AccountCredentialService.js';
 
 /**
- * Login-time MFA methods. Extend this union (and getAvailableMfaMethods)
- * when adding TOTP — verify switches on the same list.
+ * Login-time MFA methods after a password. Passkeys remain in the union for
+ * existing MFA-pending tokens; new challenges only add email and totp.
  */
-export type MfaMethod = 'email' | 'passkey';
+export type MfaMethod = 'email' | 'totp' | 'passkey';
 
-export const MFA_METHODS = ['email', 'passkey'] as const satisfies readonly MfaMethod[];
+export const MFA_METHODS = ['email', 'totp'] as const satisfies readonly MfaMethod[];
 
 /**
  * Which MFA methods the account can currently satisfy.
  * Email is available when the account has a verified inbox.
- * Passkey is available when the account has at least one registered credential.
+ * TOTP is available when the authenticator has been confirmed.
  */
-export async function getAvailableMfaMethods(user: {
+export function getAvailableMfaMethods(user: {
   id?: string;
   email?: string | null;
   permissionFlags?: bigint | number | null;
-} | null | undefined): Promise<MfaMethod[]> {
+  totpEnabled?: boolean | null;
+} | null | undefined): MfaMethod[] {
   if (!user?.id) return [];
   const methods: MfaMethod[] = [];
   if (hasVerifiedEmail(user)) methods.push('email');
-  const passkeyCount = await PasskeyCredential.count({ where: { userId: user.id } });
-  if (passkeyCount > 0) methods.push('passkey');
+  if (user.totpEnabled) methods.push('totp');
   return methods;
 }
 
