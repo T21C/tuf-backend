@@ -21,6 +21,10 @@ export interface UserAttributes {
   emailVerifyTokenHash?: string | null;
   emailVerifyExpires?: Date | null;
   passwordResetTokenHash?: string | null;
+  totpSecretEnc?: string | null;
+  totpPendingSecretEnc?: string | null;
+  totpEnabled?: boolean;
+  totpLastAcceptedStep?: string | number | null;
   /** @deprecated Boolean flag; use permissionFlags.EMAIL_VERIFIED. */
   isEmailVerified: boolean;
   isRater: boolean;
@@ -66,6 +70,10 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare emailVerifyTokenHash?: string | null;
   declare emailVerifyExpires?: Date | null;
   declare passwordResetTokenHash?: string | null;
+  declare totpSecretEnc?: string | null;
+  declare totpPendingSecretEnc?: string | null;
+  declare totpEnabled?: boolean;
+  declare totpLastAcceptedStep?: string | number | null;
   declare isEmailVerified: boolean;
   declare isRater: boolean;
   declare isSuperAdmin: boolean;
@@ -151,6 +159,26 @@ User.init(
     },
     passwordResetTokenHash: {
       type: DataTypes.STRING(64),
+      allowNull: true,
+      defaultValue: null,
+    },
+    totpSecretEnc: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+    },
+    totpPendingSecretEnc: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+    },
+    totpEnabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    totpLastAcceptedStep: {
+      type: DataTypes.BIGINT,
       allowNull: true,
       defaultValue: null,
     },

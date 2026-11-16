@@ -4,6 +4,7 @@ import RefreshToken from './RefreshToken.js';
 import StepUpCode from './StepUpCode.js';
 import TrustedDevice from './TrustedDevice.js';
 import PasskeyCredential from './PasskeyCredential.js';
+import TotpRecoveryCode from './TotpRecoveryCode.js';
 import WebAuthnChallenge from './WebAuthnChallenge.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
@@ -57,6 +58,15 @@ export function initializeAuthAssociations() {
     as: 'webauthnChallenges',
   });
   WebAuthnChallenge.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  User.hasMany(TotpRecoveryCode, {
+    foreignKey: 'userId',
+    as: 'totpRecoveryCodes',
+  });
+  TotpRecoveryCode.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
   });

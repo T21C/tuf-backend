@@ -68,6 +68,7 @@ export async function buildAuthProfileUser(userId: string) {
     permissionFlags: user.permissionFlags,
     playerId: user.playerId,
     password: user.password ? true : null,
+    totpEnabled: Boolean(user.totpEnabled),
     player,
     lastUsernameChange: user.lastUsernameChange,
     previousUsername: user.previousUsername,

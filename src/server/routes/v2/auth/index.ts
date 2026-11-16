@@ -7,7 +7,9 @@ import youtubeChannelRoutes from './youtubeChannels.js';
 import profileRoutes from '@/server/routes/v2/profile/profile.js';
 import forgotPasswordRoutes from './forgotPassword.js';
 import passkeyRoutes from './passkeys.js';
+import totpRoutes from './totp.js';
 import { authController } from '@/server/controllers/auth.js';
+import { totpController } from '@/server/controllers/totp.js';
 import { Auth } from '@/server/middleware/auth.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import {
@@ -30,6 +32,7 @@ router.use('/youtube-channels', youtubeChannelRoutes);
 router.use('/profile', profileRoutes);
 router.use('/forgot-password', forgotPasswordRoutes);
 router.use('/passkeys', passkeyRoutes);
+router.use('/totp', totpRoutes);
 router.post(
   '/step-up/email',
   Auth.user(),
@@ -183,6 +186,64 @@ router.post(
     },
   }),
   (req, res) => authController.verifyLoginMfaPasskey(req, res),
+);
+router.post(
+  '/mfa/totp/verify',
+  ApiDoc({
+    operationId: 'postAuthMfaTotpVerify',
+    summary: 'Verify login MFA with an authenticator code',
+    description:
+      'Confirm the 6-digit TOTP code for the MFA-pending login and issue a session. Optionally remember this device.',
+    tags: ['Auth'],
+    requestBody: {
+      description: 'Authenticator code and remember-device flag',
+      schema: {
+        type: 'object',
+        properties: {
+          code: {type: 'string'},
+          rememberDevice: {type: 'boolean'},
+        },
+        required: ['code'],
+      },
+      required: true,
+    },
+    responses: {
+      200: {description: 'Session issued', schema: successMessageSchema},
+      400: {schema: errorResponseSchema},
+      401: {schema: errorResponseSchema},
+      429: {schema: errorResponseSchema},
+    },
+  }),
+  (req, res) => totpController.verifyLoginTotp(req, res),
+);
+router.post(
+  '/mfa/recovery/verify',
+  ApiDoc({
+    operationId: 'postAuthMfaRecoveryVerify',
+    summary: 'Verify login MFA with a recovery code',
+    description:
+      'Confirm a one-time authenticator recovery code for the MFA-pending login and issue a session.',
+    tags: ['Auth'],
+    requestBody: {
+      description: 'Recovery code and remember-device flag',
+      schema: {
+        type: 'object',
+        properties: {
+          code: {type: 'string'},
+          rememberDevice: {type: 'boolean'},
+        },
+        required: ['code'],
+      },
+      required: true,
+    },
+    responses: {
+      200: {description: 'Session issued', schema: successMessageSchema},
+      400: {schema: errorResponseSchema},
+      401: {schema: errorResponseSchema},
+      429: {schema: errorResponseSchema},
+    },
+  }),
+  (req, res) => totpController.verifyLoginRecovery(req, res),
 );
 router.get(
   '/trusted-devices',
