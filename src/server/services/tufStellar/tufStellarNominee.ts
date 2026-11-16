@@ -1,4 +1,4 @@
-export const MONTHLY_NOMINEE_RATING_THRESHOLD = 100;
+export const MONTHLY_NOMINEE_THRESHOLD = 100;
 
 export function utcMonthKey(now: Date): string {
   const year = now.getUTCFullYear();
@@ -13,11 +13,11 @@ export function utcMonthBounds(now: Date): {start: Date; next: Date} {
 }
 
 export function shouldEnqueueMonthlyNominee(input: {
-  isNewOfficialRaterVote: boolean;
+  isNewOfficialVote: boolean;
   isAutorater: boolean;
   priorOfficialCountThisMonth: number;
 }): boolean {
-  if (!input.isNewOfficialRaterVote) return false;
+  if (!input.isNewOfficialVote) return false;
   if (input.isAutorater) return false;
-  return input.priorOfficialCountThisMonth === MONTHLY_NOMINEE_RATING_THRESHOLD - 1;
+  return input.priorOfficialCountThisMonth === MONTHLY_NOMINEE_THRESHOLD - 1;
 }

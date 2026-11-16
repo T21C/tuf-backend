@@ -118,13 +118,18 @@ export type ReferenceChangedPayload = {
   diffId?: number | null;
 };
 
+export type TufStellarNomineeKind = 'rating' | 'curation';
+
 export type DiscordTufStellarNomineePayload = {
   userId: string;
   username: string;
   avatarUrl: string | null;
   playerId: number | null;
   monthKey: string;
-  officialRatingsThisMonth: number;
+  kind: TufStellarNomineeKind;
+  officialCountThisMonth: number;
+  /** Events queued before curation nominees only sent this field. */
+  officialRatingsThisMonth?: number;
 };
 
 export const OUTBOX_EVENT_TYPES = {

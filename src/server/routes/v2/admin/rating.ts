@@ -62,9 +62,9 @@ import {
   ZenSessionError,
 } from '@/server/services/ratings/zenRatingSessionPayload.js';
 import {
-  countOfficialRatingsInUtcMonth,
+  countOfficialVotesInUtcMonth,
   enqueueTufStellarNomineeIfEligible,
-} from '@/server/services/ratings/tufStellarNomineeService.js';
+} from '@/server/services/tufStellar/tufStellarNomineeService.js';
 import {
   RatingActionError,
   blockAutoRank,
@@ -691,7 +691,7 @@ router.put(
         hasFlag(user, permissionFlags.RATER);
       const nomineeNow = new Date();
       const priorOfficialCountThisMonth = isNewOfficialRaterVote
-        ? await countOfficialRatingsInUtcMonth(user.id, nomineeNow, transaction)
+        ? await countOfficialVotesInUtcMonth('rating', user.id, nomineeNow, transaction)
         : 0;
       const ratedInZen = ratedInZenDecision.ratedInZen;
 
@@ -751,8 +751,9 @@ router.put(
       if (isNewOfficialRaterVote) {
         try {
           await enqueueTufStellarNomineeIfEligible({
+            kind: 'rating',
             user,
-            isNewOfficialRaterVote: true,
+            isNewOfficialVote: true,
             priorOfficialCountThisMonth,
             now: nomineeNow,
           });

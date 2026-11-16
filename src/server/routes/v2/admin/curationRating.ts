@@ -54,6 +54,10 @@ import {
 import {parseZenDeckSize, ZEN_DEFAULT_DECK_SIZE} from '@/server/services/ratings/zenRatingConstants.js';
 import {ZenSessionError} from '@/server/services/ratings/zenRatingSessionPayload.js';
 import {LARGE_TEXT_MAX} from '@/misc/utils/textLimits.js';
+import {
+  countOfficialVotesInUtcMonth,
+  enqueueTufStellarNomineeIfEligible,
+} from '@/server/services/tufStellar/tufStellarNomineeService.js';
 
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -398,7 +402,12 @@ async function upsertOwnPicks(
   userId: string,
   body: Record<string, unknown>,
   transaction: import('sequelize').Transaction,
-) {
+): Promise<{
+  isNewVote: boolean;
+  priorOfficialCountThisMonth: number;
+  nomineeNow: Date;
+}> {
+  const nomineeNow = new Date();
   const picks = await assertCurationRatingPicks(parseCurationRatingPicks(body), transaction);
   const commentRaw = typeof body.comment === 'string' ? body.comment : '';
   if (commentRaw.length > LARGE_TEXT_MAX) {
@@ -410,8 +419,17 @@ async function upsertOwnPicks(
       where: {curationRatingId: ratingId, userId},
       transaction,
     });
-    return picks;
+    return {isNewVote: false, priorOfficialCountThisMonth: 0, nomineeNow};
   }
+
+  const existing = await CurationRatingDetail.findOne({
+    where: {curationRatingId: ratingId, userId},
+    transaction,
+  });
+  const isNewVote = !existing;
+  const priorOfficialCountThisMonth = isNewVote
+    ? await countOfficialVotesInUtcMonth('curation', userId, nomineeNow, transaction)
+    : 0;
 
   await CurationRatingDetail.upsert(
     {
@@ -426,7 +444,7 @@ async function upsertOwnPicks(
     },
     {transaction},
   );
-  return picks;
+  return {isNewVote, priorOfficialCountThisMonth, nomineeNow};
 }
 
 router.put(
@@ -492,8 +510,26 @@ router.put(
         throw error;
       }
 
-      await upsertOwnPicks(id, req.user.id, body, transaction);
+      const saved = await upsertOwnPicks(id, req.user.id, body, transaction);
       await transaction.commit();
+
+      if (saved.isNewVote) {
+        try {
+          await enqueueTufStellarNomineeIfEligible({
+            kind: 'curation',
+            user: req.user,
+            isNewOfficialVote: true,
+            priorOfficialCountThisMonth: saved.priorOfficialCountThisMonth,
+            now: saved.nomineeNow,
+          });
+        } catch (err) {
+          logger.error('[tufstellar-nominee] Failed to enqueue nominee webhook', {
+            kind: 'curation',
+            userId: req.user.id,
+            error: err,
+          });
+        }
+      }
 
       return res.json({
         message: 'Curation rating updated successfully',
