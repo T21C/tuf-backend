@@ -11,6 +11,7 @@ export const CLIENT_PREFERENCE_KEYS = {
   SUBMISSIONS_CDN_TOS_AGREED: 'submissions.cdnTos.agreed',
   SUBMISSIONS_PASS_RULES_READ: 'submissions.passRules.read',
   APP_LANGUAGE: 'appLanguage',
+  APP_FONT: 'appFont',
   NAV_DROPDOWN_CLICK_MODE: 'navigation.dropdownClickMode',
   SUBMISSION_MINIMAL_MOTION: 'submission.minimalMotion',
   SUBMISSION_DISABLE_MASCOTS: 'submission.disableMascots',
@@ -21,6 +22,21 @@ export const CLIENT_PREFERENCE_KEYS = {
 export type ClientPreferenceKey =
   (typeof CLIENT_PREFERENCE_KEYS)[keyof typeof CLIENT_PREFERENCE_KEYS];
 
+/** Keep ids in sync with client/src/utils/fontPresets.js */
+export const APP_FONT_PRESET_IDS = [
+  'roboto',
+  'inter',
+  'nunito',
+  'atkinson',
+  'plex',
+  'sourceSerif',
+  'system',
+] as const;
+
+export type AppFontPresetId = (typeof APP_FONT_PRESET_IDS)[number];
+
+const APP_FONT_PRESET_ID_SET = new Set<string>(APP_FONT_PRESET_IDS);
+
 export type ClientPreferencesPayload = {
   [CLIENT_PREFERENCE_KEYS.HOME_RESOURCES_CTA_DISMISSED]?: true;
   [CLIENT_PREFERENCE_KEYS.MODS_START_GUIDE_CTA_DISMISSED]?: true;
@@ -29,6 +45,7 @@ export type ClientPreferencesPayload = {
   [CLIENT_PREFERENCE_KEYS.SUBMISSIONS_CDN_TOS_AGREED]?: true;
   [CLIENT_PREFERENCE_KEYS.SUBMISSIONS_PASS_RULES_READ]?: true;
   [CLIENT_PREFERENCE_KEYS.APP_LANGUAGE]?: string | null;
+  [CLIENT_PREFERENCE_KEYS.APP_FONT]?: AppFontPresetId;
   [CLIENT_PREFERENCE_KEYS.NAV_DROPDOWN_CLICK_MODE]?: 'cycle' | 'pin';
   [CLIENT_PREFERENCE_KEYS.SUBMISSION_MINIMAL_MOTION]?: boolean;
   [CLIENT_PREFERENCE_KEYS.SUBMISSION_DISABLE_MASCOTS]?: boolean;
@@ -67,6 +84,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isNavDropdownClickMode(value: unknown): value is 'cycle' | 'pin' {
   return value === 'cycle' || value === 'pin';
+}
+
+function isAppFontPresetId(value: unknown): value is AppFontPresetId {
+  return typeof value === 'string' && APP_FONT_PRESET_ID_SET.has(value);
 }
 
 function sanitizeHiddenTagIds(value: unknown): number[] | null {
@@ -126,6 +147,14 @@ export function sanitizeClientPreferencePatch(
         throw new ClientPreferenceError('appLanguage is not a configured site language');
       }
       patch[CLIENT_PREFERENCE_KEYS.APP_LANGUAGE] = code;
+      continue;
+    }
+
+    if (key === CLIENT_PREFERENCE_KEYS.APP_FONT) {
+      if (!isAppFontPresetId(raw)) {
+        throw new ClientPreferenceError('appFont is not a configured font preset');
+      }
+      patch[CLIENT_PREFERENCE_KEYS.APP_FONT] = raw;
       continue;
     }
 

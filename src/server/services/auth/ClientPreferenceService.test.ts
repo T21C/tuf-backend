@@ -86,6 +86,27 @@ test('appLanguage null clears the stored override', () => {
   assert.deepEqual(stored, {});
 });
 
+test('appFont accepts preset ids and rejects unknown ones', () => {
+  const patch = sanitizeClientPreferencePatch({
+    [CLIENT_PREFERENCE_KEYS.APP_FONT]: 'inter',
+  });
+  assert.equal(patch[CLIENT_PREFERENCE_KEYS.APP_FONT], 'inter');
+  assert.throws(
+    () => sanitizeClientPreferencePatch({
+      [CLIENT_PREFERENCE_KEYS.APP_FONT]: 'comicSans',
+    }),
+    ClientPreferenceError,
+  );
+});
+
+test('normalizeStored drops unknown appFont ids', () => {
+  const cleaned = normalizeStoredClientPreferences({
+    [CLIENT_PREFERENCE_KEYS.APP_FONT]: 'comicSans',
+    [CLIENT_PREFERENCE_KEYS.APP_LANGUAGE]: 'kr',
+  });
+  assert.deepEqual(cleaned, {[CLIENT_PREFERENCE_KEYS.APP_LANGUAGE]: 'kr'});
+});
+
 test('dropdownClickMode only allows cycle or pin', () => {
   assert.equal(
     sanitizeClientPreferencePatch({
