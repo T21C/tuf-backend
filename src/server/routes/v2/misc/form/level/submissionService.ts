@@ -22,6 +22,7 @@ import { OAuthProvider, User } from '@/models/index.js';
 
 import { levelSubmissionHook } from '@/server/routes/v2/webhooks/webhook.js';
 import { broadcastSubmissionQueueChange } from '@/server/services/submissions/submissionQueueEvents.js';
+import { safeSyncPendingSubmissionDocument } from '@/server/services/elasticsearch/indexing/submissionQueueIndex.js';
 import {
   isUuidJobId,
   jobProgressService,
@@ -280,6 +281,7 @@ export async function createLevelSubmission(
       id: rowIds.submissionId,
       change: 'created',
     });
+    await safeSyncPendingSubmissionDocument('level', rowIds.submissionId);
 
     if (ingested) {
       await cancelIngestedLevelZipSession(ingested);

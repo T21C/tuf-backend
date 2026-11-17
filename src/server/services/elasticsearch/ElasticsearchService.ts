@@ -37,6 +37,7 @@ import { fetchPlayersForBulkIndex } from './fetching/playerFetch.js';
 import { fetchCreatorsForBulkIndex } from './fetching/creatorFetch.js';
 import { fetchModsForBulkIndex } from './fetching/modFetch.js';
 import { fetchTournamentsForBulkIndex } from './fetching/tournamentFetch.js';
+import { reindexAllPendingSubmissions as reindexAllPendingSubmissionDocs } from './indexing/submissionQueueIndex.js';
 import { buildLevelIndexDocument } from './indexing/levelIndexDocument.js';
 import { buildPassIndexDocument } from './indexing/passIndexDocument.js';
 import { decodePuaDeep } from '@/misc/utils/data/searchHelpers.js';
@@ -70,15 +71,16 @@ class ElasticsearchService {
       logger.info('Starting ElasticsearchService initialization...');
 
       // Initialize Elasticsearch indices
-      const { reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods, reindexedTournaments } = await initializeElasticsearch();
+      const { reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods, reindexedTournaments, reindexedSubmissions } = await initializeElasticsearch();
 
-      if (reindexedLevels || reindexedPasses || reindexedPlayers || reindexedCreators || reindexedMods || reindexedTournaments) {
+      if (reindexedLevels || reindexedPasses || reindexedPlayers || reindexedCreators || reindexedMods || reindexedTournaments || reindexedSubmissions) {
         if (reindexedLevels) logger.info('Reindexing levels...');
         if (reindexedPasses) logger.info('Reindexing passes...');
         if (reindexedPlayers) logger.info('Reindexing players...');
         if (reindexedCreators) logger.info('Reindexing creators...');
         if (reindexedMods) logger.info('Reindexing mods...');
         if (reindexedTournaments) logger.info('Reindexing tournaments...');
+        if (reindexedSubmissions) logger.info('Reindexing pending submissions...');
         const start = Date.now();
         if (reindexedLevels) {
           await this.reindexLevels();
@@ -98,9 +100,12 @@ class ElasticsearchService {
         if (reindexedTournaments) {
           await this.reindexAllTournaments();
         }
+        if (reindexedSubmissions) {
+          await this.reindexAllPendingSubmissions();
+        }
         const end = Date.now();
         logger.info(`Data reindexing completed successfully in ${Math.round((end - start)/100)/10}s`);
-        await updateMappingHash({ reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods, reindexedTournaments });
+        await updateMappingHash({ reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods, reindexedTournaments, reindexedSubmissions });
       }
 
       this.isInitialized = true;
@@ -1089,6 +1094,10 @@ class ElasticsearchService {
 
   public async searchTournaments(options: TournamentSearchOptions): Promise<TournamentSearchResult> {
     return runTournamentSearch(options);
+  }
+
+  public async reindexAllPendingSubmissions(): Promise<void> {
+    await reindexAllPendingSubmissionDocs();
   }
 }
 

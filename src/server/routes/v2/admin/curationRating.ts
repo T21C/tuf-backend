@@ -10,7 +10,7 @@ import {
 } from '@/server/schemas/v2/admin/index.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {safeTransactionRollback, sanitizeTextInput} from '@/misc/utils/Utility.js';
-import {canModerateCuration, hasAnyFlag, hasFlag} from '@/misc/utils/auth/permissionUtils.js';
+import {canModerateCuration, canUseCurationZen, hasAnyFlag, hasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import {permissionFlags} from '@/config/constants.js';
 import CurationRating from '@/models/curations/CurationRating.js';
 import CurationRatingDetail from '@/models/curations/CurationRatingDetail.js';
@@ -60,6 +60,15 @@ import {
 } from '@/server/services/tufStellar/tufStellarNomineeService.js';
 
 const router: Router = Router();
+const ZEN_DENIED = 'Zen Mode is limited to curators';
+
+function denyZen(user: Express.Request['user'], res: Response): boolean {
+  if (!canUseCurationZen(user)) {
+    res.status(403).json({error: ZEN_DENIED});
+    return true;
+  }
+  return false;
+}
 const elasticsearchService = ElasticsearchService.getInstance();
 
 const SETTLE_FLAGS = [
@@ -144,6 +153,7 @@ router.get(
       if (!user) {
         return res.status(401).json({error: 'User not found'});
       }
+      if (denyZen(user, res)) return;
       if (hasFlag(user, permissionFlags.RATING_BANNED)) {
         return res.status(403).json({error: 'User is banned from rating'});
       }
@@ -192,6 +202,7 @@ router.post(
       if (!user) {
         return res.status(401).json({error: 'User not found'});
       }
+      if (denyZen(user, res)) return;
       if (hasFlag(user, permissionFlags.RATING_BANNED)) {
         return res.status(403).json({error: 'User is banned from rating'});
       }
@@ -239,6 +250,7 @@ router.get(
       if (!user) {
         return res.status(401).json({error: 'User not found'});
       }
+      if (denyZen(user, res)) return;
       if (hasFlag(user, permissionFlags.RATING_BANNED)) {
         return res.status(403).json({error: 'User is banned from rating'});
       }
@@ -271,6 +283,7 @@ router.put(
       if (!user) {
         return res.status(401).json({error: 'User not found'});
       }
+      if (denyZen(user, res)) return;
       if (hasFlag(user, permissionFlags.RATING_BANNED)) {
         return res.status(403).json({error: 'User is banned from rating'});
       }
@@ -302,6 +315,7 @@ router.delete(
       if (!user) {
         return res.status(401).json({error: 'User not found'});
       }
+      if (denyZen(user, res)) return;
       await deleteZenCurationSession(user.id);
       return res.json({ok: true});
     } catch (error) {
@@ -498,9 +512,9 @@ router.put(
       const ratedInZen = readRatedInZen(body);
       try {
         if (ratedInZen) {
-          await assertZenCurationSubmitAllowed(req.user.id, id);
+          await assertZenCurationSubmitAllowed(req.user, id);
         } else {
-          await assertNormalCurationRatingAllowed(req.user.id);
+          await assertNormalCurationRatingAllowed(req.user);
         }
       } catch (error) {
         await safeTransactionRollback(transaction);

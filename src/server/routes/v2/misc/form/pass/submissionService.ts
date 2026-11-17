@@ -27,6 +27,7 @@ import {
 import { passSubmissionHook } from '@/server/routes/v2/webhooks/webhook.js';
 import { notifyPassSubmissionSubmitted } from '@/server/services/notifications/passSubmissionNotify.js';
 import { broadcastSubmissionQueueChange } from '@/server/services/submissions/submissionQueueEvents.js';
+import { safeSyncPendingSubmissionDocument } from '@/server/services/elasticsearch/indexing/submissionQueueIndex.js';
 
 import { formError } from '../shared/errors.js';
 import { assertPassKeyCountForDifficulty, MAX_PASS_KEY_COUNT } from '@/misc/utils/pass/keyCount.js';
@@ -254,6 +255,7 @@ export async function createPassSubmission(
       id: submission.id,
       change: 'created',
     });
+    await safeSyncPendingSubmissionDocument('pass', submission.id);
 
     return {
       success: true,
@@ -422,6 +424,7 @@ export async function updatePassSubmission(
         submissionType: 'pass',
       },
     });
+    await safeSyncPendingSubmissionDocument('pass', submission.id);
 
     return {
       success: true,

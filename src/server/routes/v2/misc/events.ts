@@ -4,7 +4,8 @@ import {sseManager} from '@/misc/utils/server/sse.js';
 import {Request, Response} from 'express';
 import { clientUrlEnv, isAllowedCorsOrigin } from '@/config/app.config.js';
 import { permissionFlags } from '@/config/constants.js';
-import { hasAnyFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { hasAnyFlag, hasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { canAnnounceCurations } from '@/misc/utils/auth/announcementAccess.js';
 import { Auth } from '@/server/middleware/auth.js';
 
 const router: Router = Router();
@@ -86,12 +87,18 @@ router.get(
   const userId = req.user?.id ?? null;
   const source = req.query.source || 'unknown';
   const isManager = hasAnyFlag(req.user, [permissionFlags.RATER, permissionFlags.SUPER_ADMIN]);
+  const announcementScope = hasFlag(req.user, permissionFlags.SUPER_ADMIN)
+    ? 'all'
+    : canAnnounceCurations(req.user)
+      ? 'curation'
+      : 'none';
 
   // Add client to SSE manager
   const clientId = sseManager.addClient(res, {
     userId,
     source,
-    isManager
+    isManager,
+    announcementScope,
   });
 
   // Clean up on connection close

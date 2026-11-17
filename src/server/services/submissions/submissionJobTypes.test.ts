@@ -6,6 +6,7 @@ import {
   encodeQueuePayload,
   failCurrentStep,
   parseQueuePayload,
+  resolveEnqueueDecision,
   shouldSkipEnqueue,
   submissionItemKey,
 } from './submissionJobTypes.js';
@@ -22,6 +23,16 @@ test('enqueue skip treats queued/processing as in-flight and completed as done',
   assert.equal(shouldSkipEnqueue('processing'), 'inflight');
   assert.equal(shouldSkipEnqueue('completed'), 'done');
   assert.equal(shouldSkipEnqueue('skipped'), 'done');
+});
+
+test('enqueue decision keeps a single owner when two admins claim the same item', () => {
+  assert.equal(resolveEnqueueDecision(undefined, true), 'add');
+  assert.equal(resolveEnqueueDecision(undefined, false), 'inflight');
+  assert.equal(resolveEnqueueDecision('failed', true), 'add');
+  assert.equal(resolveEnqueueDecision('queued', true), 'inflight');
+  assert.equal(resolveEnqueueDecision('queued', false), 'inflight');
+  assert.equal(resolveEnqueueDecision('completed', true), 'done');
+  assert.equal(resolveEnqueueDecision('completed', false), 'done');
 });
 
 test('queue payloads round-trip and reject malformed entries', () => {

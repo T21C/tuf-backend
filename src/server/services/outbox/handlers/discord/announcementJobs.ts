@@ -552,6 +552,14 @@ export async function runCurationAnnouncementJob(
           as: 'level',
           where: {isDeleted: false},
           required: true,
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+              attributes: ['id', 'icon'],
+              required: false,
+            },
+          ],
         },
       ],
     });

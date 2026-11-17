@@ -73,7 +73,6 @@ import {
 } from '@/server/services/ratings/ratingSettleService.js';
 
 const router: Router = Router();
-
 async function isLockedVoteCard(ratingId: number, levelId: number, transaction: Transaction) {
   const [level, rating, request] = await Promise.all([
     Level.findByPk(levelId, {attributes: ['rerateNum'], transaction}),
@@ -611,7 +610,7 @@ router.put(
 
       if (!rating || rating.trim() === '') {
         try {
-          await assertNormalRatingAllowed(user.id);
+          await assertNormalRatingAllowed(user);
         } catch (error) {
           await safeTransactionRollback(transaction);
           if (error instanceof ZenSessionError) {
@@ -674,9 +673,9 @@ router.put(
       }
       try {
         if (bodyRatedInZen) {
-          await assertZenSubmitAllowed(user.id, Number(id));
+          await assertZenSubmitAllowed(user, Number(id));
         } else {
-          await assertNormalRatingAllowed(user.id);
+          await assertNormalRatingAllowed(user);
         }
       } catch (error) {
         await safeTransactionRollback(transaction);
@@ -841,7 +840,7 @@ router.delete(
       }
 
       try {
-        await assertNormalRatingAllowed(currentUser.id);
+        await assertNormalRatingAllowed(currentUser);
       } catch (error) {
         await safeTransactionRollback(transaction);
         if (error instanceof ZenSessionError) {

@@ -21,6 +21,18 @@ import {
   invalidateCreatorsCache,
 } from '@/server/services/creators/creatorCache.js';
 import ModTagAssignment from '@/models/misc/ModTagAssignment.js';
+import {
+  pendingLevelIdsForArtist,
+  pendingLevelIdsForCreator,
+  pendingLevelIdsForSong,
+  pendingLevelIdsForTeam,
+  reindexPendingLevels,
+  reindexPendingPassesForLevel,
+  reindexPendingPassesForLevels,
+  reindexPendingSubmissionsForPlayer,
+  reindexPendingSubmissionsForUser,
+  syncPendingSubmissionDocument,
+} from '@/server/services/elasticsearch/indexing/submissionQueueIndex.js';
 
 const CDC_PREFIX = 'cdc:';
 
@@ -230,6 +242,7 @@ export function startCdcProjectors(): void {
             }
             await es.indexLevel(id);
             await invalidateLevel(id);
+            await reindexPendingPassesForLevel(id);
             if (levelCdcChangeRequiresPassReindex(op, before, after)) {
               const passIds = await getPassIdsByLevelId(id);
               if (passIds.length > 0) {
@@ -326,6 +339,7 @@ export function startCdcProjectors(): void {
             if (pid == null) return;
             if (op === 'd') {
               await es.deletePlayerDocumentById(pid);
+              await reindexPendingSubmissionsForPlayer(pid);
               return;
             }
             await es.indexPlayer(pid);
@@ -347,12 +361,16 @@ export function startCdcProjectors(): void {
             if (op === 'u' && String(before?.name ?? '') !== String(after?.name ?? '')) {
               const tournamentIds = await getTournamentIdsByPlayerId(pid);
               if (tournamentIds.length) await es.reindexTournaments(tournamentIds);
+              await reindexPendingSubmissionsForPlayer(pid);
             }
             break;
           }
           case 'player_aliases': {
             const pid = num(after?.playerId ?? before?.playerId);
-            if (pid != null) await es.indexPlayer(pid);
+            if (pid != null) {
+              await es.indexPlayer(pid);
+              await reindexPendingSubmissionsForPlayer(pid);
+            }
             break;
           }
           case 'users': {
@@ -378,7 +396,10 @@ export function startCdcProjectors(): void {
               op === 'd' ||
               String(before?.username ?? '') !== String(after?.username ?? '') ||
               String(before?.nickname ?? '') !== String(after?.nickname ?? '');
-            if (userId && nickChanged) await es.reindexModsForUser(userId);
+            if (userId && nickChanged) {
+              await es.reindexModsForUser(userId);
+              await reindexPendingSubmissionsForUser(userId);
+            }
             break;
           }
           case 'user_oauth_providers': {
@@ -409,6 +430,7 @@ export function startCdcProjectors(): void {
               if (passIds.length > 0) {
                 await es.reindexPasses(passIds);
               }
+              await reindexPendingPassesForLevel(lid);
             }
             break;
           }
@@ -446,6 +468,7 @@ export function startCdcProjectors(): void {
               await es.reindexLevels([lid]);
               await invalidateLevel(lid);
               await reindexPassesForLevelIds(es, [lid]);
+              await reindexPendingPassesForLevels([lid]);
             }
             break;
           }
@@ -465,6 +488,7 @@ export function startCdcProjectors(): void {
               await es.reindexLevels(lids);
               await invalidateLevels(lids);
               await reindexPassesForLevelIds(es, lids);
+              await reindexPendingPassesForLevels(lids);
             }
             break;
           }
@@ -491,6 +515,7 @@ export function startCdcProjectors(): void {
               await es.reindexLevels(lids);
               await invalidateLevels(lids);
               await reindexPassesForLevelIds(es, lids);
+              await reindexPendingPassesForLevels(lids);
             }
             break;
           }
@@ -502,6 +527,7 @@ export function startCdcProjectors(): void {
               await es.reindexLevels(lids);
               await invalidateLevels(lids);
             }
+            await reindexPendingLevels(await pendingLevelIdsForSong(sid));
             break;
           }
           case 'song_aliases':
@@ -513,6 +539,7 @@ export function startCdcProjectors(): void {
               await es.reindexLevels(lids);
               await invalidateLevels(lids);
             }
+            await reindexPendingLevels(await pendingLevelIdsForSong(sid));
             break;
           }
           case 'artists': {
@@ -523,6 +550,7 @@ export function startCdcProjectors(): void {
               es.scheduleDebouncedArtistReindex(lids);
               await invalidateLevels(lids);
             }
+            await reindexPendingLevels(await pendingLevelIdsForArtist(aid));
             break;
           }
           case 'artist_aliases': {
@@ -533,6 +561,7 @@ export function startCdcProjectors(): void {
               es.scheduleDebouncedArtistReindex(lids);
               await invalidateLevels(lids);
             }
+            await reindexPendingLevels(await pendingLevelIdsForArtist(aid));
             break;
           }
           case 'creators': {
@@ -542,6 +571,7 @@ export function startCdcProjectors(): void {
               await es.deleteCreatorDocumentById(cid);
               await invalidateCreatorsCache([cid]);
               await fanoutCreatorEmbeddedCaches(cid, { reindexLevels: true });
+              await reindexPendingLevels(await pendingLevelIdsForCreator(cid));
               return;
             }
             await es.indexCreator(cid);
@@ -553,6 +583,7 @@ export function startCdcProjectors(): void {
             if (op === 'u' && cdcField(before?.name) !== cdcField(after?.name)) {
               const tournamentIds = await getTournamentIdsByCreatorId(cid);
               if (tournamentIds.length) await es.reindexTournaments(tournamentIds);
+              await reindexPendingLevels(await pendingLevelIdsForCreator(cid));
             }
             break;
           }
@@ -562,6 +593,7 @@ export function startCdcProjectors(): void {
             await es.indexCreator(cid);
             await invalidateCreatorsCache([cid]);
             await fanoutCreatorEmbeddedCaches(cid, { reindexLevels: true });
+            await reindexPendingLevels(await pendingLevelIdsForCreator(cid));
             break;
           }
           case 'mods': {
@@ -637,6 +669,41 @@ export function startCdcProjectors(): void {
             if (placementId == null) return;
             const tournamentId = await getTournamentIdByPlacementId(placementId);
             if (tournamentId != null) await es.indexTournament(tournamentId);
+            break;
+          }
+          case 'teams': {
+            const teamId = rowId(before, after);
+            if (teamId == null) return;
+            if (op === 'd' || cdcField(before?.name) !== cdcField(after?.name)) {
+              await reindexPendingLevels(await pendingLevelIdsForTeam(teamId));
+            }
+            break;
+          }
+          case 'team_aliases': {
+            const teamId = num(after?.teamId ?? before?.teamId);
+            if (teamId != null) {
+              await reindexPendingLevels(await pendingLevelIdsForTeam(teamId));
+            }
+            break;
+          }
+          case 'pass_submissions': {
+            const id = rowId(before, after);
+            if (id != null) await syncPendingSubmissionDocument('pass', id, { refresh: false });
+            break;
+          }
+          case 'level_submissions': {
+            const id = rowId(before, after);
+            if (id != null) await syncPendingSubmissionDocument('level', id, { refresh: false });
+            break;
+          }
+          case 'level_submission_creator_requests':
+          case 'level_submission_team_requests':
+          case 'level_submission_song_requests':
+          case 'level_submission_artist_requests': {
+            const submissionId = num(after?.submissionId ?? before?.submissionId);
+            if (submissionId != null) {
+              await syncPendingSubmissionDocument('level', submissionId, { refresh: false });
+            }
             break;
           }
           default:

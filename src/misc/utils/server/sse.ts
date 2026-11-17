@@ -16,6 +16,8 @@ interface ClientMetadata {
   userId: string | null;
   source: string;
   isManager: boolean;
+  /** Announcement SSE. Omitted means every kind. */
+  announcementScope?: 'all' | 'curation' | 'none';
 }
 
 interface SSEClient {
@@ -152,10 +154,16 @@ class SSEManager {
     this.writeToClients(event, () => true);
   }
 
-  broadcastToSources(sources: readonly string[], event: SSEEvent) {
+  broadcastToSources(
+    sources: readonly string[],
+    event: SSEEvent,
+    include?: (metadata: {announcementScope?: 'all' | 'curation' | 'none'}) => boolean,
+  ) {
     if (!sources.length) return;
     const allowed = new Set<string>(sources);
-    this.writeToClients(event, (client) => allowed.has(client.metadata.source));
+    this.writeToClients(event, (client) =>
+      allowed.has(client.metadata.source) && (!include || include(client.metadata)),
+    );
   }
 
   sendToUser(userId: string, event: SSEEvent): void {

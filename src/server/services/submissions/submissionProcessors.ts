@@ -23,6 +23,7 @@ import { preparePassJudgementsForPersist } from '@/misc/utils/pass/passEraApply.
 import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
 import { updateWorldsFirstFlags } from '@/server/routes/v2/database/passes/index.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
+import { safeSyncPendingSubmissionDocument } from '@/server/services/elasticsearch/indexing/submissionQueueIndex.js';
 import Rating from '@/models/levels/Rating.js';
 import Player from '@/models/players/Player.js';
 import Team from '@/models/credits/Team.js';
@@ -133,12 +134,15 @@ async function processLevelApprove(
   try {
     transaction = await sequelize.transaction();
     const submissionObj = await LevelSubmission.findOne({
-      where: { [Op.and]: [{ id: submissionId }, { status: 'pending' }] },
+      where: { id: submissionId },
       include: LEVEL_APPROVE_INCLUDES,
+      lock: true,
       transaction,
     });
-    if (!submissionObj) {
-      throw new Error('Submission not found');
+    if (!submissionObj || submissionObj.status !== 'pending') {
+      await transaction.commit();
+      transaction = undefined;
+      return { levelId: submissionObj?.levelId ?? null };
     }
     if (submissionObj.isLocked) {
       throw new Error('Submission is locked');
@@ -445,6 +449,7 @@ async function processLevelApprove(
 
     await transaction.commit();
     transaction = undefined;
+    await safeSyncPendingSubmissionDocument('level', submissionId);
 
     await CacheInvalidation.invalidateTag('admin:ratings').catch(err =>
       logger.warn('Failed to invalidate admin:ratings cache after level approve', {
@@ -548,10 +553,14 @@ async function processLevelDecline(
     transaction = await sequelize.transaction();
     const submission = await LevelSubmission.findByPk(submissionId, {
       include: [{ model: LevelSubmissionEvidence, as: 'evidence' }],
+      lock: true,
       transaction,
     });
-    if (!submission) throw new Error('Submission not found');
-    if (submission.status !== 'pending') throw new Error('Submission not found');
+    if (!submission || submission.status !== 'pending') {
+      await transaction.commit();
+      transaction = undefined;
+      return;
+    }
     if (submission.isLocked) throw new Error('Submission is locked');
 
     await onStep('cleanup');
@@ -585,6 +594,7 @@ async function processLevelDecline(
     });
 
     await transaction.commit();
+    await safeSyncPendingSubmissionDocument('level', submissionId);
   } catch (error) {
     if (transaction) await safeTransactionRollback(transaction, logger);
     throw error;
@@ -803,12 +813,16 @@ async function processPassApprove(
   try {
     transaction = await sequelize.transaction();
     const submission = await PassSubmission.findOne({
-      where: { [Op.and]: [{ id: submissionId }, { status: 'pending' }] },
+      where: { id: submissionId },
       include: PASS_APPROVE_INCLUDES,
       lock: true,
       transaction,
     });
-    if (!submission) throw new Error('Submission not found or already processed');
+    if (!submission || submission.status !== 'pending') {
+      await transaction.commit();
+      transaction = undefined;
+      return { levelId: submission?.levelId ?? null, passId: submission?.passId ?? null };
+    }
     if (submission.isLocked) throw new Error('Submission is locked');
 
     await onStep('createPass');
@@ -819,6 +833,7 @@ async function processPassApprove(
     );
     await transaction.commit();
     transaction = undefined;
+    await safeSyncPendingSubmissionDocument('pass', submission.id);
 
     if (levelId) {
       try {
@@ -906,12 +921,16 @@ async function processPassDecline(
   try {
     transaction = await sequelize.transaction();
     const submission = await PassSubmission.findOne({
-      where: { [Op.and]: [{ id: submissionId }, { status: 'pending' }] },
+      where: { id: submissionId },
       include: [{ model: Level, as: 'level' }],
       lock: true,
       transaction,
     });
-    if (!submission) throw new Error('Submission not found or already processed');
+    if (!submission || submission.status !== 'pending') {
+      await transaction.commit();
+      transaction = undefined;
+      return { levelId: submission?.levelId ?? null };
+    }
     if (submission.isLocked) throw new Error('Submission is locked');
 
     await onStep('notify');
@@ -925,6 +944,7 @@ async function processPassDecline(
       transaction,
     });
     await transaction.commit();
+    await safeSyncPendingSubmissionDocument('pass', submissionId);
     return { levelId: submission.levelId ?? null };
   } catch (error) {
     if (transaction) await safeTransactionRollback(transaction, logger);

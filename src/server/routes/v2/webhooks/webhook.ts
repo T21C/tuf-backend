@@ -62,6 +62,7 @@ import type {
 } from '@/server/services/discord/AnnouncementDeliveryTracker.js';
 import { AnnouncementDeliveryTracker } from '@/server/services/discord/AnnouncementDeliveryTracker.js';
 import { AnnouncementJobService } from '@/server/services/announcements/AnnouncementJobService.js';
+import { canAccessAnnouncementKind } from '@/misc/utils/auth/announcementAccess.js';
 import LevelAnnouncementQueue from '@/models/levels/LevelAnnouncementQueue.js';
 import { isWebhookRateLimitError } from '@/misc/webhook/index.js';
 
@@ -955,11 +956,11 @@ function announceResponse(job: Awaited<ReturnType<typeof AnnouncementJobService.
 
 router.get(
   '/announcement-jobs',
-  Auth.superAdmin(),
+  Auth.headCurator(),
   ApiDoc({
     operationId: 'getWebhookAnnouncementJobs',
     summary: 'Get announcement job snapshot',
-    description: 'Open and recent announcement request trees for a kind. Super admin.',
+    description: 'Open and recent announcement request trees for a kind. Super admin, or head curator for curation kinds only.',
     tags: ['Webhooks'],
     security: ['bearerAuth'],
     responses: { 200: { description: 'Snapshot' }, ...standardErrorResponses400500 },
@@ -976,6 +977,9 @@ router.get(
       ) {
         return res.status(400).json({ error: 'kind must be pass, level, rerate, curation, or curation_rerate' });
       }
+      if (!canAccessAnnouncementKind(req.user, kind)) {
+        return res.status(403).json({ error: 'Super admin access required' });
+      }
       const snapshot = await AnnouncementJobService.getSnapshot(kind);
       return res.json(snapshot);
     } catch (error) {
@@ -990,12 +994,12 @@ router.get(
 
 router.post(
   '/announcement-jobs/:requestId/discard',
-  Auth.superAdmin(),
+  Auth.headCurator(),
   ApiDoc({
     operationId: 'postWebhookAnnouncementJobDiscard',
     summary: 'Discard an in-progress announcement request',
     description:
-      'Fail hung items, release the conveyor, and close the request without marking them announced. Super admin.',
+      'Fail hung items, release the conveyor, and close the request without marking them announced. Super admin, or head curator for curation requests only.',
     tags: ['Webhooks'],
     security: ['bearerAuth'],
     params: { requestId: { schema: { type: 'string' } } },
@@ -1006,6 +1010,13 @@ router.post(
       const requestId = String(req.params.requestId || '').trim();
       if (!requestId) {
         return res.status(400).json({ error: 'requestId is required' });
+      }
+      const existing = await AnnouncementJobService.peekRequest(requestId);
+      if (!existing) {
+        return res.status(404).json({ error: 'Announcement request not found' });
+      }
+      if (!canAccessAnnouncementKind(req.user, existing.kind)) {
+        return res.status(403).json({ error: 'Super admin access required' });
       }
       const discarded = await AnnouncementJobService.discardRequest(requestId);
       if (!discarded) {
@@ -1195,11 +1206,11 @@ router.post(
 
 router.post(
   '/curations',
-  Auth.superAdmin(),
+  Auth.headCurator(),
   ApiDoc({
     operationId: 'postWebhooksCurations',
     summary: 'Send curation webhooks',
-    description: 'Send Discord webhook announcements for new curations. Body: queueRowIds (array). Super admin.',
+    description: 'Send Discord webhook announcements for new curations. Body: queueRowIds (array). Head curator or super admin.',
     tags: ['Webhooks'],
     security: ['bearerAuth'],
     requestBody: docRequestBody('queueRowIds', queueRowIdsBodySchema),
@@ -1220,11 +1231,11 @@ router.post(
 
 router.post(
   '/curation-rerates',
-  Auth.superAdmin(),
+  Auth.headCurator(),
   ApiDoc({
     operationId: 'postWebhooksCurationRerates',
     summary: 'Send curation rerate webhooks',
-    description: 'Send Discord webhook announcements for curation rerates. Body: queueRowIds (array). Super admin.',
+    description: 'Send Discord webhook announcements for curation rerates. Body: queueRowIds (array). Head curator or super admin.',
     tags: ['Webhooks'],
     security: ['bearerAuth'],
     requestBody: docRequestBody('queueRowIds', queueRowIdsBodySchema),
@@ -1348,11 +1359,11 @@ router.post(
 
 router.post(
   '/silent-remove/curations',
-  Auth.superAdmin(),
+  Auth.headCurator(),
   ApiDoc({
     operationId: 'postWebhooksSilentRemoveCurations',
     summary: 'Silent remove curations',
-    description: 'Mark curation announcement rows as skipped without sending webhooks. Body: queueRowIds (array). Super admin.',
+    description: 'Mark curation announcement rows as skipped without sending webhooks. Body: queueRowIds (array). Head curator or super admin.',
     tags: ['Webhooks'],
     security: ['bearerAuth'],
     requestBody: docRequestBody('queueRowIds', queueRowIdsBodySchema),

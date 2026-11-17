@@ -1,3 +1,4 @@
+import {type PermissionInput} from '@/misc/utils/auth/permissionUtils.js';
 import ZenRatingSession from '@/models/levels/ZenRatingSession.js';
 import {buildCompleteRatingById} from '@/server/services/ratings/ratingListService.js';
 import {
@@ -103,8 +104,10 @@ export async function deleteZenSession(userId: string): Promise<void> {
   await ZenRatingSession.destroy({where: {userId}});
 }
 
-export async function assertNormalRatingAllowed(userId: string): Promise<void> {
-  const payload = await getZenSessionPayload(userId);
+type ZenActor = PermissionInput & {id: string};
+
+export async function assertNormalRatingAllowed(user: ZenActor): Promise<void> {
+  const payload = await getZenSessionPayload(user.id);
   if (isUnfinishedZenPayload(payload)) {
     throw new ZenSessionError(
       'Finish or discard Zen Mode before using the rating queue',
@@ -114,10 +117,10 @@ export async function assertNormalRatingAllowed(userId: string): Promise<void> {
 }
 
 export async function assertZenSubmitAllowed(
-  userId: string,
+  user: ZenActor,
   ratingId: number
 ): Promise<void> {
-  const payload = await getZenSessionPayload(userId);
+  const payload = await getZenSessionPayload(user.id);
   if (!payload || !payload.ratingIds.includes(ratingId)) {
     throw new ZenSessionError(
       'Zen rating is only allowed for the current Zen deck',

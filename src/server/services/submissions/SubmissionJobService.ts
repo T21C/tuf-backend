@@ -9,6 +9,7 @@ import {
   encodeQueuePayload,
   failCurrentStep,
   isTerminalItemStatus,
+  resolveEnqueueDecision,
   shouldRecoverActivePayload,
   shouldSkipEnqueue,
   submissionItemKey,
@@ -25,11 +26,13 @@ import {
 } from './submissionJobTypes.js';
 import { SUBMISSION_WORKER_LOCK_KEY } from './submissionWorkerLock.js';
 import { broadcastSubmissionQueueChange } from './submissionQueueEvents.js';
+import { safeSyncPendingSubmissionDocument } from '@/server/services/elasticsearch/indexing/submissionQueueIndex.js';
 
 export {
   buildSteps,
   encodeQueuePayload,
   parseQueuePayload,
+  resolveEnqueueDecision,
   shouldSkipEnqueue,
   submissionItemKey,
 } from './submissionJobTypes.js';
@@ -156,17 +159,47 @@ async function enqueuePayloads(payloads: SubmissionQueuePayload[]): Promise<void
   }
 }
 
-async function claimConveyor(itemKeys: string[]): Promise<void> {
-  if (itemKeys.length === 0) return;
-  await redis.sAdd(CONVEYOR_KEY, ...itemKeys);
+async function expireConveyor(): Promise<void> {
   const client = await redis.getClient();
-  if (client) {
-    try {
-      await client.expire(CONVEYOR_KEY, TTL_SECONDS);
-    } catch {
-      /* ignore */
+  if (!client) return;
+  try {
+    await client.expire(CONVEYOR_KEY, TTL_SECONDS);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function tryClaimConveyor(itemKey: string): Promise<boolean> {
+  const client = await redis.getClient();
+  if (!client) throw new Error('Redis unavailable');
+  const added = await client.sAdd(CONVEYOR_KEY, itemKey);
+  await expireConveyor();
+  return Number(added) > 0;
+}
+
+async function attachRequestToItem(
+  kind: SubmissionKind,
+  itemId: number,
+  requestId: string,
+  now: number,
+): Promise<SubmissionItemState | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const existing = await getItem(kind, itemId);
+    if (existing) {
+      if (existing.requestIds.includes(requestId)) return existing;
+      const updated: SubmissionItemState = {
+        ...existing,
+        requestIds: [...existing.requestIds, requestId],
+        updatedAt: now,
+      };
+      await saveItem(updated);
+      return updated;
+    }
+    if (attempt < 2) {
+      await new Promise(resolve => setTimeout(resolve, 25));
     }
   }
+  return null;
 }
 
 export const SubmissionJobService = {
@@ -193,6 +226,7 @@ export const SubmissionJobService = {
     alreadyInFlightIds: number[];
     alreadyCompletedIds: number[];
     merged: boolean;
+    items: SubmissionItemState[];
   }> {
     const { kind, action, user } = options;
     const origin = options.origin === 'auto' ? 'auto' : 'manual';
@@ -209,9 +243,6 @@ export const SubmissionJobService = {
     const addedItemIds: number[] = [];
     const payloads: SubmissionQueuePayload[] = [];
 
-    const conveyorMembers = await redis.sMembers(CONVEYOR_KEY);
-    const conveyorSet = new Set(conveyorMembers);
-
     for (const itemId of uniqueIds) {
       const existing = await getItem(kind, itemId);
       const skip = shouldSkipEnqueue(existing?.status);
@@ -222,15 +253,15 @@ export const SubmissionJobService = {
         continue;
       }
 
-      if (skip === 'inflight' || conveyorSet.has(key)) {
+      const claimed = skip === 'inflight' ? false : await tryClaimConveyor(key);
+      const decision = resolveEnqueueDecision(existing?.status, claimed);
+      if (decision === 'done') {
+        alreadyCompletedIds.push(itemId);
+        continue;
+      }
+      if (decision === 'inflight') {
         alreadyInFlightIds.push(itemId);
-        if (existing) {
-          await saveItem({
-            ...existing,
-            requestIds: [...new Set([...existing.requestIds, requestId])],
-            updatedAt: now,
-          });
-        }
+        await attachRequestToItem(kind, itemId, requestId, now);
         continue;
       }
 
@@ -261,7 +292,6 @@ export const SubmissionJobService = {
       });
     }
 
-    await claimConveyor(addedItemIds.map(id => submissionItemKey(kind, id)));
     await enqueuePayloads(payloads);
 
     const request: SubmissionRequestState = {
@@ -271,7 +301,11 @@ export const SubmissionJobService = {
       origin,
       requestedBy,
       itemIds: uniqueIds,
-      status: addedItemIds.length > 0 ? 'queued' : 'completed',
+      status: addedItemIds.length > 0
+        ? 'queued'
+        : alreadyInFlightIds.length > 0
+          ? 'processing'
+          : 'completed',
       createdAt: now,
       updatedAt: now,
       ...(action === 'decline' ? { reason: options.reason ?? null } : {}),
@@ -309,6 +343,7 @@ export const SubmissionJobService = {
       alreadyInFlightIds,
       alreadyCompletedIds,
       merged,
+      items,
     };
   },
 
@@ -366,6 +401,21 @@ export const SubmissionJobService = {
     }
   },
 
+  async adoptRequestForItem(payload: SubmissionQueuePayload): Promise<void> {
+    const item = await attachRequestToItem(
+      payload.kind,
+      payload.itemId,
+      payload.requestId,
+      Date.now(),
+    );
+    await recomputeRequestStatus(payload.requestId);
+    if (item) {
+      for (const requestId of item.requestIds) {
+        if (requestId !== payload.requestId) await recomputeRequestStatus(requestId);
+      }
+    }
+  },
+
   async markItemCompleted(
     kind: SubmissionKind,
     itemId: number,
@@ -373,6 +423,13 @@ export const SubmissionJobService = {
   ): Promise<void> {
     const item = await getItem(kind, itemId);
     if (!item) return;
+    if (item.status === 'completed') {
+      await redis.sRem(CONVEYOR_KEY, submissionItemKey(kind, itemId));
+      for (const requestId of item.requestIds) {
+        await recomputeRequestStatus(requestId);
+      }
+      return;
+    }
     const updated: SubmissionItemState = {
       ...item,
       status: 'completed',
@@ -384,7 +441,13 @@ export const SubmissionJobService = {
     await saveItem(updated);
     await redis.sRem(CONVEYOR_KEY, submissionItemKey(kind, itemId));
     broadcast('submission.item.completed', { item: updated });
-    broadcastSubmissionQueueChange({ kind, id: itemId, change: 'removed' });
+    broadcastSubmissionQueueChange({
+      kind,
+      id: itemId,
+      change: 'removed',
+      action: item.action,
+    });
+    await safeSyncPendingSubmissionDocument(kind, itemId);
     sseManager.broadcastToSources([SSE_SOURCES.admin], {
       type: 'submissionUpdate',
       data: {

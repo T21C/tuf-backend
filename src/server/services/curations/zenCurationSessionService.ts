@@ -1,3 +1,4 @@
+import {canUseCurationZen, type PermissionInput} from '@/misc/utils/auth/permissionUtils.js';
 import ZenCurationSession from '@/models/levels/ZenCurationSession.js';
 import {buildCompleteCurationRatingById} from '@/server/services/curations/curationRatingListService.js';
 import {
@@ -100,8 +101,11 @@ export async function deleteZenCurationSession(userId: string): Promise<void> {
   await ZenCurationSession.destroy({where: {userId}});
 }
 
-export async function assertNormalCurationRatingAllowed(userId: string): Promise<void> {
-  const payload = await getZenCurationSessionPayload(userId);
+type ZenActor = PermissionInput & {id: string};
+
+export async function assertNormalCurationRatingAllowed(user: ZenActor): Promise<void> {
+  if (!canUseCurationZen(user)) return;
+  const payload = await getZenCurationSessionPayload(user.id);
   if (isUnfinishedZenPayload(payload)) {
     throw new ZenSessionError(
       'Finish or discard Zen Mode before using the curation queue',
@@ -111,10 +115,13 @@ export async function assertNormalCurationRatingAllowed(userId: string): Promise
 }
 
 export async function assertZenCurationSubmitAllowed(
-  userId: string,
+  user: ZenActor,
   ratingId: number,
 ): Promise<void> {
-  const payload = await getZenCurationSessionPayload(userId);
+  if (!canUseCurationZen(user)) {
+    throw new ZenSessionError('Zen Mode is limited to curators', 403);
+  }
+  const payload = await getZenCurationSessionPayload(user.id);
   if (!payload || !payload.ratingIds.includes(ratingId)) {
     throw new ZenSessionError(
       'Zen rating is only allowed for the current Zen deck',

@@ -66,6 +66,18 @@ export const canModerateCuration = (user: PermissionInput): boolean => {
   return hasAnyFlag(user, [permissionFlags.HEAD_CURATOR, permissionFlags.SUPER_ADMIN]);
 };
 
+/** Curation announcements: head curator and super admin. */
+export {canAnnounceCurations} from './announcementAccess.js';
+
+/** Curation Zen Mode only. Difficulty Zen stays open to any signed-in rater. */
+export const canUseCurationZen = (user: PermissionInput): boolean => {
+  return hasAnyFlag(user, [
+    permissionFlags.CURATOR,
+    permissionFlags.HEAD_CURATOR,
+    permissionFlags.SUPER_ADMIN,
+  ]);
+};
+
 /**
  * Check if a user has all of the specified permissions
  * @param user - User object or permission flags

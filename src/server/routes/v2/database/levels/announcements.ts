@@ -179,11 +179,11 @@ async function listPendingCurationAnnouncements(kind: 'NEW' | 'RERATE') {
 
 router.get(
   '/unannounced/curations',
-  Auth.superAdmin(),
+  Auth.headCurator(),
   ApiDoc({
     operationId: 'getLevelsUnannouncedCurations',
     summary: 'List unannounced new curations',
-    description: 'Pending NEW curation announcement rows (super admin)',
+    description: 'Pending NEW curation announcement rows (head curator or super admin)',
     tags: ['Levels', 'Admin'],
     security: ['bearerAuth'],
     responses: {200: {description: 'List of queue entries'}, ...standardErrorResponses500},
@@ -200,11 +200,11 @@ router.get(
 
 router.get(
   '/unannounced/curation-rerates',
-  Auth.superAdmin(),
+  Auth.headCurator(),
   ApiDoc({
     operationId: 'getLevelsUnannouncedCurationRerates',
     summary: 'List unannounced curation rerates',
-    description: 'Pending RERATE curation announcement rows (super admin)',
+    description: 'Pending RERATE curation announcement rows (head curator or super admin)',
     tags: ['Levels', 'Admin'],
     security: ['bearerAuth'],
     responses: {200: {description: 'List of queue entries'}, ...standardErrorResponses500},

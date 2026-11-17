@@ -37,6 +37,14 @@ export const CDC_WATCHED_TABLES: readonly string[] = [
   'tournament_tiers',
   'tournament_placements',
   'tournament_placement_credits',
+  'teams',
+  'team_aliases',
+  'pass_submissions',
+  'level_submissions',
+  'level_submission_creator_requests',
+  'level_submission_team_requests',
+  'level_submission_song_requests',
+  'level_submission_artist_requests',
 ] as const;
 
 export const CDC_CHECKPOINT_REDIS_KEY = 'cdc:binlog_checkpoint';
