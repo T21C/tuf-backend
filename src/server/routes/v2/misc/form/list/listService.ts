@@ -296,7 +296,7 @@ function mapLevelDto(row: LevelSubmission): MySubmissionDto {
     href: null,
     passHref: null,
     workshopLink: asHttpUrl(json.wsLink),
-    downloadLink: asHttpUrl(json.directDL),
+    downloadLink: json.status === 'declined' ? null : asHttpUrl(json.directDL),
     extra: {
       charter: json.charter || null,
       requestedDiff: json.diff || null,

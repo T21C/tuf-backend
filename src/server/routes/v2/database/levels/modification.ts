@@ -76,6 +76,10 @@ import {
   notifyChartRated,
   notifyChartVisibilityChanged,
 } from '@/server/services/notifications/chartOwnerNotify.js';
+import {
+  isTrackedRerate,
+  notifyTrackedLevelRerate,
+} from '@/server/services/notifications/rerateNotify.js';
 import { remapNotificationsAfterLevelPayloadSwap } from '@/server/services/notifications/remapNotificationLevelIds.js';
 import { NOTIFICATION_TYPES } from '@/server/services/notifications/types.js';
 import {
@@ -992,6 +996,11 @@ router.put(
       transaction,
     });
 
+    const nextDiffId =
+      req.body.diffId !== undefined && req.body.diffId !== null
+        ? Number(req.body.diffId)
+        : level.diffId;
+    let rerateHistoryId: number | null = null;
     // Insert rerate history if rerate is settled (isAnnounced goes from false to true and diffId/baseScore changes)
     if (
       (level.diffId !== (req.body.diffId ?? level.diffId) ||
@@ -1002,7 +1011,7 @@ router.put(
       logger.debug(
         `Inserting rerate history for level ${levelId} - previousDiffId: ${level.diffId}, newDiffId: ${req.body.diffId ?? level.diffId}`,
       );
-      await LevelRerateHistory.create(
+      const historyRow = await LevelRerateHistory.create(
         {
           levelId: level.id,
           previousDiffId: level.diffId,
@@ -1014,6 +1023,7 @@ router.put(
         },
         {transaction},
       );
+      rerateHistoryId = Number(historyRow.id);
     }
     const rerateHistory = await LevelRerateHistory.findAll({
       where: {levelId: levelId},
@@ -1027,14 +1037,25 @@ router.put(
         typeof req.body.toRate === 'boolean' && req.body.toRate !== level.toRate
           ? req.body.toRate
           : null;
-      if (toRateTransition === false) {
+      const trackedRerate = isTrackedRerate(level.diffId, nextDiffId);
+      const chartSnapshot = {
+        id: levelId,
+        song: updatedLevel.song ?? level.song,
+        artist: updatedLevel.artist ?? level.artist,
+      };
+      if (trackedRerate && rerateHistoryId) {
+        await notifyTrackedLevelRerate({
+          level: chartSnapshot,
+          previousDiffId: Number(level.diffId),
+          newDiffId: nextDiffId,
+          rerateHistoryId,
+          actorId: req.user?.id ?? null,
+          transaction,
+        });
+      } else if (toRateTransition === false) {
         const difficultyName = updatedLevel.difficulty?.name?.trim() || null;
         await notifyChartRated({
-          level: {
-            id: levelId,
-            song: updatedLevel.song ?? level.song,
-            artist: updatedLevel.artist ?? level.artist,
-          },
+          level: chartSnapshot,
           difficultyName,
           ratingId: settledRatingId,
           actorId: req.user?.id ?? null,

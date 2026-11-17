@@ -78,3 +78,33 @@ test('chart.rated interpolates song, artist, and difficulty', () => {
   assert.match(body, /Camellia/);
   assert.match(body, /U1/);
 });
+
+test('chart.rerated interpolates previous and new difficulty', () => {
+  const {title, body} = renderPushCopy('en', 'chart.rerated', {
+    song: 'Storm',
+    artist: 'Camellia',
+    previousDifficultyName: 'U1',
+    difficultyName: 'U2',
+    levelId: 12,
+  });
+  assert.equal(title, 'Chart rerated');
+  assert.match(body, /Storm/);
+  assert.match(body, /Camellia/);
+  assert.match(body, /U1/);
+  assert.match(body, /U2/);
+});
+
+test('pass.level.rerated interpolates previous and new difficulty', () => {
+  const {title, body} = renderPushCopy('en', 'pass.level.rerated', {
+    song: 'Storm',
+    artist: 'Camellia',
+    previousDifficultyName: 'U1',
+    difficultyName: 'U2',
+    levelId: 12,
+  });
+  assert.equal(title, 'Cleared chart rerated');
+  assert.match(body, /Storm/);
+  assert.match(body, /a chart you cleared/);
+  assert.match(body, /U1/);
+  assert.match(body, /U2/);
+});

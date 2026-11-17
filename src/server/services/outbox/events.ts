@@ -104,6 +104,16 @@ export type FollowFanoutPayload = {
   ids: number[];
 };
 
+export type LevelReratedPayload = {
+  levelId: number;
+  rerateHistoryId: number;
+  previousDiffId: number;
+  newDiffId: number;
+  song: string | null;
+  artist: string | null;
+  actorId?: string | null;
+};
+
 export type ReferenceChangedPayload = {
   kind: 'added' | 'removed' | 'type' | 'file' | 'rerated' | 'hidden' | 'deleted';
   levelId: number;
@@ -147,6 +157,7 @@ export const OUTBOX_EVENT_TYPES = {
   NotificationCreated: 'NotificationCreated',
   FollowFanout: 'FollowFanout',
   ReferenceChanged: 'ReferenceChanged',
+  LevelRerated: 'LevelRerated',
 } as const;
 
 export type OutboxEventType = (typeof OUTBOX_EVENT_TYPES)[keyof typeof OUTBOX_EVENT_TYPES];
@@ -166,4 +177,5 @@ export type OutboxPayloadByType = {
   [OUTBOX_EVENT_TYPES.NotificationCreated]: NotificationCreatedPayload;
   [OUTBOX_EVENT_TYPES.FollowFanout]: FollowFanoutPayload;
   [OUTBOX_EVENT_TYPES.ReferenceChanged]: ReferenceChangedPayload;
+  [OUTBOX_EVENT_TYPES.LevelRerated]: LevelReratedPayload;
 };

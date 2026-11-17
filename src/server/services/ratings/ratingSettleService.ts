@@ -19,6 +19,10 @@ import { syncAnnouncementQueueAfterLevelSave } from '@/server/services/announcem
 import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { notifyChartRated } from '@/server/services/notifications/chartOwnerNotify.js';
+import {
+  isTrackedRerate,
+  notifyTrackedLevelRerate,
+} from '@/server/services/notifications/rerateNotify.js';
 import { invalidateRatingAccuracyCache, freezeAndUpsertRating } from '@/server/services/ratings/ratingAccuracyService.js';
 import {
   broadcastRatingUpsert,
@@ -102,8 +106,9 @@ export async function settleExactFlow1(ratingId: number, actor: UserAttributes) 
       { settledDiffId: target.id, clearsAtSettle: locked.clears ?? 0 },
       transaction,
     );
+    let rerateHistoryId: number | null = null;
     if (previousDiffId !== 0) {
-      await LevelRerateHistory.create(
+      const historyRow = await LevelRerateHistory.create(
         {
           levelId: locked.id,
           previousDiffId,
@@ -115,6 +120,7 @@ export async function settleExactFlow1(ratingId: number, actor: UserAttributes) 
         },
         { transaction },
       );
+      rerateHistoryId = Number(historyRow.id);
     }
 
     const updated = await Level.findByPk(locked.id, {
@@ -122,13 +128,30 @@ export async function settleExactFlow1(ratingId: number, actor: UserAttributes) 
       transaction,
     });
     if (updated) {
-      await notifyChartRated({
-        level: { id: locked.id, song: updated.song ?? locked.song, artist: updated.artist ?? locked.artist },
-        difficultyName: updated.difficulty?.name?.trim() || target.name,
-        ratingId: settledRatingId,
-        actorId: actor.id,
-        transaction,
-      });
+      const chartSnapshot = {
+        id: locked.id,
+        song: updated.song ?? locked.song,
+        artist: updated.artist ?? locked.artist,
+      };
+      const trackedRerate = isTrackedRerate(previousDiffId, target.id);
+      if (trackedRerate && rerateHistoryId) {
+        await notifyTrackedLevelRerate({
+          level: chartSnapshot,
+          previousDiffId,
+          newDiffId: target.id,
+          rerateHistoryId,
+          actorId: actor.id,
+          transaction,
+        });
+      } else {
+        await notifyChartRated({
+          level: chartSnapshot,
+          difficultyName: updated.difficulty?.name?.trim() || target.name,
+          ratingId: settledRatingId,
+          actorId: actor.id,
+          transaction,
+        });
+      }
       await syncAnnouncementQueueAfterLevelSave({
         oldLevel: locked,
         newLevel: updated,
