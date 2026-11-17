@@ -101,6 +101,16 @@ export function shouldSkipEnqueue(status: SubmissionItemStatus | undefined): 'in
   return null;
 }
 
+export function resolveEnqueueDecision(
+  status: SubmissionItemStatus | undefined,
+  conveyorClaimed: boolean,
+): 'done' | 'inflight' | 'add' {
+  const skip = shouldSkipEnqueue(status);
+  if (skip === 'done') return 'done';
+  if (skip === 'inflight' || !conveyorClaimed) return 'inflight';
+  return 'add';
+}
+
 export function buildSteps(kind: SubmissionKind, action: SubmissionAction): SubmissionStepState[] {
   const ids =
     kind === 'level'

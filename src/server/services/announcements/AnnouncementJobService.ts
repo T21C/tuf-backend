@@ -148,9 +148,22 @@ async function pushRecent(kind: AnnouncementKind, requestId: string): Promise<vo
   await redis.set(recentKey(kind), next, TTL_SECONDS);
 }
 
+function announcementEventKind(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const body = data as {request?: {kind?: string}; item?: {kind?: string}};
+  return body.request?.kind || body.item?.kind || null;
+}
+
 function broadcast(type: string, data: unknown): void {
+  const kind = announcementEventKind(data);
+  const curationKind = kind === 'curation' || kind === 'curation_rerate';
   try {
-    sseManager.broadcastToSources([SSE_SOURCES.announcement], { type, data });
+    sseManager.broadcastToSources([SSE_SOURCES.announcement], { type, data }, (metadata) => {
+      const scope = metadata.announcementScope ?? 'all';
+      if (scope === 'none') return false;
+      if (!kind || curationKind) return true;
+      return scope === 'all';
+    });
   } catch (err) {
     logger.warn('[AnnouncementJobService] SSE broadcast failed', err);
   }
@@ -638,6 +651,10 @@ export const AnnouncementJobService = {
       active.push(itemId);
     }
     return active;
+  },
+
+  async peekRequest(requestId: string): Promise<AnnouncementRequestState | null> {
+    return getRequest(requestId);
   },
 
   /**

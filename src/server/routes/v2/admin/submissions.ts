@@ -25,7 +25,7 @@ import LevelSubmissionTeamRequest from '@/models/submissions/LevelSubmissionTeam
 import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import User from '@/models/auth/User.js';
-import { Op, fn, col, literal, type Includeable, type Order, type WhereOptions } from 'sequelize';
+import { Op, fn, col, literal, type Includeable, type WhereOptions } from 'sequelize';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { appendSongSuffix } from '@/misc/utils/data/levelHelpers.js';
@@ -58,16 +58,18 @@ import { LARGE_TEXT_MAX } from '@/misc/utils/textLimits.js';
 import { optionalReasonFromBody } from '@/server/routes/v2/misc/form/shared/sanitize.js';
 import { youtubeChannelService } from '@/server/services/accounts/YouTubeChannelService.js';
 import {
-  searchPendingLevelSubmissionIds,
-  searchPendingPassSubmissionIds,
-} from '@/server/services/submissions/submissionQueueSearch.js';
+  searchPendingSubmissionIds,
+  searchPendingSubmissionQueue,
+  SubmissionQueueSearchError,
+} from '@/server/services/elasticsearch/search/submissions/submissionQueueSearch.js';
+import { safeSyncPendingSubmissionDocument } from '@/server/services/elasticsearch/indexing/submissionQueueIndex.js';
 import {
-  encodePendingSubmissionCursor,
-  cursorFromPendingRow,
   parsePendingSubmissionListQuery,
-  pendingKeysetWhere,
   pendingQueueRevision,
 } from '@/server/services/submissions/pendingSubmissionCursor.js';
+import { pendingSortsFor, type PendingSubmissionSort, type PendingSubmissionSortDir } from '@/server/services/submissions/pendingSubmissionSort.js';
+import type { PassDifficultySubtype } from '@/server/services/submissions/passDifficultySubtype.js';
+import type { SubmissionQueueCursor } from '@/server/services/elasticsearch/search/submissions/submissionQueueQuery.js';
 import { broadcastSubmissionQueueChange } from '@/server/services/submissions/submissionQueueEvents.js';
 
 const router: Router = Router();
@@ -168,6 +170,34 @@ function rejectIfSubmissionLocked(
   return res.status(409).json({ error: SUBMISSION_LOCKED_ERROR });
 }
 
+function takePendingSubmission<T extends { id: number; status: string; isLocked?: boolean }>(
+  res: Response,
+  kind: SubmissionKind,
+  row: T | null,
+  notFoundError: string,
+): { ok: true; row: T } | { ok: false; response: Response } {
+  if (!row) {
+    return { ok: false, response: res.status(404).json({ error: notFoundError }) };
+  }
+  if (row.status === 'pending') return { ok: true, row };
+  return {
+    ok: false,
+    response: res.status(202).json({
+      requestId: '',
+      queued: false,
+      alreadyCompletedIds: [row.id],
+      addedItemIds: [],
+      alreadyInFlightIds: [],
+      items: [{
+        kind,
+        action: row.status === 'declined' ? 'decline' : 'approve',
+        itemId: row.id,
+        status: 'completed',
+      }],
+    }),
+  };
+}
+
 async function setPendingSubmissionLock(
   req: Request,
   res: Response,
@@ -182,25 +212,24 @@ async function setPendingSubmissionLock(
     return res.status(400).json({ error: 'isLocked must be a boolean' });
   }
   const submission = kind === 'pass'
-    ? await PassSubmission.findOne({
-        where: { [Op.and]: [{ id }, { status: 'pending' }] },
-      })
-    : await LevelSubmission.findOne({
-        where: { [Op.and]: [{ id }, { status: 'pending' }] },
-      });
-  if (!submission) {
-    return res.status(404).json({
-      error: kind === 'pass' ? 'Submission not found or already processed' : 'Submission not found',
-    });
-  }
-  await submission.update({ isLocked });
+    ? await PassSubmission.findByPk(id)
+    : await LevelSubmission.findByPk(id);
+  const found = takePendingSubmission(
+    res,
+    kind,
+    submission,
+    kind === 'pass' ? 'Submission not found or already processed' : 'Submission not found',
+  );
+  if (!found.ok) return found.response;
+  await found.row.update({ isLocked });
+  await safeSyncPendingSubmissionDocument(kind, id);
   broadcastSubmissionQueueChange({
     kind,
     id,
     change: isLocked ? 'locked' : 'unlocked',
     isLocked,
   });
-  return res.json({ submission });
+  return res.json({ submission: found.row });
 }
 
 async function enqueueSubmissionItems(
@@ -234,6 +263,8 @@ async function enqueueSubmissionItems(
       alreadyInFlight: alreadyInFlight || undefined,
       addedItemIds: result.addedItemIds,
       alreadyInFlightIds: result.alreadyInFlightIds,
+      alreadyCompletedIds: result.alreadyCompletedIds,
+      items: result.items,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -408,12 +439,6 @@ interface CreatorRequest {
   creator?: CreatorWithCredits;
 }
 
-const PENDING_QUEUE_ORDER: Order = [
-  ['isLocked', 'ASC'],
-  ['createdAt', 'DESC'],
-  ['id', 'DESC'],
-];
-
 function orderRowsByIds<T extends { id: number }>(rows: T[], ids: number[]): T[] {
   const byId = new Map(rows.map((row) => [row.id, row]));
   return ids.flatMap((id) => {
@@ -422,43 +447,76 @@ function orderRowsByIds<T extends { id: number }>(rows: T[], ids: number[]): T[]
   });
 }
 
-async function loadOrderedPending(
-  model: typeof LevelSubmission | typeof PassSubmission,
-  where: WhereOptions,
-  include: Includeable[],
-  limit?: number,
-): Promise<{ rows: Array<LevelSubmission | PassSubmission>; hasMore: boolean; nextCursor: string | null }> {
-  const finder = model as typeof LevelSubmission;
-  if (limit == null) {
-    const rows = await finder.findAll({ where, include });
-    return { rows, hasMore: false, nextCursor: null };
+function pendingQueueHttpError(error: unknown, fallback: string): { status: number; error: string } {
+  if (error instanceof SubmissionQueueSearchError) {
+    return { status: 503, error: 'Pending submission index is unavailable' };
   }
+  logger.error(fallback, error);
+  return { status: 500, error: fallback };
+}
 
-  const idRows = await finder.findAll({
-    where,
-    attributes: ['id', 'isLocked', 'createdAt'],
-    order: PENDING_QUEUE_ORDER,
-    limit: limit + 1,
-  });
-  const hasMore = idRows.length > limit;
-  const pageRows = hasMore ? idRows.slice(0, limit) : idRows;
-  const ids = pageRows.map((row) => row.id);
-  const last = pageRows[pageRows.length - 1];
-  const nextCursor = hasMore && last
-    ? encodePendingSubmissionCursor(cursorFromPendingRow(last))
-    : null;
-  if (ids.length === 0) return { rows: [], hasMore, nextCursor };
-
+async function hydratePendingByIds(
+  model: typeof LevelSubmission | typeof PassSubmission,
+  ids: number[],
+  include: Includeable[],
+): Promise<Array<LevelSubmission | PassSubmission>> {
+  if (ids.length === 0) return [];
+  const finder = model as typeof LevelSubmission;
   const hydrated = await finder.findAll({
     where: { id: { [Op.in]: ids }, status: 'pending' },
     include,
   });
-  const byId = new Map(hydrated.map((row) => [row.id, row]));
-  const rows = ids.flatMap((id) => {
-    const row = byId.get(id);
-    return row ? [row] : [];
+  return orderRowsByIds(hydrated, ids);
+}
+
+async function loadPendingFromIndex(
+  model: typeof LevelSubmission | typeof PassSubmission,
+  kind: 'level' | 'pass',
+  include: Includeable[],
+  paging: {
+    sort: PendingSubmissionSort;
+    dir: PendingSubmissionSortDir;
+    cursor: SubmissionQueueCursor | null;
+    limit: number;
+    q: string;
+    hide: PassDifficultySubtype[];
+  },
+): Promise<{
+  rows: Array<LevelSubmission | PassSubmission>;
+  hasMore: boolean;
+  nextCursor: string | null;
+  sortValues: Map<number, number | null>;
+  sortTies: Map<number, number | null>;
+  sortVolumes: Map<number, number | null>;
+}> {
+  const page = await searchPendingSubmissionQueue({
+    kind,
+    sort: paging.sort,
+    dir: paging.dir,
+    q: paging.q,
+    hide: kind === 'pass' ? paging.hide : [],
+    cursor: paging.cursor,
+    limit: paging.limit,
   });
-  return { rows, hasMore, nextCursor };
+  const rows = await hydratePendingByIds(model, page.hits.map((hit) => hit.id), include);
+  const byId = new Map(page.hits.map((hit) => [hit.id, hit]));
+  const sortValues = new Map<number, number | null>();
+  const sortTies = new Map<number, number | null>();
+  const sortVolumes = new Map<number, number | null>();
+  for (const row of rows) {
+    const hit = byId.get(row.id);
+    sortValues.set(row.id, hit?.sortValue ?? null);
+    sortTies.set(row.id, hit?.sortTie ?? null);
+    sortVolumes.set(row.id, hit?.sortVolume ?? null);
+  }
+  return {
+    rows,
+    hasMore: page.hasMore,
+    nextCursor: page.nextCursor,
+    sortValues,
+    sortTies,
+    sortVolumes,
+  };
 }
 
 async function pendingRevision(
@@ -509,7 +567,7 @@ router.get(
     operationId: 'getAdminLevelSubmissionsPending',
     summary: 'List pending level submissions',
     description:
-      'Page pending level submissions with full includes. Query: limit (default 15, max 30), cursor (keyset), q (same search as the pending search endpoint). ids reloads specific pending rows and skips paging. Order is unlocked first, then newest. The page revision changes when the pending set is created, locked, or removed so concurrent admins can resync without offset drift. Super admin.',
+      'Page pending level submissions with full includes. Query: limit (default 15, max 30), cursor (keyset), q (same search as the pending search endpoint), sort (submitted, difficulty, or ratio), dir (asc or desc). ids reloads specific pending rows and skips paging. Unlocked rows stay ahead of locked rows. submitted is the submit time. difficulty matches the submitted difficulty name to chart difficulty order, and a range uses its higher end. ratio is the submitter accept count divided by accept plus decline. Equal ratios break by accepted count, then by the number of decided submissions, in the same direction. Submitters with no decided submissions sort last. Default is newest submit time. Concurrent create, lock, and remove events are applied to the loaded window. Super admin.',
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
     query: {
@@ -517,8 +575,10 @@ router.get(
       cursor: { schema: { type: 'string' } },
       q: { schema: { type: 'string' } },
       ids: { schema: { type: 'string' } },
+      sort: { schema: { type: 'string', enum: ['submitted', 'difficulty', 'ratio'] } },
+      dir: { schema: { type: 'string', enum: ['asc', 'desc'] } },
     },
-    responses: { 200: { description: 'Pending level submission page' }, ...standardErrorResponses500 },
+    responses: { 200: { description: 'Pending level submission page' }, 503: { description: 'Search index unavailable' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
   try {
@@ -526,38 +586,11 @@ router.get(
     if ('error' in parsed) {
       return res.status(400).json({ error: parsed.error });
     }
-
-    const matchIds = parsed.ids
-      ? parsed.ids
-      : parsed.q
-        ? await searchPendingLevelSubmissionIds(parsed.q)
-        : null;
-    if (matchIds && matchIds.length === 0) {
-      return res.json({
-        items: [],
-        page: {
-          limit: parsed.limit,
-          hasMore: false,
-          nextCursor: null,
-          total: 0,
-          revision: '0:0',
-        },
-      });
+    if (!pendingSortsFor('level').includes(parsed.sort)) {
+      return res.status(400).json({ error: 'Invalid sort' });
     }
 
-    const filterWhere: WhereOptions = matchIds
-      ? { status: 'pending', id: { [Op.in]: matchIds } }
-      : { status: 'pending' };
-    const pageWhere: WhereOptions = !parsed.ids && parsed.cursor
-      ? { [Op.and]: [filterWhere, pendingKeysetWhere(parsed.cursor)] }
-      : filterWhere;
-    const summaryPromise = parsed.ids
-      ? Promise.resolve({ total: 0, revision: '' })
-      : pendingRevision(LevelSubmission, filterWhere);
-    const loadedLevels = await loadOrderedPending(
-      LevelSubmission,
-      pageWhere,
-      [
+    const pendingIncludes: Includeable[] = [
         {
           model: LevelSubmissionCreatorRequest,
           as: 'creatorRequests',
@@ -657,13 +690,29 @@ router.get(
             }
           ]
         }
-      ],
-      parsed.ids ? undefined : parsed.limit,
-    );
+      ];
+    const summaryPromise = parsed.ids
+      ? Promise.resolve({ total: 0, revision: '' })
+      : pendingRevision(LevelSubmission, { status: 'pending' });
+    const loadedLevels = parsed.ids
+      ? {
+          rows: await hydratePendingByIds(LevelSubmission, parsed.ids, pendingIncludes),
+          hasMore: false,
+          nextCursor: null as string | null,
+          sortValues: new Map<number, number | null>(),
+          sortTies: new Map<number, number | null>(),
+          sortVolumes: new Map<number, number | null>(),
+        }
+      : await loadPendingFromIndex(LevelSubmission, 'level', pendingIncludes, {
+          sort: parsed.sort,
+          dir: parsed.dir,
+          cursor: parsed.cursor,
+          limit: parsed.limit,
+          q: parsed.q,
+          hide: [],
+        });
     const summary = await summaryPromise;
-    const pendingLevelSubmissions = (parsed.ids
-      ? orderRowsByIds(loadedLevels.rows, parsed.ids)
-      : loadedLevels.rows) as LevelSubmission[];
+    const pendingLevelSubmissions = loadedLevels.rows as LevelSubmission[];
 
     const recordStats = await getSubmitterRecordStats(
       LevelSubmission,
@@ -672,6 +721,9 @@ router.get(
 
     const submissionsWithStats = pendingLevelSubmissions.map(submission => {
       const submissionData = submission.toJSON();
+      submissionData.sortValue = loadedLevels.sortValues.get(submission.id) ?? null;
+      submissionData.sortTie = loadedLevels.sortTies.get(submission.id) ?? null;
+      submissionData.sortVolume = loadedLevels.sortVolumes.get(submission.id) ?? null;
 
       // Process creator requests
       submissionData.creatorRequests = submissionData.creatorRequests?.map((request: CreatorRequest) => {
@@ -719,8 +771,8 @@ router.get(
       },
     });
   } catch (error) {
-    logger.error('Error fetching pending level submissions:', error);
-    return res.status(500).json({ error: 'Failed to fetch pending level submissions' });
+    const mapped = pendingQueueHttpError(error, 'Failed to fetch pending level submissions');
+    return res.status(mapped.status).json({ error: mapped.error });
   }
   }
 );
@@ -732,7 +784,7 @@ router.get(
     operationId: 'getAdminLevelSubmissionsPendingSearch',
     summary: 'Search pending level submissions',
     description:
-      'Returns pending level submission ids matching q. Elasticsearch resolves linked creators and submitter players; song, artist, team, and submission-only fields are matched in the database.',
+      'Returns pending level submission ids matching q from the submission queue index.',
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
     query: { q: { schema: { type: 'string' } } },
@@ -741,11 +793,11 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const q = typeof req.query.q === 'string' ? req.query.q : '';
-      const ids = await searchPendingLevelSubmissionIds(q);
+      const ids = await searchPendingSubmissionIds({ kind: 'level', q });
       return res.json({ ids });
     } catch (error) {
-      logger.error('Error searching pending level submissions:', error);
-      return res.status(500).json({ error: 'Failed to search pending level submissions' });
+      const mapped = pendingQueueHttpError(error, 'Failed to search pending level submissions');
+      return res.status(mapped.status).json({ error: mapped.error });
     }
   },
 );
@@ -792,7 +844,7 @@ router.get(
     operationId: 'getAdminPassSubmissionsPending',
     summary: 'List pending pass submissions',
     description:
-      'Page pending pass submissions with includes. Query: limit (default 15, max 30), cursor (keyset), q (same search as the pending search endpoint). ids reloads specific pending rows and skips paging. Order is unlocked first, then newest. The page revision changes when the pending set is created, locked, or removed so concurrent admins can resync without offset drift. Super admin.',
+      'Page pending pass submissions with includes. Query: limit (default 15, max 30), cursor (search_after), q (searchText), hide (comma-separated P,G,U,GQ,UQ,QQ,Etc.), sort (submitted, difficulty, or ratio), dir (asc or desc). ids reloads specific pending rows and skips paging. Unlocked rows stay ahead of locked rows. submitted is the submit time. difficulty is the chart difficulty order. ratio is the pass submitter accept count divided by accept plus decline. Equal ratios break by accepted count, then by the number of decided submissions, in the same direction. Submitters with no decided submissions sort last. Default is newest submit time. Concurrent create, lock, and remove events are applied to the loaded window. Super admin.',
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
     query: {
@@ -800,8 +852,11 @@ router.get(
       cursor: { schema: { type: 'string' } },
       q: { schema: { type: 'string' } },
       ids: { schema: { type: 'string' } },
+      sort: { schema: { type: 'string', enum: ['submitted', 'difficulty', 'ratio'] } },
+      dir: { schema: { type: 'string', enum: ['asc', 'desc'] } },
+      hide: { schema: { type: 'string' } },
     },
-    responses: { 200: { description: 'Pending pass submission page' }, ...standardErrorResponses500 },
+    responses: { 200: { description: 'Pending pass submission page' }, 503: { description: 'Search index unavailable' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
     try {
@@ -809,38 +864,11 @@ router.get(
       if ('error' in parsed) {
         return res.status(400).json({ error: parsed.error });
       }
-
-      const matchIds = parsed.ids
-        ? parsed.ids
-        : parsed.q
-          ? await searchPendingPassSubmissionIds(parsed.q)
-          : null;
-      if (matchIds && matchIds.length === 0) {
-        return res.json({
-          items: [],
-          page: {
-            limit: parsed.limit,
-            hasMore: false,
-            nextCursor: null,
-            total: 0,
-            revision: '0:0',
-          },
-        });
+      if (!pendingSortsFor('pass').includes(parsed.sort)) {
+        return res.status(400).json({ error: 'Invalid sort' });
       }
 
-      const filterWhere: WhereOptions = matchIds
-        ? { status: 'pending', id: { [Op.in]: matchIds } }
-        : { status: 'pending' };
-      const pageWhere: WhereOptions = !parsed.ids && parsed.cursor
-        ? { [Op.and]: [filterWhere, pendingKeysetWhere(parsed.cursor)] }
-        : filterWhere;
-      const summaryPromise = parsed.ids
-        ? Promise.resolve({ total: 0, revision: '' })
-        : pendingRevision(PassSubmission, filterWhere);
-      const loadedPasses = await loadOrderedPending(
-        PassSubmission,
-        pageWhere,
-        [
+      const pendingIncludes: Includeable[] = [
           {
             model: Player,
             as: 'assignedPlayer',
@@ -869,13 +897,29 @@ router.get(
             required: false,
             attributes: ['id', 'username', 'playerId']
           }
-        ],
-        parsed.ids ? undefined : parsed.limit,
-      );
+        ];
+      const summaryPromise = parsed.ids
+        ? Promise.resolve({ total: 0, revision: '' })
+        : pendingRevision(PassSubmission, { status: 'pending' });
+      const loadedPasses = parsed.ids
+        ? {
+            rows: await hydratePendingByIds(PassSubmission, parsed.ids, pendingIncludes),
+            hasMore: false,
+            nextCursor: null as string | null,
+            sortValues: new Map<number, number | null>(),
+            sortTies: new Map<number, number | null>(),
+            sortVolumes: new Map<number, number | null>(),
+          }
+        : await loadPendingFromIndex(PassSubmission, 'pass', pendingIncludes, {
+            sort: parsed.sort,
+            dir: parsed.dir,
+            cursor: parsed.cursor,
+            limit: parsed.limit,
+            q: parsed.q,
+            hide: parsed.hide,
+          });
       const summary = await summaryPromise;
-      const submissions = (parsed.ids
-        ? orderRowsByIds(loadedPasses.rows, parsed.ids)
-        : loadedPasses.rows) as PassSubmission[];
+      const submissions = loadedPasses.rows as PassSubmission[];
 
       const recordStats = await getSubmitterRecordStats(
         PassSubmission,
@@ -883,7 +927,15 @@ router.get(
       );
 
       const submissionsWithStats = submissions.map((submission) => {
-        const submissionData = submission.toJSON() as { passSubmitter?: { id: string; submissionStats?: SubmitterRecordStats } };
+        const submissionData = submission.toJSON() as {
+          sortValue?: number | null;
+          sortTie?: number | null;
+          sortVolume?: number | null;
+          passSubmitter?: { id: string; submissionStats?: SubmitterRecordStats };
+        };
+        submissionData.sortValue = loadedPasses.sortValues.get(submission.id) ?? null;
+        submissionData.sortTie = loadedPasses.sortTies.get(submission.id) ?? null;
+        submissionData.sortVolume = loadedPasses.sortVolumes.get(submission.id) ?? null;
         if (submissionData.passSubmitter) {
           submissionData.passSubmitter.submissionStats =
             recordStats.get(submissionData.passSubmitter.id) || { accepted: 0, declined: 0 };
@@ -904,10 +956,8 @@ router.get(
         },
       });
     } catch (error) {
-      logger.error('Error fetching pending pass submissions:', error);
-      return res
-        .status(500)
-        .json({error: 'Failed to fetch pending pass submissions'});
+      const mapped = pendingQueueHttpError(error, 'Failed to fetch pending pass submissions');
+      return res.status(mapped.status).json({ error: mapped.error });
     }
   }
 );
@@ -919,7 +969,7 @@ router.get(
     operationId: 'getAdminPassSubmissionsPendingSearch',
     summary: 'Search pending pass submissions',
     description:
-      'Returns pending pass submission ids matching q. Elasticsearch resolves linked levels and players; pass-only fields are matched in the database.',
+      'Returns pending pass submission ids matching q from the submission queue index.',
     tags: ['Admin', 'Submissions'],
     security: ['bearerAuth'],
     query: { q: { schema: { type: 'string' } } },
@@ -928,11 +978,11 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const q = typeof req.query.q === 'string' ? req.query.q : '';
-      const ids = await searchPendingPassSubmissionIds(q);
+      const ids = await searchPendingSubmissionIds({ kind: 'pass', q });
       return res.json({ ids });
     } catch (error) {
-      logger.error('Error searching pending pass submissions:', error);
-      return res.status(500).json({ error: 'Failed to search pending pass submissions' });
+      const mapped = pendingQueueHttpError(error, 'Failed to search pending pass submissions');
+      return res.status(mapped.status).json({ error: mapped.error });
     }
   },
 );
@@ -973,19 +1023,20 @@ router.put(
   }),
   async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
-    const submission = await LevelSubmission.findOne({
-      where: { [Op.and]: [{ id }, { status: 'pending' }] },
-    });
-    if (!submission) {
-      return res.status(404).json({ error: 'Submission not found' });
-    }
-    const locked = rejectIfSubmissionLocked(submission, res);
+    const found = takePendingSubmission(
+      res,
+      'level',
+      await LevelSubmission.findByPk(id),
+      'Submission not found',
+    );
+    if (!found.ok) return found.response;
+    const locked = rejectIfSubmissionLocked(found.row, res);
     if (locked) return locked;
     return enqueueSubmissionItems(req, res, {
       kind: 'level',
       action: 'approve',
       itemIds: [id],
-      labelsByItemId: new Map([[id, levelSubmissionLabel(submission)]]),
+      labelsByItemId: new Map([[id, levelSubmissionLabel(found.row)]]),
     });
   },
 );
@@ -1011,19 +1062,20 @@ router.put(
   }),
   async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
-    const submission = await LevelSubmission.findOne({
-      where: { [Op.and]: [{ id }, { status: 'pending' }] },
-    });
-    if (!submission) {
-      return res.status(404).json({ error: 'Submission not found' });
-    }
-    const locked = rejectIfSubmissionLocked(submission, res);
+    const found = takePendingSubmission(
+      res,
+      'level',
+      await LevelSubmission.findByPk(id),
+      'Submission not found',
+    );
+    if (!found.ok) return found.response;
+    const locked = rejectIfSubmissionLocked(found.row, res);
     if (locked) return locked;
     return enqueueSubmissionItems(req, res, {
       kind: 'level',
       action: 'decline',
       itemIds: [id],
-      labelsByItemId: new Map([[id, levelSubmissionLabel(submission)]]),
+      labelsByItemId: new Map([[id, levelSubmissionLabel(found.row)]]),
       reason: optionalReasonFromBody(req.body),
     });
   },
@@ -1043,21 +1095,22 @@ router.put(
   }),
   async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
-    const submission = await PassSubmission.findOne({
-      where: { [Op.and]: [{ id }, { status: 'pending' }] },
-    });
-    if (!submission) {
-      return res.status(404).json({ error: 'Submission not found or already processed' });
-    }
-    const locked = rejectIfSubmissionLocked(submission, res);
+    const found = takePendingSubmission(
+      res,
+      'pass',
+      await PassSubmission.findByPk(id),
+      'Submission not found or already processed',
+    );
+    if (!found.ok) return found.response;
+    const locked = rejectIfSubmissionLocked(found.row, res);
     if (locked) return locked;
     return enqueueSubmissionItems(req, res, {
       kind: 'pass',
       action: 'approve',
       itemIds: [id],
-      labelsByItemId: new Map([[id, passSubmissionLabel(submission)]]),
-      levelIdsByItemId: submission.levelId
-        ? new Map([[id, submission.levelId]])
+      labelsByItemId: new Map([[id, passSubmissionLabel(found.row)]]),
+      levelIdsByItemId: found.row.levelId
+        ? new Map([[id, found.row.levelId]])
         : undefined,
     });
   },
@@ -1084,21 +1137,22 @@ router.put(
   }),
   async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
-    const submission = await PassSubmission.findOne({
-      where: { [Op.and]: [{ id }, { status: 'pending' }] },
-    });
-    if (!submission) {
-      return res.status(404).json({ error: 'Submission not found or already processed' });
-    }
-    const locked = rejectIfSubmissionLocked(submission, res);
+    const found = takePendingSubmission(
+      res,
+      'pass',
+      await PassSubmission.findByPk(id),
+      'Submission not found or already processed',
+    );
+    if (!found.ok) return found.response;
+    const locked = rejectIfSubmissionLocked(found.row, res);
     if (locked) return locked;
     return enqueueSubmissionItems(req, res, {
       kind: 'pass',
       action: 'decline',
       itemIds: [id],
-      labelsByItemId: new Map([[id, passSubmissionLabel(submission)]]),
-      levelIdsByItemId: submission.levelId
-        ? new Map([[id, submission.levelId]])
+      labelsByItemId: new Map([[id, passSubmissionLabel(found.row)]]),
+      levelIdsByItemId: found.row.levelId
+        ? new Map([[id, found.row.levelId]])
         : undefined,
       reason: optionalReasonFromBody(req.body),
     });
@@ -1445,6 +1499,7 @@ router.put(
       });
 
       await transaction.commit();
+      await safeSyncPendingSubmissionDocument('pass', submissionId);
 
       const passJson = submission.get({plain: true}) as Record<string, unknown>;
       await attachYoutubeIdsToPassRows([passJson]);
@@ -1515,6 +1570,7 @@ router.put(
       });
 
       await transaction.commit();
+      await safeSyncPendingSubmissionDocument('pass', submission.id);
 
       const assignedJson = submission.get({plain: true}) as Record<string, unknown>;
       await attachYoutubeIdsToPassRows([assignedJson]);

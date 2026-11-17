@@ -1105,14 +1105,11 @@ class AuthController {
       if (!deviceId) {
         return res.status(400).json({ error: 'Device id required' });
       }
-      const currentId = await trustedDeviceService.currentDeviceId(req.user.id, req);
-      const revoked = await trustedDeviceService.revoke(deviceId, req.user.id);
-      if (!revoked) {
+      const tokenHash = await trustedDeviceService.revoke(deviceId, req.user.id);
+      if (!tokenHash) {
         return res.status(404).json({ error: 'Trusted device not found or already revoked' });
       }
-      if (currentId === deviceId) {
-        trustedDeviceService.clearCookie(res);
-      }
+      trustedDeviceService.dropRememberedToken(req, res, tokenHash);
       return res.status(204).send();
     } catch (error) {
       logger.error('Revoke trusted device error:', error);

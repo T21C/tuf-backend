@@ -10,7 +10,6 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { hasFlag, setUserPermissionAndSave, wherehasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
-import { AccountDeletionService } from '@/server/services/accounts/AccountDeletionService.js';
 import { isValidUsername, normalizeUsername } from '@/misc/utils/auth/username.js';
 import sequelize from '@/config/db.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -22,7 +21,6 @@ import {LARGE_TEXT_MAX} from '@/misc/utils/textLimits.js';
 const elasticsearchService = ElasticsearchService.getInstance();
 
 const router: Router = Router();
-const accountDeletionService = AccountDeletionService.getInstance();
 
 // Helper function to check if operation requires password
 const requireGrantRole = (req: Request, res: Response, next: NextFunction) => {
@@ -142,14 +140,6 @@ router.get(
             isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
             permissionFlags: user.permissionFlags.toString(), // Convert BigInt to string
             playerId: user.playerId,
-            creatorId: user.creatorId ?? null,
-            deletionScheduledAt: user.deletionScheduledAt
-              ? user.deletionScheduledAt.toISOString()
-              : null,
-            deletionExecuteAt: user.deletionExecuteAt
-              ? user.deletionExecuteAt.toISOString()
-              : null,
-            deletionIncludeCreator: Boolean(user.deletionIncludeCreator),
             player: user.player,
           };
         }),
@@ -203,14 +193,6 @@ router.get(
           isHeadCurator: hasFlag(user, permissionFlags.HEAD_CURATOR),
           permissionFlags: user.permissionFlags.toString(), // Convert BigInt to string
           playerId: user.playerId,
-          creatorId: user.creatorId ?? null,
-          deletionScheduledAt: user.deletionScheduledAt
-            ? user.deletionScheduledAt.toISOString()
-            : null,
-          deletionExecuteAt: user.deletionExecuteAt
-            ? user.deletionExecuteAt.toISOString()
-            : null,
-          deletionIncludeCreator: Boolean(user.deletionIncludeCreator),
           player: user.player,
         };
       }),
@@ -794,59 +776,6 @@ router.post(
     } catch (error: unknown) {
       logger.error('Admin user notice failed:', error);
       return res.status(500).json({ error: 'Failed to send notice' });
-    }
-  },
-);
-
-router.post(
-  '/:userId/schedule-account-deletion',
-  Auth.superAdminPassword(),
-  ApiDoc({
-    operationId: 'postAdminScheduleUserAccountDeletion',
-    summary: 'Schedule account deletion for a user',
-    description:
-      'Same grace-period flow as self-service deletion. Optional body.deletionIncludeCreator strips chart credits, soft-deletes solo levels, and removes the linked creator profile when the job runs.',
-    tags: ['Admin', 'Users'],
-    security: ['bearerAuth'],
-    params: {
-      userId: { description: 'Target user UUID', schema: { type: 'string', format: 'uuid' } },
-    },
-    responses: { 200: { description: 'Scheduled' }, 400: { description: 'Bad request' }, ...standardErrorResponses404500 },
-  }),
-  async (req: Request, res: Response) => {
-    try {
-      const { userId } = req.params;
-      const body = (req.body || {}) as { deletionIncludeCreator?: boolean };
-      const deletionIncludeCreator = Boolean(body.deletionIncludeCreator);
-
-      const target = await User.findByPk(userId);
-      if (!target) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-
-      const { deletionScheduledAt, deletionExecuteAt } =
-        await accountDeletionService.scheduleDeletion(userId, { deletionIncludeCreator });
-
-      await CacheInvalidation.invalidateUser(userId);
-
-      logger.debug('[admin] Scheduled account deletion', {
-        targetUserId: userId,
-        actorUserId: req.user?.id,
-        deletionIncludeCreator,
-      });
-
-      return res.json({
-        message: 'Account deletion scheduled',
-        deletionScheduledAt: deletionScheduledAt.toISOString(),
-        deletionExecuteAt: deletionExecuteAt.toISOString(),
-      });
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (msg === 'No linked creator profile to include in deletion') {
-        return res.status(400).json({ error: msg });
-      }
-      logger.error('Admin schedule account deletion failed:', error);
-      return res.status(500).json({ error: 'Failed to schedule account deletion' });
     }
   },
 );

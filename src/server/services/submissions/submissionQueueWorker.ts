@@ -28,6 +28,7 @@ export async function runQueuedSubmissionItem(
 ): Promise<'completed' | 'failed' | 'skipped'> {
   const existing = await SubmissionJobService.getItemState(payload.kind, payload.itemId);
   if (existing && isTerminalItemStatus(existing.status)) {
+    await SubmissionJobService.adoptRequestForItem(payload);
     return 'skipped';
   }
 

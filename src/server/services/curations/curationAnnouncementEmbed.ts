@@ -1,10 +1,12 @@
 import CurationType from '@/models/curations/CurationType.js';
+import Difficulty from '@/models/levels/Difficulty.js';
 import type Level from '@/models/levels/Level.js';
 import {MessageBuilder} from '@/misc/webhook/index.js';
 import {clientUrlEnv} from '@/config/app.config.js';
 import {curationTypeEmojiMarkup} from '@/misc/utils/data/curationTypeEmojis.js';
 import {getSongDisplayName} from '@/misc/utils/data/levelHelpers.js';
 import {isSilentCurationAnnouncementName} from '@/misc/utils/data/curationTypeFamilies.js';
+import {toAbsoluteAssetUrl} from '@/server/services/notifications/pushArtwork.js';
 
 function asIdList(value: unknown): number[] {
   if (!Array.isArray(value)) return [];
@@ -32,6 +34,14 @@ async function typeLine(typeIds: number[]): Promise<string> {
     .join(' ');
 }
 
+async function difficultyAuthorIcon(level: Level): Promise<string> {
+  const loaded = level.difficulty?.icon;
+  if (loaded) return toAbsoluteAssetUrl(loaded) || '';
+  if (!level.diffId) return '';
+  const row = await Difficulty.findByPk(level.diffId, {attributes: ['icon']});
+  return toAbsoluteAssetUrl(row?.icon) || '';
+}
+
 export async function createCurationAnnouncementEmbed(input: {
   level: Level;
   kind: 'NEW' | 'RERATE';
@@ -44,8 +54,7 @@ export async function createCurationAnnouncementEmbed(input: {
   const afterLine = await typeLine(input.afterTypeIds);
   const embed = new MessageBuilder()
     .setColor('#6f42c1')
-    .setAuthor(`${song} — ${level.artist || 'Unknown Artist'}`, '', url)
-    .setTitle(`ID: ${level.id}`)
+    .setAuthor(`${song} — ${level.artist || 'Unknown Artist'}`, await difficultyAuthorIcon(level), url)
     .setTimestamp();
 
   if (input.kind === 'RERATE') {
@@ -53,7 +62,7 @@ export async function createCurationAnnouncementEmbed(input: {
     embed.addField('Previous', beforeLine, false);
     embed.addField('New', afterLine, false);
   } else {
-    embed.setDescription(`${afterLine} [${song}](${url}) ID:${level.id}`);
+    embed.setDescription(afterLine);
   }
 
   embed.setFooter(`ID: ${level.id}`, '');

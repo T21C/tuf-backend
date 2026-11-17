@@ -6,6 +6,7 @@ export type SubmissionQueueChange = {
   id: number;
   change: 'created' | 'locked' | 'unlocked' | 'removed';
   isLocked?: boolean;
+  action?: 'approve' | 'decline';
 };
 
 export function broadcastSubmissionQueueChange(change: SubmissionQueueChange): void {

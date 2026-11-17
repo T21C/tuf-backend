@@ -66,3 +66,35 @@ test('chart.rated is in-app by default and links to the level', () => {
     '/levels/12',
   );
 });
+
+test('chart.rerated is in-app by default and links to the level', () => {
+  const definition = getNotificationTypeDefinition(NOTIFICATION_TYPES.ChartRerated);
+  assert.equal(definition.defaults.inApp, true);
+  assert.equal(definition.category, 'chart');
+  assert.equal(
+    definition.href({
+      levelId: 12,
+      song: 'Storm',
+      artist: 'Camellia',
+      previousDifficultyName: 'U1',
+      difficultyName: 'U2',
+    }),
+    '/levels/12',
+  );
+});
+
+test('pass.level.rerated is in-app by default in clears and links to the level', () => {
+  const definition = getNotificationTypeDefinition(NOTIFICATION_TYPES.PassLevelRerated);
+  assert.equal(definition.defaults.inApp, true);
+  assert.equal(definition.category, 'clears');
+  assert.equal(
+    definition.href({
+      levelId: 12,
+      song: 'Storm',
+      artist: 'Camellia',
+      previousDifficultyName: 'U1',
+      difficultyName: 'U2',
+    }),
+    '/levels/12',
+  );
+});

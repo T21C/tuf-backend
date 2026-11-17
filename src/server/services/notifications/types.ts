@@ -8,6 +8,7 @@ export const NOTIFICATION_TYPES = {
   PassModified: 'pass.modified',
   PassDeleted: 'pass.deleted',
   PassRestored: 'pass.restored',
+  PassLevelRerated: 'pass.level.rerated',
   ChartSubmissionSubmitted: 'chart.submission.submitted',
   ChartSubmissionApproved: 'chart.submission.approved',
   ChartSubmissionDeclined: 'chart.submission.declined',
@@ -17,6 +18,7 @@ export const NOTIFICATION_TYPES = {
   ChartModified: 'chart.modified',
   ChartSwapped: 'chart.swapped',
   ChartRated: 'chart.rated',
+  ChartRerated: 'chart.rerated',
   ChartCurated: 'chart.curated',
   ChartCurationRemoved: 'chart.curation.removed',
   ChartWeeklySelected: 'chart.weekly.selected',
@@ -86,6 +88,13 @@ export const chartRatedPayloadSchema = chartSnapshotPayloadSchema.extend({
 });
 
 export type ChartRatedPayload = z.infer<typeof chartRatedPayloadSchema>;
+
+export const chartReratedPayloadSchema = chartSnapshotPayloadSchema.extend({
+  previousDifficultyName: z.string().nullable(),
+  difficultyName: z.string().nullable(),
+});
+
+export type ChartReratedPayload = z.infer<typeof chartReratedPayloadSchema>;
 
 export const requestUpdatedPayloadSchema = z.object({
   requestId: z.number().int().positive(),
@@ -167,6 +176,7 @@ export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.PassModified]: PassLifecyclePayload;
   [NOTIFICATION_TYPES.PassDeleted]: PassLifecyclePayload;
   [NOTIFICATION_TYPES.PassRestored]: PassLifecyclePayload;
+  [NOTIFICATION_TYPES.PassLevelRerated]: ChartReratedPayload;
   [NOTIFICATION_TYPES.ChartSubmissionSubmitted]: ChartSubmissionPayload;
   [NOTIFICATION_TYPES.ChartSubmissionApproved]: ChartSubmissionPayload;
   [NOTIFICATION_TYPES.ChartSubmissionDeclined]: ChartSubmissionPayload;
@@ -176,6 +186,7 @@ export type NotificationPayloadByType = {
   [NOTIFICATION_TYPES.ChartModified]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartSwapped]: ChartSwappedPayload;
   [NOTIFICATION_TYPES.ChartRated]: ChartRatedPayload;
+  [NOTIFICATION_TYPES.ChartRerated]: ChartReratedPayload;
   [NOTIFICATION_TYPES.RequestUpdated]: RequestUpdatedPayload;
   [NOTIFICATION_TYPES.ChartCurated]: ChartSnapshotPayload;
   [NOTIFICATION_TYPES.ChartCurationRemoved]: ChartSnapshotPayload;
@@ -282,6 +293,12 @@ const notificationTypeRegistry: {
     passLifecyclePayloadSchema,
     (payload) => `/passes/${payload.passId}`,
   ),
+  [NOTIFICATION_TYPES.PassLevelRerated]: def(
+    NOTIFICATION_TYPES.PassLevelRerated,
+    'clears',
+    chartReratedPayloadSchema,
+    levelHref,
+  ),
   [NOTIFICATION_TYPES.ChartSubmissionSubmitted]: def(
     NOTIFICATION_TYPES.ChartSubmissionSubmitted,
     'submissions',
@@ -334,6 +351,12 @@ const notificationTypeRegistry: {
     NOTIFICATION_TYPES.ChartRated,
     'chart',
     chartRatedPayloadSchema,
+    levelHref,
+  ),
+  [NOTIFICATION_TYPES.ChartRerated]: def(
+    NOTIFICATION_TYPES.ChartRerated,
+    'chart',
+    chartReratedPayloadSchema,
     levelHref,
   ),
   [NOTIFICATION_TYPES.ChartCurated]: def(

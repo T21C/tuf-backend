@@ -41,6 +41,9 @@ export async function initializeRuntimeServices(): Promise<void> {
     const { startReferenceChangedDispatcher } = await import(
       '@/server/services/outbox/referenceChangedDispatcher.js'
     );
+    const { startLevelReratedDispatcher } = await import(
+      '@/server/services/outbox/levelReratedDispatcher.js'
+    );
     const { OutboxRetentionService } = await import('@/server/services/outbox/OutboxRetentionService.js');
     const { sseManager } = await import('@/misc/utils/server/sse.js');
     const { startSubmissionQueueWorker } = await import(
@@ -63,6 +66,7 @@ export async function initializeRuntimeServices(): Promise<void> {
     startNotificationPushDispatcher();
     startFollowFanoutDispatcher();
     startReferenceChangedDispatcher();
+    startLevelReratedDispatcher();
     const { startReferenceLevelChangeDispatcher } = await import(
       '@/server/services/references/referenceLevelChangeDispatcher.js'
     );

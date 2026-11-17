@@ -20,3 +20,11 @@ void test('CDC watches tournament catalog tables', () => {
   assert.equal(CDC_WATCHED_TABLES.includes('tournament_placements'), true);
   assert.equal(CDC_WATCHED_TABLES.includes('tournament_placement_credits'), true);
 });
+
+void test('CDC watches pending submission queue tables', () => {
+  assert.equal(CDC_WATCHED_TABLES.includes('pass_submissions'), true);
+  assert.equal(CDC_WATCHED_TABLES.includes('level_submissions'), true);
+  assert.equal(CDC_WATCHED_TABLES.includes('teams'), true);
+  assert.equal(CDC_WATCHED_TABLES.includes('team_aliases'), true);
+  assert.equal(CDC_WATCHED_TABLES.includes('level_submission_creator_requests'), true);
+});

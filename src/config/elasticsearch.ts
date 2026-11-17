@@ -73,6 +73,7 @@ export const playerIndexName = `${indexPrefix}players_v1`;
 export const creatorIndexName = `${indexPrefix}creators_v1`;
 export const modIndexName = `${indexPrefix}mods_v1`;
 export const tournamentIndexName = `${indexPrefix}tournaments_v1`;
+export const submissionQueueIndexName = `${indexPrefix}submission_queue_v1`;
 
 // Alias names
 export const levelAlias = `${indexPrefix}levels`;
@@ -82,6 +83,7 @@ export const playerAlias = `${indexPrefix}players`;
 export const creatorAlias = `${indexPrefix}creators`;
 export const modAlias = `${indexPrefix}mods`;
 export const tournamentAlias = `${indexPrefix}tournaments`;
+export const submissionQueueAlias = `${indexPrefix}submission_queue`;
 
 // Combined index and alias configuration
 const settings = {
@@ -901,6 +903,31 @@ const modPersonMapping = {
   },
 };
 
+export const submissionQueueMapping = {
+  settings,
+  mappings: {
+    properties: {
+      kind: { type: 'keyword' as const },
+      id: { type: 'integer' as const },
+      isLocked: { type: 'integer' as const },
+      createdAt: { type: 'date' as const },
+      difficultySort: { type: 'integer' as const },
+      difficultySubtype: { type: 'keyword' as const },
+      ratio: { type: 'integer' as const },
+      acceptedCount: { type: 'integer' as const },
+      decidedCount: { type: 'integer' as const },
+      searchText: modTextField,
+      userId: { type: 'keyword' as const },
+      levelId: { type: 'integer' as const },
+      creatorIds: { type: 'integer' as const },
+      playerIds: { type: 'integer' as const },
+      songIds: { type: 'integer' as const },
+      artistIds: { type: 'integer' as const },
+      teamIds: { type: 'integer' as const },
+    },
+  },
+};
+
 export const tournamentMapping = {
   settings,
   mappings: {
@@ -1004,6 +1031,11 @@ export const indices = {
     alias: tournamentAlias,
     settings: tournamentMapping.settings,
     mappings: tournamentMapping.mappings
+  },
+  [submissionQueueIndexName]: {
+    alias: submissionQueueAlias,
+    settings: submissionQueueMapping.settings,
+    mappings: submissionQueueMapping.mappings
   }
 };
 
@@ -1114,6 +1146,18 @@ const tournamentMappingHashPayload = {
   indexerVersion: 1,
 };
 
+/**
+ * Payload hashed for the pending submission queue index.
+ *
+ * History:
+ *   1 — pending-only queue with difficulty, ratio, and searchText.
+ */
+const submissionQueueMappingHashPayload = {
+  settings: submissionQueueMapping.settings,
+  mappings: submissionQueueMapping.mappings,
+  indexerVersion: 1,
+};
+
 // Store mapping hash files next to the `server/` package, not `process.cwd()`.
 // Dev servers can be launched from repo root or `server/`, so `cwd` is not stable.
 const serverPackageRoot = path.resolve(fileURLToPath(new URL('../../mapping-hashes', import.meta.url)));
@@ -1123,6 +1167,7 @@ const playerMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-players
 const creatorMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-creators.json');
 const modMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-mods.json');
 const tournamentMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-tournaments.json');
+const submissionQueueMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-submission-queue.json');
 
 // Function to generate hash of mappings
 export function generateMappingHash(mappings: any): string {
@@ -1141,6 +1186,7 @@ export async function updateMappingHash(opts: {
   reindexedCreators: boolean;
   reindexedMods: boolean;
   reindexedTournaments: boolean;
+  reindexedSubmissions: boolean;
 }): Promise<void> {
   if (opts.reindexedLevels) {
     await storeLevelMappingHash(generateMappingHash(levelMappingHashPayload));
@@ -1159,6 +1205,9 @@ export async function updateMappingHash(opts: {
   }
   if (opts.reindexedTournaments) {
     await storeTournamentMappingHash(generateMappingHash(tournamentMappingHashPayload));
+  }
+  if (opts.reindexedSubmissions) {
+    await storeSubmissionQueueMappingHash(generateMappingHash(submissionQueueMappingHashPayload));
   }
 }
 
@@ -1211,6 +1260,10 @@ export function readStoredTournamentMappingHash(): string | null {
   return readHashFromFile(tournamentMappingHashPath);
 }
 
+export function readStoredSubmissionQueueMappingHash(): string | null {
+  return readHashFromFile(submissionQueueMappingHashPath);
+}
+
 async function storeLevelMappingHash(hashValue: string): Promise<void> {
   await writeHashFile(levelMappingHashPath, hashValue);
 }
@@ -1235,6 +1288,10 @@ async function storeTournamentMappingHash(hashValue: string): Promise<void> {
   await writeHashFile(tournamentMappingHashPath, hashValue);
 }
 
+async function storeSubmissionQueueMappingHash(hashValue: string): Promise<void> {
+  await writeHashFile(submissionQueueMappingHashPath, hashValue);
+}
+
 export type ReindexFlags = {
   levelNeedsReindex: boolean;
   passNeedsReindex: boolean;
@@ -1242,6 +1299,7 @@ export type ReindexFlags = {
   creatorNeedsReindex: boolean;
   modNeedsReindex: boolean;
   tournamentNeedsReindex: boolean;
+  submissionNeedsReindex: boolean;
 };
 
 async function isLevelIndexReady(): Promise<boolean> {
@@ -1293,6 +1351,14 @@ async function isTournamentIndexReady(): Promise<boolean> {
   return Boolean(idx && alias);
 }
 
+async function isSubmissionQueueIndexReady(): Promise<boolean> {
+  const [idx, alias] = await Promise.all([
+    client.indices.exists({ index: submissionQueueIndexName }),
+    client.indices.exists({ index: submissionQueueAlias })
+  ]);
+  return Boolean(idx && alias);
+}
+
 // Function to check if reindexing is needed (per index)
 export async function checkIfReindexingNeeded(): Promise<ReindexFlags> {
   try {
@@ -1302,12 +1368,14 @@ export async function checkIfReindexingNeeded(): Promise<ReindexFlags> {
     const currentCreatorHash = generateMappingHash(creatorMappingHashPayload);
     const currentModHash = generateMappingHash(modMappingHashPayload);
     const currentTournamentHash = generateMappingHash(tournamentMappingHashPayload);
+    const currentSubmissionQueueHash = generateMappingHash(submissionQueueMappingHashPayload);
     const storedLevelHash = readStoredLevelMappingHash();
     const storedPassHash = readStoredPassMappingHash();
     const storedPlayerHash = readStoredPlayerMappingHash();
     const storedCreatorHash = readStoredCreatorMappingHash();
     const storedModHash = readStoredModMappingHash();
     const storedTournamentHash = readStoredTournamentMappingHash();
+    const storedSubmissionQueueHash = readStoredSubmissionQueueMappingHash();
 
     const levelHashMismatch = currentLevelHash !== storedLevelHash;
     const passHashMismatch = currentPassHash !== storedPassHash;
@@ -1315,14 +1383,16 @@ export async function checkIfReindexingNeeded(): Promise<ReindexFlags> {
     const creatorHashMismatch = currentCreatorHash !== storedCreatorHash;
     const modHashMismatch = currentModHash !== storedModHash;
     const tournamentHashMismatch = currentTournamentHash !== storedTournamentHash;
+    const submissionHashMismatch = currentSubmissionQueueHash !== storedSubmissionQueueHash;
 
-    const [levelReady, passReady, playerReady, creatorReady, modReady, tournamentReady] = await Promise.all([
+    const [levelReady, passReady, playerReady, creatorReady, modReady, tournamentReady, submissionReady] = await Promise.all([
       isLevelIndexReady(),
       isPassIndexReady(),
       isPlayerIndexReady(),
       isCreatorIndexReady(),
       isModIndexReady(),
       isTournamentIndexReady(),
+      isSubmissionQueueIndexReady(),
     ]);
 
     const levelNeedsReindex = levelHashMismatch || !levelReady;
@@ -1331,17 +1401,18 @@ export async function checkIfReindexingNeeded(): Promise<ReindexFlags> {
     const creatorNeedsReindex = creatorHashMismatch || !creatorReady;
     const modNeedsReindex = modHashMismatch || !modReady;
     const tournamentNeedsReindex = tournamentHashMismatch || !tournamentReady;
+    const submissionNeedsReindex = submissionHashMismatch || !submissionReady;
 
-    if (levelNeedsReindex || passNeedsReindex || playerNeedsReindex || creatorNeedsReindex || modNeedsReindex || tournamentNeedsReindex) {
+    if (levelNeedsReindex || passNeedsReindex || playerNeedsReindex || creatorNeedsReindex || modNeedsReindex || tournamentNeedsReindex || submissionNeedsReindex) {
       logger.info(
-        `Index configuration: levels reindex=${levelNeedsReindex} (hash=${levelHashMismatch}, ready=${levelReady}), passes reindex=${passNeedsReindex} (hash=${passHashMismatch}, ready=${passReady}), players reindex=${playerNeedsReindex} (hash=${playerHashMismatch}, ready=${playerReady}), creators reindex=${creatorNeedsReindex} (hash=${creatorHashMismatch}, ready=${creatorReady}), mods reindex=${modNeedsReindex} (hash=${modHashMismatch}, ready=${modReady}), tournaments reindex=${tournamentNeedsReindex} (hash=${tournamentHashMismatch}, ready=${tournamentReady})`
+        `Index configuration: levels reindex=${levelNeedsReindex} (hash=${levelHashMismatch}, ready=${levelReady}), passes reindex=${passNeedsReindex} (hash=${passHashMismatch}, ready=${passReady}), players reindex=${playerNeedsReindex} (hash=${playerHashMismatch}, ready=${playerReady}), creators reindex=${creatorNeedsReindex} (hash=${creatorHashMismatch}, ready=${creatorReady}), mods reindex=${modNeedsReindex} (hash=${modHashMismatch}, ready=${modReady}), tournaments reindex=${tournamentNeedsReindex} (hash=${tournamentHashMismatch}, ready=${tournamentReady}), submissions reindex=${submissionNeedsReindex} (hash=${submissionHashMismatch}, ready=${submissionReady})`
       );
     }
 
-    return { levelNeedsReindex, passNeedsReindex, playerNeedsReindex, creatorNeedsReindex, modNeedsReindex, tournamentNeedsReindex };
+    return { levelNeedsReindex, passNeedsReindex, playerNeedsReindex, creatorNeedsReindex, modNeedsReindex, tournamentNeedsReindex, submissionNeedsReindex };
   } catch (error) {
     logger.error('Error checking if reindexing is needed:', error);
-    return { levelNeedsReindex: true, passNeedsReindex: true, playerNeedsReindex: true, creatorNeedsReindex: true, modNeedsReindex: true, tournamentNeedsReindex: true };
+    return { levelNeedsReindex: true, passNeedsReindex: true, playerNeedsReindex: true, creatorNeedsReindex: true, modNeedsReindex: true, tournamentNeedsReindex: true, submissionNeedsReindex: true };
   }
 }
 
@@ -1369,6 +1440,7 @@ export type InitializeElasticsearchResult = {
   reindexedCreators: boolean;
   reindexedMods: boolean;
   reindexedTournaments: boolean;
+  reindexedSubmissions: boolean;
 };
 
 export async function initializeElasticsearch(): Promise<InitializeElasticsearchResult> {
@@ -1378,7 +1450,7 @@ export async function initializeElasticsearch(): Promise<InitializeElasticsearch
       throw new Error('Elasticsearch failed to initialize after multiple retries');
     }
 
-    const { levelNeedsReindex, passNeedsReindex, playerNeedsReindex, creatorNeedsReindex, modNeedsReindex, tournamentNeedsReindex } = await checkIfReindexingNeeded();
+    const { levelNeedsReindex, passNeedsReindex, playerNeedsReindex, creatorNeedsReindex, modNeedsReindex, tournamentNeedsReindex, submissionNeedsReindex } = await checkIfReindexingNeeded();
 
     let reindexedLevels = false;
     let reindexedPasses = false;
@@ -1386,6 +1458,7 @@ export async function initializeElasticsearch(): Promise<InitializeElasticsearch
     let reindexedCreators = false;
     let reindexedMods = false;
     let reindexedTournaments = false;
+    let reindexedSubmissions = false;
 
     if (levelNeedsReindex) {
       logger.info('Recreating levels index and aliases...');
@@ -1549,11 +1622,37 @@ export async function initializeElasticsearch(): Promise<InitializeElasticsearch
       reindexedTournaments = true;
     }
 
-    if (!reindexedLevels && !reindexedPasses && !reindexedPlayers && !reindexedCreators && !reindexedMods && !reindexedTournaments) {
+    if (submissionNeedsReindex) {
+      logger.info('Recreating submission queue index and alias...');
+      await client.indices
+        .delete({
+          index: [submissionQueueIndexName, submissionQueueAlias],
+          ignore_unavailable: true
+        })
+        .catch(() => {});
+
+      const submissionConfig = indices[submissionQueueIndexName];
+      await client.indices.create({
+        index: submissionQueueIndexName,
+        settings: submissionConfig.settings,
+        mappings: submissionConfig.mappings
+      });
+      logger.info(`Created index: ${submissionQueueIndexName}`);
+
+      await client.indices.putAlias({
+        index: submissionQueueIndexName,
+        name: submissionQueueAlias
+      });
+      logger.info(`Created alias: ${submissionQueueAlias} -> ${submissionQueueIndexName}`);
+
+      reindexedSubmissions = true;
+    }
+
+    if (!reindexedLevels && !reindexedPasses && !reindexedPlayers && !reindexedCreators && !reindexedMods && !reindexedTournaments && !reindexedSubmissions) {
       logger.info('No index recreation needed');
     }
 
-    return { reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods, reindexedTournaments };
+    return { reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators, reindexedMods, reindexedTournaments, reindexedSubmissions };
   } catch (error) {
     logger.error('Error initializing Elasticsearch:', error);
     throw error;

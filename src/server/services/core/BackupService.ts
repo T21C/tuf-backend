@@ -394,15 +394,17 @@ export class BackupService {
       await es.reindexAllCreators();
       await es.reindexAllMods();
       await es.reindexAllTournaments();
-      logger.info('Elasticsearch reindexed (levels, passes, players, creators, mods, tournaments)');
+      await es.reindexAllPendingSubmissions();
+      logger.info('Elasticsearch reindexed (levels, passes, players, creators, mods, tournaments, submissions)');
 
       await updateMappingHash({
         reindexedLevels: true,
         reindexedPasses: true,
-        reindexedPlayers: true,
         reindexedCreators: true,
+        reindexedPlayers: true,
         reindexedMods: true,
         reindexedTournaments: true,
+        reindexedSubmissions: true,
       });
 
       await CacheInvalidation.invalidatePattern('cache:*');
