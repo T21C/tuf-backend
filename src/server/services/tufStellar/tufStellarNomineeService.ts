@@ -1,18 +1,22 @@
 import {Op, type Transaction} from 'sequelize';
 import sequelize from '@/config/db.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
+import CurationRatingDetail from '@/models/curations/CurationRatingDetail.js';
 import TufStellarNomineeMonth from '@/models/billing/TufStellarNomineeMonth.js';
 import {OutboxService} from '@/server/services/outbox/OutboxService.js';
-import {OUTBOX_EVENT_TYPES} from '@/server/services/outbox/events.js';
+import {
+  OUTBOX_EVENT_TYPES,
+  type TufStellarNomineeKind,
+} from '@/server/services/outbox/events.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {mapMysqlClientError} from '@/misc/utils/db/mysqlClientError.js';
 import {safeTransactionRollback} from '@/misc/utils/Utility.js';
 import {
-  MONTHLY_NOMINEE_RATING_THRESHOLD,
+  MONTHLY_NOMINEE_THRESHOLD,
   shouldEnqueueMonthlyNominee,
   utcMonthBounds,
   utcMonthKey,
-} from '@/server/services/ratings/tufStellarNominee.js';
+} from '@/server/services/tufStellar/tufStellarNominee.js';
 
 const AUTORATER_USERNAME = 'autorater';
 
@@ -22,40 +26,53 @@ export function isAutoraterAccount(user: {id: string; username: string}): boolea
   return user.username === AUTORATER_USERNAME;
 }
 
-export async function countOfficialRatingsInUtcMonth(
+function createdInUtcMonth(now: Date) {
+  const {start, next} = utcMonthBounds(now);
+  return {
+    [Op.gte]: start,
+    [Op.lt]: next,
+  };
+}
+
+export async function countOfficialVotesInUtcMonth(
+  kind: TufStellarNomineeKind,
   userId: string,
   now: Date,
   transaction?: Transaction,
 ): Promise<number> {
-  const {start, next} = utcMonthBounds(now);
+  const createdAt = createdInUtcMonth(now);
+  if (kind === 'curation') {
+    return CurationRatingDetail.count({
+      where: {userId, createdAt},
+      transaction,
+    });
+  }
   return RatingDetail.count({
     where: {
       userId,
       isCommunityRating: false,
-      createdAt: {
-        [Op.gte]: start,
-        [Op.lt]: next,
-      },
+      createdAt,
     },
     transaction,
   });
 }
 
 export async function enqueueTufStellarNomineeIfEligible(args: {
+  kind: TufStellarNomineeKind;
   user: {
     id: string;
     username: string;
     avatarUrl?: string | null;
     playerId?: number | null;
   };
-  isNewOfficialRaterVote: boolean;
+  isNewOfficialVote: boolean;
   priorOfficialCountThisMonth: number;
   now?: Date;
 }): Promise<void> {
   const isAutorater = isAutoraterAccount(args.user);
   if (
     !shouldEnqueueMonthlyNominee({
-      isNewOfficialRaterVote: args.isNewOfficialRaterVote,
+      isNewOfficialVote: args.isNewOfficialVote,
       isAutorater,
       priorOfficialCountThisMonth: args.priorOfficialCountThisMonth,
     })
@@ -71,6 +88,7 @@ export async function enqueueTufStellarNomineeIfEligible(args: {
       {
         userId: args.user.id,
         monthKey,
+        kind: args.kind,
       },
       {transaction},
     );
@@ -83,9 +101,10 @@ export async function enqueueTufStellarNomineeIfEligible(args: {
         avatarUrl: args.user.avatarUrl ?? null,
         playerId: args.user.playerId ?? null,
         monthKey,
-        officialRatingsThisMonth: MONTHLY_NOMINEE_RATING_THRESHOLD,
+        kind: args.kind,
+        officialCountThisMonth: MONTHLY_NOMINEE_THRESHOLD,
       },
-      dedupKey: `tufstellar-nominee:${args.user.id}:${monthKey}`,
+      dedupKey: `tufstellar-nominee:${args.kind}:${args.user.id}:${monthKey}`,
       transaction,
     });
     await transaction.commit();
@@ -93,6 +112,7 @@ export async function enqueueTufStellarNomineeIfEligible(args: {
     await safeTransactionRollback(transaction);
     if (mapMysqlClientError(err)?.code === 'ER_DUP_ENTRY') {
       logger.debug('[tufstellar-nominee] Already nominated this month', {
+        kind: args.kind,
         userId: args.user.id,
         monthKey,
       });

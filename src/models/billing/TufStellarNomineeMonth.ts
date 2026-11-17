@@ -1,10 +1,12 @@
 import {DataTypes, Model, Optional} from 'sequelize';
 import sequelize from '@/config/db.js';
+import type {TufStellarNomineeKind} from '@/server/services/outbox/events.js';
 
 export interface TufStellarNomineeMonthAttributes {
   id: number;
   userId: string;
   monthKey: string;
+  kind: TufStellarNomineeKind;
   createdAt: Date;
 }
 
@@ -17,6 +19,7 @@ class TufStellarNomineeMonth
   declare id: number;
   declare userId: string;
   declare monthKey: string;
+  declare kind: TufStellarNomineeKind;
   declare createdAt: Date;
 }
 
@@ -36,6 +39,10 @@ TufStellarNomineeMonth.init(
       type: DataTypes.STRING(7),
       allowNull: false,
     },
+    kind: {
+      type: DataTypes.STRING(16),
+      allowNull: false,
+    },
     createdAt: {
       type: DataTypes.DATE(6),
       allowNull: false,
@@ -51,8 +58,8 @@ TufStellarNomineeMonth.init(
     indexes: [
       {
         unique: true,
-        fields: ['userId', 'monthKey'],
-        name: 'uniq_tufstellar_nominee_months_user_month',
+        fields: ['userId', 'monthKey', 'kind'],
+        name: 'uniq_tufstellar_nominee_months_user_month_kind',
       },
     ],
   },

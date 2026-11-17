@@ -35,39 +35,25 @@ import { DiscordWebhookGate } from '@/server/services/discord/DiscordWebhookGate
 import { AnnouncementDeliveryTracker } from '@/server/services/discord/AnnouncementDeliveryTracker.js';
 import { AnnouncementJobService } from '@/server/services/announcements/AnnouncementJobService.js';
 import { isWebhookRateLimitError } from '@/misc/webhook/index.js';
+import {
+  requireAnnouncementWebhookTargets,
+  type AnnouncementWebhookTarget,
+} from '@/misc/webhook/parseAnnouncementWebhookTargets.js';
 
-function parseRerateWebhookTargets(): { webhookUrl: string; ping?: string }[] {
-  const webhookUrls = (process.env.RERATE_ANNOUNCEMENT_HOOK || '')
-    .split(',')
-    .map(url => url.trim())
-    .filter(url => url.length > 0);
-
-  let pingRoleIds = (process.env.RERATE_PING_ROLE_ID || '')
-    .split(',')
-    .map(id => id.trim());
-
-  if (webhookUrls.length === 0) {
-    throw new Error('RERATE_ANNOUNCEMENT_HOOK is not configured');
-  }
-
-  if (pingRoleIds.length !== webhookUrls.length) {
-    logger.warn('[rerate-job] RERATE_ANNOUNCEMENT_HOOK and RERATE_PING_ROLE_ID count mismatch; padding missing pings', {
-      webhookCount: webhookUrls.length,
-      roleIdCount: pingRoleIds.length,
-    });
-    while (pingRoleIds.length < webhookUrls.length) {
-      pingRoleIds.push('');
-    }
-    if (pingRoleIds.length > webhookUrls.length) {
-      pingRoleIds = pingRoleIds.slice(0, webhookUrls.length);
-    }
-  }
-
-  return webhookUrls.map((webhookUrl, i) => {
-    const pingRoleId = pingRoleIds[i];
-    const ping = pingRoleId ? `<@&${pingRoleId}>` : undefined;
-    return { webhookUrl, ping };
-  });
+function loadAnnouncementWebhookTargets(
+  hookEnv: string,
+  roleEnv: string,
+  missingMessage: string,
+  logName: string,
+): AnnouncementWebhookTarget[] {
+  return requireAnnouncementWebhookTargets(
+    process.env[hookEnv] || '',
+    process.env[roleEnv] || '',
+    missingMessage,
+    (info) => {
+      logger.warn(`[${logName}] ${hookEnv} and ${roleEnv} count mismatch; padding missing pings`, info);
+    },
+  );
 }
 
 function buildRequiredWebhooksByPassId(
@@ -433,7 +419,12 @@ export async function runRerateAnnouncementJob(requestedIds: number[]): Promise<
       return;
     }
 
-    const targets = parseRerateWebhookTargets();
+    const targets = loadAnnouncementWebhookTargets(
+      'RERATE_ANNOUNCEMENT_HOOK',
+      'RERATE_PING_ROLE_ID',
+      'RERATE_ANNOUNCEMENT_HOOK is not configured',
+      'rerate-job',
+    );
     const targetUrls = targets.map(t => t.webhookUrl);
     const requiredWebhooksByItemId = new Map<number, string[]>();
     const levelIdByItemId = new Map<number, number>();
@@ -538,42 +529,6 @@ export async function runRerateAnnouncementJob(requestedIds: number[]): Promise<
   }
 }
 
-function parseNamedWebhookTargets(
-  hookEnv: string,
-  pingEnv: string,
-  missingMessage: string,
-  logName: string,
-): {webhookUrl: string; ping?: string}[] {
-  const webhookUrls = (process.env[hookEnv] || '')
-    .split(',')
-    .map((url) => url.trim())
-    .filter((url) => url.length > 0);
-
-  let pingRoleIds = (process.env[pingEnv] || '')
-    .split(',')
-    .map((id) => id.trim());
-
-  if (webhookUrls.length === 0) {
-    throw new Error(missingMessage);
-  }
-
-  if (pingRoleIds.length !== webhookUrls.length) {
-    logger.warn(`[${logName}] ${hookEnv} and ${pingEnv} count mismatch; padding missing pings`, {
-      webhookCount: webhookUrls.length,
-      roleIdCount: pingRoleIds.length,
-    });
-    while (pingRoleIds.length < webhookUrls.length) pingRoleIds.push('');
-    if (pingRoleIds.length > webhookUrls.length) {
-      pingRoleIds = pingRoleIds.slice(0, webhookUrls.length);
-    }
-  }
-
-  return webhookUrls.map((webhookUrl, i) => ({
-    webhookUrl,
-    ping: pingRoleIds[i] ? `<@&${pingRoleIds[i]}>` : undefined,
-  }));
-}
-
 export async function runCurationAnnouncementJob(
   kind: 'curation' | 'curation_rerate',
   requestedIds: number[],
@@ -641,12 +596,16 @@ export async function runCurationAnnouncementJob(
       return;
     }
 
-    const targets = parseNamedWebhookTargets(
-      kind === 'curation_rerate' ? 'CURATION_RERATE_ANNOUNCEMENT_HOOK' : 'CURATION_ANNOUNCEMENT_HOOK',
-      kind === 'curation_rerate' ? 'CURATION_RERATE_PING_ROLE_ID' : 'CURATION_PING_ROLE_ID',
-      kind === 'curation_rerate'
-        ? 'CURATION_RERATE_ANNOUNCEMENT_HOOK is not configured'
-        : 'CURATION_ANNOUNCEMENT_HOOK is not configured',
+    const hookEnv = kind === 'curation_rerate'
+      ? 'CURATION_RERATE_ANNOUNCEMENT_HOOK'
+      : 'CURATION_ANNOUNCEMENT_HOOK';
+    const roleEnv = kind === 'curation_rerate'
+      ? 'CURATION_RERATE_PING_ROLE_ID'
+      : 'CURATION_PING_ROLE_ID';
+    const targets = loadAnnouncementWebhookTargets(
+      hookEnv,
+      roleEnv,
+      `${hookEnv} is not configured`,
       kind,
     );
     const targetUrls = targets.map((item) => item.webhookUrl);

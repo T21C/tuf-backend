@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  MONTHLY_NOMINEE_RATING_THRESHOLD,
+  MONTHLY_NOMINEE_THRESHOLD,
   shouldEnqueueMonthlyNominee,
   utcMonthBounds,
   utcMonthKey,
@@ -21,18 +21,18 @@ test('utcMonthBounds is the UTC calendar month half-open range', () => {
 test('shouldEnqueueMonthlyNominee is true only on the 100th new official vote', () => {
   assert.equal(
     shouldEnqueueMonthlyNominee({
-      isNewOfficialRaterVote: true,
+      isNewOfficialVote: true,
       isAutorater: false,
-      priorOfficialCountThisMonth: MONTHLY_NOMINEE_RATING_THRESHOLD - 1,
+      priorOfficialCountThisMonth: MONTHLY_NOMINEE_THRESHOLD - 1,
     }),
     true,
   );
 });
 
-test('shouldEnqueueMonthlyNominee skips edits, community-style updates, and autorater', () => {
+test('shouldEnqueueMonthlyNominee skips edits and autorater', () => {
   assert.equal(
     shouldEnqueueMonthlyNominee({
-      isNewOfficialRaterVote: false,
+      isNewOfficialVote: false,
       isAutorater: false,
       priorOfficialCountThisMonth: 99,
     }),
@@ -40,7 +40,7 @@ test('shouldEnqueueMonthlyNominee skips edits, community-style updates, and auto
   );
   assert.equal(
     shouldEnqueueMonthlyNominee({
-      isNewOfficialRaterVote: true,
+      isNewOfficialVote: true,
       isAutorater: true,
       priorOfficialCountThisMonth: 99,
     }),
@@ -51,7 +51,7 @@ test('shouldEnqueueMonthlyNominee skips edits, community-style updates, and auto
 test('shouldEnqueueMonthlyNominee skips counts other than 99 prior official votes', () => {
   assert.equal(
     shouldEnqueueMonthlyNominee({
-      isNewOfficialRaterVote: true,
+      isNewOfficialVote: true,
       isAutorater: false,
       priorOfficialCountThisMonth: 98,
     }),
@@ -59,7 +59,7 @@ test('shouldEnqueueMonthlyNominee skips counts other than 99 prior official vote
   );
   assert.equal(
     shouldEnqueueMonthlyNominee({
-      isNewOfficialRaterVote: true,
+      isNewOfficialVote: true,
       isAutorater: false,
       priorOfficialCountThisMonth: 100,
     }),
