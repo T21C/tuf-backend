@@ -1,7 +1,7 @@
 /** Pure curation-thread copy. No database, Discord, or environment access. */
 
 import {normalizePguRequest} from '@/misc/utils/data/levelRequestValidation.js';
-import {websiteRatingLabel} from '@/misc/utils/data/ratingThread.js';
+import {splitRatingRangeTokens, websiteRatingLabel} from '@/misc/utils/data/ratingThread.js';
 import {curationTypeEmojiMarkup} from '@/misc/utils/data/curationTypeEmojis.js';
 
 /**
@@ -14,28 +14,7 @@ export function curationThreadRequestedTokens(raw: string): string[] {
   if (!input) return [];
   const out: string[] = [];
   for (const chunk of input.split(/\s+/).filter(Boolean)) {
-    const pieces = chunk.split(/([-~])/).filter((part) => part !== '');
-    let pendingPrefix = '';
-    for (const piece of pieces) {
-      if (piece === '-' || piece === '~') {
-        out.push(piece);
-        continue;
-      }
-      const match = piece.match(/^([A-Za-z]*)(-?\d+)$/);
-      if (!match) {
-        out.push(piece);
-        pendingPrefix = '';
-        continue;
-      }
-      const prefix = match[1];
-      const num = match[2];
-      if (!prefix && pendingPrefix) {
-        out.push(`${pendingPrefix}${num}`);
-      } else {
-        out.push(piece);
-        if (prefix) pendingPrefix = prefix;
-      }
-    }
+    out.push(...splitRatingRangeTokens(chunk));
   }
   return out;
 }

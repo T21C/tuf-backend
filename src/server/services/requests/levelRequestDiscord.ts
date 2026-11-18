@@ -26,9 +26,9 @@ import {appendSongSuffix} from '@/misc/utils/data/levelHelpers.js';
 import {
   appendRerateScoreTargetLines,
   formatRerateScoreTargetLines,
-  normalizePguRequest,
   normalizePositiveIdList,
 } from '@/misc/utils/data/levelRequestValidation.js';
+import {formatDifficultyRangeMarks} from '@/misc/utils/data/ratingThread.js';
 import {excludeAutomaticTagIds, isRequestableLevelTag, loadSerializedAssignedTags} from '@/server/services/data/levelTagGroupService.js';
 import {curationTypeEmojiMarkup} from '@/misc/utils/data/curationTypeEmojis.js';
 
@@ -100,22 +100,18 @@ function joinDescription(parts: Array<string | null | undefined>): string {
   );
 }
 
-async function difficultyMarksByName(): Promise<Map<string, string>> {
+async function difficultyMarksByName(): Promise<Map<string, {name: string; emoji: string}>> {
   const rows = await Difficulty.findAll({attributes: ['name', 'emoji']});
   return new Map(
-    rows.map((row) => [String(row.name || '').toLowerCase(), String(row.emoji || '').trim() || row.name]),
+    rows.map((row) => {
+      const name = String(row.name || '');
+      return [name.toLowerCase(), {name, emoji: String(row.emoji || '').trim()}];
+    }),
   );
 }
 
-function ratingMark(raw: string, byName: Map<string, string>): string {
-  const tokens = normalizePguRequest(raw).split(/([-~])/).filter((part) => part !== '');
-  if (!tokens.length) return '';
-  return tokens
-    .map((token) => {
-      if (token === '-' || token === '~') return token;
-      return byName.get(token.toLowerCase()) || token;
-    })
-    .join('');
+function ratingMark(raw: string, byName: Map<string, {name: string; emoji: string}>): string {
+  return formatDifficultyRangeMarks(raw, byName).emojis;
 }
 
 async function comparisonEchoLines(payload: Record<string, unknown>): Promise<string> {

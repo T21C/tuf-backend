@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   canonicalizeKeys,
+  splitKeyUsage,
   currentPeriod,
   findPeriodAt,
   formatKeybind,
@@ -25,6 +26,14 @@ import {
   effectiveUntil,
   DEFAULT_KEYBOARD_GEOMETRIES,
 } from './index.js';
+
+test('ghost keys are kept out of the counted key set', () => {
+  assert.deepEqual(
+    splitKeyUsage(['KeyV', 'Space', 'ControlLeft'], ['Space', 'KeyA', 'Space']),
+    {keys: ['KeyV', 'ControlLeft'], ghostKeys: ['KeyA', 'Space']},
+  );
+  assert.deepEqual(splitKeyUsage(['KeyV'], null), {keys: ['KeyV'], ghostKeys: []});
+});
 
 test('canonical key signatures match the handoff separator', () => {
   const keys = canonicalizeKeys(['Space', 'KeyV', 'ControlLeft', 'KeyV']);

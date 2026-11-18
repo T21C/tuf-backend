@@ -32,6 +32,8 @@ export type MySubmissionDto = {
     scoreV2?: number | null;
     accuracy?: number | null;
     speed?: number | null;
+    feelingRating?: string | null;
+    expectedRating?: string | null;
     charter?: string | null;
     requestedDiff?: string | null;
   };
@@ -232,7 +234,7 @@ function toIso(value: Date | string | null | undefined): string {
   return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toISOString();
 }
 
-function cleanLink(value: string | null | undefined): string | null {
+function trimmedText(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
@@ -264,7 +266,7 @@ function mapPassDto(row: PassSubmission): MySubmissionDto {
     id: json.id,
     status: json.status,
     createdAt: toIso(json.createdAt),
-    videoLink: cleanLink(json.videoLink),
+    videoLink: trimmedText(json.videoLink),
     title: passTitle(level),
     artist: passArtist(level),
     href: json.levelId ? `/levels/${json.levelId}` : null,
@@ -277,6 +279,8 @@ function mapPassDto(row: PassSubmission): MySubmissionDto {
       scoreV2: json.scoreV2 ?? null,
       accuracy: typeof accuracy === 'number' && Number.isFinite(accuracy) ? accuracy : null,
       speed: json.speed ?? null,
+      feelingRating: trimmedText(json.feelingDifficulty),
+      expectedRating: trimmedText(json.expectedDifficulty),
     },
     createdPassId: json.passId ?? null,
   };
@@ -290,7 +294,7 @@ function mapLevelDto(row: LevelSubmission): MySubmissionDto {
     id: json.id,
     status: json.status,
     createdAt: toIso(json.createdAt),
-    videoLink: cleanLink(json.videoLink),
+    videoLink: trimmedText(json.videoLink),
     title,
     artist: json.artist || null,
     href: null,

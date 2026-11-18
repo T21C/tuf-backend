@@ -17,13 +17,14 @@ router.post('/bulk-metadata', async (req: Request, res: Response) => {
         }
         const files = await CdnFile.findAll({ where: { id: fileIds, metadata: { [Op.not]: null } } });
         const levels = fileIds.map(fileId => {
-            const metadata = files.find(file => file.id === fileId)?.metadata as any
+            const file = files.find(entry => entry.id === fileId);
+            const metadata = file?.metadata as any;
             if (!metadata) {
                 return null;
             }
             return {
                 fileId: fileId,
-                metadata: buildPublicLevelzipCdnMetadata(metadata)
+                metadata: buildPublicLevelzipCdnMetadata(metadata, file?.cacheData ?? null)
             };
 
         });

@@ -35,6 +35,10 @@ import { CDN_CONFIG } from '../config.js';
 import { listArchiveEntriesForIngest } from '../domain/archive/ingestArchiveEntries.js';
 import { LEVEL_SUPPORTED_AUDIO_EXTENSION_SET } from '../constants/levelPackAudio.js';
 import { normaliseOriginalName } from '@/server/services/upload/UploadSessionService.js';
+import {
+    chartRequiresYouTubeStream,
+    chartSongUrl
+} from '../domain/metadata/levelArchiveMissingSong.js';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -177,6 +181,7 @@ async function processArchiveFileInWorkspace(
             size: number;
             hasYouTubeStream?: boolean;
             songFilename?: string;
+            songURL?: string;
             oversizedUnparsed?: boolean;
             oversizedBasics?: OversizedLevelBasics;
         }> = [];
@@ -257,6 +262,7 @@ async function processArchiveFileInWorkspace(
                     size: number;
                     hasYouTubeStream?: boolean;
                     songFilename?: string;
+                    songURL?: string;
                     oversizedUnparsed?: boolean;
                     oversizedBasics?: OversizedLevelBasics;
                     artist?: unknown;
@@ -301,8 +307,9 @@ async function processArchiveFileInWorkspace(
                         sourceLocalPath,
                         sourceRelativePath,
                         size: entry.size,
-                        hasYouTubeStream: false,
+                        hasYouTubeStream: chartRequiresYouTubeStream(scanned?.settings?.requiredMods),
                         songFilename: scanned?.settings?.songFilename as any,
+                        songURL: chartSongUrl(scanned?.settings?.songURL),
                         bpm: scanned?.settings?.bpm as any,
                         oversizedUnparsed: true,
                         ...(scanned ? { oversizedBasics: scanned } : {})
@@ -328,8 +335,9 @@ async function processArchiveFileInWorkspace(
                         sourceLocalPath,
                         sourceRelativePath,
                         size: entry.size,
-                        hasYouTubeStream: levelDict.getSetting('requiredMods')?.includes('YouTubeStream'),
+                        hasYouTubeStream: chartRequiresYouTubeStream(levelDict.getSetting('requiredMods')),
                         songFilename: levelDict.getSetting('songFilename'),
+                        songURL: chartSongUrl(levelDict.getSetting('songURL')),
                         artist: levelDict.getSetting('artist'),
                         song: levelDict.getSetting('song'),
                         author: levelDict.getSetting('author'),
@@ -647,7 +655,9 @@ async function processArchiveFileInWorkspace(
                         settings: {
                             bpm: basics.settings.bpm,
                             offset: basics.settings.offset,
-                            songFilename: basics.settings.songFilename
+                            songFilename: basics.settings.songFilename,
+                            songURL: basics.settings.songURL,
+                            requiredMods: basics.settings.requiredMods,
                         },
                         analysis: {
                             midspinCount: basics.midspinCount,

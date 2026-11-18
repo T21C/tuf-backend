@@ -32,6 +32,19 @@ function chart(opts?: {
   return opts?.bom ? `\uFEFF${body}` : body;
 }
 
+void test('reads a YouTubeStream link and required mod from settings', () => {
+  const r = scanJson5LevelText(chart({
+    settings: `{
+      bpm: 100,
+      songFilename: '',
+      songURL: 'https://youtu.be/abc',
+      requiredMods: ['YouTubeStream']
+    }`,
+  }));
+  assert.equal(r.settings.songURL, 'https://youtu.be/abc');
+  assert.deepEqual(r.settings.requiredMods, ['YouTubeStream']);
+});
+
 void test('counts finite angleData numbers excluding midspins from tilecount', () => {
   const r = scanJson5LevelText(chart());
   assert.equal(r.tilecount, 1);

@@ -9,9 +9,9 @@ import User from '@/models/auth/User.js';
 import Rating from '@/models/levels/Rating.js';
 import Pass from '@/models/passes/Pass.js';
 import {clipDiscordDescription} from '@/misc/utils/textLimits.js';
-import {normalizePguRequest} from '@/misc/utils/data/levelRequestValidation.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import {
+  formatDifficultyRangeMarks,
   voteThreadLabel,
   websiteRatingLabel,
 } from '@/misc/utils/data/ratingThread.js';
@@ -160,23 +160,11 @@ async function difficultyMark(diffId: number | null | undefined): Promise<{name:
 }
 
 async function requestedDifficultyMarks(requested: string): Promise<{names: string; emojis: string}> {
-  const tokens = normalizePguRequest(requested).split(/([-~])/).filter((part) => part !== '');
   const rows = await Difficulty.findAll({attributes: ['name', 'emoji']});
-  const byName = new Map(rows.map((row) => [row.name.toLowerCase(), row]));
-  const names: string[] = [];
-  const emojis: string[] = [];
-  for (const token of tokens) {
-    if (token === '-' || token === '~') {
-      names.push(token);
-      emojis.push(token);
-      continue;
-    }
-    const row = byName.get(token.toLowerCase());
-    const name = row?.name || token;
-    names.push(name);
-    emojis.push(row?.emoji || name);
-  }
-  return {names: names.join(''), emojis: emojis.join('')};
+  const byName = new Map(
+    rows.map((row) => [String(row.name || '').toLowerCase(), {name: row.name || '', emoji: row.emoji || ''}]),
+  );
+  return formatDifficultyRangeMarks(requested, byName);
 }
 
 function rerateWebhookUrl(): string {
