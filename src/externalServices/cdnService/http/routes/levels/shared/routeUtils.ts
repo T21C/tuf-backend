@@ -1,4 +1,5 @@
 import path from 'path';
+import { levelArchiveMissingSong } from '@/externalServices/cdnService/domain/metadata/levelArchiveMissingSong.js';
 import { normalizeLevelzipMetadata } from '@/externalServices/cdnService/domain/metadata/normalizeLevelzipMetadata.js';
 import {
     ArchivePathError,
@@ -330,7 +331,10 @@ function attachPublicObjectUrls(metadata: Record<string, unknown>): void {
  * canonical keys from {@link normalizeLevelzipMetadata}, optional derived `targetLevel*`,
  * public object `url`s on charts/songs, and `transformUnavailable` for download UI parity.
  */
-export function buildPublicLevelzipCdnMetadata(metadata: unknown): Record<string, unknown> {
+export function buildPublicLevelzipCdnMetadata(
+    metadata: unknown,
+    cacheData?: string | null
+): Record<string, unknown> {
     const raw =
         metadata && typeof metadata === 'object' && !Array.isArray(metadata)
             ? (metadata as Record<string, unknown>)
@@ -356,6 +360,7 @@ export function buildPublicLevelzipCdnMetadata(metadata: unknown): Record<string
     attachPublicObjectUrls(out);
 
     out.transformUnavailable = !!raw.targetLevelOversized;
+    out.missingSong = levelArchiveMissingSong(out, cacheData);
     return out;
 }
 

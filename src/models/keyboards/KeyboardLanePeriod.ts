@@ -19,6 +19,7 @@ class KeyboardLanePeriod extends Model<
   declare untilDate: string | null;
   declare untilAuto: CreationOptional<boolean>;
   declare keysJson: string[] | null;
+  declare ghostKeysJson: CreationOptional<string[] | null>;
   declare keySignature: string | null;
   declare setupJson: CreationOptional<object | null>;
   declare createdAt: CreationOptional<Date>;
@@ -33,6 +34,7 @@ KeyboardLanePeriod.init(
     untilDate: {type: DataTypes.DATEONLY, allowNull: true},
     untilAuto: {type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true},
     keysJson: {type: DataTypes.JSON, allowNull: true},
+    ghostKeysJson: {type: DataTypes.JSON, allowNull: true},
     keySignature: {type: DataTypes.STRING(1024), allowNull: true},
     setupJson: {type: DataTypes.JSON, allowNull: true},
     createdAt: {type: DataTypes.DATE, allowNull: false},

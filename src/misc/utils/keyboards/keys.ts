@@ -134,6 +134,19 @@ export function canonicalizeKeys(keys: string[]): string[] {
   );
 }
 
+/** Ghost keys keep rhythm without counting as inputs, so they are removed from the key set. */
+export function splitKeyUsage(
+  keys: readonly string[] | null | undefined,
+  ghostKeys: readonly string[] | null | undefined,
+): {keys: string[]; ghostKeys: string[]} {
+  const ghost = canonicalizeKeys([...(ghostKeys ?? [])]);
+  const ghostSet = new Set(ghost);
+  return {
+    keys: canonicalizeKeys([...(keys ?? [])].filter((code) => !ghostSet.has(code))),
+    ghostKeys: ghost,
+  };
+}
+
 export function keySignature(keys: string[]): string {
   return canonicalizeKeys(keys).join(KEY_SIGNATURE_SEPARATOR);
 }

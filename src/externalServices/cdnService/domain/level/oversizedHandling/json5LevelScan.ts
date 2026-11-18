@@ -8,6 +8,10 @@ export type OversizedLevelBasics = {
     bpm?: unknown;
     offset?: unknown;
     songFilename?: unknown;
+    /** YouTubeStream (YSMod) video link, when the chart stores one. */
+    songURL?: unknown;
+    /** `settings.requiredMods`, used to detect YouTubeStream. */
+    requiredMods?: unknown;
     /** Title field. Read for ZIP-filename encoding detection (used as a fallback reference string). */
     song?: unknown;
     /** Artist field. Read for ZIP-filename encoding detection. */
@@ -22,6 +26,8 @@ export const SETTINGS_KEYS_OF_INTEREST = [
   'bpm',
   'offset',
   'songFilename',
+  'songURL',
+  'requiredMods',
   'song',
   'artist',
   'author',
@@ -105,7 +111,7 @@ function parseSettingsBlob(raw: string): unknown | null {
 }
 
 function extractSettingsLoose(raw: string, settings: OversizedLevelBasics['settings']): void {
-  for (const key of ['songFilename', 'song', 'artist', 'author'] as const) {
+  for (const key of ['songFilename', 'songURL', 'song', 'artist', 'author'] as const) {
     if (settings[key] !== undefined) continue;
     const re = new RegExp(`['"]${key}['"]\\s*:\\s*['"]((?:[^'"\\\\]|\\\\.)*)['"]`);
     const m = re.exec(raw);
@@ -115,6 +121,13 @@ function extractSettingsLoose(raw: string, settings: OversizedLevelBasics['setti
       if (typeof parsed === 'string') settings[key] = parsed;
     } catch {
       settings[key] = m[1];
+    }
+  }
+  if (settings.requiredMods === undefined) {
+    const modsMatch = /['"]requiredMods['"]\s*:\s*\[([\s\S]*?)\]/.exec(raw);
+    if (modsMatch) {
+      const mods = [...modsMatch[1].matchAll(/['"]((?:[^'"\\]|\\.)*)['"]/g)].map((hit) => hit[1]);
+      if (mods.length > 0) settings.requiredMods = mods;
     }
   }
   for (const key of ['bpm', 'offset'] as const) {

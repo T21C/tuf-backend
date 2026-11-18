@@ -31,6 +31,10 @@ import {
     type OversizedLevelBasics
 } from './oversizedHandling/oversizedLevelScan.js';
 import { computeLevelCacheMetadataSignature } from './levelCacheSignature.js';
+import {
+    chartRequiresYouTubeStream,
+    chartSongUrl
+} from '../metadata/levelArchiveMissingSong.js';
 
 export type LevelParsePath =
     | 'leveldict'
@@ -49,6 +53,7 @@ export type AnalyzedLevelFile = {
     parseError?: string;
     hasYouTubeStream?: boolean;
     songFilename?: unknown;
+    songURL?: unknown;
     artist?: unknown;
     song?: unknown;
     author?: unknown;
@@ -155,6 +160,7 @@ function toMetadataLevelEntry(
         size: analyzed.size,
         hasYouTubeStream: analyzed.hasYouTubeStream ?? false,
         songFilename: analyzed.songFilename,
+        songURL: analyzed.songURL,
         artist: analyzed.artist,
         song: analyzed.song,
         author: analyzed.author,
@@ -309,7 +315,9 @@ export async function analyzeLevelPackArchive(
                     extracted: true,
                     parsePath: tooLargeToParse ? 'skipped-size' : 'skipped-tiles',
                     tilecount: scanned?.tilecount,
+                    hasYouTubeStream: chartRequiresYouTubeStream(scanned?.settings?.requiredMods),
                     songFilename: scanned?.settings?.songFilename,
+                    songURL: chartSongUrl(scanned?.settings?.songURL),
                     artist: scanned?.settings?.artist,
                     song: scanned?.settings?.song,
                     author: scanned?.settings?.author,
@@ -330,8 +338,9 @@ export async function analyzeLevelPackArchive(
                     extracted: true,
                     parsePath: 'leveldict',
                     tilecount: scanned?.tilecount,
-                    hasYouTubeStream: levelDict.getSetting('requiredMods')?.includes('YouTubeStream'),
+                    hasYouTubeStream: chartRequiresYouTubeStream(levelDict.getSetting('requiredMods')),
                     songFilename: levelDict.getSetting('songFilename'),
+                    songURL: chartSongUrl(levelDict.getSetting('songURL')),
                     artist: levelDict.getSetting('artist'),
                     song: levelDict.getSetting('song'),
                     author: levelDict.getSetting('author'),

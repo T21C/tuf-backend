@@ -23,6 +23,7 @@ const LEVEL_FILE_ENTRY_KEYS = new Set([
     'sourceCopyStorageType',
     'hasYouTubeStream',
     'songFilename',
+    'songURL',
     'oversizedUnparsed',
     'artist',
     'song',

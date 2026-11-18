@@ -101,7 +101,9 @@ export async function performOversizedCacheBackfill(params: {
             settings: {
                 bpm: basics.settings.bpm,
                 offset: basics.settings.offset,
-                songFilename: basics.settings.songFilename
+                songFilename: basics.settings.songFilename,
+                songURL: basics.settings.songURL,
+                requiredMods: basics.settings.requiredMods,
             },
             analysis: {
                 midspinCount: basics.midspinCount,

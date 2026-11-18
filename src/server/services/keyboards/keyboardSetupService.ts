@@ -27,6 +27,7 @@ import {
   PASS_UPLOAD_SENTINEL_ISO,
   assertUniqueSinceDates,
   canonicalizeKeys,
+  splitKeyUsage,
   currentPeriod,
   assertBoardSpecFitsGeometry,
   emptySocketCodes,
@@ -252,14 +253,26 @@ function readSetupJson(value: unknown): Record<string, unknown> | null {
   return null;
 }
 
+function readStoredCodes(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+function countedUsage(keysJson: string[] | null, ghostKeysJson: unknown) {
+  if (keysJson == null) return {keys: null as string[] | null, ghostKeys: [] as string[]};
+  return splitKeyUsage(readStoredCodes(keysJson), readStoredCodes(ghostKeysJson));
+}
+
 function serializeLanePeriod(row: KeyboardLanePeriod) {
+  const usage = countedUsage(row.keysJson, row.ghostKeysJson);
   return {
     id: Number(row.id),
     sinceDate: sinceKey(row.sinceDate),
     untilDate: sinceKey(row.untilDate),
     untilAuto: row.untilAuto !== false,
-    keys: row.keysJson,
-    keySignature: row.keySignature,
+    keys: usage.keys,
+    ghostKeys: usage.ghostKeys,
+    keySignature: usage.keys ? keySignature(usage.keys) : row.keySignature,
     isGap: row.keysJson == null,
     setup: readSetupJson(row.setupJson),
   };
@@ -374,12 +387,19 @@ function serializeRig(row: KeyboardRig & {
     ),
     lanes: [...(row.lanes ?? [])]
       .sort((a, b) => a.id - b.id)
-      .map((lane) => ({
-        id: Number(lane.id),
-        keyCount: lane.keyCount,
-        name: lane.name || `${lane.keyCount}K`,
-        periods: sortTimelinePeriods(lane.periods ?? []).map(serializeLanePeriod),
-      })),
+      .map((lane) => {
+        const periods = sortTimelinePeriods(lane.periods ?? []).map(serializeLanePeriod);
+        const counted = [...periods].reverse().find((period) => period.keys && period.keys.length);
+        const keyCount = counted?.keys?.length ?? lane.keyCount;
+        const storedName = (lane.name || '').trim();
+        const name = !storedName || COUNT_LAYOUT_NAME.test(storedName) ? `${keyCount}K` : lane.name;
+        return {
+          id: Number(lane.id),
+          keyCount,
+          name,
+          periods,
+        };
+      }),
   };
 }
 
@@ -645,6 +665,7 @@ type SnapshotLanePeriod = {
   untilDate: string | null;
   untilAuto: boolean;
   keys: string[] | null;
+  ghostKeys: string[] | null;
   setup?: unknown;
 };
 
@@ -696,6 +717,7 @@ function parseRigSnapshot(raw: unknown): RigSnapshot {
       const row = period as Record<string, unknown>;
       const keys = row.keys == null ? null : parseKeysArray(row.keys);
       const sinceDate = parseSinceDate(row.sinceDate);
+      const ghostKeys = row.ghostKeys == null ? null : parseKeysArray(row.ghostKeys);
       let setup: unknown;
       if (!('setup' in row)) setup = undefined;
       else if (row.setup == null) setup = null;
@@ -705,6 +727,7 @@ function parseRigSnapshot(raw: unknown): RigSnapshot {
         sinceDate,
         ...parseUntilFields(row, sinceDate),
         keys: keys && keys.length ? keys : null,
+        ghostKeys,
         setup,
       };
     });
@@ -751,6 +774,7 @@ async function writeSnapshot(rig: KeyboardRig, snapshot: RigSnapshot, transactio
         untilDate: period.untilDate,
         untilAuto: period.untilAuto,
         keys,
+        ghostKeys: period.ghostKeys,
         setup: period.setup,
         boardPeriods,
         transaction,
@@ -905,6 +929,7 @@ async function writeLanePeriod(opts: {
   untilDate: string | null;
   untilAuto: boolean;
   keys: string[] | null;
+  ghostKeys?: string[] | null;
   setup?: unknown;
   boardPeriods: KeyboardBoardPeriod[];
   transaction: Transaction;
@@ -924,10 +949,15 @@ async function writeLanePeriod(opts: {
   }
 
   let keysJson: string[] | null = null;
+  let ghostKeysJson: string[] | null = null;
   let signature: string | null = null;
   let storedSetup: object | null | undefined;
   if (keys != null) {
-    if (canonicalizeKeys(keys).length !== lane.keyCount) {
+    const ghostSource = opts.ghostKeys === undefined
+      ? readStoredCodes(match?.ghostKeysJson)
+      : (opts.ghostKeys ?? []);
+    const usage = splitKeyUsage(keys, ghostSource);
+    if (usage.keys.length !== lane.keyCount) {
       throw new KeyboardSetupError(400, `This lane requires exactly ${lane.keyCount} keys`);
     }
     const covering = coveringBoardPeriod(boardPeriods, sinceDate);
@@ -969,9 +999,11 @@ async function writeLanePeriod(opts: {
         customSwitch: row.customSwitch,
       })),
     });
-    assertKeysOnBoard(keys, geometry, spec);
-    keysJson = canonicalizeKeys(keys);
+    assertKeysOnBoard(usage.keys, geometry, spec);
+    assertKeysOnBoard(usage.ghostKeys, geometry, spec);
+    keysJson = usage.keys;
     signature = keySignature(keysJson);
+    ghostKeysJson = usage.ghostKeys.length ? usage.ghostKeys : null;
   } else {
     storedSetup = null;
   }
@@ -985,7 +1017,10 @@ async function writeLanePeriod(opts: {
     });
     const fitting = siblings.flatMap((item) =>
       ((item as KeyboardLane & {periods?: KeyboardLanePeriod[]}).periods ?? [])
-        .filter((period) => period.id !== match?.id && period.keysJson?.length === count)
+        .filter((period) => {
+          if (period.id === match?.id || period.keysJson == null) return false;
+          return (countedUsage(period.keysJson, period.ghostKeysJson).keys?.length ?? 0) === count;
+        })
         .map((period) => asRangePeriod({
           id: period.id,
           sinceDate: period.sinceDate,
@@ -1005,9 +1040,18 @@ async function writeLanePeriod(opts: {
     untilDate: string | null;
     untilAuto: boolean;
     keysJson: string[] | null;
+    ghostKeysJson: string[] | null;
     keySignature: string | null;
     setupJson?: object | null;
-  } = {laneId: lane.id, sinceDate, untilDate, untilAuto, keysJson, keySignature: signature};
+  } = {
+    laneId: lane.id,
+    sinceDate,
+    untilDate,
+    untilAuto,
+    keysJson,
+    ghostKeysJson,
+    keySignature: signature,
+  };
   if (storedSetup !== undefined) payload.setupJson = storedSetup;
   if (match) {
     await match.update(payload, {transaction});
@@ -1074,6 +1118,9 @@ export async function saveRigRevision(
       }
       const keys =
         rec.keys == null ? null : parseKeysArray(rec.keys);
+      const ghostKeys = 'ghostKeys' in rec
+        ? (rec.ghostKeys == null ? null : parseKeysArray(rec.ghostKeys))
+        : undefined;
       const laneSince = 'sinceDate' in rec ? parseSinceDate(rec.sinceDate) : sinceDate;
       const laneUntil = parseUntilFields(rec, laneSince);
       await writeLanePeriod({
@@ -1083,6 +1130,7 @@ export async function saveRigRevision(
         untilDate: laneUntil.untilDate,
         untilAuto: laneUntil.untilAuto,
         keys,
+        ghostKeys,
         setup: 'setup' in rec ? rec.setup : undefined,
         boardPeriods,
         transaction,
@@ -1150,6 +1198,9 @@ export async function upsertLanePeriod(
   const sinceDate = parseSinceDate(raw.sinceDate);
   const until = parseUntilFields(raw, sinceDate);
   const keys = raw.keys == null ? null : parseKeysArray(raw.keys);
+  const ghostKeys = 'ghostKeys' in raw
+    ? (raw.ghostKeys == null ? null : parseKeysArray(raw.ghostKeys))
+    : undefined;
   await sequelize.transaction(async (transaction) => {
     const boardPeriods = await KeyboardBoardPeriod.findAll({where: {rigId: rig.id}, transaction});
     await writeLanePeriod({
@@ -1159,6 +1210,7 @@ export async function upsertLanePeriod(
       untilDate: until.untilDate,
       untilAuto: until.untilAuto,
       keys,
+      ghostKeys,
       boardPeriods,
       transaction,
     });
@@ -1268,15 +1320,17 @@ export async function listCurrentKeybinds(opts: {
     for (const lane of lanes) {
       const period = currentPeriod(lane.periods ?? []);
       if (!period || period.keysJson == null) continue;
-      const count = period.keysJson.length;
+      const counted = countedUsage(period.keysJson, period.ghostKeysJson);
+      const count = counted.keys?.length ?? 0;
+      if (!count) continue;
       if (opts.keyCount && count !== opts.keyCount) continue;
       rows.push({
         playerId: rig.playerId,
         playerName: player?.name ?? '',
         rigId: rig.id,
         keyCount: count,
-        keys: period.keysJson,
-        signature: period.keySignature ?? keySignature(period.keysJson),
+        keys: counted.keys ?? [],
+        signature: counted.keys ? keySignature(counted.keys) : (period.keySignature ?? ''),
         geometrySlug: serializedBoard.geometry?.slug ?? null,
         formFactor,
         productName,
@@ -1325,14 +1379,21 @@ export async function resolvePassBinds(
     return Object.fromEntries(passes.map((pass) => [pass.id, null]));
   }
   const rigs = await loadRigs(playerId);
-  const periodById = new Map<number, {period: KeyboardLanePeriod; rigId: number; keyCount: number}>();
+  const periodById = new Map<number, {
+    period: KeyboardLanePeriod;
+    rigId: number;
+    keyCount: number;
+    keys: string[] | null;
+  }>();
   for (const rig of rigs) {
     for (const lane of (rig as KeyboardRig & {lanes?: Array<KeyboardLane & {periods?: KeyboardLanePeriod[]}>}).lanes ?? []) {
       for (const period of lane.periods ?? []) {
+        const counted = countedUsage(period.keysJson, period.ghostKeysJson);
         periodById.set(period.id, {
           period,
           rigId: rig.id,
-          keyCount: period.keysJson?.length ?? lane.keyCount,
+          keyCount: counted.keys?.length ?? lane.keyCount,
+          keys: counted.keys,
         });
       }
     }
@@ -1356,8 +1417,8 @@ export async function resolvePassBinds(
           rigId: hit.rigId,
           keyCount: hit.keyCount,
           sinceDate: sinceKey(hit.period.sinceDate),
-          keys: hit.period.keysJson,
-          signature: hit.period.keySignature,
+          keys: hit.keys,
+          signature: hit.keys ? keySignature(hit.keys) : hit.period.keySignature,
         };
         continue;
       }
@@ -1385,7 +1446,9 @@ export async function resolvePassBinds(
         (rig as KeyboardRig & {lanes?: Array<KeyboardLane & {periods?: KeyboardLanePeriod[]}>}).lanes ??
         [];
       const fitting = lanes.flatMap((lane) =>
-        (lane.periods ?? []).filter((period) => period.keysJson?.length === keyCount),
+        (lane.periods ?? []).filter((period) => (
+          (countedUsage(period.keysJson, period.ghostKeysJson).keys?.length ?? 0) === keyCount
+        )),
       );
       const group = fitting.map((period) => asRangePeriod({
         id: period.id,
@@ -1401,14 +1464,15 @@ export async function resolvePassBinds(
           untilAuto: period.untilAuto,
         });
         if (!periodCoversDate(range, iso, group)) continue;
+        const counted = countedUsage(period.keysJson, period.ghostKeysJson);
         matches.push({
           source: 'auto',
           lanePeriodId: period.id,
           rigId: rig.id,
-          keyCount: period.keysJson?.length ?? keyCount,
+          keyCount: counted.keys?.length ?? keyCount,
           sinceDate: sinceKey(period.sinceDate),
-          keys: period.keysJson,
-          signature: period.keySignature,
+          keys: counted.keys,
+          signature: counted.keys ? keySignature(counted.keys) : period.keySignature,
         });
       }
     }
@@ -1444,7 +1508,7 @@ export async function setPassBindOverride(
   }
   await PassBindOverride.upsert({passId, playerId: ownerId, lanePeriodId});
   const resolved = await resolvePassBinds(ownerId, [
-    {id: passId, keyCount: period.keysJson?.length ?? null, vidUploadTime: null},
+    {id: passId, keyCount: countedUsage(period.keysJson, period.ghostKeysJson).keys?.length ?? null, vidUploadTime: null},
   ]);
   return {ok: true, keyboardSetup: resolved[passId]};
 }
