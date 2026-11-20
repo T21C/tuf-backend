@@ -19,6 +19,7 @@ import botModsRoutes from './botMods.js';
 import artistVerificationRoutes from './artistVerification.js';
 import translationContributorsRoutes from './translationContributors.js';
 import keyboardsRoutes from './keyboards.js';
+import badgeRoutes from './badges.js';
 // Import other admin routes here
 
 const router: Router = Router();
@@ -45,6 +46,7 @@ router.use('/bot-mods', botModsRoutes);
 router.use('/artist-verification', artistVerificationRoutes);
 router.use('/translation-contributors', translationContributorsRoutes);
 router.use('/keyboards', keyboardsRoutes);
+router.use('/badges', badgeRoutes);
 
 router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
       return res.status(200).send({});
