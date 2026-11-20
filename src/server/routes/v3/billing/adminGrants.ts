@@ -43,12 +43,12 @@ function grantErrorResponse(res: Response, e: unknown) {
 
 router.get(
   '/recipient-search',
-  Auth.superAdmin(),
+  Auth.headCurator(),
   ApiDoc({
     operationId: 'getTufStellarAdminGrantRecipientSearch',
     summary: 'Search accounts for admin grant beneficiary',
     description:
-      'Elasticsearch player search for superadmin grants. Includes your own account; excludes banned/suspended accounts.',
+      'Elasticsearch player search for staff pickers (role assignment and superadmin grants). Includes your own account; excludes banned/suspended accounts.',
     tags: ['Billing', 'Admin'],
     security: ['bearerAuth'],
     query: {

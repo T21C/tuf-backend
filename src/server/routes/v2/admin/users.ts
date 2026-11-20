@@ -7,7 +7,7 @@ import Player from '@/models/players/Player.js';
 import {fetchDiscordUserInfo} from '@/misc/utils/auth/discord.js';
 import {Op} from 'sequelize';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { hasFlag, setUserPermissionAndSave, wherehasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { hasFlag, setUserPermissionAndSave, wherehasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { isValidUsername, normalizeUsername } from '@/misc/utils/auth/username.js';
@@ -22,6 +22,70 @@ const elasticsearchService = ElasticsearchService.getInstance();
 
 const router: Router = Router();
 
+const STAFF_ROLE_FLAGS: Record<string, bigint> = {
+  rater: permissionFlags.RATER,
+  superadmin: permissionFlags.SUPER_ADMIN,
+  curator: permissionFlags.CURATOR,
+  headcurator: permissionFlags.HEAD_CURATOR,
+  submissionmanager: permissionFlags.SUBMISSION_MANAGER,
+};
+
+const VALID_STAFF_ROLES = Object.keys(STAFF_ROLE_FLAGS);
+
+const STAFF_ROLE_ERROR =
+  'Valid role (rater/superadmin/curator/headcurator/submissionmanager) is required';
+
+const STAFF_LIST_FLAGS = [
+  permissionFlags.RATER,
+  permissionFlags.SUPER_ADMIN,
+  permissionFlags.CURATOR,
+  permissionFlags.HEAD_CURATOR,
+  permissionFlags.SUBMISSION_MANAGER,
+];
+
+function serializeStaffUser(user: User) {
+  return {
+    id: user.id,
+    username: user.username,
+    nickname: user.nickname,
+    avatarUrl: user.avatarUrl,
+    isRater: hasFlag(user, permissionFlags.RATER),
+    isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
+    isCurator: hasFlag(user, permissionFlags.CURATOR),
+    isHeadCurator: hasFlag(user, permissionFlags.HEAD_CURATOR),
+    isSubmissionManager: hasFlag(user, permissionFlags.SUBMISSION_MANAGER),
+    permissionFlags: user.permissionFlags.toString(),
+    playerId: user.playerId,
+    player: user.player,
+  };
+}
+
+function isOnlyHeadCurator(user: PermissionInput): boolean {
+  return Boolean(
+    user &&
+      hasFlag(user, permissionFlags.HEAD_CURATOR) &&
+      !hasFlag(user, permissionFlags.SUPER_ADMIN),
+  );
+}
+
+function isSameUser(a: {id?: string} | null | undefined, b: {id?: string} | null | undefined): boolean {
+  return Boolean(a?.id && b?.id && String(a.id) === String(b.id));
+}
+
+/** Roles that keep this viewer able to manage users; revoking them from yourself is a lockout. */
+function isSelfLockoutRevoke(
+  actor: {id?: string} | null | undefined,
+  target: {id?: string} | null | undefined,
+  role: string,
+): boolean {
+  if (!isSameUser(actor, target)) return false;
+  if (role === 'superadmin') return true;
+  if (role === 'headcurator' && !hasFlag(actor as PermissionInput, permissionFlags.SUPER_ADMIN)) {
+    return true;
+  }
+  return false;
+}
+
 // Helper function to check if operation requires password
 const requireGrantRole = (req: Request, res: Response, next: NextFunction) => {
   const {role} = req.body as {role: string};
@@ -29,7 +93,7 @@ const requireGrantRole = (req: Request, res: Response, next: NextFunction) => {
   if (role === 'curator') {
     return Auth.headCurator()(req, res, next);
   }
-  if (role === 'headcurator' || role === 'rater') {
+  if (role === 'headcurator' || role === 'rater' || role === 'submissionmanager') {
     return Auth.superAdmin()(req, res, next);
   }
   if (role === 'superadmin') {
@@ -106,7 +170,7 @@ router.get(
   ApiDoc({
     operationId: 'getAdminUsers',
     summary: 'List admin users',
-    description: 'List all users with rater or super admin role. Super admin.',
+    description: 'List all users with any staff role. Super admin.',
     tags: ['Admin', 'Users'],
     security: ['bearerAuth'],
     responses: { 200: { description: 'Users list' }, ...standardErrorResponses500 },
@@ -115,10 +179,9 @@ router.get(
   try {
     const users = await User.findAll({
       where: {
-        [Op.or]: [
-          {permissionFlags: wherehasFlag(permissionFlags.RATER)},
-          {permissionFlags: wherehasFlag(permissionFlags.SUPER_ADMIN)},
-        ],
+        [Op.or]: STAFF_LIST_FLAGS.map(flag => ({
+          permissionFlags: wherehasFlag(flag),
+        })),
       },
       include: [
         {
@@ -130,19 +193,7 @@ router.get(
     });
 
           return res.json(
-        users.map(user => {
-          return {
-            id: user.id,
-            username: user.username,
-            nickname: user.nickname,
-            avatarUrl: user.avatarUrl,
-            isRater: hasFlag(user, permissionFlags.RATER),
-            isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
-            permissionFlags: user.permissionFlags.toString(), // Convert BigInt to string
-            playerId: user.playerId,
-            player: user.player,
-          };
-        }),
+        users.map(user => serializeStaffUser(user)),
       );
   } catch (error) {
     logger.error('Failed to fetch users:', error);
@@ -183,19 +234,7 @@ router.get(
     });
 
     return res.json(
-      curators.map(user => {
-        return {
-          id: user.id,
-          username: user.username,
-          nickname: user.nickname,
-          avatarUrl: user.avatarUrl,
-          isCurator: hasFlag(user, permissionFlags.CURATOR),
-          isHeadCurator: hasFlag(user, permissionFlags.HEAD_CURATOR),
-          permissionFlags: user.permissionFlags.toString(), // Convert BigInt to string
-          playerId: user.playerId,
-          player: user.player,
-        };
-      }),
+      curators.map(user => serializeStaffUser(user)),
     );
   } catch (error) {
     logger.error('Failed to fetch curators:', error);
@@ -211,71 +250,50 @@ router.post(
   ApiDoc({
     operationId: 'postAdminGrantRole',
     summary: 'Grant role',
-    description: 'Grant a role (rater/superadmin/curator/headcurator) to a user by username. Body: username, role.',
+    description: 'Grant a staff role to a user. Body: username or userId, role.',
     tags: ['Admin', 'Users'],
     security: ['bearerAuth'],
-    requestBody: { description: 'username, role', schema: { type: 'object', properties: { username: { type: 'string' }, role: { type: 'string' } }, required: ['username', 'role'] }, required: true },
+    requestBody: { description: 'username or userId, role', schema: { type: 'object', properties: { username: { type: 'string' }, userId: { type: 'string' }, role: { type: 'string' } }, required: ['role'] }, required: true },
     responses: { 200: { description: 'Role granted' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
     try {
-      const {username, role} = req.body;
+      const {username, userId, role} = req.body;
 
-      if (!username) {
+      if (!username && !userId) {
         return res.status(400).json({
-          error: 'Username and a valid role (rater/superadmin/curator/headcurator) are required',
+          error: 'User ID or username and a valid role (rater/superadmin/curator/headcurator/submissionmanager) are required',
         });
       }
-      if (!['rater', 'superadmin', 'curator', 'headcurator'].includes(role)) {
+      if (!VALID_STAFF_ROLES.includes(role)) {
         return res.status(400).json({
-          error: 'Valid role (rater/superadmin/curator/headcurator) is required',
+          error: STAFF_ROLE_ERROR,
         });
       }
 
-      const userToUpdate = await User.findOne({ where: { username } });
+      let userToUpdate = null;
+      if (userId) {
+        userToUpdate = await User.findByPk(userId);
+      } else if (username) {
+        userToUpdate = await User.findOne({ where: { username } });
+      }
       if (!userToUpdate) {
         return res.status(404).json({error: 'User not found'});
       }
 
-      // Map role names to permission flags
-      const roleToFlag: Record<string, bigint> = {
-        'rater': permissionFlags.RATER,
-        'superadmin': permissionFlags.SUPER_ADMIN,
-        'curator': permissionFlags.CURATOR,
-        'headcurator': permissionFlags.HEAD_CURATOR
-      };
-
-      const targetFlag = roleToFlag[role];
-
-      // For ascending roles, we need to handle the hierarchy
-      if (role === 'headcurator') {
-        // Grant both curator and head curator
-        await setUserPermissionAndSave(userToUpdate, permissionFlags.CURATOR, true);
-        await setUserPermissionAndSave(userToUpdate, permissionFlags.HEAD_CURATOR, true);
-      } else if (role === 'superadmin') {
-        // Grant both rater and super admin
-        await setUserPermissionAndSave(userToUpdate, permissionFlags.RATER, true);
-        await setUserPermissionAndSave(userToUpdate, permissionFlags.SUPER_ADMIN, true);
-      } else {
-        // Grant the specific role
-        await setUserPermissionAndSave(userToUpdate, targetFlag, true);
+      if (isOnlyHeadCurator(req.user) && hasFlag(userToUpdate, permissionFlags.HEAD_CURATOR)) {
+        return res.status(403).json({error: 'Cannot manage other head curators'});
       }
+
+      const targetFlag = STAFF_ROLE_FLAGS[role];
+      await setUserPermissionAndSave(userToUpdate, targetFlag, true);
 
       // Invalidate user-specific cache
       await CacheInvalidation.invalidateUser(userToUpdate.id);
 
       return res.json({
         message: 'Role granted successfully',
-        user: {
-          id: userToUpdate.id,
-          username: userToUpdate.username,
-          isRater: hasFlag(userToUpdate, permissionFlags.RATER),
-          isSuperAdmin: hasFlag(userToUpdate, permissionFlags.SUPER_ADMIN),
-          isCurator: hasFlag(userToUpdate, permissionFlags.CURATOR),
-          isHeadCurator: hasFlag(userToUpdate, permissionFlags.HEAD_CURATOR),
-          permissionFlags: userToUpdate.permissionFlags.toString(), // Convert BigInt to string
-          playerId: userToUpdate.playerId,
-        },
+        user: serializeStaffUser(userToUpdate),
       });
     } catch (error: any) {
       logger.error('Failed to grant role:', error);
@@ -292,11 +310,11 @@ router.post(
 // Revoke role from user
 router.post(
   '/revoke-role',
-  [Auth.superAdmin(), requireGrantRole],
+  [Auth.headCurator(), requireGrantRole],
   ApiDoc({
     operationId: 'postAdminRevokeRole',
     summary: 'Revoke role',
-    description: 'Revoke a role (rater/superadmin/curator/headcurator) from a user. Body: userId or username, role.',
+    description: 'Revoke a staff role from a user. Body: userId or username, role.',
     tags: ['Admin', 'Users'],
     security: ['bearerAuth'],
     requestBody: { description: 'userId or username, role', schema: { type: 'object', properties: { userId: { type: 'string' }, username: { type: 'string' }, role: { type: 'string' } }, required: ['role'] }, required: true },
@@ -308,12 +326,12 @@ router.post(
 
       if (!userId && !username) {
         return res.status(400).json({
-          error: 'User ID or username and a valid role (rater/superadmin/curator/headcurator) are required',
+          error: 'User ID or username and a valid role (rater/superadmin/curator/headcurator/submissionmanager) are required',
         });
       }
-      if (!['rater', 'superadmin', 'curator', 'headcurator'].includes(role)) {
+      if (!VALID_STAFF_ROLES.includes(role)) {
         return res.status(400).json({
-          error: 'Valid role (rater/superadmin/curator/headcurator) is required',
+          error: STAFF_ROLE_ERROR,
         });
       }
 
@@ -327,6 +345,14 @@ router.post(
         return res.status(404).json({error: 'User not found'});
       }
 
+      if (isOnlyHeadCurator(req.user) && hasFlag(userToUpdate, permissionFlags.HEAD_CURATOR)) {
+        return res.status(403).json({error: 'Cannot manage other head curators'});
+      }
+
+      if (isSelfLockoutRevoke(req.user, userToUpdate, role)) {
+        return res.status(400).json({error: 'Cannot remove your own management role'});
+      }
+
       // Prevent revoking last super admin
       if (role === 'superadmin') {
         const superAdminCount = await User.count({where: {permissionFlags: wherehasFlag(permissionFlags.SUPER_ADMIN)}});
@@ -337,40 +363,15 @@ router.post(
         }
       }
 
-      // For ascending roles, we need to handle the hierarchy
-      if (role === 'headcurator') {
-        // Remove head curator but keep curator
-        await setUserPermissionAndSave(userToUpdate, permissionFlags.HEAD_CURATOR, false);
-      } else if (role === 'superadmin') {
-        // Remove super admin but keep rater
-        await setUserPermissionAndSave(userToUpdate, permissionFlags.SUPER_ADMIN, false);
-      } else {
-        // Remove the specific role and any higher roles in the hierarchy
-      if (role === 'rater') {
-          // Remove both rater and super admin
-        await setUserPermissionAndSave(userToUpdate, permissionFlags.RATER, false);
-        await setUserPermissionAndSave(userToUpdate, permissionFlags.SUPER_ADMIN, false);
-      } else if (role === 'curator') {
-        // Remove both curator and head curator
-        await setUserPermissionAndSave(userToUpdate, permissionFlags.CURATOR, false);
-        await setUserPermissionAndSave(userToUpdate, permissionFlags.HEAD_CURATOR, false);
-      }
-      }
+      const targetFlag = STAFF_ROLE_FLAGS[role];
+      await setUserPermissionAndSave(userToUpdate, targetFlag, false);
 
       // Invalidate user-specific cache
       await CacheInvalidation.invalidateUser(userToUpdate.id);
 
       return res.json({
         message: 'Role revoked successfully',
-        user: {
-          id: userToUpdate.id,
-          username: userToUpdate.username,
-          isRater: hasFlag(userToUpdate, permissionFlags.RATER),
-          isSuperAdmin: hasFlag(userToUpdate, permissionFlags.SUPER_ADMIN),
-          isCurator: hasFlag(userToUpdate, permissionFlags.CURATOR),
-          isHeadCurator: hasFlag(userToUpdate, permissionFlags.HEAD_CURATOR),
-          permissionFlags: userToUpdate.permissionFlags.toString(), // Convert BigInt to string
-        }
+        user: serializeStaffUser(userToUpdate),
       });
     } catch (error: any) {
       logger.error('Failed to revoke role:', error);

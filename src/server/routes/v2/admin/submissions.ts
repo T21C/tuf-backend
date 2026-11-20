@@ -539,7 +539,7 @@ async function pendingRevision(
 // Get all level submissions
 router.get(
   '/levels',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'getAdminLevelSubmissions',
     summary: 'List level submissions',
@@ -562,7 +562,7 @@ router.get(
 // Get pending level submissions
 router.get(
   '/levels/pending',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'getAdminLevelSubmissionsPending',
     summary: 'List pending level submissions',
@@ -779,7 +779,7 @@ router.get(
 
 router.get(
   '/levels/pending/search',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'getAdminLevelSubmissionsPendingSearch',
     summary: 'Search pending level submissions',
@@ -805,7 +805,7 @@ router.get(
 // Get all pass submissions
 router.get(
   '/passes',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'getAdminPassSubmissions',
     summary: 'List pass submissions',
@@ -839,7 +839,7 @@ router.get(
 // Get pending pass submissions
 router.get(
   '/passes/pending',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'getAdminPassSubmissionsPending',
     summary: 'List pending pass submissions',
@@ -964,7 +964,7 @@ router.get(
 
 router.get(
   '/passes/pending/search',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'getAdminPassSubmissionsPendingSearch',
     summary: 'Search pending pass submissions',
@@ -989,7 +989,7 @@ router.get(
 
 router.get(
   '/jobs',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'getAdminSubmissionJobs',
     summary: 'Get submission job snapshot',
@@ -1011,7 +1011,7 @@ router.get(
 
 router.put(
   '/levels/:id/approve',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionApprove',
     summary: 'Approve level submission',
@@ -1043,7 +1043,7 @@ router.put(
 
 router.put(
   '/levels/:id/decline',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionDecline',
     summary: 'Decline level submission',
@@ -1083,7 +1083,7 @@ router.put(
 
 router.put(
   '/passes/:id/approve',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminPassSubmissionApprove',
     summary: 'Approve pass submission',
@@ -1118,7 +1118,7 @@ router.put(
 
 router.put(
   '/passes/:id/decline',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminPassSubmissionDecline',
     summary: 'Decline pass submission',
@@ -1161,7 +1161,7 @@ router.put(
 
 router.put(
   '/levels/:id/lock',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionLock',
     summary: 'Lock or unlock a pending level submission',
@@ -1191,7 +1191,7 @@ router.put(
 
 router.put(
   '/passes/:id/lock',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminPassSubmissionLock',
     summary: 'Lock or unlock a pending pass submission',
@@ -1221,7 +1221,7 @@ router.put(
 
 router.put(
   '/passes/:id([0-9]{1,20})',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminPassSubmissionPartial',
     summary: 'Partially update pending pass submission',
@@ -1527,7 +1527,7 @@ router.put(
 
 router.put(
   '/passes/:id/assign-player',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminPassSubmissionAssignPlayer',
     summary: 'Assign player to pass submission',
@@ -1601,7 +1601,7 @@ router.put(
 /* DISABLED
 router.post(
   '/auto-approve/passes',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'postAdminAutoApprovePasses',
     summary: 'Auto-approve pass submissions',
@@ -1655,7 +1655,7 @@ router.post(
 // Add endpoint to update profiles
 router.put(
   '/levels/:id/profiles',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionProfiles',
     summary: 'Update level submission profiles',
@@ -1793,7 +1793,7 @@ router.put(
 // Assign creator to submission
 router.put(
   '/levels/:id/assign-creator',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionAssignCreator',
     summary: 'Assign creator to submission',
@@ -1880,7 +1880,7 @@ router.put(
 // Add endpoint to create and assign creator in one step
 router.post(
   '/levels/:id/creators',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionCreators',
     summary: 'Create and assign creator',
@@ -2137,7 +2137,7 @@ router.post(
 // Add a new creator request
 router.post(
   '/levels/:id/creator-requests',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionCreatorRequests',
     summary: 'Add creator request',
@@ -2261,7 +2261,7 @@ router.post(
 // Remove a creator request
 router.delete(
   '/levels/:id/creator-requests/:requestId',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'deleteAdminLevelSubmissionCreatorRequest',
     summary: 'Remove creator request',

@@ -139,11 +139,11 @@ router.get(
 
 router.post(
   '/',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'v3PostTeam',
     summary: 'Create team (v3)',
-    description: 'Create team. Body: name, aliases?, description?. Super admin.',
+    description: 'Create team. Body: name, aliases?, description?. Super admin or submission manager.',
     tags: ['Database', 'Teams', 'v3'],
     security: ['bearerAuth'],
     requestBody: {

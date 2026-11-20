@@ -7,6 +7,7 @@ export const permissionFlags = {
   TAG_VOTE_BANNED: 1n << 57n,
   RERATE_REQUEST_BANNED: 1n << 56n,
   HEAD_CURATOR: 1n << 32n,
+  SUBMISSION_MANAGER: 1n << 33n,
   CURATOR: 1n << 31n,
   EMAIL_VERIFIED: 1n << 0n,
 };

@@ -31,7 +31,7 @@ const artistService = ArtistService.getInstance();
 // Change song selection (similar to creator selection)
 router.put(
   '/levels/:id/song',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionSong',
     summary: 'Change song on submission',
@@ -134,7 +134,7 @@ router.put(
 // Change artist selection (updates a specific artist request by ID, or adds new one)
 router.put(
   '/levels/:id/artist',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionArtist',
     summary: 'Change artist on submission',
@@ -277,7 +277,7 @@ router.put(
 // Upload evidence images for submission (up to 10)
 router.post(
   '/levels/:id/evidence',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   upload.array('evidence', 10),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionEvidence',
@@ -325,7 +325,7 @@ router.post(
 // Delete evidence image
 router.delete(
   '/levels/:id/evidence/:evidenceId',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'deleteAdminLevelSubmissionEvidence',
     summary: 'Delete evidence',
@@ -351,7 +351,7 @@ router.delete(
 // Get evidence for submission
 router.get(
   '/levels/:id/evidence',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'getAdminLevelSubmissionEvidence',
     summary: 'Get evidence',
@@ -375,7 +375,7 @@ router.get(
 // Assign existing song to submission request
 router.put(
   '/levels/:id/assign-song',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionAssignSong',
     summary: 'Assign song to submission',
@@ -540,7 +540,7 @@ router.put(
 // Assign existing artist to submission request (adds to array)
 router.put(
   '/levels/:id/assign-artist',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionAssignArtist',
     summary: 'Assign artist to submission',
@@ -669,7 +669,7 @@ router.put(
 // Create and assign song in one step
 router.post(
   '/levels/:id/songs',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionSongs',
     summary: 'Create and assign song',
@@ -842,7 +842,7 @@ router.post(
 // Create and assign artist in one step (adds to array)
 router.post(
   '/levels/:id/artists',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionArtists',
     summary: 'Create and assign artist',
@@ -982,7 +982,7 @@ router.post(
 // Add a new song request
 router.post(
   '/levels/:id/song-requests',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionSongRequests',
     summary: 'Add song request',
@@ -1062,7 +1062,7 @@ router.post(
 // Add a new artist request
 router.post(
   '/levels/:id/artist-requests',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionArtistRequests',
     summary: 'Add artist request',
@@ -1165,7 +1165,7 @@ router.post(
 // Delete an artist request
 router.delete(
   '/levels/:id/artist-requests/:requestId',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'deleteAdminLevelSubmissionArtistRequest',
     summary: 'Delete artist request',
@@ -1272,7 +1272,7 @@ router.delete(
 // Update suffix field
 router.put(
   '/levels/:id/suffix',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionSuffix',
     summary: 'Update submission suffix',
@@ -1322,7 +1322,7 @@ router.put(
 // Update video link (moderators fixing malformed embeds)
 router.put(
   '/levels/:id/video-link',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionVideoLink',
     summary: 'Update submission video link',
@@ -1376,7 +1376,7 @@ router.put(
 // Update notes (submitter text staff can edit before approve)
 router.put(
   '/levels/:id/notes',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionNotes',
     summary: 'Update submission notes',
@@ -1421,7 +1421,7 @@ router.put(
 
 router.put(
   '/levels/:id/tags',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'putAdminLevelSubmissionTags',
     summary: 'Update requested submission tags',
