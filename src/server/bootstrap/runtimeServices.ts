@@ -139,6 +139,9 @@ export async function initializeRuntimeServices(): Promise<void> {
 
   const { initUploadKinds } = await import('@/server/services/upload/registerKinds.js');
   initUploadKinds();
+
+  const { registerBadgeHooks } = await import('@/server/services/badges/index.js');
+  registerBadgeHooks();
 }
 
 /**

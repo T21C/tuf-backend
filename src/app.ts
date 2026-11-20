@@ -97,13 +97,15 @@ export async function startServer() {
     // Apply CORS middleware to all routes
     app.use(cors(corsOptions));
 
-    app.use(
-      express.json({
-        verify: (req, _res, buf) => {
-          (req as Request & { rawBody?: Buffer }).rawBody = buf;
-        },
-      }),
-    );
+    const captureRawBody = (req: Request, _res: Response, buf: Buffer) => {
+      (req as Request & { rawBody?: Buffer }).rawBody = buf;
+    };
+    const defaultJson = express.json({ limit: '100kb', verify: captureRawBody });
+    const badgeImportJson = express.json({ limit: '2mb', verify: captureRawBody });
+    app.use((req, res, next) => {
+      if (req.path === '/v2/admin/badges/import') return badgeImportJson(req, res, next);
+      return defaultJson(req, res, next);
+    });
     app.use(express.urlencoded({extended: true}));
     app.use(cookieParser());
     app.use(queryValidator);

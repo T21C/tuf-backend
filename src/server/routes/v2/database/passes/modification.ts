@@ -759,6 +759,8 @@ router.patch(
       );
 
       await transaction.commit();
+      const { signalBadgeJob } = await import('@/server/services/badges/index.js');
+      signalBadgeJob({ scope: 'chart', levelId: pass.levelId });
 
       // Reindex the pass in Elasticsearch; also reindex player because visibility affects stats
       await elasticsearchService.indexPass(pass.id);
