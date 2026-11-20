@@ -160,3 +160,5 @@ recaptcha-service-key.ts
 src/cdnService/misc/event types.adofai
 src/misc/scripts/exportCommunityTagAssignmentsSql.ts
 src/misc/scripts/*.generated.sql
+
+private/

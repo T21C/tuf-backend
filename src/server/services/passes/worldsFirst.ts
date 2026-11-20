@@ -1,4 +1,5 @@
 import Pass from '@/models/passes/Pass.js';
+import { logBadgeFailure, signalBadgeJob, snapshotMissingPasses } from '@/server/services/badges/index.js';
 
 /** Only 1.0x clears qualify for world's first and world's first PP. */
 const WORLDS_FIRST_SPEED = 1;
@@ -74,9 +75,20 @@ export async function updateWorldsFirstPPStatus(
         transaction,
       },
     );
+    await touchBadgeLevel(levelId, transaction);
     return earliestPP;
   }
+  await touchBadgeLevel(levelId, transaction);
   return null;
+}
+
+async function touchBadgeLevel(levelId: number, transaction?: any): Promise<void> {
+  try {
+    await snapshotMissingPasses(levelId, transaction);
+  } catch (error) {
+    logBadgeFailure('snapshot', error);
+  }
+  signalBadgeJob({ scope: 'chart', levelId }, transaction);
 }
 
 export async function updateWorldsFirstFlags(

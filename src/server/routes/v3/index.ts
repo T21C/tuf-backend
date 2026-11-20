@@ -9,6 +9,7 @@ import profileCustomizationRouter from './profileCustomization.js';
 import teamsRouter from './teams.js';
 import followsRouter from './follows.js';
 import preferencesRouter from './preferences.js';
+import badgesRouter from './badges.js';
 
 const router: Router = Router();
 
@@ -22,6 +23,7 @@ router.use('/teams', teamsRouter);
 router.use('/follows', followsRouter);
 router.use('/preferences', preferencesRouter);
 router.use('/billing', billingRoutes);
+router.use('/badges', badgesRouter);
 
 
 export default router;

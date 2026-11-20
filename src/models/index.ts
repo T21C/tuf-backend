@@ -52,6 +52,15 @@ import LevelSearchView from './levels/LevelSearchView.js';
 import AuditLog from './admin/AuditLog.js';
 import {CurationType, Curation, CurationSchedule, CurationRating, CurationRatingDetail, CurationAnnouncementQueue} from './curations/index.js';
 import {LevelPack, LevelPackItem} from './packs/index.js';
+import {
+  BadgeDefinition,
+  BadgeSet,
+  PassBadgeSnapshot,
+  BadgeState,
+  BadgeEquip,
+  BadgeReview,
+  BadgeJob,
+} from './badges/index.js';
 import Artist from './artists/Artist.js';
 import ArtistAlias from './artists/ArtistAlias.js';
 import ArtistLink from './artists/ArtistLink.js';
@@ -183,6 +192,13 @@ export const db = {
     CurationAnnouncementQueue,
     LevelPack,
     LevelPackItem,
+    BadgeDefinition,
+    BadgeSet,
+    PassBadgeSnapshot,
+    BadgeState,
+    BadgeEquip,
+    BadgeReview,
+    BadgeJob,
     Artist,
     ArtistAlias,
     ArtistLink,
