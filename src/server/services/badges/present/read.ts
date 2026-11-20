@@ -2,8 +2,7 @@ import { QueryTypes } from 'sequelize';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { coerceJudgements } from '../engine/judgement.js';
 import { definitionFromRow } from '../jobs/definitions.js';
-import { toPublicBadge, type PublicBadge } from './publicShape.js';
-import type { PassFact } from '../engine/evaluate.js';
+import { toPublicBadge, type ProvingClear, type PublicBadge } from './publicShape.js';
 
 type DefinitionRow = Parameters<typeof definitionFromRow>[0];
 
@@ -32,11 +31,19 @@ function asIds(value: unknown): number[] {
   return Array.isArray(value) ? value.map((item) => Number(item)).filter((item) => Number.isInteger(item)) : [];
 }
 
-async function provingPasses(ids: number[]): Promise<PassFact[]> {
+async function provingPasses(ids: number[]): Promise<ProvingClear[]> {
   if (!ids.length) return [];
   const rows = await select<{
     id: number;
     accuracy: number | null;
+    speed: number | null;
+    isWorldsFirst: number | null;
+    isWorldsFirstPP: number | null;
+    isXPerfectMode: number | null;
+    levelId: number | null;
+    song: string | null;
+    artist: string | null;
+    diffId: number | null;
     earlyDouble: number | null;
     earlySingle: number | null;
     ePerfect: number | null;
@@ -47,29 +54,23 @@ async function provingPasses(ids: number[]): Promise<PassFact[]> {
     lateSingle: number | null;
     lateDouble: number | null;
   }>(
-    `SELECT p.id, p.accuracy,
+    `SELECT p.id, p.accuracy, p.speed, p.isWorldsFirst, p.isWorldsFirstPP, p.isXPerfectMode,
+      l.id AS levelId, l.song, l.artist, l.diffId,
       j.earlyDouble, j.earlySingle, j.ePerfect, j.perfectMinus, j.perfect, j.perfectPlus,
       j.lPerfect, j.lateSingle, j.lateDouble
      FROM passes p
      LEFT JOIN judgements j ON j.id = p.id
+     LEFT JOIN levels l ON l.id = p.levelId
      WHERE p.id IN (:ids)`,
     { ids },
   );
   return rows.map((row) => ({
     id: Number(row.id),
-    playerId: 0,
-    levelId: 0,
-    speed: null,
-    keyCount: null,
-    vidUploadTime: null,
-    uploadTimeKnown: false,
-    createdAt: '',
     accuracy: row.accuracy == null ? null : Number(row.accuracy),
-    scoreV2: null,
-    isWorldsFirst: false,
-    isWorldsFirstPP: false,
-    isXPerfectMode: false,
-    ancient: false,
+    speed: row.speed == null ? null : Number(row.speed),
+    isWorldsFirst: Boolean(row.isWorldsFirst),
+    isWorldsFirstPP: Boolean(row.isWorldsFirstPP),
+    isXPerfectMode: Boolean(row.isXPerfectMode),
     judgements: coerceJudgements({
       earlyDouble: Number(row.earlyDouble ?? 0),
       earlySingle: Number(row.earlySingle ?? 0),
@@ -81,10 +82,14 @@ async function provingPasses(ids: number[]): Promise<PassFact[]> {
       lateSingle: Number(row.lateSingle ?? 0),
       lateDouble: Number(row.lateDouble ?? 0),
     }),
-    difficultyAtName: '',
-    difficultyNowName: '',
-    difficultySource: 'current',
-    durationMs: null,
+    level: row.levelId
+      ? {
+          id: Number(row.levelId),
+          song: row.song || '',
+          artist: row.artist || '',
+          diffId: Number(row.diffId) || 0,
+        }
+      : null,
   }));
 }
 
@@ -102,7 +107,12 @@ export async function readOwnerBadges(audience: 'player' | 'creator', ownerId: n
     { audience, ownerId },
   );
   const stateById = new Map(states.map((row) => [Number(row.definitionId), row]));
-  const provingIds = states.flatMap((row) => asIds(row.provingPassIds)).slice(0, 40);
+  const confirmIds = new Set(definitions.filter((def) => def.confirm !== 'none' && def.id).map((def) => def.id as number));
+  const provingIds = [...new Set(
+    states
+      .filter((row) => confirmIds.has(Number(row.definitionId)))
+      .flatMap((row) => asIds(row.provingPassIds).slice(0, 100)),
+  )];
   const passes = await provingPasses(provingIds);
   const badges: PublicBadge[] = [];
   for (const def of definitions) {

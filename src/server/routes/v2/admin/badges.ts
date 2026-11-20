@@ -11,7 +11,6 @@ import {
 import { enqueueBadgeJob, normalizeDefinition, type BadgeDraft } from '@/server/services/badges/index.js';
 import { parseValueExpr } from '@/server/services/badges/engine/valueExpr.js';
 import { parseBadgeConfig, validateBadgeConfig } from '@/server/services/badges/engine/importConfig.js';
-import { requestedDocument } from '@/server/services/badges/engine/requestedCatalog.js';
 
 const router = Router();
 
@@ -279,10 +278,6 @@ router.get('/jobs/:id/timings.csv', async (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="badge-backfill-${id}.csv"`);
   res.send(lines.join('\n'));
-});
-
-router.get('/catalog', (_req: Request, res: Response) => {
-  res.json({ code: JSON.stringify(requestedDocument, null, 2) });
 });
 
 router.post('/import', async (req: Request, res: Response) => {

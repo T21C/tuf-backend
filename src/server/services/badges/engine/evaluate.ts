@@ -1179,7 +1179,7 @@ function scopedPasses(def: BadgeDraft, input: OwnerInput): PassFact[] {
   ));
 }
 
-function valueScope(def: BadgeDraft, input: OwnerInput, captured?: Set<number>): Map<string, Value> {
+function valueScope(def: BadgeDraft, input: OwnerInput, captured?: Set<number>, matchedPasses?: Set<number>): Map<string, Value> {
   const passes = scopedPasses(def, input);
   const clears = passes.map((pass) => clearRecord(def, input, pass));
   markFirstClears(clears);
@@ -1196,7 +1196,16 @@ function valueScope(def: BadgeDraft, input: OwnerInput, captured?: Set<number>):
     ['clears', clears],
     ['levels', levels],
     ['mine', mine],
-    ['count', fn((args) => rowsOf(args[0] ?? null).length)],
+    ['count', fn((args) => {
+      const list = rowsOf(args[0] ?? null);
+      if (matchedPasses) {
+        for (const item of list) {
+          const id = rowNum(item, 'passId');
+          if (id != null) matchedPasses.add(id);
+        }
+      }
+      return list.length;
+    })],
     ['threshold', fn((args) => {
       const value = valueAsNumber(args[0] ?? null);
       const cutoff = valueAsNumber(args[1] ?? null);
@@ -1478,12 +1487,13 @@ function difficultyValue(name: string, levels: Value[], clears: Value[], capture
 
 function evaluateValue(def: BadgeDraft, input: OwnerInput): EvalResult {
   const result = emptyResult();
-  const provingPassIds = scopedPasses(def, input).map((pass) => pass.id);
+  const matchedPasses = new Set<number>();
   const captured = new Set<number>();
   try {
     const parsed = parseValueExpr(def.params.expression || '');
     if (!parsed.ok) return result;
-    const value = evalValueExpr(parsed.ast, valueScope(def, input, captured));
+    const value = evalValueExpr(parsed.ast, valueScope(def, input, captured, matchedPasses));
+    const provingPassIds = [...matchedPasses];
     const snapshotIds = def.grant === 'persistSnapshot' && captured.size > 0 ? [...captured] : null;
     if (value && typeof value === 'object' && !Array.isArray(value) && value.kind === 'row' && typeof value.fields.tier === 'number') {
       const tier = Math.max(0, Math.floor(value.fields.tier));

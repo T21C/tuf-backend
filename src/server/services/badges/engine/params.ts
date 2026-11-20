@@ -140,6 +140,7 @@ export type BadgeDisplay = {
   color: string | null;
   stat: StatMode;
   purple: boolean;
+  description: string | null;
 };
 
 export type BadgeDraft = {
@@ -599,20 +600,22 @@ function readLabels(source: unknown, errors: string[]): TierLabel[] {
 }
 
 function readDisplay(source: unknown, errors: string[]): BadgeDraft['display'] {
-  const fallback: BadgeDraft['display'] = { icon: null, color: null, stat: 'barThenNumber', purple: false };
+  const fallback: BadgeDraft['display'] = { icon: null, color: null, stat: 'barThenNumber', purple: false, description: null };
   if (source == null) return fallback;
   if (!isObject(source)) {
     errors.push('display must be an object');
     return fallback;
   }
-  rejectUnknown(source, ['icon', 'color', 'stat', 'purple'], errors, 'display.');
+  rejectUnknown(source, ['icon', 'color', 'stat', 'purple', 'description'], errors, 'display.');
   const stat = readString(source, 'stat', errors);
   if (stat && !STATS.includes(stat as StatMode)) errors.push('display.stat is not recognized');
+  const description = typeof source.description === 'string' ? source.description.trim().slice(0, 180) : '';
   return {
     icon: typeof source.icon === 'string' ? source.icon.slice(0, 200) : null,
     color: typeof source.color === 'string' ? source.color.slice(0, 32) : null,
     stat: stat && STATS.includes(stat as StatMode) ? stat as StatMode : 'barThenNumber',
     purple: source.purple === true,
+    description: description || null,
   };
 }
 

@@ -1,4 +1,3 @@
-import { formatAccuracyRatio, formatJudgementLine } from '../engine/accuracyText.js';
 import { shownRequirement } from '../engine/curve.js';
 import type { BadgeDraft } from '../engine/params.js';
 import type { StoredBadge } from '../engine/grant.js';
@@ -19,11 +18,13 @@ export function creditUnit(expression: string | null | undefined): CreditUnit | 
 export type PublicBadge = {
   id: number;
   name: string;
+  description: string | null;
   icon: string | null;
   color: string | null;
   purple: boolean;
   earned: boolean;
   secret: boolean;
+  manual: boolean;
   tier: number;
   tierLabel: string | null;
   stat: BadgeDraft['display']['stat'];
@@ -31,13 +32,27 @@ export type PublicBadge = {
   credit: number | null;
   bar: { from: number; to: number; value: number } | null;
   nextRequirement: number | null;
-  confirm: { passId: number; accuracyText?: string; judgementText?: string }[];
+  confirm: {
+    passId: number;
+    clear: {
+      id: number;
+      accuracy: number | null;
+      speed: number | null;
+      isWorldsFirst: boolean;
+      isWorldsFirstPP: boolean;
+      isXPerfectMode: boolean;
+      judgements: PassFact['judgements'];
+      level: { id: number; song: string; artist: string; diffId: number } | null;
+    };
+  }[];
 };
+
+export type ProvingClear = PublicBadge['confirm'][number]['clear'];
 
 export function toPublicBadge(
   def: BadgeDraft,
   state: StoredBadge | null,
-  proving: PassFact[],
+  proving: ProvingClear[],
 ): PublicBadge | null {
   if (!def.id || !def.enabled) return null;
   const tier = state?.tier ?? 0;
@@ -46,30 +61,19 @@ export function toPublicBadge(
   const bar = state
     ? { from: state.barFrom, to: state.barTo, value: state.barValue }
     : null;
-  const confirm = earned
-    ? proving.map((pass) => {
-        const row: PublicBadge['confirm'][number] = { passId: pass.id };
-        if (def.confirm === 'accuracyFull' || def.confirm === 'judgementsFull') {
-          row.accuracyText = formatAccuracyRatio(pass.accuracy);
-        }
-        if (def.confirm === 'judgementsFull') {
-          const sheet = pass.judgements;
-          row.judgementText = formatJudgementLine([
-            sheet.earlyDouble, sheet.earlySingle, sheet.ePerfect, sheet.perfect,
-            sheet.lPerfect, sheet.lateSingle, sheet.lateDouble,
-          ]);
-        }
-        return row;
-      })
+  const confirm = earned && (def.confirm === 'accuracyFull' || def.confirm === 'judgementsFull')
+    ? proving.map((clear) => ({ passId: clear.id, clear }))
     : [];
   return {
     id: def.id,
     name: def.name,
+    description: def.display.description,
     icon: def.display.icon,
     color: def.display.color,
     purple: def.display.purple,
     earned,
     secret: def.secret,
+    manual: def.grant === 'manualLock',
     tier: earned ? tier : 0,
     tierLabel: earned ? state?.tierLabel ?? null : null,
     stat: def.display.stat,
