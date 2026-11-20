@@ -78,6 +78,14 @@ export const canUseCurationZen = (user: PermissionInput): boolean => {
   ]);
 };
 
+/** Review the level/pass submission queue. Super admin is a superset. */
+export const canReviewSubmissions = (user: PermissionInput): boolean => {
+  return hasAnyFlag(user, [
+    permissionFlags.SUBMISSION_MANAGER,
+    permissionFlags.SUPER_ADMIN,
+  ]);
+};
+
 /**
  * Check if a user has all of the specified permissions
  * @param user - User object or permission flags

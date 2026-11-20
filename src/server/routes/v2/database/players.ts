@@ -484,11 +484,11 @@ router.delete('/:id([0-9]+)/discord', Auth.superAdmin(), async (req: Request, re
 
 router.post(
   '/create',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'postPlayerCreate',
     summary: 'Create player',
-    description: 'Create a new player. Body: name. Super admin.',
+    description: 'Create a new player. Body: name. Super admin or submission manager.',
     tags: ['Database', 'Players'],
     security: ['bearerAuth'],
     requestBody: { description: 'name', schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }, required: true },

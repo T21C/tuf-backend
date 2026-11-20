@@ -71,13 +71,13 @@ router.get(
   ApiDoc({
     operationId: 'getAdminStatistics',
     summary: 'Admin statistics',
-    description: 'Pending level/pass submission counts. Rater auth. Cached.',
+    description: 'Pending level/pass submission counts. Rater or submission reviewer. Cached.',
     tags: ['Admin', 'Statistics'],
     security: ['bearerAuth'],
     responses: { 200: { description: 'Pending counts' }, ...standardErrorResponses401500 },
   }),
   //Cache({ ttl: 300, varyByUser: true, prefix: 'admin:statistics' }),
-  Auth.rater(),
+  Auth.raterOrSubmissionReviewer(),
   async (req: Request, res: Response) => {
   try {
     const user = req.user;

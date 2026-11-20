@@ -18,7 +18,7 @@ const router: Router = Router();
 
 router.post(
   '/levels/:id/upload',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionUpload',
     summary: 'Replace pending submission zip (chunked session)',
@@ -57,7 +57,7 @@ router.post(
 
 router.post(
   '/levels/:id/upload-from-url',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionUploadFromUrl',
     summary: 'Replace pending submission zip from URL or Steam Workshop',
@@ -96,7 +96,7 @@ router.post(
 
 router.post(
   '/levels/:id/select-level',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionSelectLevel',
     summary: 'Select chart in pending submission zip',
@@ -122,7 +122,7 @@ router.post(
 
 router.post(
   '/levels/:id/reparse-chart',
-  Auth.superAdmin(),
+  Auth.submissionReviewer(),
   ApiDoc({
     operationId: 'postAdminLevelSubmissionReparseChart',
     summary: 'Reparse pending submission chart cache',

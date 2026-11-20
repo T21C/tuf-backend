@@ -8,7 +8,7 @@ import { AuditLogService } from '@/server/services/core/AuditLogService.js';
 import PlayerStats from '@/models/players/PlayerStats.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { permissionFlags } from '@/config/constants.js';
-import { hasAnyFlag, hasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { canReviewSubmissions, hasAnyFlag, hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { canUseStellarProfileCustomization } from '@/misc/utils/subscriptions/tufStellarSubscription.js';
 import {
   createFailureAwareRateLimit,
@@ -389,6 +389,33 @@ export const Auth = {
       requirePermission(
         (user) => hasFlag(user, permissionFlags.SUPER_ADMIN),
         'Super admin access required'
+      ),
+      auditLogMiddleware
+    ),
+
+  /**
+   * Review the level/pass submission queue. Super admin is a superset.
+   */
+  submissionReviewer: (): MiddlewareFunction =>
+    chainMiddleware(
+      baseAuth,
+      requirePermission(
+        (user) => canReviewSubmissions(user),
+        'Submission reviewer access required'
+      ),
+      auditLogMiddleware
+    ),
+
+  /**
+   * Pending submission counts. Raters keep access; submission reviewers need it too.
+   */
+  raterOrSubmissionReviewer: (): MiddlewareFunction =>
+    chainMiddleware(
+      baseAuth,
+      requirePermission(
+        (user) =>
+          hasFlag(user, permissionFlags.RATER) || canReviewSubmissions(user),
+        'Rater or submission reviewer access required'
       ),
       auditLogMiddleware
     ),
