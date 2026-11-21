@@ -204,7 +204,15 @@ router.post('/reviews/:id/decision', async (req: Request, res: Response) => {
 });
 
 router.get('/jobs', async (_req: Request, res: Response) => {
-  const jobs = await BadgeJob.findAll({ order: [['id', 'DESC']], limit: 30 });
+  const recent = await BadgeJob.findAll({ order: [['id', 'DESC']], limit: 30 });
+  const running = await BadgeJob.findOne({ where: { status: 'running' }, order: [['id', 'ASC']] });
+  const oldestPending = running
+    ? null
+    : await BadgeJob.findOne({ where: { status: 'pending' }, order: [['id', 'ASC']] });
+  const active = running || oldestPending;
+  const jobs = active && !recent.some((job) => job.id === active.id)
+    ? [active, ...recent]
+    : recent;
   res.json({ jobs });
 });
 
