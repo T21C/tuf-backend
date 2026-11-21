@@ -14,6 +14,7 @@ import {
 } from './judgement.js';
 import type { BadgeDraft, BadgeParams, PatternMatch, SequenceParams } from './params.js';
 import { evalValueExpr, fn, isFn, parseValueExpr, row, valueAsNumber, type Value } from './valueExpr.js';
+import { BadgeJobCancelled, throwIfBadgeCancelled } from '../jobs/cancelSignal.js';
 
 export type PassFact = {
   id: number;
@@ -310,7 +311,10 @@ function applyCurve(def: BadgeDraft, credit: number, proving: PassFact | undefin
 }
 
 function eligiblePasses(def: BadgeDraft, input: OwnerInput, sheet: boolean): PassFact[] {
-  return input.passes.filter((pass) => inForwardWindow(def, input, pass) && !(sheet && pass.ancient));
+  return input.passes.filter((pass) => {
+    throwIfBadgeCancelled();
+    return inForwardWindow(def, input, pass) && !(sheet && pass.ancient);
+  });
 }
 
 function thresholdPassOk(def: BadgeDraft, input: OwnerInput, pass: PassFact): boolean {
@@ -430,6 +434,7 @@ function evaluateThreshold(def: BadgeDraft, input: OwnerInput): EvalResult {
   const sheet = Boolean(def.params.purePerfect);
   const passes = eligiblePasses(def, input, sheet).filter((pass) => thresholdPassOk(def, input, pass));
   for (const pass of input.passes) {
+    throwIfBadgeCancelled();
     if (sheet && pass.ancient) result.skipPlaceholder += 1;
     if (def.params.useDifficultyAt) noteSkips(result, pass, false, true);
   }
@@ -620,6 +625,7 @@ function evaluateRecord(def: BadgeDraft, input: OwnerInput): EvalResult {
   const families = def.params.families?.map((item) => item.toUpperCase());
   const byLevel = new Map<number, WorldPass[]>();
   for (const pass of input.world) {
+    throwIfBadgeCancelled();
     const list = byLevel.get(pass.levelId) ?? [];
     list.push(pass);
     byLevel.set(pass.levelId, list);
@@ -670,6 +676,7 @@ function evaluatePattern(def: BadgeDraft, input: OwnerInput, pattern: PatternMat
   if (pattern.sharedAccuracy) {
     const groups = new Map<string, WorldPass[]>();
     for (const pass of input.world) {
+    throwIfBadgeCancelled();
       if (ignoredAccuracy(pass)) {
         if (pass.ancient) result.skipPlaceholder += 1;
         continue;
@@ -697,6 +704,7 @@ function evaluatePattern(def: BadgeDraft, input: OwnerInput, pattern: PatternMat
   }
   const matches: PassFact[] = [];
   for (const pass of input.passes) {
+    throwIfBadgeCancelled();
     if (!inForwardWindow(def, input, pass)) continue;
     if (pass.ancient) {
       result.skipPlaceholder += 1;
@@ -726,6 +734,7 @@ function evaluateSequence(def: BadgeDraft, input: OwnerInput, sequence: Sequence
     .filter((pass) => pass.uploadTimeKnown)
     .sort((a, b) => Date.parse(a.vidUploadTime || '') - Date.parse(b.vidUploadTime || '') || a.id - b.id);
   for (const pass of input.passes) {
+    throwIfBadgeCancelled();
     if (!pass.uploadTimeKnown) result.skipUnknownTime += 1;
     if (sequence.perStep && pass.ancient) result.skipPlaceholder += 1;
   }
@@ -827,6 +836,7 @@ function evaluateNth(def: BadgeDraft, input: OwnerInput): EvalResult {
   const n = def.params.n ?? 1;
   const byKey = new Map<string, WorldPass[]>();
   for (const pass of input.world) {
+    throwIfBadgeCancelled();
     if (!pass.uploadTimeKnown || !pass.vidUploadTime) continue;
     const key = keyFor(def, input, pass.levelId);
     const list = byKey.get(key) ?? [];
@@ -1088,6 +1098,7 @@ function indexWorld(world: WorldPass[]) {
   const byLevel = new Map<number, WorldPass[]>();
   const rivals = new Map<number, Set<number>>();
   for (const pass of world) {
+    throwIfBadgeCancelled();
     const list = byLevel.get(pass.levelId);
     if (list) list.push(pass);
     else byLevel.set(pass.levelId, [pass]);
@@ -1327,6 +1338,7 @@ function nthCount(def: BadgeDraft, input: OwnerInput, n: number): number {
   if (!Number.isInteger(n) || n < 1) return 0;
   const byKey = new Map<string, WorldPass[]>();
   for (const pass of input.world) {
+    throwIfBadgeCancelled();
     if (!pass.uploadTimeKnown || !pass.vidUploadTime) continue;
     const key = keyFor(def, input, pass.levelId);
     const list = byKey.get(key) ?? [];
@@ -1366,6 +1378,7 @@ function leadValue(input: OwnerInput, level: Value, metric: string): boolean {
 function sharedCount(def: BadgeDraft, input: OwnerInput): number {
   const groups = new Map<string, WorldPass[]>();
   for (const pass of input.world) {
+    throwIfBadgeCancelled();
     if (ignoredAccuracy(pass)) continue;
     const chart = chartOf(input, pass.levelId);
     const family = difficultyFamily(chart?.diffName);
@@ -1506,12 +1519,14 @@ function evaluateValue(def: BadgeDraft, input: OwnerInput): EvalResult {
     if (num == null) return result;
     const tier = num >= 1 ? Math.floor(num + 1e-9) : 0;
     return { ...result, tier, credit: num, barFrom: 0, barTo: Math.max(1, tier + 1), barValue: num, provingPassIds, snapshotIds };
-  } catch {
+  } catch (error) {
+    if (error instanceof BadgeJobCancelled) throw error;
     return result;
   }
 }
 
 export function evaluateBadge(def: BadgeDraft, input: OwnerInput): EvalResult {
+  throwIfBadgeCancelled();
   let result: EvalResult;
   switch (def.reducer) {
     case 'threshold':

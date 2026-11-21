@@ -1,3 +1,5 @@
+import { BadgeJobCancelled, throwIfBadgeCancelled } from '../jobs/cancelSignal.js';
+
 export const FORMULA_FIELDS = [
   'speed', 'accuracy', 'score', 'keyCount', 'misses', 'perfects', 'earlies', 'lates',
   'ePerfect', 'lPerfect', 'family', 'familyAt', 'difficulty', 'difficultyAt', 'levelId',
@@ -279,6 +281,7 @@ function compare(op: string, left: FormulaValue, right: FormulaValue): boolean {
 }
 
 function evaluate(ast: Ast, ctx: FormulaContext): FormulaValue {
+  throwIfBadgeCancelled();
   if (ast.k === 'num') return ast.v;
   if (ast.k === 'str') return ast.v;
   if (ast.k === 'bool') return ast.v;
@@ -349,7 +352,8 @@ export function formulaMatches(input: string | null | undefined, ctx: FormulaCon
   if (!text || text === '=') return true;
   try {
     return truthy(evaluate(new Parser(text).parse(), ctx));
-  } catch {
+  } catch (error) {
+    if (error instanceof BadgeJobCancelled) throw error;
     return false;
   }
 }

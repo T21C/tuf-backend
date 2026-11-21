@@ -12,6 +12,7 @@ if (!process.env.SENTRY_SERVER_NAME?.trim()) {
   const entry = process.argv[1] || '';
   if (entry.includes('cdnService')) process.env.SENTRY_SERVER_NAME = 'cdn';
   else if (entry.includes('bilibiliProxy')) process.env.SENTRY_SERVER_NAME = 'bilibili-proxy';
+  else if (entry.includes('badgeWorker')) process.env.SENTRY_SERVER_NAME = 'badge-worker';
   else process.env.SENTRY_SERVER_NAME = 'api';
 }
 

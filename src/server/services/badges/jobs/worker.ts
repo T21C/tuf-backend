@@ -1,6 +1,16 @@
+import mysql, { type Connection } from 'mysql2/promise';
 import { QueryTypes } from 'sequelize';
 import { getSequelizeForModelGroup } from '@/config/db.js';
+import { isShuttingDown } from '@/server/bootstrap/shutdownCoordinator.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import {
+  BadgeJobCancelled,
+  isBadgeCancelRequested,
+  setBadgeWatchErrorHandler,
+  stopBadgeWatch,
+  throwIfBadgeCancelled,
+  watchBadgeJob,
+} from './cancelSignal.js';
 import { evaluateBadge, type OwnerInput } from '../engine/evaluate.js';
 import { applyGrant, type StoredBadge } from '../engine/grant.js';
 import { loadBadgeCatalog, type BadgeCatalog } from '../catalog/load.js';
@@ -185,6 +195,28 @@ async function isCancelled(jobId: number): Promise<boolean> {
   return rows[0]?.status === 'cancelled';
 }
 
+async function stopIfCancelled(jobId: number): Promise<void> {
+  throwIfBadgeCancelled();
+  if (await isCancelled(jobId)) throw new BadgeJobCancelled();
+}
+
+function affectedCount(result: unknown): number {
+  if (typeof result === 'number') return result;
+  if (Array.isArray(result)) {
+    for (let index = result.length - 1; index >= 0; index -= 1) {
+      const part = result[index];
+      if (typeof part === 'number') return part;
+      if (part && typeof part === 'object' && 'affectedRows' in part) {
+        return Number((part as { affectedRows: number }).affectedRows) || 0;
+      }
+    }
+  }
+  if (result && typeof result === 'object' && 'affectedRows' in result) {
+    return Number((result as { affectedRows: number }).affectedRows) || 0;
+  }
+  return 0;
+}
+
 async function writeState(ownerType: string, ownerId: number, definitionId: number, state: StoredBadge): Promise<void> {
   await badgeDb().query(
     `INSERT INTO badge_states
@@ -272,6 +304,7 @@ async function ownerNames(): Promise<{ players: Map<number, string>; creators: M
 }
 
 export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips: { placeholder: number; unknownTime: number; missingDifficulty: number }; cancelled?: boolean; timings?: { id: number; name: string; audience: string; runs: number; totalMs: number }[] }> {
+  await stopIfCancelled(Number(job.id));
   const resumeAt = Math.max(0, Math.floor(Number(job.startFrom) || 0), Math.floor(Number(job.processed) || 0));
   const etaSamples = await loadEtaSamples(Number(job.id));
   let etaMs: number | null = null;
@@ -292,15 +325,18 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
     etaSamples,
     definitionProgress: {},
   });
+  await stopIfCancelled(Number(job.id));
   const definitions = (await loadDefinitions(job)).filter((def) => {
     if (job.scope === 'pack' && !(def.reducer === 'pack' || (def.reducer === 'value' && def.params.packId))) return false;
     if (job.scope === 'pack' && job.packId && def.params.packId !== Number(job.packId)) return false;
     return true;
   });
+  await stopIfCancelled(Number(job.id));
   const catalog = await loadBadgeCatalog({
     playerIds: job.scope === 'player' && job.playerId ? [Number(job.playerId)] : undefined,
     needWorld: definitions.some(needsWorld),
   });
+  await stopIfCancelled(Number(job.id));
   const passesByPlayer = new Map<number, BadgeCatalog['passes']>();
   for (const pass of catalog.passes) {
     const list = passesByPlayer.get(pass.playerId);
@@ -390,14 +426,13 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
       const def = audienceDefs[index];
       if (!def.id) continue;
       await new Promise<void>((resolve) => setImmediate(resolve));
-      if (await isCancelled(Number(job.id))) {
-        return { summary: 'Cancelled', skips, cancelled: true };
-      }
+      await stopIfCancelled(Number(job.id));
       currentDefinitionId = def.id;
       currentOwnerId = owner.id;
       currentOwnerName = (owner.audience === 'creator' ? names.creators : names.players).get(owner.id) || null;
       badgeCursor = index + 1;
       await writeJobProgress(Number(job.id), progressPayload('running'));
+      await stopIfCancelled(Number(job.id));
       const previous = job.replaceState ? null : await readState(def.audience, owner.id, def.id);
       const frozen = def.grant === 'persistSnapshot' && !job.replaceState ? previous?.snapshotIds ?? null : null;
       const started = performance.now();
@@ -413,6 +448,7 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
       if (def.grant === 'manualLock' || def.backfill === 'queue') {
         await ensureReviews(def.id, result.reviewPassIds);
       }
+      await stopIfCancelled(Number(job.id));
       if (!(def.backfill === 'queue' && def.grant !== 'manualLock')) {
         const stored = applyGrant({
           grant: def.grant,
@@ -442,30 +478,104 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+let lockConn: Connection | null = null;
+let haveLock = false;
+let lockWarned = false;
+
+const JOB_COLUMNS = 'id, scope, definitionId, playerId, creatorId, levelId, packId, replaceState, startFrom, processed';
+
+function workerLockName(): string {
+  const database = (process.env.DB_DATABASE || 'tuf').replace(/[^A-Za-z0-9_]/g, '');
+  return `tuf_badge_job_${database}`.slice(0, 64);
+}
+
+async function ensureWorkerLock(): Promise<boolean> {
+  if (lockConn && haveLock) {
+    try {
+      await lockConn.query('SELECT 1');
+      return true;
+    } catch (error) {
+      haveLock = false;
+      const failed = lockConn;
+      lockConn = null;
+      if (failed) await failed.end().catch(() => undefined);
+      if (!lockWarned) {
+        lockWarned = true;
+        logger.warn('[badges] job lock connection dropped', error);
+      }
+    }
+  }
+  try {
+    lockConn = await mysql.createConnection({
+      host: process.env.DB_HOST || '127.0.0.1',
+      port: Number(process.env.DB_PORT || 3306),
+      user: process.env.DB_USER || '',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_DATABASE || '',
+    });
+    const [rows] = await lockConn.query(
+      'SELECT GET_LOCK(?, 0) AS got',
+      [workerLockName()],
+    );
+    const got = Array.isArray(rows) ? Number((rows[0] as { got?: number } | undefined)?.got) : 0;
+    haveLock = got === 1;
+    if (!haveLock) {
+      await lockConn.end();
+      lockConn = null;
+    }
+    return haveLock;
+  } catch (error) {
+    haveLock = false;
+    const failed = lockConn;
+    lockConn = null;
+    if (failed) await failed.end().catch(() => undefined);
+    if (!lockWarned) {
+      lockWarned = true;
+      logger.warn('[badges] could not lock the job worker', error);
+    }
+    return false;
+  }
+}
+
+async function claimNextJob(): Promise<{ job: JobRow; resumed: boolean } | null> {
+  return badgeDb().transaction(async (transaction) => {
+    const runningJobs = await badgeDb().query<JobRow>(
+      `SELECT ${JOB_COLUMNS}
+       FROM badge_jobs WHERE status = 'running' ORDER BY id ASC LIMIT 1 FOR UPDATE`,
+      { transaction, type: QueryTypes.SELECT },
+    );
+    if (runningJobs[0]) return { job: runningJobs[0], resumed: true };
+    const pending = await badgeDb().query<JobRow>(
+      `SELECT ${JOB_COLUMNS}
+       FROM badge_jobs WHERE status = 'pending' ORDER BY id ASC LIMIT 1 FOR UPDATE`,
+      { transaction, type: QueryTypes.SELECT },
+    );
+    const job = pending[0];
+    if (!job) return null;
+    const updated = await badgeDb().query(
+      `UPDATE badge_jobs
+       SET status = 'running', startedAt = IFNULL(startedAt, NOW())
+       WHERE id = :id AND status = 'pending'`,
+      { transaction, replacements: { id: job.id }, type: QueryTypes.UPDATE },
+    );
+    if (affectedCount(updated) < 1) return null;
+    return { job, resumed: false };
+  });
+}
 
 async function tick(): Promise<void> {
-  if (running) return;
+  if (running || isShuttingDown()) return;
+  if (!(await ensureWorkerLock())) return;
   running = true;
   let jobId = 0;
   try {
-    const claimed = await badgeDb().transaction(async (transaction) => {
-      const pending = await badgeDb().query<JobRow>(
-        `SELECT id, scope, definitionId, playerId, creatorId, levelId, packId, replaceState, startFrom, processed
-         FROM badge_jobs WHERE status = 'pending' ORDER BY id ASC LIMIT 1 FOR UPDATE`,
-        { transaction, type: QueryTypes.SELECT },
-      );
-      const job = pending[0];
-      if (!job) return null;
-      await badgeDb().query(
-        `UPDATE badge_jobs SET status = 'running', startedAt = NOW() WHERE id = :id`,
-        { transaction, replacements: { id: job.id } },
-      );
-      return job;
-    });
+    const claimed = await claimNextJob();
     if (!claimed) return;
-    jobId = Number(claimed.id);
-    const outcome = await runBadgeJob(claimed);
-    if (outcome.cancelled) return;
+    jobId = Number(claimed.job.id);
+    logger.info(`[badges] ${claimed.resumed ? 'resuming' : 'starting'} job ${jobId}`);
+    watchBadgeJob(jobId);
+    const outcome = await runBadgeJob(claimed.job);
+    if (outcome.cancelled || isBadgeCancelRequested()) return;
     await badgeDb().query(
       `UPDATE badge_jobs
        SET status = 'done', phase = 'done', finishedAt = NOW(), summary = :summary,
@@ -484,6 +594,14 @@ async function tick(): Promise<void> {
       },
     );
   } catch (error) {
+    if (error instanceof BadgeJobCancelled || isBadgeCancelRequested()) {
+      logger.info(`[badges] stopped cancelled job ${jobId}`);
+      return;
+    }
+    if (isShuttingDown()) {
+      logger.info(`[badges] leaving job ${jobId} running across shutdown`);
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     if (!jobId && message.includes('badge_jobs') && message.toLowerCase().includes('exist')) {
       logger.warn('[badges] badge tables are not migrated yet');
@@ -492,21 +610,22 @@ async function tick(): Promise<void> {
     logger.error('[badges] job failed', error);
     if (jobId) {
       await badgeDb().query(
-        `UPDATE badge_jobs SET status = 'failed', finishedAt = NOW(), error = :error WHERE id = :id`,
-        { replacements: { id: jobId, error: error instanceof Error ? error.message : String(error) } },
+        `UPDATE badge_jobs
+         SET status = 'failed', finishedAt = NOW(), error = :error
+         WHERE id = :id AND status = 'running'`,
+        { replacements: { id: jobId, error: message } },
       ).catch(() => undefined);
     }
   } finally {
+    stopBadgeWatch();
     running = false;
   }
 }
 
 export function startBadgeJobWorker(): void {
   if (timer) return;
-  void badgeDb().query(
-    `UPDATE badge_jobs SET status = 'pending', startedAt = NULL WHERE status = 'running'`,
-  ).catch((error) => {
-    logger.warn('[badges] could not resume an interrupted job', error);
+  setBadgeWatchErrorHandler((error) => {
+    logger.error('[badges] cancel watch failed', error);
   });
   timer = setInterval(() => {
     void tick();
@@ -518,4 +637,5 @@ export function startBadgeJobWorker(): void {
 export function stopBadgeJobWorker(): void {
   if (timer) clearInterval(timer);
   timer = null;
+  stopBadgeWatch();
 }
