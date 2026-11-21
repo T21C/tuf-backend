@@ -81,35 +81,65 @@ export async function reindexPendingSubmissions(
   await Promise.all(missing.map((id) => deletePendingSubmissionDocument(kind, id)));
 }
 
+const SUBMITTER_RATIO_PATCH_ATTEMPTS = 3;
+
+function versionConflictCount(result: { version_conflicts?: number | null }): number {
+  const count = Number(result.version_conflicts ?? 0);
+  return Number.isFinite(count) && count > 0 ? count : 0;
+}
+
 export async function refreshPendingSubmitterRatio(
   kind: SubmissionQueueKind,
   userId: string | null | undefined,
   opts: { refresh?: boolean } = {},
 ): Promise<void> {
   if (!userId) return;
-  const stats = (await submitterRatioStats(kind, [userId])).get(userId);
-  const accepted = stats?.accepted ?? 0;
-  const decided = stats?.total ?? 0;
-  const ratio = stats?.ratio ?? null;
+  const refresh = Boolean(opts.refresh);
   try {
-    await client.updateByQuery({
-      index: submissionQueueIndexName,
-      refresh: Boolean(opts.refresh),
-      query: {
-        bool: {
-          filter: [
-            { term: { kind } },
-            { term: { userId } },
-          ],
+    let conflicts = 0;
+    for (let attempt = 1; attempt <= SUBMITTER_RATIO_PATCH_ATTEMPTS; attempt++) {
+      const stats = (await submitterRatioStats(kind, [userId])).get(userId);
+      const accepted = stats?.accepted ?? 0;
+      const decided = stats?.total ?? 0;
+      const ratio = stats?.ratio ?? null;
+      // Search can still be holding the pre-refresh seqNo while a concurrent
+      // reindex has already bumped the live document. Aborting drops the ratio
+      // patch for every pending doc of this submitter.
+      const result = await client.updateByQuery({
+        index: submissionQueueIndexName,
+        refresh,
+        conflicts: 'proceed',
+        query: {
+          bool: {
+            filter: [
+              { term: { kind } },
+              { term: { userId } },
+            ],
+          },
         },
-      },
-      script: {
-        lang: 'painless',
-        source:
-          'ctx._source.ratio = params.ratio; ctx._source.acceptedCount = params.accepted; ctx._source.decidedCount = params.decided;',
-        params: { ratio, accepted, decided },
-      },
-    });
+        script: {
+          lang: 'painless',
+          source:
+            'ctx._source.ratio = params.ratio; ctx._source.acceptedCount = params.accepted; ctx._source.decidedCount = params.decided;',
+          params: { ratio, accepted, decided },
+        },
+      });
+      if ((result.failures?.length ?? 0) > 0) {
+        throw new Error(
+          `Pending ${kind} submitter ratio patch for ${userId} failed: ${JSON.stringify(result.failures)}`,
+        );
+      }
+      conflicts = versionConflictCount(result);
+      if (conflicts === 0) return;
+      if (attempt < SUBMITTER_RATIO_PATCH_ATTEMPTS) {
+        await client.indices.refresh({ index: submissionQueueIndexName });
+      }
+    }
+    logger.warn(
+      `Pending ${kind} submitter ratio patch for ${userId} hit ${conflicts} version conflicts; reindexing that submitter's pending documents`,
+    );
+    const ids = await pendingSubmissionIdsForUser(kind, userId);
+    await reindexPendingSubmissions(kind, ids, { refresh });
   } catch (error) {
     logger.error(`Error patching pending ${kind} submitter ratio for ${userId}:`, error);
     throw error;
