@@ -15,6 +15,13 @@ export function creditUnit(expression: string | null | undefined): CreditUnit | 
   return null;
 }
 
+export type PublicBadgeGroup = {
+  groupId: number | null;
+  groupName: string | null;
+  groupSortOrder: number | null;
+  sortOrder: number;
+};
+
 export type PublicBadge = {
   id: number;
   name: string;
@@ -32,6 +39,10 @@ export type PublicBadge = {
   credit: number | null;
   bar: { from: number; to: number; value: number } | null;
   nextRequirement: number | null;
+  groupId: number | null;
+  groupName: string | null;
+  groupSortOrder: number | null;
+  sortOrder: number;
   confirm: {
     passId: number;
     clear: {
@@ -53,6 +64,7 @@ export function toPublicBadge(
   def: BadgeDraft,
   state: StoredBadge | null,
   proving: ProvingClear[],
+  placement?: PublicBadgeGroup,
 ): PublicBadge | null {
   if (!def.id || !def.enabled) return null;
   const tier = state?.tier ?? 0;
@@ -87,6 +99,10 @@ export function toPublicBadge(
         : def.reducer === 'pack' || def.reducer === 'percentOf' || def.reducer === 'coverage' || def.reducer === 'value'
           ? state?.barTo ?? null
           : shownRequirement(def.curve, earned ? tier + 1 : 1),
+    groupId: placement?.groupId ?? null,
+    groupName: placement?.groupName ?? null,
+    groupSortOrder: placement?.groupSortOrder ?? null,
+    sortOrder: placement?.sortOrder ?? 0,
     confirm,
   };
 }

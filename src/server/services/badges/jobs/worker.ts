@@ -12,6 +12,11 @@ import {
   watchBadgeJob,
 } from './cancelSignal.js';
 import { evaluateBadge, type OwnerInput } from '../engine/evaluate.js';
+import {
+  catalogDifficultyCoverage,
+  identityModesForDifficultyBadges,
+  prepareOwnerDifficultyCounts,
+} from '../engine/difficultyCoverage.js';
 import { applyGrant, type StoredBadge } from '../engine/grant.js';
 import { loadBadgeCatalog, type BadgeCatalog } from '../catalog/load.js';
 import type { BadgeDraft } from '../engine/params.js';
@@ -64,29 +69,108 @@ async function playerIdsForLevel(levelId: number): Promise<number[]> {
   return rows.map((row) => Number(row.playerId));
 }
 
-async function readState(ownerType: string, ownerId: number, definitionId: number): Promise<StoredBadge | null> {
-  const rows = await select<{
-    tier: number; credit: number; barFrom: number; barTo: number; barValue: number;
-    provingPassIds: unknown; earnedAt: Date | null; snapshotIds: unknown;
-  }>(
-    `SELECT tier, credit, barFrom, barTo, barValue, provingPassIds, earnedAt, snapshotIds
-     FROM badge_states
-     WHERE ownerType = :ownerType AND ownerId = :ownerId AND definitionId = :definitionId`,
-    { ownerType, ownerId, definitionId },
-  );
-  const row = rows[0];
-  if (!row) return null;
+function stateKey(ownerType: string, ownerId: number, definitionId: number): string {
+  return `${ownerType}:${ownerId}:${definitionId}`;
+}
+
+function asIdList(value: unknown): number[] {
+  if (Array.isArray(value)) return value.map(Number).filter((id) => Number.isInteger(id));
+  if (typeof value === 'string') {
+    try {
+      return asIdList(JSON.parse(value));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function asSnapshot(value: unknown): number[] | null {
+  if (value == null || value === 'null') return null;
+  if (typeof value === 'string') {
+    try {
+      return asSnapshot(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(value)) return null;
+  return asIdList(value);
+}
+
+function sameNum(left: number, right: number): boolean {
+  return left === right || Math.abs(left - right) < 1e-9;
+}
+
+function sameIdList(left: number[] | null, right: number[] | null): boolean {
+  if (left == null && right == null) return true;
+  if (left == null || right == null || left.length !== right.length) return false;
+  return left.every((id, index) => id === right[index]);
+}
+
+function sameState(previous: StoredBadge | null, next: StoredBadge): boolean {
+  if (!previous) return false;
+  return previous.tier === next.tier
+    && sameNum(previous.credit, next.credit)
+    && sameNum(previous.barFrom, next.barFrom)
+    && sameNum(previous.barTo, next.barTo)
+    && sameNum(previous.barValue, next.barValue)
+    && previous.earnedAt === next.earnedAt
+    && previous.tierLabel === next.tierLabel
+    && sameIdList(previous.provingPassIds, next.provingPassIds)
+    && sameIdList(previous.snapshotIds, next.snapshotIds);
+}
+
+function rowToState(row: {
+  tier: number;
+  credit: number;
+  barFrom: number;
+  barTo: number;
+  barValue: number;
+  provingPassIds: unknown;
+  earnedAt: Date | null;
+  tierLabel?: string | null;
+  snapshotIds: unknown;
+}): StoredBadge {
   return {
     tier: Number(row.tier) || 0,
     credit: Number(row.credit) || 0,
     barFrom: Number(row.barFrom) || 0,
     barTo: Number(row.barTo) || 0,
     barValue: Number(row.barValue) || 0,
-    provingPassIds: Array.isArray(row.provingPassIds) ? row.provingPassIds.map(Number) : [],
+    provingPassIds: asIdList(row.provingPassIds),
     earnedAt: row.earnedAt ? new Date(row.earnedAt).toISOString() : null,
-    tierLabel: null,
-    snapshotIds: Array.isArray(row.snapshotIds) ? row.snapshotIds.map(Number) : null,
+    tierLabel: row.tierLabel ?? null,
+    snapshotIds: asSnapshot(row.snapshotIds),
   };
+}
+
+async function loadStates(definitionIds: number[]): Promise<Map<string, StoredBadge>> {
+  const states = new Map<string, StoredBadge>();
+  if (!definitionIds.length) return states;
+  const rows = await select<{
+    ownerType: string;
+    ownerId: number;
+    definitionId: number;
+    tier: number;
+    credit: number;
+    barFrom: number;
+    barTo: number;
+    barValue: number;
+    provingPassIds: unknown;
+    earnedAt: Date | null;
+    tierLabel: string | null;
+    snapshotIds: unknown;
+  }>(
+    `SELECT ownerType, ownerId, definitionId, tier, credit, barFrom, barTo, barValue, provingPassIds, earnedAt, tierLabel, snapshotIds
+     FROM badge_states
+     WHERE definitionId IN (:ids)`,
+    { ids: definitionIds },
+  );
+  for (const row of rows) {
+    states.set(stateKey(row.ownerType, Number(row.ownerId), Number(row.definitionId)), rowToState(row));
+  }
+  return states;
 }
 
 type EtaSample = { t: number; p: number };
@@ -217,41 +301,62 @@ function affectedCount(result: unknown): number {
   return 0;
 }
 
-async function writeState(ownerType: string, ownerId: number, definitionId: number, state: StoredBadge): Promise<void> {
-  await badgeDb().query(
-    `INSERT INTO badge_states
-      (ownerType, ownerId, definitionId, tier, credit, barFrom, barTo, barValue, provingPassIds, earnedAt, tierLabel, snapshotIds, createdAt, updatedAt)
-     VALUES
-      (:ownerType, :ownerId, :definitionId, :tier, :credit, :barFrom, :barTo, :barValue, CAST(:proving AS JSON), :earnedAt, :tierLabel, CAST(:snapshot AS JSON), NOW(), NOW())
-     ON DUPLICATE KEY UPDATE
-      tier = VALUES(tier), credit = VALUES(credit), barFrom = VALUES(barFrom), barTo = VALUES(barTo),
-      barValue = VALUES(barValue), provingPassIds = VALUES(provingPassIds), earnedAt = VALUES(earnedAt),
-      tierLabel = VALUES(tierLabel), snapshotIds = VALUES(snapshotIds), updatedAt = NOW()`,
-    {
-      replacements: {
-        ownerType,
-        ownerId,
-        definitionId,
-        tier: state.tier,
-        credit: state.credit,
-        barFrom: state.barFrom,
-        barTo: state.barTo,
-        barValue: state.barValue,
-        proving: JSON.stringify(state.provingPassIds),
-        earnedAt: state.earnedAt ? new Date(state.earnedAt) : null,
-        tierLabel: state.tierLabel,
-        snapshot: state.snapshotIds ? JSON.stringify(state.snapshotIds) : 'null',
-      },
-    },
-  );
+const STATE_WRITE_BATCH = 50;
+const REVIEW_WRITE_BATCH = 100;
+const PROGRESS_INTERVAL_MS = 1000;
+
+type PendingStateWrite = {
+  ownerType: string;
+  ownerId: number;
+  definitionId: number;
+  state: StoredBadge;
+};
+
+async function flushStateWrites(pending: PendingStateWrite[]): Promise<void> {
+  while (pending.length) {
+    const batch = pending.splice(0, STATE_WRITE_BATCH);
+    const replacements: Record<string, unknown> = {};
+    const values = batch.map((row, index) => {
+      replacements[`ot${index}`] = row.ownerType;
+      replacements[`oid${index}`] = row.ownerId;
+      replacements[`did${index}`] = row.definitionId;
+      replacements[`tier${index}`] = row.state.tier;
+      replacements[`credit${index}`] = row.state.credit;
+      replacements[`from${index}`] = row.state.barFrom;
+      replacements[`to${index}`] = row.state.barTo;
+      replacements[`val${index}`] = row.state.barValue;
+      replacements[`prov${index}`] = JSON.stringify(row.state.provingPassIds);
+      replacements[`earn${index}`] = row.state.earnedAt ? new Date(row.state.earnedAt) : null;
+      replacements[`lab${index}`] = row.state.tierLabel;
+      replacements[`snap${index}`] = row.state.snapshotIds ? JSON.stringify(row.state.snapshotIds) : 'null';
+      return `(:ot${index}, :oid${index}, :did${index}, :tier${index}, :credit${index}, :from${index}, :to${index}, :val${index}, CAST(:prov${index} AS JSON), :earn${index}, :lab${index}, CAST(:snap${index} AS JSON), NOW(), NOW())`;
+    }).join(', ');
+    await badgeDb().query(
+      `INSERT INTO badge_states
+        (ownerType, ownerId, definitionId, tier, credit, barFrom, barTo, barValue, provingPassIds, earnedAt, tierLabel, snapshotIds, createdAt, updatedAt)
+       VALUES ${values}
+       ON DUPLICATE KEY UPDATE
+        tier = VALUES(tier), credit = VALUES(credit), barFrom = VALUES(barFrom), barTo = VALUES(barTo),
+        barValue = VALUES(barValue), provingPassIds = VALUES(provingPassIds), earnedAt = VALUES(earnedAt),
+        tierLabel = VALUES(tierLabel), snapshotIds = VALUES(snapshotIds), updatedAt = NOW()`,
+      { replacements },
+    );
+  }
 }
 
-async function ensureReviews(definitionId: number, passIds: number[]): Promise<void> {
-  for (const passId of passIds) {
+async function flushReviewWrites(pending: { definitionId: number; passId: number }[]): Promise<void> {
+  while (pending.length) {
+    const batch = pending.splice(0, REVIEW_WRITE_BATCH);
+    const replacements: Record<string, unknown> = {};
+    const values = batch.map((row, index) => {
+      replacements[`d${index}`] = row.definitionId;
+      replacements[`p${index}`] = row.passId;
+      return `(:d${index}, :p${index}, '', 'pending', NOW(), NOW())`;
+    }).join(', ');
     await badgeDb().query(
       `INSERT IGNORE INTO badge_reviews (definitionId, passId, videoUrl, status, createdAt, updatedAt)
-       VALUES (:definitionId, :passId, '', 'pending', NOW(), NOW())`,
-      { replacements: { definitionId, passId } },
+       VALUES ${values}`,
+      { replacements },
     );
   }
 }
@@ -336,6 +441,15 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
     playerIds: job.scope === 'player' && job.playerId ? [Number(job.playerId)] : undefined,
     needWorld: definitions.some(needsWorld),
   });
+  const playerDifficultyModes = identityModesForDifficultyBadges(
+    definitions.filter((def) => def.audience === 'player'),
+  );
+  const creatorDifficultyModes = identityModesForDifficultyBadges(
+    definitions.filter((def) => def.audience === 'creator'),
+  );
+  for (const mode of new Set([...playerDifficultyModes, ...creatorDifficultyModes])) {
+    catalogDifficultyCoverage(catalog.charts, catalog.links, mode);
+  }
   await stopIfCancelled(Number(job.id));
   const passesByPlayer = new Map<number, BadgeCatalog['passes']>();
   for (const pass of catalog.passes) {
@@ -345,6 +459,11 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
   }
   const owners = await ownersFor(job, definitions, catalog);
   const names = await ownerNames();
+  const definitionIds = definitions.map((def) => def.id).filter((id): id is number => Number.isInteger(id));
+  const states = job.replaceState ? new Map<string, StoredBadge>() : await loadStates(definitionIds);
+  const reviewKeys = new Set(catalog.reviews.map((review) => `${review.definitionId}:${review.passId}`));
+  const pendingStates: PendingStateWrite[] = [];
+  const pendingReviews: { definitionId: number; passId: number }[] = [];
   const skips = { placeholder: 0, unknownTime: 0, missingDifficulty: 0 };
   let writes = 0;
   const skip = Math.min(resumeAt, owners.length);
@@ -401,73 +520,110 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
   };
   await writeJobProgress(Number(job.id), progressPayload('running'));
   const now = new Date().toISOString();
-  for (let ownerIndex = skip; ownerIndex < owners.length; ownerIndex += 1) {
-    const owner = owners[ownerIndex];
-    const audienceDefs = definitions.filter((def) => def.audience === owner.audience);
-    badgeTotal = audienceDefs.length;
-    badgeCursor = 0;
-    const passes = owner.audience === 'player' ? passesByPlayer.get(owner.id) ?? [] : [];
-    const userId = owner.audience === 'creator'
-      ? catalog.creatorUsers[owner.id] ?? null
-      : catalog.playerUsers[owner.id] ?? null;
-    const inputBase: Omit<OwnerInput, 'frozenIds' | 'since'> = {
-      ownerId: owner.id,
-      userId,
-      passes,
-      charts: catalog.charts,
-      links: catalog.links,
-      sets: catalog.sets,
-      packLevels: catalog.packLevels,
-      reviews: catalog.reviews,
-      ratings: userId ? catalog.ratingsByUser[userId] ?? [] : [],
-      world: catalog.world,
-    };
-    for (let index = 0; index < audienceDefs.length; index += 1) {
-      const def = audienceDefs[index];
-      if (!def.id) continue;
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      await stopIfCancelled(Number(job.id));
-      currentDefinitionId = def.id;
-      currentOwnerId = owner.id;
-      currentOwnerName = (owner.audience === 'creator' ? names.creators : names.players).get(owner.id) || null;
-      badgeCursor = index + 1;
-      await writeJobProgress(Number(job.id), progressPayload('running'));
-      await stopIfCancelled(Number(job.id));
-      const previous = job.replaceState ? null : await readState(def.audience, owner.id, def.id);
-      const frozen = def.grant === 'persistSnapshot' && !job.replaceState ? previous?.snapshotIds ?? null : null;
-      const started = performance.now();
-      const result = evaluateBadge(def, { ...inputBase, frozenIds: frozen, since: def.publishedAt });
-      const elapsed = performance.now() - started;
-      const timing = definitionTimings.get(def.id) ?? { name: def.name, audience: def.audience, runs: 0, totalMs: 0 };
-      timing.runs += 1;
-      timing.totalMs += elapsed;
-      definitionTimings.set(def.id, timing);
-      skips.placeholder += result.skipPlaceholder;
-      skips.unknownTime += result.skipUnknownTime;
-      skips.missingDifficulty += result.skipMissingDifficulty;
-      if (def.grant === 'manualLock' || def.backfill === 'queue') {
-        await ensureReviews(def.id, result.reviewPassIds);
-      }
-      await stopIfCancelled(Number(job.id));
-      if (!(def.backfill === 'queue' && def.grant !== 'manualLock')) {
-        const stored = applyGrant({
-          grant: def.grant,
-          labels: def.tierLabels,
-          previous,
-          next: result,
-          replace: Boolean(job.replaceState),
-          now,
-        });
-        await writeState(def.audience, owner.id, def.id, stored);
-        writes += 1;
-      }
-      definitionCounts.set(def.id, (definitionCounts.get(def.id) ?? 0) + 1);
-      await writeJobProgress(Number(job.id), progressPayload('running'));
-    }
-    processed += 1;
-    if (owner.audience === 'player') playersProcessed += 1;
-    else creatorsProcessed += 1;
+  let lastProgressAt = Date.now();
+  const writeProgress = async (force = false) => {
+    const at = Date.now();
+    if (!force && at - lastProgressAt < PROGRESS_INTERVAL_MS) return;
+    lastProgressAt = at;
     await writeJobProgress(Number(job.id), progressPayload('running'));
+  };
+  const queueState = async (ownerType: string, ownerId: number, definitionId: number, stored: StoredBadge) => {
+    const key = stateKey(ownerType, ownerId, definitionId);
+    const previous = states.get(key) ?? null;
+    if (sameState(previous, stored)) return;
+    states.set(key, stored);
+    pendingStates.push({ ownerType, ownerId, definitionId, state: stored });
+    writes += 1;
+    if (pendingStates.length >= STATE_WRITE_BATCH) await flushStateWrites(pendingStates);
+  };
+  const queueReviews = (definitionId: number, passIds: number[]) => {
+    for (const passId of passIds) {
+      const key = `${definitionId}:${passId}`;
+      if (reviewKeys.has(key)) continue;
+      reviewKeys.add(key);
+      pendingReviews.push({ definitionId, passId });
+    }
+  };
+  try {
+    for (let ownerIndex = skip; ownerIndex < owners.length; ownerIndex += 1) {
+      const owner = owners[ownerIndex];
+      const audienceDefs = definitions.filter((def) => def.audience === owner.audience);
+      badgeTotal = audienceDefs.length;
+      badgeCursor = 0;
+      await stopIfCancelled(Number(job.id));
+      const passes = owner.audience === 'player' ? passesByPlayer.get(owner.id) ?? [] : [];
+      const userId = owner.audience === 'creator'
+        ? catalog.creatorUsers[owner.id] ?? null
+        : catalog.playerUsers[owner.id] ?? null;
+      const difficultyCounts = prepareOwnerDifficultyCounts(
+        catalog.charts,
+        catalog.links,
+        passes,
+        owner.audience === 'creator' ? creatorDifficultyModes : playerDifficultyModes,
+      );
+      const inputBase: Omit<OwnerInput, 'frozenIds' | 'since'> = {
+        ownerId: owner.id,
+        userId,
+        passes,
+        charts: catalog.charts,
+        links: catalog.links,
+        sets: catalog.sets,
+        packLevels: catalog.packLevels,
+        reviews: catalog.reviews,
+        ratings: userId ? catalog.ratingsByUser[userId] ?? [] : [],
+        world: catalog.world,
+        difficultyCounts,
+      };
+      for (let index = 0; index < audienceDefs.length; index += 1) {
+        const def = audienceDefs[index];
+        if (!def.id) continue;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        throwIfBadgeCancelled();
+        currentDefinitionId = def.id;
+        currentOwnerId = owner.id;
+        currentOwnerName = (owner.audience === 'creator' ? names.creators : names.players).get(owner.id) || null;
+        badgeCursor = index + 1;
+        await writeProgress();
+        const previous = job.replaceState ? null : states.get(stateKey(def.audience, owner.id, def.id)) ?? null;
+        const frozen = def.grant === 'persistSnapshot' && !job.replaceState ? previous?.snapshotIds ?? null : null;
+        const started = performance.now();
+        const result = evaluateBadge(def, { ...inputBase, frozenIds: frozen, since: def.publishedAt });
+        const elapsed = performance.now() - started;
+        const timing = definitionTimings.get(def.id) ?? { name: def.name, audience: def.audience, runs: 0, totalMs: 0 };
+        timing.runs += 1;
+        timing.totalMs += elapsed;
+        definitionTimings.set(def.id, timing);
+        skips.placeholder += result.skipPlaceholder;
+        skips.unknownTime += result.skipUnknownTime;
+        skips.missingDifficulty += result.skipMissingDifficulty;
+        if (def.grant === 'manualLock' || def.backfill === 'queue') {
+          queueReviews(def.id, result.reviewPassIds);
+          if (pendingReviews.length >= REVIEW_WRITE_BATCH) await flushReviewWrites(pendingReviews);
+        }
+        throwIfBadgeCancelled();
+        if (!(def.backfill === 'queue' && def.grant !== 'manualLock')) {
+          const stored = applyGrant({
+            grant: def.grant,
+            labels: def.tierLabels,
+            previous,
+            next: result,
+            replace: Boolean(job.replaceState),
+            now,
+          });
+          await queueState(def.audience, owner.id, def.id, stored);
+        }
+        definitionCounts.set(def.id, (definitionCounts.get(def.id) ?? 0) + 1);
+      }
+      processed += 1;
+      if (owner.audience === 'player') playersProcessed += 1;
+      else creatorsProcessed += 1;
+      if (pendingStates.length) await flushStateWrites(pendingStates);
+      if (pendingReviews.length) await flushReviewWrites(pendingReviews);
+      await writeProgress(true);
+    }
+  } finally {
+    await flushStateWrites(pendingStates);
+    await flushReviewWrites(pendingReviews);
   }
   return {
     summary: `Wrote ${writes} state rows for ${owners.length} owners.`,

@@ -3,6 +3,23 @@ import { getSequelizeForModelGroup } from '@/config/db.js';
 
 const sequelize = getSequelizeForModelGroup('badges');
 
+export class BadgeGroup extends Model {
+  declare id: number;
+  declare name: string;
+  declare sortOrder: number;
+  declare createdAt: Date;
+  declare updatedAt: Date;
+}
+
+BadgeGroup.init(
+  {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    name: { type: DataTypes.STRING(80), allowNull: false, unique: true },
+    sortOrder: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  },
+  { sequelize, tableName: 'badge_groups' },
+);
+
 export class BadgeDefinition extends Model {
   declare id: number;
   declare audience: 'player' | 'creator';
@@ -20,6 +37,8 @@ export class BadgeDefinition extends Model {
   declare display: unknown;
   declare confirmMode: string;
   declare params: unknown;
+  declare groupId: number | null;
+  declare sortOrder: number;
   declare publishedAt: Date | null;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -43,10 +62,15 @@ BadgeDefinition.init(
     display: { type: DataTypes.JSON, allowNull: false },
     confirmMode: { type: DataTypes.STRING(32), allowNull: false, defaultValue: 'none' },
     params: { type: DataTypes.JSON, allowNull: false },
+    groupId: { type: DataTypes.INTEGER, allowNull: true },
+    sortOrder: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     publishedAt: { type: DataTypes.DATE, allowNull: true },
   },
   { sequelize, tableName: 'badge_definitions' },
 );
+
+BadgeGroup.hasMany(BadgeDefinition, { foreignKey: 'groupId', as: 'definitions' });
+BadgeDefinition.belongsTo(BadgeGroup, { foreignKey: 'groupId', as: 'group' });
 
 export class BadgeSet extends Model {
   declare id: number;
