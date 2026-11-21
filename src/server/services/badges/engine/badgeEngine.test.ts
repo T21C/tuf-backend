@@ -3,6 +3,7 @@ import test from 'node:test';
 import { barForCredit, labelForTier, shownRequirement, tierForCredit } from './curve.js';
 import { difficultyAt, isUnknownUploadTime } from './difficultyAt.js';
 import { evaluateBadge, packMembership, type ChartFact, type OwnerInput, type PassFact } from './evaluate.js';
+import { armBadgeCancel, BadgeJobCancelled, clearBadgeCancel } from '../jobs/cancelSignal.js';
 import { identityKey } from './identity.js';
 import { emptyJudgements, isAncientPlaceholder, isPpMinusOne } from './judgement.js';
 import { formulaMatches, parseFormula } from './formula.js';
@@ -258,4 +259,19 @@ test('params reject unknown keys and accept a descending key-count curve', () =>
     params: { metric: 'keyCount', families: ['U'] },
   });
   assert.equal(good.ok, true);
+});
+
+test('a manual cancel stops evaluation instead of being swallowed', () => {
+  armBadgeCancel();
+  try {
+    assert.throws(
+      () => evaluateBadge(
+        draft('value', { expression: 'passes.length' }),
+        owner({ passes: [pass({ id: 1, levelId: 1 })] }),
+      ),
+      (error: unknown) => error instanceof BadgeJobCancelled,
+    );
+  } finally {
+    clearBadgeCancel();
+  }
 });

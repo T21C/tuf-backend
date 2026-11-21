@@ -3,6 +3,8 @@
  * It is parsed and interpreted. It does not execute arbitrary JavaScript.
  */
 
+import { throwIfBadgeCancelled } from '../jobs/cancelSignal.js';
+
 export type Value =
   | number
   | string
@@ -537,6 +539,7 @@ function method(list: Value, name: string, args: Value[]): Value {
 }
 
 function evaluate(ast: Ast, scope: Scope): Value {
+  throwIfBadgeCancelled();
   switch (ast.k) {
     case 'num':
       return ast.v;

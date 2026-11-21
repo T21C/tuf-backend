@@ -26,6 +26,7 @@ function afterCommit(transaction: Transaction | null | undefined, run: () => voi
 export async function enqueueBadgeJob(signal: BadgeSignal): Promise<void> {
   const sequelize = getSequelizeForModelGroup('badges');
   const startFrom = Math.max(0, Math.floor(Number(signal.startFrom) || 0));
+  // Queue only. A running row is never rewritten; it finishes or is cancelled.
   const existing = await sequelize.query<{ id: number }>(
     `SELECT id FROM badge_jobs
      WHERE status = 'pending' AND scope = :scope

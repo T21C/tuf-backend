@@ -234,24 +234,53 @@ router.post('/backfill', async (req: Request, res: Response) => {
   res.status(201).json({ jobId: created[0] ? Number(created[0].id) : null });
 });
 
+function affectedCount(result: unknown): number {
+  if (typeof result === 'number') return result;
+  if (Array.isArray(result)) {
+    for (let index = result.length - 1; index >= 0; index -= 1) {
+      const part = result[index];
+      if (typeof part === 'number') return part;
+      if (part && typeof part === 'object' && 'affectedRows' in part) {
+        return Number((part as { affectedRows: number }).affectedRows) || 0;
+      }
+    }
+  }
+  if (result && typeof result === 'object' && 'affectedRows' in result) {
+    return Number((result as { affectedRows: number }).affectedRows) || 0;
+  }
+  return 0;
+}
+
 router.post('/jobs/:id/cancel', async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ error: 'Job id is required' });
     return;
   }
-  await db().query(
+  const updated = await db().query(
     `UPDATE badge_jobs
      SET status = 'cancelled', phase = 'cancelled', finishedAt = NOW()
      WHERE id = :id AND status IN ('pending', 'running')`,
-    { replacements: { id } },
+    { replacements: { id }, type: QueryTypes.UPDATE },
   );
-  await db().query(
-    `UPDATE badge_jobs
-     SET status = 'cancelled', phase = 'cancelled', finishedAt = NOW()
-     WHERE status = 'pending' AND scope = 'all'`,
+  if (affectedCount(updated) > 0) {
+    res.json({ ok: true, status: 'cancelled' });
+    return;
+  }
+  const rows = await db().query<{ status: string }>(
+    'SELECT status FROM badge_jobs WHERE id = :id',
+    { replacements: { id }, type: QueryTypes.SELECT },
   );
-  res.json({ ok: true });
+  const status = rows[0]?.status;
+  if (!status) {
+    res.status(404).json({ error: 'Job not found' });
+    return;
+  }
+  if (status === 'cancelled') {
+    res.json({ ok: true, status: 'cancelled' });
+    return;
+  }
+  res.status(409).json({ error: 'That job has already finished', status });
 });
 
 router.get('/jobs/:id/timings.csv', async (req: Request, res: Response) => {
