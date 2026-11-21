@@ -54,6 +54,7 @@ import {CurationType, Curation, CurationSchedule, CurationRating, CurationRating
 import {LevelPack, LevelPackItem} from './packs/index.js';
 import {
   BadgeDefinition,
+  BadgeGroup,
   BadgeSet,
   PassBadgeSnapshot,
   BadgeState,
@@ -193,6 +194,7 @@ export const db = {
     LevelPack,
     LevelPackItem,
     BadgeDefinition,
+    BadgeGroup,
     BadgeSet,
     PassBadgeSnapshot,
     BadgeState,

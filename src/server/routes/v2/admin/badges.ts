@@ -2,8 +2,10 @@ import { Router, type Request, type Response } from 'express';
 import { QueryTypes } from 'sequelize';
 import { Auth } from '@/server/middleware/auth.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
+import { respondMysqlClientError } from '@/misc/utils/db/mysqlClientError.js';
 import {
   BadgeDefinition,
+  BadgeGroup,
   BadgeJob,
   BadgeReview,
   BadgeSet,
@@ -58,6 +60,78 @@ function rowFields(value: BadgeDraft) {
   };
 }
 
+const GROUP_NAME_MAX = 80;
+
+function parseGroupName(raw: unknown): { ok: true; value: string } | { ok: false; error: string } {
+  if (typeof raw !== 'string') return { ok: false, error: 'Group name is required' };
+  const name = raw.trim();
+  if (!name) return { ok: false, error: 'Group name is required' };
+  if (name.length > GROUP_NAME_MAX) return { ok: false, error: 'Group name is too long' };
+  return { ok: true, value: name };
+}
+
+function parsePositiveInt(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  return n;
+}
+
+function parseIdList(raw: unknown): number[] | null {
+  if (!Array.isArray(raw)) return null;
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  for (const item of raw) {
+    const id = parsePositiveInt(item);
+    if (id == null || seen.has(id)) return null;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+function parseSortOrders(raw: unknown): { id: number; sortOrder: number }[] | null {
+  if (!Array.isArray(raw)) return null;
+  const items: { id: number; sortOrder: number }[] = [];
+  const seen = new Set<number>();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') return null;
+    const src = item as { id?: unknown; sortOrder?: unknown };
+    const id = parsePositiveInt(src.id);
+    const sortOrder = Number(src.sortOrder);
+    if (id == null || !Number.isInteger(sortOrder) || seen.has(id)) return null;
+    seen.add(id);
+    items.push({ id, sortOrder });
+  }
+  return items;
+}
+
+type PlacementGroup = { id: number; badgeIds: number[] };
+
+function parsePlacements(body: unknown): { ok: true; groups: PlacementGroup[]; ungrouped: number[] } | { ok: false; error: string } {
+  const src = body && typeof body === 'object' ? (body as { groups?: unknown; ungrouped?: unknown }) : {};
+  if (!Array.isArray(src.groups)) return { ok: false, error: 'groups must be an array' };
+  const ungrouped = src.ungrouped === undefined ? [] : parseIdList(src.ungrouped);
+  if (!ungrouped) return { ok: false, error: 'ungrouped must be an array of badge ids' };
+  const groups: PlacementGroup[] = [];
+  const seenGroups = new Set<number>();
+  const seenBadges = new Set<number>(ungrouped);
+  for (const item of src.groups) {
+    if (!item || typeof item !== 'object') return { ok: false, error: 'Invalid group placement' };
+    const row = item as { id?: unknown; badgeIds?: unknown };
+    const id = parsePositiveInt(row.id);
+    const badgeIds = parseIdList(row.badgeIds);
+    if (id == null || seenGroups.has(id)) return { ok: false, error: 'Invalid group id' };
+    if (!badgeIds) return { ok: false, error: 'badgeIds must be an array of unique badge ids' };
+    for (const badgeId of badgeIds) {
+      if (seenBadges.has(badgeId)) return { ok: false, error: 'A badge can only belong to one group' };
+      seenBadges.add(badgeId);
+    }
+    seenGroups.add(id);
+    groups.push({ id, badgeIds });
+  }
+  return { ok: true, groups, ungrouped };
+}
+
 router.use(Auth.superAdmin());
 
 router.post('/formula', (req: Request, res: Response) => {
@@ -65,9 +139,173 @@ router.post('/formula', (req: Request, res: Response) => {
   res.json(parseValueExpr(text));
 });
 
+router.get('/groups', async (_req: Request, res: Response) => {
+  const groups = await BadgeGroup.findAll({ order: [['sortOrder', 'ASC'], ['name', 'ASC']] });
+  res.json({ groups });
+});
+
+router.post('/groups', async (req: Request, res: Response) => {
+  const parsed = parseGroupName(req.body?.name);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  try {
+    const existing = await BadgeGroup.findOne({ where: { name: parsed.value } });
+    if (existing) {
+      res.status(400).json({ error: 'A badge group with this name already exists' });
+      return;
+    }
+    const maxSort = await BadgeGroup.max('sortOrder');
+    const sortOrder = (typeof maxSort === 'number' ? maxSort : -1) + 1;
+    const group = await BadgeGroup.create({ name: parsed.value, sortOrder });
+    res.status(201).json({ group });
+  } catch (error) {
+    respondMysqlClientError(res, error, 'Failed to create badge group', {
+      uniqueMessage: 'A badge group with this name already exists',
+      logLabel: 'Create badge group failed:',
+    });
+  }
+});
+
+router.put('/groups/sort-orders', async (req: Request, res: Response) => {
+  const sortOrders = parseSortOrders(req.body?.sortOrders);
+  if (!sortOrders) {
+    res.status(400).json({ error: 'sortOrders must be an array of { id, sortOrder }' });
+    return;
+  }
+  try {
+    await db().transaction(async (transaction) => {
+      for (const item of sortOrders) {
+        const [affected] = await BadgeGroup.update(
+          { sortOrder: item.sortOrder },
+          { where: { id: item.id }, transaction },
+        );
+        if (affected === 0) {
+          throw Object.assign(new Error(`Badge group with ID ${item.id} not found`), { status: 400 });
+        }
+      }
+    });
+    const groups = await BadgeGroup.findAll({ order: [['sortOrder', 'ASC'], ['name', 'ASC']] });
+    res.json({ groups });
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status === 400) {
+      res.status(400).json({ error: (error as Error).message });
+      return;
+    }
+    respondMysqlClientError(res, error, 'Failed to update badge group sort orders', {
+      logLabel: 'Update badge group sort orders failed:',
+    });
+  }
+});
+
+router.put('/groups/:id([0-9]{1,20})', async (req: Request, res: Response) => {
+  const parsed = parseGroupName(req.body?.name);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  try {
+    const group = await BadgeGroup.findByPk(Number(req.params.id));
+    if (!group) {
+      res.status(404).json({ error: 'Badge group not found' });
+      return;
+    }
+    if (parsed.value !== group.name) {
+      const existing = await BadgeGroup.findOne({ where: { name: parsed.value } });
+      if (existing) {
+        res.status(400).json({ error: 'A badge group with this name already exists' });
+        return;
+      }
+    }
+    await group.update({ name: parsed.value });
+    res.json({ group });
+  } catch (error) {
+    respondMysqlClientError(res, error, 'Failed to update badge group', {
+      uniqueMessage: 'A badge group with this name already exists',
+      logLabel: 'Update badge group failed:',
+    });
+  }
+});
+
+router.delete('/groups/:id([0-9]{1,20})', async (req: Request, res: Response) => {
+  try {
+    const group = await BadgeGroup.findByPk(Number(req.params.id));
+    if (!group) {
+      res.status(404).json({ error: 'Badge group not found' });
+      return;
+    }
+    await group.destroy();
+    res.json({ ok: true });
+  } catch (error) {
+    respondMysqlClientError(res, error, 'Failed to delete badge group', {
+      logLabel: 'Delete badge group failed:',
+    });
+  }
+});
+
 router.get('/definitions', async (_req: Request, res: Response) => {
   const rows = await BadgeDefinition.findAll({ order: [['name', 'ASC']] });
   res.json({ definitions: rows });
+});
+
+router.put('/definitions/placements', async (req: Request, res: Response) => {
+  const parsed = parsePlacements(req.body);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  try {
+    await db().transaction(async (transaction) => {
+      const groups = await BadgeGroup.findAll({ attributes: ['id'], transaction });
+      const validGroups = new Set(groups.map((row) => row.id));
+      for (const group of parsed.groups) {
+        if (!validGroups.has(group.id)) {
+          throw Object.assign(new Error(`Badge group with ID ${group.id} not found`), { status: 400 });
+        }
+      }
+      const definitions = await BadgeDefinition.findAll({ attributes: ['id'], transaction });
+      const expected = new Set(definitions.map((row) => row.id));
+      const seen = new Set<number>();
+      const take = (id: number) => {
+        if (!expected.has(id) || seen.has(id)) {
+          throw Object.assign(new Error('Invalid badge id in placements'), { status: 400 });
+        }
+        seen.add(id);
+      };
+      for (const group of parsed.groups) {
+        for (const id of group.badgeIds) take(id);
+      }
+      for (const id of parsed.ungrouped) take(id);
+      if (seen.size !== expected.size) {
+        throw Object.assign(new Error('Every badge must appear in groups or ungrouped'), { status: 400 });
+      }
+      await Promise.all(
+        parsed.ungrouped.map((id, index) =>
+          BadgeDefinition.update({ groupId: null, sortOrder: index }, { where: { id }, transaction }),
+        ),
+      );
+      await Promise.all(
+        parsed.groups.flatMap((group) =>
+          group.badgeIds.map((id, index) =>
+            BadgeDefinition.update({ groupId: group.id, sortOrder: index }, { where: { id }, transaction }),
+          ),
+        ),
+      );
+    });
+    const rows = await BadgeDefinition.findAll({ order: [['name', 'ASC']] });
+    res.json({ definitions: rows });
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status === 400) {
+      res.status(400).json({ error: (error as Error).message });
+      return;
+    }
+    respondMysqlClientError(res, error, 'Failed to update badge placements', {
+      logLabel: 'Update badge placements failed:',
+    });
+  }
 });
 
 router.post('/definitions', async (req: Request, res: Response) => {

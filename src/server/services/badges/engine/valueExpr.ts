@@ -52,13 +52,74 @@ export function fn(call: (args: Value[]) => Value): Value {
   return { kind: 'fn', call };
 }
 
+const parsedExprCache = new Map<string, { ok: true; ast: Ast } | { ok: false; error: string }>();
+
 export function parseValueExpr(input: string | null | undefined): { ok: true; ast: Ast } | { ok: false; error: string } {
   const text = String(input ?? '').trim().replace(/^=\s*/, '').trim();
   if (!text) return { ok: false, error: 'Enter an expression' };
+  const cached = parsedExprCache.get(text);
+  if (cached) return cached;
+  let parsed: { ok: true; ast: Ast } | { ok: false; error: string };
   try {
-    return { ok: true, ast: new Parser(text).parse() };
+    parsed = { ok: true, ast: new Parser(text).parse() };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : 'Invalid expression' };
+    parsed = { ok: false, error: error instanceof Error ? error.message : 'Invalid expression' };
+  }
+  parsedExprCache.set(text, parsed);
+  return parsed;
+}
+
+export function valueExprNames(ast: Ast): Set<string> {
+  const names = new Set<string>();
+  collectNames(ast, names, new Set());
+  return names;
+}
+
+function collectNames(ast: Ast, names: Set<string>, bound: Set<string>): void {
+  switch (ast.k) {
+    case 'name':
+      if (!bound.has(ast.name)) names.add(ast.name);
+      return;
+    case 'array':
+      for (const item of ast.items) collectNames(item, names, bound);
+      return;
+    case 'arrow': {
+      const next = new Set(bound);
+      for (const param of ast.params) next.add(param);
+      collectNames(ast.body, names, next);
+      return;
+    }
+    case 'un':
+      collectNames(ast.a, names, bound);
+      return;
+    case 'bin':
+    case 'and':
+    case 'or':
+      collectNames(ast.a, names, bound);
+      collectNames(ast.b, names, bound);
+      return;
+    case 'if':
+      collectNames(ast.c, names, bound);
+      collectNames(ast.a, names, bound);
+      collectNames(ast.b, names, bound);
+      return;
+    case 'member':
+      collectNames(ast.a, names, bound);
+      return;
+    case 'index':
+      collectNames(ast.a, names, bound);
+      collectNames(ast.key, names, bound);
+      return;
+    case 'call':
+      collectNames(ast.callee, names, bound);
+      for (const arg of ast.args) collectNames(arg, names, bound);
+      return;
+    case 'method':
+      collectNames(ast.a, names, bound);
+      for (const arg of ast.args) collectNames(arg, names, bound);
+      return;
+    default:
+      return;
   }
 }
 

@@ -93,11 +93,45 @@ async function provingPasses(ids: number[]): Promise<ProvingClear[]> {
   }));
 }
 
+type DefinitionSqlRow = DefinitionRow & {
+  groupId: number | null;
+  sortOrder: number;
+  groupName: string | null;
+  groupSortOrder: number | null;
+};
+
+function placementFromRow(row: DefinitionSqlRow) {
+  return {
+    groupId: row.groupId == null ? null : Number(row.groupId) || null,
+    groupName: typeof row.groupName === 'string' ? row.groupName : null,
+    groupSortOrder: row.groupSortOrder == null ? null : Number(row.groupSortOrder),
+    sortOrder: Number(row.sortOrder) || 0,
+  };
+}
+
 export async function readOwnerBadges(audience: 'player' | 'creator', ownerId: number, canEquip: boolean) {
-  const definitions = (await select<DefinitionRow>(
-    'SELECT * FROM badge_definitions WHERE audience = :audience AND enabled = 1 ORDER BY name ASC',
+  const definitionRows = await select<DefinitionSqlRow>(
+    `SELECT
+      d.*,
+      g.name AS groupName,
+      g.sortOrder AS groupSortOrder
+    FROM badge_definitions d
+    LEFT JOIN badge_groups g ON g.id = d.groupId
+    WHERE d.audience = :audience AND d.enabled = 1
+    ORDER BY
+      CASE WHEN d.groupId IS NULL THEN 1 ELSE 0 END ASC,
+      g.sortOrder ASC,
+      g.name ASC,
+      d.sortOrder ASC,
+      d.name ASC`,
     { audience },
-  )).map(definitionFromRow).filter((row): row is NonNullable<typeof row> => row != null);
+  );
+  const definitions = definitionRows
+    .map((row) => {
+      const def = definitionFromRow(row);
+      return def ? { def, placement: placementFromRow(row) } : null;
+    })
+    .filter((row): row is { def: NonNullable<ReturnType<typeof definitionFromRow>>; placement: ReturnType<typeof placementFromRow> } => row != null);
   const states = await select<StateRow>(
     'SELECT * FROM badge_states WHERE ownerType = :audience AND ownerId = :ownerId',
     { audience, ownerId },
@@ -107,7 +141,7 @@ export async function readOwnerBadges(audience: 'player' | 'creator', ownerId: n
     { audience, ownerId },
   );
   const stateById = new Map(states.map((row) => [Number(row.definitionId), row]));
-  const confirmIds = new Set(definitions.filter((def) => def.confirm !== 'none' && def.id).map((def) => def.id as number));
+  const confirmIds = new Set(definitions.filter((row) => row.def.confirm !== 'none' && row.def.id).map((row) => row.def.id as number));
   const provingIds = [...new Set(
     states
       .filter((row) => confirmIds.has(Number(row.definitionId)))
@@ -115,7 +149,7 @@ export async function readOwnerBadges(audience: 'player' | 'creator', ownerId: n
   )];
   const passes = await provingPasses(provingIds);
   const badges: PublicBadge[] = [];
-  for (const def of definitions) {
+  for (const { def, placement } of definitions) {
     const row = def.id ? stateById.get(def.id) : undefined;
     const state = row
       ? {
@@ -134,6 +168,7 @@ export async function readOwnerBadges(audience: 'player' | 'creator', ownerId: n
       def,
       state,
       passes.filter((pass) => state?.provingPassIds.includes(pass.id)),
+      placement,
     );
     if (view) badges.push(view);
   }

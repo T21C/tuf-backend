@@ -63,7 +63,7 @@ function owner(partial: Partial<OwnerInput> = {}): OwnerInput {
   };
 }
 
-function valueBadge(expression: string) {
+function valueBadge(expression: string, extra: Record<string, unknown> = {}) {
   const normalized = normalizeDefinition({
     audience: 'player',
     slug: 'value-badge',
@@ -74,6 +74,7 @@ function valueBadge(expression: string) {
     backfill: 'now',
     curve: { start: 1, step: 1, round: 'none', direction: 'up' },
     params: { expression },
+    ...extra,
   });
   assert.equal(normalized.ok, true, normalized.ok ? '' : normalized.errors.join('; '));
   if (!normalized.ok) throw new Error('normalize failed');
@@ -100,6 +101,51 @@ test('a value expression can require 75% of one difficulty', () => {
   assert.equal(six.credit, 6);
   assert.equal(five.tier, 0);
   assert.equal(tooFew.tier, 0);
+});
+
+test('difficulty stats ignore other difficulties and reuse one chart index', () => {
+  const expression = 'result(difficulty("U6").total >= 8 && difficulty("U6").ratio >= 0.75 ? 1 : 0, difficulty("U6").cleared, 0, difficulty("U6").total)';
+  const def = valueBadge(expression);
+  const u6 = Array.from({ length: 8 }, (_, index) => chart(index + 1, 'U6'));
+  const other = Array.from({ length: 40 }, (_, index) => chart(100 + index, index % 2 ? 'G10' : 'U7'));
+  const result = evaluateBadge(def, owner({
+    charts: [...other, ...u6],
+    passes: u6.slice(0, 6).map((item) => pass({ id: item.id, levelId: item.id })),
+  }));
+  assert.equal(result.tier, 1);
+  assert.equal(result.credit, 6);
+  assert.equal(result.barTo, 8);
+});
+
+test('difficulty identities collapse chart subgroups', () => {
+  const expression = 'result(1, difficulty("U6").cleared, 0, difficulty("U6").total)';
+  const def = valueBadge(expression, { identity: 'chartSubgroup', grant: 'persistSnapshot' });
+  const result = evaluateBadge(def, owner({
+    charts: [chart(10, 'U6'), chart(11, 'U6'), chart(12, 'U6')],
+    links: {
+      10: { groupId: 1, chartSubgroup: 2, vfxSubgroup: null },
+      11: { groupId: 1, chartSubgroup: 2, vfxSubgroup: null },
+    },
+    passes: [pass({ id: 1, levelId: 10 })],
+  }));
+  assert.equal(result.credit, 1);
+  assert.equal(result.barTo, 2);
+  assert.deepEqual(result.snapshotIds?.slice().sort((a, b) => a - b), [10, 11, 12]);
+});
+
+test('frozen difficulty snapshots keep the original chart set', () => {
+  const expression = 'result(difficulty("U6").total >= 8 && difficulty("U6").ratio >= 0.75 ? 1 : 0, difficulty("U6").cleared, 0, difficulty("U6").total)';
+  const def = valueBadge(expression, { grant: 'persistSnapshot' });
+  const original = Array.from({ length: 8 }, (_, index) => chart(index + 1, 'U6'));
+  const later = [...original, chart(9, 'U6'), chart(10, 'U6')];
+  const result = evaluateBadge(def, owner({
+    charts: later,
+    passes: original.slice(0, 6).map((item) => pass({ id: item.id, levelId: item.id })),
+    frozenIds: original.map((item) => item.id),
+  }));
+  assert.equal(result.tier, 1);
+  assert.equal(result.credit, 6);
+  assert.equal(result.barTo, 8);
 });
 
 test('sequence and consecutive walk clears in upload order', () => {

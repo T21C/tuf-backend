@@ -1,7 +1,16 @@
 import { formatAccuracyRatio } from './accuracyText.js';
 import { formulaMatches, type FormulaContext } from './formula.js';
 import { barForCredit, shownRequirement, tierForCredit } from './curve.js';
-import { difficultyFamily, difficultyNumber, identityKey, type LinkInfo } from './identity.js';
+import {
+  cachedOwnerDifficultyCounts,
+  catalogDifficultyCoverage,
+  frozenDifficultyCount,
+  identitiesFromPasses,
+  lookupDifficultyCount,
+  ownerDifficultyCounts,
+  type OwnerDifficultyCounts,
+} from './difficultyCoverage.js';
+import { difficultyFamily, difficultyNumber, identityKey, type IdentityMode, type LinkInfo } from './identity.js';
 import {
   hasGamma,
   isAsymmetry,
@@ -13,7 +22,7 @@ import {
   type JudgementBuckets,
 } from './judgement.js';
 import type { BadgeDraft, BadgeParams, PatternMatch, SequenceParams } from './params.js';
-import { evalValueExpr, fn, isFn, parseValueExpr, row, valueAsNumber, type Value } from './valueExpr.js';
+import { evalValueExpr, fn, isFn, parseValueExpr, row, valueAsNumber, valueExprNames, type Value } from './valueExpr.js';
 import { BadgeJobCancelled, throwIfBadgeCancelled } from '../jobs/cancelSignal.js';
 
 export type PassFact = {
@@ -81,6 +90,7 @@ export type OwnerInput = {
   world: WorldPass[];
   frozenIds: number[] | null;
   since: string | null;
+  difficultyCounts?: OwnerDifficultyCounts;
 };
 
 export type EvalResult = {
@@ -116,7 +126,7 @@ function emptyResult(): EvalResult {
 }
 
 function chartOf(input: OwnerInput, levelId: number): ChartFact | undefined {
-  return input.charts.find((chart) => chart.id === levelId);
+  return indexCharts(input.charts, input.links).byId.get(levelId);
 }
 
 function linkOf(input: OwnerInput, levelId: number): LinkInfo | null {
@@ -579,21 +589,25 @@ function evaluateCoverage(def: BadgeDraft, input: OwnerInput): EvalResult {
 function evaluatePercent(def: BadgeDraft, input: OwnerInput): EvalResult {
   const result = emptyResult();
   const params = def.params;
-  const pool = input.charts.filter((chart) => {
-    if (params.difficultyName && chart.diffName !== params.difficultyName) return false;
-    if (params.family && difficultyFamily(chart.diffName) !== params.family.toUpperCase()) return false;
-    if (input.frozenIds && !input.frozenIds.includes(chart.id)) return false;
+  const index = indexCharts(input.charts, input.links);
+  const frozen = input.frozenIds ? new Set(input.frozenIds) : null;
+  const family = params.family ? params.family.toUpperCase() : null;
+  const named = params.difficultyName ? index.byDifficulty.get(params.difficultyName) ?? [] : input.charts;
+  const pool = named.filter((chart) => {
+    if (family && difficultyFamily(chart.diffName) !== family) return false;
+    if (frozen && !frozen.has(chart.id)) return false;
     return true;
   });
   const denomIds = pool.map((chart) => chart.id);
+  const denomSet = new Set(denomIds);
   const clearedLevels = new Set(
     eligiblePasses(def, input, false)
-      .filter((pass) => denomIds.includes(pass.levelId))
+      .filter((pass) => denomSet.has(pass.levelId))
       .map((pass) => pass.levelId),
   );
   const groups = new Map<string, number[]>();
   for (const chart of pool) {
-    const key = identityKey(def.identity, chart.id, linkOf(input, chart.id));
+    const key = chartIdentity(index, def.identity, chart.id);
     const ids = groups.get(key) ?? [];
     ids.push(chart.id);
     groups.set(key, ids);
@@ -1087,10 +1101,61 @@ function levelRecord(def: BadgeDraft, input: OwnerInput, chart: ChartFact): Valu
   });
 }
 
+type ChartIndex = {
+  byId: Map<number, ChartFact>;
+  byDifficulty: Map<string, ChartFact[]>;
+  links: Record<number, LinkInfo>;
+  identities: Map<IdentityMode, Map<number, string>>;
+};
+
+const chartIndexes = new WeakMap<ChartFact[], ChartIndex>();
+
 const worldIndexes = new WeakMap<WorldPass[], {
   byLevel: Map<number, WorldPass[]>;
   rivals: Map<number, Set<number>>;
 }>();
+
+function indexCharts(charts: ChartFact[], links: Record<number, LinkInfo>): ChartIndex {
+  const cached = chartIndexes.get(charts);
+  if (cached && cached.links === links) return cached;
+  const byId = new Map<number, ChartFact>();
+  const byDifficulty = new Map<string, ChartFact[]>();
+  for (const chart of charts) {
+    throwIfBadgeCancelled();
+    byId.set(chart.id, chart);
+    const list = byDifficulty.get(chart.diffName);
+    if (list) list.push(chart);
+    else byDifficulty.set(chart.diffName, [chart]);
+  }
+  const built: ChartIndex = { byId, byDifficulty, links, identities: new Map() };
+  chartIndexes.set(charts, built);
+  return built;
+}
+
+function chartIdentity(index: ChartIndex, mode: IdentityMode, levelId: number): string {
+  let map = index.identities.get(mode);
+  if (!map) {
+    map = new Map<number, string>();
+    for (const id of index.byId.keys()) {
+      throwIfBadgeCancelled();
+      map.set(id, identityKey(mode, id, index.links[id] ?? null));
+    }
+    index.identities.set(mode, map);
+  }
+  return map.get(levelId) ?? identityKey(mode, levelId, index.links[levelId] ?? null);
+}
+
+function cacheableOwnerIdentities(def: BadgeDraft, input: OwnerInput): boolean {
+  return !input.frozenIds
+    && def.grant !== 'manualLock'
+    && (def.backfill !== 'forward' || !input.since);
+}
+
+function ownerClearedIdentities(def: BadgeDraft, input: OwnerInput, passes?: PassFact[]): Set<string> {
+  const table = catalogDifficultyCoverage(input.charts, input.links, def.identity);
+  const source = cacheableOwnerIdentities(def, input) ? input.passes : (passes ?? scopedPasses(def, input));
+  return identitiesFromPasses(table, input.links, source);
+}
 
 function indexWorld(world: WorldPass[]) {
   const cached = worldIndexes.get(world);
@@ -1190,19 +1255,38 @@ function scopedPasses(def: BadgeDraft, input: OwnerInput): PassFact[] {
   ));
 }
 
-function valueScope(def: BadgeDraft, input: OwnerInput, captured?: Set<number>, matchedPasses?: Set<number>): Map<string, Value> {
-  const passes = scopedPasses(def, input);
-  const clears = passes.map((pass) => clearRecord(def, input, pass));
-  markFirstClears(clears);
-  const expression = def.params.expression || '';
-  const withLevels = def.reducer !== 'value' || /\b(levels|mine|difficulty|blocks|lead|prefix|complete)\b/.test(expression);
+function valueScope(
+  def: BadgeDraft,
+  input: OwnerInput,
+  names: Set<string>,
+  captured?: Set<number>,
+  matchedPasses?: Set<number>,
+  difficultyMemo?: Map<string, Value>,
+): Map<string, Value> {
+  const needClears = names.has('clears') || names.has('sequence') || names.has('consecutive') || names.has('gap') || names.has('prefix');
+  const needLevels = names.has('levels') || names.has('mine') || names.has('blocks') || names.has('lead') || names.has('complete');
+  const needMine = names.has('mine') || names.has('complete');
+  const needRatings = names.has('ratings');
+  const needDifficulty = names.has('difficulty');
+  const liveDifficulty = needDifficulty && cacheableOwnerIdentities(def, input);
+  const needScopedPasses = needClears
+    || (needMine && def.audience !== 'creator')
+    || (needDifficulty && !liveDifficulty);
+  const passes = needScopedPasses ? scopedPasses(def, input) : [];
+  const clears = needClears ? passes.map((pass) => clearRecord(def, input, pass)) : [];
+  if (needClears) markFirstClears(clears);
   const frozen = input.frozenIds ? new Set(input.frozenIds) : null;
-  const charts = !withLevels ? [] : frozen ? input.charts.filter((chart) => frozen.has(chart.id)) : input.charts;
+  const charts = !needLevels ? [] : frozen ? input.charts.filter((chart) => frozen.has(chart.id)) : input.charts;
   const levels = charts.map((chart) => levelRecord(def, input, chart));
-  const clearIds = new Set(clears.map((clear) => rowNum(clear, 'levelId')));
-  const mine = def.audience === 'creator'
-    ? levels.filter((level) => rowVal(level, 'ownerIsCharter') === true || rowVal(level, 'ownerIsVfxer') === true)
-    : levels.filter((level) => clearIds.has(rowNum(level, 'levelId')));
+  const clearedLevelIds = needMine && def.audience !== 'creator'
+    ? new Set(passes.map((pass) => pass.levelId))
+    : null;
+  const mine = !needMine
+    ? []
+    : def.audience === 'creator'
+      ? levels.filter((level) => rowVal(level, 'ownerIsCharter') === true || rowVal(level, 'ownerIsVfxer') === true)
+      : levels.filter((level) => clearedLevelIds?.has(rowNum(level, 'levelId') ?? -1));
+  const clearedIdentities = needDifficulty && !liveDifficulty ? ownerClearedIdentities(def, input, passes) : null;
   return new Map<string, Value>([
     ['clears', clears],
     ['levels', levels],
@@ -1263,7 +1347,14 @@ function valueScope(def: BadgeDraft, input: OwnerInput, captured?: Set<number>, 
     })],
     ['shared', fn(() => sharedCount(def, input))],
     ['inSet', fn((args) => inSet(input, args[0] ?? null, String(args[1] ?? '')))],
-    ['difficulty', fn((args) => difficultyValue(String(args[0] ?? ''), levels, clears, captured))],
+    ['difficulty', fn((args) => difficultyValue(
+      String(args[0] ?? ''),
+      def,
+      input,
+      clearedIdentities,
+      captured,
+      difficultyMemo,
+    ))],
     ['curve', fn((args) => curveResult(args[0] ?? null, args[1] ?? null, args[2] ?? null, 'up'))],
     ['curveDown', fn((args) => curveResult(args[0] ?? null, args[1] ?? null, args[2] ?? null, 'down'))],
     ['result', fn((args) => row({
@@ -1274,7 +1365,10 @@ function valueScope(def: BadgeDraft, input: OwnerInput, captured?: Set<number>, 
     }))],
     ['prefix', fn((args) => prefixCount(input, clears, String(args[0] ?? '')))],
     ['gap', fn(() => maxGapDays(clears))],
-    ['pack', fn(() => (input.packLevels[def.params.packId ?? 0] ?? []).filter((id) => input.charts.some((chart) => chart.id === id)))],
+    ['pack', fn(() => {
+      const byId = indexCharts(input.charts, input.links).byId;
+      return (input.packLevels[def.params.packId ?? 0] ?? []).filter((id) => byId.has(id));
+    })],
     ['maxGroup', fn((args) => maxGroup(rowsOf(args[0] ?? null), String(args[1] ?? ''), String(args[2] ?? '')))],
     ['complete', fn((args) => {
       const set = input.sets[String(args[0] ?? '')];
@@ -1286,7 +1380,9 @@ function valueScope(def: BadgeDraft, input: OwnerInput, captured?: Set<number>, 
       );
       return (set.values as (string | number)[]).every((value) => have.has(String(value))) ? 1 : 0;
     })],
-    ['ratings', input.ratings.map((rating) => row({ levelId: rating.levelId, week: isoWeek(rating.createdAt) }))],
+    ['ratings', needRatings
+      ? input.ratings.map((rating) => row({ levelId: rating.levelId, week: isoWeek(rating.createdAt) }))
+      : []],
   ]);
 }
 
@@ -1475,27 +1571,49 @@ function maxGroup(list: Value[], groupName: string, valueName: string): number {
   return best;
 }
 
-function difficultyValue(name: string, levels: Value[], clears: Value[], captured?: Set<number>): Value {
-  const matching = levels.filter((level) => rowVal(level, 'difficulty') === name);
-  if (captured) {
-    for (const level of matching) {
-      const id = rowNum(level, 'levelId');
-      if (id != null) captured.add(id);
-    }
+function difficultyValue(
+  name: string,
+  def: BadgeDraft,
+  input: OwnerInput,
+  clearedIdentities: Set<string> | null,
+  captured?: Set<number>,
+  memo?: Map<string, Value>,
+): Value {
+  const cached = memo?.get(name);
+  if (cached) return cached;
+  const table = catalogDifficultyCoverage(input.charts, input.links, def.identity);
+  let total = 0;
+  let cleared = 0;
+  let ratio: number | null = null;
+  let captureIds: number[] = [];
+  if (input.frozenIds) {
+    const sliced = frozenDifficultyCount(
+      table,
+      name,
+      new Set(input.frozenIds),
+      clearedIdentities ?? ownerClearedIdentities(def, input),
+    );
+    total = sliced.count.total;
+    cleared = sliced.count.cleared;
+    ratio = sliced.count.ratio;
+    captureIds = sliced.levelIds;
+  } else {
+    const counts = input.difficultyCounts?.[def.identity]
+      ?? (cacheableOwnerIdentities(def, input)
+        ? cachedOwnerDifficultyCounts(input.charts, input.links, def.identity, input.passes)
+        : ownerDifficultyCounts(table, clearedIdentities ?? ownerClearedIdentities(def, input)));
+    const count = lookupDifficultyCount(counts, name);
+    total = count.total;
+    cleared = count.cleared;
+    ratio = count.ratio;
+    captureIds = table.byName.get(name)?.levelIds ?? [];
   }
-  const identities = new Set(matching.map((level) => String(rowVal(level, 'identity') ?? '')));
-  const clearedIdentities = new Set(
-    clears
-      .filter((clear) => identities.has(String(rowVal(clear, 'identity') ?? '')))
-      .map((clear) => String(rowVal(clear, 'identity') ?? '')),
-  );
-  const total = identities.size;
-  const cleared = [...identities].filter((identity) => clearedIdentities.has(identity)).length;
-  return row({
-    total,
-    cleared,
-    ratio: total > 0 ? cleared / total : null,
-  });
+  if (captured) {
+    for (const id of captureIds) captured.add(id);
+  }
+  const value = row({ total, cleared, ratio });
+  memo?.set(name, value);
+  return value;
 }
 
 function evaluateValue(def: BadgeDraft, input: OwnerInput): EvalResult {
@@ -1505,7 +1623,9 @@ function evaluateValue(def: BadgeDraft, input: OwnerInput): EvalResult {
   try {
     const parsed = parseValueExpr(def.params.expression || '');
     if (!parsed.ok) return result;
-    const value = evalValueExpr(parsed.ast, valueScope(def, input, captured, matchedPasses));
+    const names = valueExprNames(parsed.ast);
+    const difficultyMemo = new Map<string, Value>();
+    const value = evalValueExpr(parsed.ast, valueScope(def, input, names, captured, matchedPasses, difficultyMemo));
     const provingPassIds = [...matchedPasses];
     const snapshotIds = def.grant === 'persistSnapshot' && captured.size > 0 ? [...captured] : null;
     if (value && typeof value === 'object' && !Array.isArray(value) && value.kind === 'row' && typeof value.fields.tier === 'number') {
