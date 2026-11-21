@@ -212,3 +212,75 @@ test('expressions cannot reach object internals', () => {
   }));
   assert.equal(result.tier, 0);
 });
+
+const ACC_FARMER = 'curve(maxCount(clears, "identity"), 10, 100000)';
+const GU_X100 = 'curve(maxCount(clears.filter(clear => clear.familyAt == "G" || clear.familyAt == "U"), "identity"), 100, 100000)';
+const OBSESSED = 'curve(maxGroup(clears, "songId", "identity"), 10, 100000)';
+
+test('maxCount is the most times one chart was cleared', () => {
+  const charts = [chart(1, 'G10'), chart(2, 'U1'), chart(3, 'P1')];
+  const passes = [
+    ...Array.from({ length: 12 }, (_, index) => pass({
+      id: index + 1,
+      levelId: 1,
+      difficultyAtName: 'G10',
+      difficultyNowName: 'P1',
+    })),
+    ...Array.from({ length: 4 }, (_, index) => pass({
+      id: 20 + index,
+      levelId: 2,
+      difficultyAtName: 'U1',
+      difficultyNowName: 'U1',
+    })),
+    ...Array.from({ length: 8 }, (_, index) => pass({
+      id: 40 + index,
+      levelId: 3,
+      difficultyAtName: 'P1',
+      difficultyNowName: 'P1',
+    })),
+  ];
+  const input = owner({ charts, passes });
+  const farmer = evaluateBadge(valueBadge(ACC_FARMER), input);
+  const gu = evaluateBadge(valueBadge(GU_X100), input);
+  assert.equal(farmer.credit, 12);
+  assert.equal(gu.credit, 12);
+  assert.deepEqual(gu.provingPassIds.slice().sort((a, b) => a - b), Array.from({ length: 12 }, (_, index) => index + 1));
+});
+
+test('maxGroup is the most distinct charts of one song', () => {
+  const charts = [
+    { ...chart(1, 'G1'), songId: 9 },
+    { ...chart(2, 'G1'), songId: 9 },
+    { ...chart(3, 'G1'), songId: 9 },
+    { ...chart(4, 'P1'), songId: 8 },
+    { ...chart(5, 'P1'), songId: 8 },
+  ];
+  const passes = [
+    pass({ id: 1, levelId: 1 }),
+    pass({ id: 2, levelId: 2 }),
+    pass({ id: 3, levelId: 3 }),
+    pass({ id: 4, levelId: 3 }),
+    pass({ id: 5, levelId: 4 }),
+    pass({ id: 6, levelId: 5 }),
+  ];
+  const result = evaluateBadge(valueBadge(OBSESSED), owner({ charts, passes }));
+  assert.equal(result.credit, 3);
+});
+
+test('reclear badges stay cheap with a thousand P-band clears', () => {
+  const charts = Array.from({ length: 200 }, (_, index) => chart(index + 1, 'P1'));
+  const passes = Array.from({ length: 1300 }, (_, index) => pass({
+    id: index + 1,
+    levelId: (index % 200) + 1,
+    difficultyAtName: 'P1',
+    difficultyNowName: 'P1',
+  }));
+  const input = owner({ charts, passes });
+  const started = Date.now();
+  const farmer = evaluateBadge(valueBadge(ACC_FARMER), input);
+  const gu = evaluateBadge(valueBadge(GU_X100), input);
+  const elapsed = Date.now() - started;
+  assert.equal(farmer.credit, 7);
+  assert.equal(gu.credit, 0);
+  assert.ok(elapsed < 500, `took ${elapsed}ms`);
+});

@@ -1331,6 +1331,7 @@ function valueScope(
     })],
     ['min', fn((args) => reduceNum(args, Math.min))],
     ['max', fn((args) => reduceNum(args, Math.max))],
+    ['maxCount', fn((args) => maxCount(rowsOf(args[0] ?? null), String(args[1] ?? ''), matchedPasses))],
     ['abs', fn((args) => Math.abs(valueAsNumber(args[0] ?? null) ?? 0))],
     ['floor', fn((args) => Math.floor(valueAsNumber(args[0] ?? null) ?? 0))],
     ['round', fn((args) => Math.round(valueAsNumber(args[0] ?? null) ?? 0))],
@@ -1551,6 +1552,27 @@ function maxGapDays(clears: Value[]): number {
     }
   }
   return best;
+}
+
+function maxCount(list: Value[], field: string, matchedPasses?: Set<number>): number {
+  const groups = new Map<string, Value[]>();
+  for (const item of list) {
+    const key = String(rowVal(item, field) ?? '');
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(item);
+    else groups.set(key, [item]);
+  }
+  let best: Value[] = [];
+  for (const bucket of groups.values()) {
+    if (bucket.length > best.length) best = bucket;
+  }
+  if (matchedPasses) {
+    for (const item of best) {
+      const id = rowNum(item, 'passId');
+      if (id != null) matchedPasses.add(id);
+    }
+  }
+  return best.length;
 }
 
 function maxGroup(list: Value[], groupName: string, valueName: string): number {
