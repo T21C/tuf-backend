@@ -1,7 +1,7 @@
 import type { Transaction } from 'sequelize';
 import LevelCurationHistory from '@/models/levels/LevelCurationHistory.js';
 import { curationTypeIdSetsEqual } from '@/misc/utils/data/curationTypeFamilies.js';
-import { signalBadgeJob } from '@/server/services/badges/index.js';
+import { signalBadgeDirt } from '@/server/services/badges/index.js';
 
 export function normalizeCurationTypeIds(ids: readonly unknown[] | null | undefined): number[] {
   if (!Array.isArray(ids)) return [];
@@ -37,5 +37,5 @@ export async function recordCurationTypeChange(args: {
     },
     { transaction: args.transaction },
   );
-  signalBadgeJob({ scope: 'chart', levelId: args.levelId }, args.transaction);
+  signalBadgeDirt({ catalog: true }, args.transaction);
 }

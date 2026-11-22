@@ -104,7 +104,7 @@ export async function registerAutoSubmission(input: RegistrationInput): Promise<
       createdAt: now,
       updatedAt: now,
     }, { transaction });
-    await updateWorldsFirstFlags(level.id, transaction);
+    await updateWorldsFirstFlags(level.id, transaction, user.playerId);
     await AutoSubmissionReceipt.create({
       runId: input.run_id,
       ownerId: input.owner_id,

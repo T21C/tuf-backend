@@ -19,8 +19,16 @@ import {
 } from '../engine/difficultyCoverage.js';
 import { applyGrant, type StoredBadge } from '../engine/grant.js';
 import { loadBadgeCatalog, type BadgeCatalog } from '../catalog/load.js';
+import {
+  defMatchesSlice,
+  needsGlobalWorld,
+  needsWorld,
+  packDefMatches,
+} from '../engine/interest.js';
+import { computeRollups, planValueSource, unionDemands } from '../engine/planExpr.js';
 import type { BadgeDraft } from '../engine/params.js';
 import { definitionFromRow, type DefinitionRow } from './definitions.js';
+import { parseDirt, type BadgeDirt } from './dirt.js';
 
 type JobRow = {
   id: number;
@@ -33,6 +41,13 @@ type JobRow = {
   replaceState: number;
   startFrom: number;
   processed: number;
+  dirt?: unknown;
+};
+
+type OwnerWork = {
+  audience: 'player' | 'creator';
+  id: number;
+  defs: BadgeDraft[];
 };
 
 function badgeDb() {
@@ -43,28 +58,29 @@ async function select<T>(sql: string, replacements?: Record<string, unknown>): P
   return badgeDb().query(sql, { replacements, type: QueryTypes.SELECT }) as Promise<T[]>;
 }
 
-function needsWorld(def: BadgeDraft): boolean {
-  return (
-    def.reducer === 'record' ||
-    def.reducer === 'nthClearer' ||
-    (def.reducer === 'pattern' && def.params.sharedAccuracy === true) ||
-    (def.reducer === 'manual' && def.params.pattern?.sharedAccuracy === true) ||
-    (def.reducer === 'value' && /\b(nth|lead|shared|first)\s*\(/.test(def.params.expression || ''))
-  );
-}
-
 async function loadDefinitions(job: JobRow): Promise<BadgeDraft[]> {
   const sql = job.definitionId
     ? 'SELECT * FROM badge_definitions WHERE id = :id'
     : 'SELECT * FROM badge_definitions WHERE enabled = 1';
   const rows = await select<DefinitionRow>(sql, { id: job.definitionId });
-  return rows.map(definitionFromRow).filter((row): row is BadgeDraft => row != null && row.enabled);
+  const defs = rows.map(definitionFromRow).filter((row): row is BadgeDraft => row != null && row.enabled);
+  if (job.scope === 'pack') {
+    return defs.filter((def) => packDefMatches(def, job.packId == null ? null : Number(job.packId)));
+  }
+  return defs;
 }
 
 async function playerIdsForLevel(levelId: number): Promise<number[]> {
+  return playerIdsForLevels([levelId]);
+}
+
+async function playerIdsForLevels(levelIds: number[]): Promise<number[]> {
+  const ids = [...new Set(levelIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+  if (!ids.length) return [];
   const rows = await select<{ playerId: number }>(
-    'SELECT DISTINCT playerId FROM passes WHERE levelId = :levelId',
-    { levelId },
+    `SELECT DISTINCT playerId FROM passes
+     WHERE levelId IN (:ids) AND IFNULL(isDeleted, 0) = 0 AND IFNULL(isHidden, 0) = 0`,
+    { ids },
   );
   return rows.map((row) => Number(row.playerId));
 }
@@ -361,17 +377,22 @@ async function flushReviewWrites(pending: { definitionId: number; passId: number
   }
 }
 
-async function ownersFor(job: JobRow, defs: BadgeDraft[], catalog: BadgeCatalog): Promise<{ audience: 'player' | 'creator'; id: number }[]> {
-  if (job.scope === 'player' && job.playerId) return [{ audience: 'player', id: Number(job.playerId) }];
-  if (job.scope === 'creator' && job.creatorId) return [{ audience: 'creator', id: Number(job.creatorId) }];
-  const out: { audience: 'player' | 'creator'; id: number }[] = [];
+async function ownersFor(job: JobRow, defs: BadgeDraft[], catalog: BadgeCatalog): Promise<OwnerWork[]> {
+  const withDefs = (audience: 'player' | 'creator', id: number): OwnerWork => ({
+    audience,
+    id,
+    defs: defs.filter((def) => def.audience === audience),
+  });
+  if (job.scope === 'player' && job.playerId) return [withDefs('player', Number(job.playerId))];
+  if (job.scope === 'creator' && job.creatorId) return [withDefs('creator', Number(job.creatorId))];
+  const out: OwnerWork[] = [];
   const wantPlayer = defs.some((def) => def.audience === 'player');
   const wantCreator = defs.some((def) => def.audience === 'creator');
   if (job.scope === 'chart' && job.levelId) {
     if (wantPlayer) {
       const ids = new Set(catalog.passes.filter((pass) => pass.levelId === Number(job.levelId)).map((pass) => pass.playerId));
       for (const id of await playerIdsForLevel(Number(job.levelId))) ids.add(id);
-      for (const id of ids) out.push({ audience: 'player', id });
+      for (const id of ids) out.push(withDefs('player', id));
     }
     if (wantCreator) {
       const ids = new Set<number>();
@@ -379,12 +400,12 @@ async function ownersFor(job: JobRow, defs: BadgeDraft[], catalog: BadgeCatalog)
       for (const id of chart?.charterIds ?? []) ids.add(id);
       for (const id of chart?.vfxerIds ?? []) ids.add(id);
       if (job.creatorId) ids.add(Number(job.creatorId));
-      for (const id of ids) out.push({ audience: 'creator', id });
+      for (const id of ids) out.push(withDefs('creator', id));
     }
     return out;
   }
   if (wantPlayer) {
-    for (const id of new Set(catalog.passes.map((pass) => pass.playerId))) out.push({ audience: 'player', id });
+    for (const id of new Set(catalog.passes.map((pass) => pass.playerId))) out.push(withDefs('player', id));
   }
   if (wantCreator) {
     const ids = new Set<number>();
@@ -392,9 +413,64 @@ async function ownersFor(job: JobRow, defs: BadgeDraft[], catalog: BadgeCatalog)
       for (const id of chart.charterIds) ids.add(id);
       for (const id of chart.vfxerIds) ids.add(id);
     }
-    for (const id of ids) out.push({ audience: 'creator', id });
+    for (const id of ids) out.push(withDefs('creator', id));
   }
   return out;
+}
+
+function uniquePositive(ids: number[]): number[] {
+  return [...new Set(ids.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+}
+
+async function ownersForDirty(dirt: BadgeDirt, definitions: BadgeDraft[], catalog: BadgeCatalog): Promise<OwnerWork[]> {
+  const hotPlayerDefs = definitions.filter((def) => defMatchesSlice(def, 'hotPlayer'));
+  const hotCreatorDefs = definitions.filter((def) => defMatchesSlice(def, 'hotCreator'));
+  const worldDefs = definitions.filter((def) => defMatchesSlice(def, 'chartWorld'));
+  const catalogDefs = definitions.filter((def) => defMatchesSlice(def, 'catalog'));
+  const packDefs = definitions.filter((def) => {
+    if (!defMatchesSlice(def, 'pack')) return false;
+    if (!dirt.packs.length) return true;
+    return dirt.packs.some((packId) => packDefMatches(def, packId));
+  });
+  const owners: OwnerWork[] = [];
+  for (const id of dirt.players) {
+    const defs = hotPlayerDefs.filter((def) => def.audience === 'player');
+    if (defs.length) owners.push({ audience: 'player', id, defs });
+  }
+  for (const id of dirt.creators) {
+    if (hotCreatorDefs.length) owners.push({ audience: 'creator', id, defs: hotCreatorDefs });
+  }
+  if (dirt.levels.length && worldDefs.length) {
+    const playerIds = new Set(await playerIdsForLevels(dirt.levels));
+    for (const pass of catalog.passes) {
+      if (dirt.levels.includes(pass.levelId)) playerIds.add(pass.playerId);
+    }
+    const playerWorldDefs = worldDefs.filter((def) => def.audience === 'player');
+    for (const id of playerIds) {
+      if (playerWorldDefs.length) owners.push({ audience: 'player', id, defs: playerWorldDefs });
+    }
+    const creatorWorldDefs = worldDefs.filter((def) => def.audience === 'creator');
+    if (creatorWorldDefs.length) {
+      const creatorIds = new Set<number>();
+      for (const levelId of dirt.levels) {
+        const chart = catalog.charts.find((item) => item.id === levelId);
+        for (const id of chart?.charterIds ?? []) creatorIds.add(id);
+        for (const id of chart?.vfxerIds ?? []) creatorIds.add(id);
+      }
+      for (const id of creatorIds) owners.push({ audience: 'creator', id, defs: creatorWorldDefs });
+    }
+  }
+  if (dirt.packs.length && packDefs.length) {
+    for (const owner of await ownersFor({ scope: 'all' } as JobRow, packDefs, catalog)) {
+      if (owner.defs.length) owners.push(owner);
+    }
+  }
+  if (dirt.catalog && catalogDefs.length) {
+    for (const owner of await ownersFor({ scope: 'all' } as JobRow, catalogDefs, catalog)) {
+      if (owner.defs.length) owners.push(owner);
+    }
+  }
+  return owners.filter((owner) => owner.defs.length > 0);
 }
 
 async function ownerNames(): Promise<{ players: Map<number, string>; creators: Map<number, string> }> {
@@ -431,15 +507,23 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
     definitionProgress: {},
   });
   await stopIfCancelled(Number(job.id));
-  const definitions = (await loadDefinitions(job)).filter((def) => {
-    if (job.scope === 'pack' && !(def.reducer === 'pack' || (def.reducer === 'value' && def.params.packId))) return false;
-    if (job.scope === 'pack' && job.packId && def.params.packId !== Number(job.packId)) return false;
-    return true;
-  });
+  const loaded = await loadDefinitions(job);
+  const dirt = job.scope === 'dirty' ? parseDirt(job.dirt) : null;
+  const definitions = loaded;
   await stopIfCancelled(Number(job.id));
+  const catalogNeedWorld = dirt
+    ? dirt.levels.length > 0 && definitions.some(needsWorld)
+    : definitions.some(needsWorld);
+  const globalWorld = Boolean(dirt?.levels.length) && definitions.some(needsGlobalWorld);
+  const needAllPlayers = Boolean(dirt && (dirt.catalog || dirt.packs.length > 0 || (catalogNeedWorld && globalWorld)));
+  const warmPlayers = dirt?.levels.length ? await playerIdsForLevels(dirt.levels) : [];
+  const scopedPlayerIds = uniquePositive([...(dirt?.players ?? []), ...warmPlayers]);
   const catalog = await loadBadgeCatalog({
-    playerIds: job.scope === 'player' && job.playerId ? [Number(job.playerId)] : undefined,
-    needWorld: definitions.some(needsWorld),
+    playerIds: dirt
+      ? (needAllPlayers ? undefined : (scopedPlayerIds.length ? scopedPlayerIds : [0]))
+      : (job.scope === 'player' && job.playerId ? [Number(job.playerId)] : undefined),
+    needWorld: catalogNeedWorld,
+    worldLevelIds: dirt && catalogNeedWorld && !globalWorld ? dirt.levels : undefined,
   });
   const playerDifficultyModes = identityModesForDifficultyBadges(
     definitions.filter((def) => def.audience === 'player'),
@@ -457,9 +541,13 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
     if (list) list.push(pass);
     else passesByPlayer.set(pass.playerId, [pass]);
   }
-  const owners = await ownersFor(job, definitions, catalog);
+  const owners = dirt
+    ? await ownersForDirty(dirt, definitions, catalog)
+    : await ownersFor(job, definitions, catalog);
   const names = await ownerNames();
-  const definitionIds = definitions.map((def) => def.id).filter((id): id is number => Number.isInteger(id));
+  const definitionIds = [...new Set(
+    owners.flatMap((owner) => owner.defs.map((def) => def.id)).filter((id): id is number => Number.isInteger(id)),
+  )];
   const states = job.replaceState ? new Map<string, StoredBadge>() : await loadStates(definitionIds);
   const reviewKeys = new Set(catalog.reviews.map((review) => `${review.definitionId}:${review.passId}`));
   const pendingStates: PendingStateWrite[] = [];
@@ -547,7 +635,7 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
   try {
     for (let ownerIndex = skip; ownerIndex < owners.length; ownerIndex += 1) {
       const owner = owners[ownerIndex];
-      const audienceDefs = definitions.filter((def) => def.audience === owner.audience);
+      const audienceDefs = owner.defs.length ? owner.defs : definitions.filter((def) => def.audience === owner.audience);
       badgeTotal = audienceDefs.length;
       badgeCursor = 0;
       await stopIfCancelled(Number(job.id));
@@ -561,6 +649,18 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
         passes,
         owner.audience === 'creator' ? creatorDifficultyModes : playerDifficultyModes,
       );
+      const rollups = computeRollups(
+        {
+          passes,
+          charts: catalog.charts,
+          links: catalog.links,
+          ownerId: owner.id,
+          difficultyCounts,
+        },
+        unionDemands(audienceDefs.map((def) => (
+          def.reducer === 'value' ? planValueSource(def.params.expression || '', def.identity) : null
+        ))),
+      );
       const inputBase: Omit<OwnerInput, 'frozenIds' | 'since'> = {
         ownerId: owner.id,
         userId,
@@ -573,6 +673,7 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
         ratings: userId ? catalog.ratingsByUser[userId] ?? [] : [],
         world: catalog.world,
         difficultyCounts,
+        rollups,
       };
       for (let index = 0; index < audienceDefs.length; index += 1) {
         const def = audienceDefs[index];
@@ -638,7 +739,7 @@ let lockConn: Connection | null = null;
 let haveLock = false;
 let lockWarned = false;
 
-const JOB_COLUMNS = 'id, scope, definitionId, playerId, creatorId, levelId, packId, replaceState, startFrom, processed';
+const JOB_COLUMNS = 'id, scope, definitionId, playerId, creatorId, levelId, packId, replaceState, startFrom, processed, dirt';
 
 function workerLockName(): string {
   const database = (process.env.DB_DATABASE || 'tuf').replace(/[^A-Za-z0-9_]/g, '');
@@ -703,7 +804,21 @@ async function claimNextJob(): Promise<{ job: JobRow; resumed: boolean } | null>
     if (runningJobs[0]) return { job: runningJobs[0], resumed: true };
     const pending = await badgeDb().query<JobRow>(
       `SELECT ${JOB_COLUMNS}
-       FROM badge_jobs WHERE status = 'pending' ORDER BY id ASC LIMIT 1 FOR UPDATE`,
+       FROM badge_jobs WHERE status = 'pending'
+       ORDER BY
+         CASE
+           WHEN scope = 'dirty' AND (
+             JSON_LENGTH(IFNULL(JSON_EXTRACT(dirt, '$.players'), JSON_ARRAY())) > 0
+             OR JSON_LENGTH(IFNULL(JSON_EXTRACT(dirt, '$.creators'), JSON_ARRAY())) > 0
+           ) THEN 0
+           WHEN scope = 'dirty' AND JSON_LENGTH(IFNULL(JSON_EXTRACT(dirt, '$.levels'), JSON_ARRAY())) > 0 THEN 1
+           WHEN scope = 'dirty' THEN 2
+           WHEN scope = 'definition' THEN 3
+           WHEN scope = 'all' THEN 4
+           ELSE 5
+         END,
+         id ASC
+       LIMIT 1 FOR UPDATE`,
       { transaction, type: QueryTypes.SELECT },
     );
     const job = pending[0];

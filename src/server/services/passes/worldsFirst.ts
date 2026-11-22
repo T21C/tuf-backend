@@ -1,5 +1,5 @@
 import Pass from '@/models/passes/Pass.js';
-import { logBadgeFailure, signalBadgeJob, snapshotMissingPasses } from '@/server/services/badges/index.js';
+import { logBadgeFailure, signalBadgeDirt, snapshotMissingPasses } from '@/server/services/badges/index.js';
 
 /** Only 1.0x clears qualify for world's first and world's first PP. */
 const WORLDS_FIRST_SPEED = 1;
@@ -15,7 +15,7 @@ export async function updateWorldsFirstStatus(
       isDeleted: false,
       speed: WORLDS_FIRST_SPEED,
     },
-    attributes: ['id', 'vidUploadTime'],
+    attributes: ['id', 'playerId', 'vidUploadTime'],
     order: [['vidUploadTime', 'ASC']],
     transaction,
   });
@@ -46,6 +46,7 @@ export async function updateWorldsFirstStatus(
 export async function updateWorldsFirstPPStatus(
   levelId: number,
   transaction?: any,
+  playerId?: number,
 ): Promise<Pass | null> {
   const earliestPP = await Pass.findOne({
     where: {
@@ -54,7 +55,7 @@ export async function updateWorldsFirstPPStatus(
       accuracy: 1,
       speed: WORLDS_FIRST_SPEED,
     },
-    attributes: ['id', 'vidUploadTime'],
+    attributes: ['id', 'playerId', 'vidUploadTime'],
     order: [['vidUploadTime', 'ASC']],
     transaction,
   });
@@ -75,26 +76,35 @@ export async function updateWorldsFirstPPStatus(
         transaction,
       },
     );
-    await touchBadgeLevel(levelId, transaction);
+    await touchBadgeLevel(levelId, transaction, [playerId, Number(earliestPP.playerId)]);
     return earliestPP;
   }
-  await touchBadgeLevel(levelId, transaction);
+  await touchBadgeLevel(levelId, transaction, [playerId]);
   return null;
 }
 
-async function touchBadgeLevel(levelId: number, transaction?: any): Promise<void> {
+async function touchBadgeLevel(levelId: number, transaction?: any, playerIds: Array<number | null | undefined> = []): Promise<void> {
   try {
     await snapshotMissingPasses(levelId, transaction);
   } catch (error) {
     logBadgeFailure('snapshot', error);
   }
-  signalBadgeJob({ scope: 'chart', levelId }, transaction);
+  signalBadgeDirt({
+    levels: [levelId],
+    players: playerIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0),
+  }, transaction);
 }
 
 export async function updateWorldsFirstFlags(
   levelId: number,
   transaction?: any,
+  playerId?: number,
 ): Promise<void> {
-  await updateWorldsFirstStatus(levelId, transaction);
-  await updateWorldsFirstPPStatus(levelId, transaction);
+  const earliest = await updateWorldsFirstStatus(levelId, transaction);
+  const fromWorldsFirst = Number(earliest?.playerId);
+  await updateWorldsFirstPPStatus(
+    levelId,
+    transaction,
+    playerId ?? (Number.isInteger(fromWorldsFirst) && fromWorldsFirst > 0 ? fromWorldsFirst : undefined),
+  );
 }

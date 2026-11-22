@@ -721,7 +721,7 @@ async function approvePassSubmission(
   if (!judgementRecord) throw new Error(`Failed to create judgement record for pass #${pass.id}`);
 
   await submission.update({ status: 'approved', passId: pass.id }, { transaction });
-  await updateWorldsFirstFlags(submission.levelId, transaction);
+  await updateWorldsFirstFlags(submission.levelId, transaction, Number(submission.assignedPlayerId) || undefined);
 
   const newPass = await Pass.findByPk(pass.id, {
     include: [
