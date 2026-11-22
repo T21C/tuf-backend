@@ -54,7 +54,7 @@ function addValueInterests(def: BadgeDraft, tags: Set<BadgeInterest>): void {
   if ([...WORLD_VALUE_NAMES].some((name) => names.has(name))) {
     tags.add('chartWorld');
   }
-  if (names.has('difficulty') || names.has('prefix')) tags.add('catalog');
+  if (names.has('difficulty') || names.has('prefix') || names.has('chase')) tags.add('catalog');
   if (names.has('pack') || names.has('complete')) tags.add('pack');
   if (names.has('mine')) tags.add('creator');
   if (
@@ -66,6 +66,7 @@ function addValueInterests(def: BadgeDraft, tags: Set<BadgeInterest>): void {
     || names.has('maxCount')
     || names.has('maxGroup')
     || names.has('blocks')
+    || names.has('chase')
     || names.has('levels')
   ) {
     tags.add('ownerPass');

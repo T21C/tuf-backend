@@ -234,6 +234,14 @@ async function loadEtaSamples(jobId: number): Promise<EtaSample[]> {
   return readEtaSamples(rows[0]?.etaSamples);
 }
 
+const OWNER_NAME_MAX = 80;
+
+function clipOwnerName(name: string | null | undefined): string | null {
+  if (name == null) return null;
+  const clipped = String(name).trim().slice(0, OWNER_NAME_MAX);
+  return clipped || null;
+}
+
 async function writeJobProgress(jobId: number, progress: {
   processed: number;
   total: number;
@@ -278,7 +286,7 @@ async function writeJobProgress(jobId: number, progress: {
         badgeTotal: progress.badgeTotal,
         currentDefinitionId: progress.currentDefinitionId,
         currentOwnerId: progress.currentOwnerId,
-        currentOwnerName: progress.currentOwnerName,
+        currentOwnerName: clipOwnerName(progress.currentOwnerName),
         etaMs: progress.etaMs,
         etaSamples: JSON.stringify(progress.etaSamples),
         definitionProgress: JSON.stringify(progress.definitionProgress),

@@ -6,6 +6,7 @@ import {
   ownerDifficultyCounts,
   type OwnerDifficultyCounts,
 } from './difficultyCoverage.js';
+import { chaseProgress, type ChaseProgress } from './chase.js';
 import { difficultyFamily, identityKey, type IdentityMode, type LinkInfo } from './identity.js';
 import {
   isAsymmetry,
@@ -30,13 +31,14 @@ export type RowPred =
 
 export type RollupDemand =
   | { kind: 'coverage'; key: string; label: string; identityMode: IdentityMode }
+  | { kind: 'chase'; key: string; exclude: string[] }
   | { kind: 'count'; key: string; pred: RowPred; distinct?: string; identityMode: IdentityMode }
   | { kind: 'maxCount'; key: string; pred: RowPred; field: string; identityMode: IdentityMode }
   | { kind: 'maxGroup'; key: string; pred: RowPred; group: string; value: string; identityMode: IdentityMode };
 
 export type PlanNode =
   | { type: 'lit'; value: number | string | boolean | null }
-  | { type: 'slot'; key: string; as: 'number' | 'coverage' }
+  | { type: 'slot'; key: string; as: 'number' | 'coverage' | 'chase' }
   | { type: 'member'; a: PlanNode; name: string }
   | { type: 'un'; op: '!' | '-'; a: PlanNode }
   | { type: 'bin'; op: string; a: PlanNode; b: PlanNode }
@@ -57,6 +59,7 @@ export type ValuePlan = {
 export type RollupSlot = {
   n: number;
   coverage?: { total: number; cleared: number; ratio: number | null; levelIds: number[] };
+  chase?: ChaseProgress;
   provingPassIds?: number[];
 };
 
@@ -248,6 +251,12 @@ function maxGroupDemand(pred: RowPred, group: string, value: string, identityMod
   return { kind: 'maxGroup', key, pred, group, value, identityMode };
 }
 
+function chaseDemand(exclude: string[]): RollupDemand {
+  const names = [...new Set(exclude.filter((name) => name.length > 0))].sort((left, right) => left.localeCompare(right));
+  const key = demandKey({ kind: 'chase', exclude: names });
+  return { kind: 'chase', key, exclude: names };
+}
+
 function asFieldEq(ast: Ast, innerParam: string, outerParam: string): string | null {
   if (ast.k !== 'bin' || (ast.op !== '==' && ast.op !== '===')) return null;
   const left = fieldOf(ast.a, innerParam);
@@ -369,6 +378,10 @@ function lower(ast: Ast, identityMode: IdentityMode): Lowered {
   if (call?.name === 'difficulty' && call.args.length === 1 && call.args[0].k === 'str') {
     const demand = coverageDemand(call.args[0].v, identityMode);
     return { node: { type: 'slot', key: demand.key, as: 'coverage' }, demands: [demand] };
+  }
+  if (call?.name === 'chase' && call.args.every((arg) => arg.k === 'str')) {
+    const demand = chaseDemand(call.args.map((arg) => arg.k === 'str' ? arg.v : ''));
+    return { node: { type: 'slot', key: demand.key, as: 'chase' }, demands: [demand] };
   }
   if (call?.name === 'count' && call.args.length === 1) {
     const clears = asClears(call.args[0]);
@@ -575,6 +588,7 @@ export function unionDemands(plans: Array<ValuePlan | null | undefined>): Rollup
 export function planSummary(plan: ValuePlan): { pure: boolean; ops: string[] } {
   const ops = plan.demands.map((demand) => {
     if (demand.kind === 'coverage') return `coverage(${JSON.stringify(demand.label)})`;
+    if (demand.kind === 'chase') return `chase(${demand.exclude.map((name) => JSON.stringify(name)).join(',')})`;
     if (demand.kind === 'count') return demand.distinct ? `count(distinct ${demand.distinct})` : 'count';
     if (demand.kind === 'maxCount') return `maxCount(${demand.field})`;
     return `maxGroup(${demand.group},${demand.value})`;
@@ -674,7 +688,8 @@ function matchPred(pred: RowPred, pass: PassFact, ctx: RollupContext, mode: Iden
 export function computeRollups(ctx: RollupContext, demands: RollupDemand[]): RollupSlots {
   const slots: RollupSlots = new Map();
   const coverage = demands.filter((demand): demand is Extract<RollupDemand, { kind: 'coverage' }> => demand.kind === 'coverage');
-  const walks = demands.filter((demand): demand is Exclude<RollupDemand, { kind: 'coverage' }> => demand.kind !== 'coverage');
+  const chases = demands.filter((demand): demand is Extract<RollupDemand, { kind: 'chase' }> => demand.kind === 'chase');
+  const walks = demands.filter((demand): demand is Exclude<RollupDemand, { kind: 'coverage' | 'chase' }> => demand.kind !== 'coverage' && demand.kind !== 'chase');
   for (const demand of coverage) {
     const table = catalogDifficultyCoverage(ctx.charts, ctx.links, demand.identityMode);
     const counts = ctx.difficultyCounts?.[demand.identityMode]
@@ -689,6 +704,13 @@ export function computeRollups(ctx: RollupContext, demands: RollupDemand[]): Rol
         levelIds: table.byName.get(demand.label)?.levelIds ?? [],
       },
     });
+  }
+  if (chases.length) {
+    const clearedIds = ctx.passes.map((pass) => pass.levelId);
+    for (const demand of chases) {
+      const progress = chaseProgress(ctx.charts, clearedIds, demand.exclude);
+      slots.set(demand.key, { n: progress.credit, chase: progress });
+    }
   }
   if (!walks.length) return slots;
 

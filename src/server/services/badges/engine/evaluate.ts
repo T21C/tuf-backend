@@ -30,6 +30,7 @@ import {
   type PlanNode,
   type RollupSlots,
 } from './planExpr.js';
+import { chaseProgress } from './chase.js';
 import { BadgeJobCancelled, throwIfBadgeCancelled } from '../jobs/cancelSignal.js';
 
 export type PassFact = {
@@ -1347,6 +1348,16 @@ function valueScope(
     ['sequence', fn((args) => matchSequence(clears, numberList(args[0] ?? null), false, args[1]))],
     ['consecutive', fn((args) => matchSequence(clears, numberList(args[0] ?? null), true, args[1]))],
     ['blocks', fn((args) => blockCount(Number(args[0] ?? 0), args.slice(1).map((item) => String(item ?? '')), levels, clears))],
+    ['chase', fn((args) => {
+      const frozen = input.frozenIds ? new Set(input.frozenIds) : null;
+      const progress = chaseProgress(
+        input.charts,
+        scopedPasses(def, input).map((pass) => pass.levelId),
+        args.map((arg) => String(arg ?? '')),
+        frozen,
+      );
+      return row(progress);
+    })],
     ['nth', fn((args) => nthCount(def, input, Number(args[0] ?? 0)))],
     ['lead', fn((args) => leadValue(input, args[0] ?? null, String(args[1] ?? 'accuracy')))],
     ['first', fn((args) => {
@@ -1684,6 +1695,15 @@ function evalPlanNode(node: PlanNode, slots: RollupSlots): Value {
           total: coverage?.total ?? 0,
           cleared: coverage?.cleared ?? 0,
           ratio: coverage?.ratio ?? null,
+        });
+      }
+      if (node.as === 'chase') {
+        const chase = slot?.chase;
+        return row({
+          tier: chase?.tier ?? 0,
+          credit: chase?.credit ?? 0,
+          from: chase?.from ?? 0,
+          to: chase?.to ?? 1,
         });
       }
       return slot?.n ?? 0;

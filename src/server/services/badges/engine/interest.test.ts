@@ -59,6 +59,12 @@ test('creator mine tags creator', () => {
   }), 'hotCreator'), true);
 });
 
+test('chase tags catalog and ownerPass', () => {
+  const tags = badgeInterests(def({ params: { expression: 'chase("Impossible", "Censored")' } }));
+  assert.equal(tags.has('catalog'), true);
+  assert.equal(tags.has('ownerPass'), true);
+});
+
 test('mixed expressions take the union', () => {
   const tags = badgeInterests(def({
     params: { expression: 'curve(count(clears) + nth(1) + difficulty("G1").cleared, 1, 1)' },

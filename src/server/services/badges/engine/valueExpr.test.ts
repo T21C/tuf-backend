@@ -167,6 +167,34 @@ test('sequence and consecutive walk clears in upload order', () => {
   assert.equal(strict.tier, 0);
 });
 
+const RELIC_NESTED = 'result(min(levels.filter(level => level.difficulty != "Impossible" && level.difficulty != "Censored").map(level => level.levelId)) != null && clears.some(clear => clear.levelId == min(levels.filter(level => level.difficulty != "Impossible" && level.difficulty != "Censored").map(level => level.levelId))) ? 1 : 0, min(levels.filter(level => level.difficulty != "Impossible" && level.difficulty != "Censored" && !clears.some(clear => clear.levelId == level.levelId)).map(level => level.levelId)), 0, 1)';
+const RELIC_CHEAP = 'chase("Impossible", "Censored")';
+
+test('chase matches the nested relic hunter script without building levels', () => {
+  const charts = [
+    chart(4, 'P1'),
+    chart(9, 'Impossible'),
+    chart(12, 'G1'),
+    chart(2, 'Censored'),
+  ];
+  const uncleared = owner({ charts, passes: [] });
+  const firstCleared = owner({ charts, passes: [pass({ id: 1, levelId: 4 })] });
+  const nested = valueBadge(RELIC_NESTED);
+  const cheap = valueBadge(RELIC_CHEAP);
+  const nestedPlan = planValueSource(RELIC_CHEAP);
+  assert.equal(nestedPlan?.pure, true);
+  assert.equal(nestedPlan?.needClears, false);
+  assert.equal(evaluateBadge(nested, uncleared).tier, 0);
+  assert.equal(evaluateBadge(cheap, uncleared).tier, 0);
+  assert.equal(evaluateBadge(nested, uncleared).credit, 4);
+  assert.equal(evaluateBadge(cheap, uncleared).credit, 4);
+  assert.equal(evaluateBadge(nested, firstCleared).tier, 1);
+  assert.equal(evaluateBadge(cheap, firstCleared).tier, 1);
+  assert.equal(evaluateBadge(nested, firstCleared).credit, 12);
+  assert.equal(evaluateBadge(cheap, firstCleared).credit, 12);
+  assert.equal(evaluateBadge(cheap, firstCleared).barTo, 1);
+});
+
 test('placeholder sheets do not satisfy judgement expressions', () => {
   const def = valueBadge('count(clears.filter(clear => clear.purePerfect == true))');
   const result = evaluateBadge(def, owner({
