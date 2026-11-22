@@ -14,7 +14,7 @@ export type Value =
   | { kind: 'row'; fields: Record<string, Value> }
   | { kind: 'fn'; call: (args: Value[]) => Value };
 
-type Ast =
+export type Ast =
   | { k: 'num'; v: number }
   | { k: 'str'; v: string }
   | { k: 'bool'; v: boolean }

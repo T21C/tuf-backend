@@ -12,6 +12,7 @@ import {
 } from '@/models/badges/index.js';
 import { enqueueBadgeJob, normalizeDefinition, type BadgeDraft } from '@/server/services/badges/index.js';
 import { parseValueExpr } from '@/server/services/badges/engine/valueExpr.js';
+import { planValueExpr, planSummary } from '@/server/services/badges/engine/planExpr.js';
 import { parseBadgeConfig, validateBadgeConfig } from '@/server/services/badges/engine/importConfig.js';
 
 const router = Router();
@@ -136,7 +137,25 @@ router.use(Auth.superAdmin());
 
 router.post('/formula', (req: Request, res: Response) => {
   const text = typeof req.body?.expression === 'string' ? req.body.expression : '';
-  res.json(parseValueExpr(text));
+  const parsed = parseValueExpr(text);
+  if (!parsed.ok) {
+    res.json(parsed);
+    return;
+  }
+  const plan = planValueExpr(parsed.ast, { source: text });
+  res.json({
+    ok: true,
+    ast: parsed.ast,
+    plan: {
+      ...planSummary(plan),
+      demands: plan.demands.map((demand) => ({
+        kind: demand.kind,
+        key: demand.key,
+        ...('label' in demand ? { label: demand.label } : {}),
+        ...('field' in demand ? { field: demand.field } : {}),
+      })),
+    },
+  });
 });
 
 router.get('/groups', async (_req: Request, res: Response) => {
@@ -437,7 +456,12 @@ router.post('/reviews/:id/decision', async (req: Request, res: Response) => {
     'SELECT levelId FROM passes WHERE id = :id',
     { replacements: { id: review.passId }, type: QueryTypes.SELECT },
   );
-  if (pass[0]?.levelId) await enqueueBadgeJob({ scope: 'chart', levelId: Number(pass[0].levelId) });
+  if (pass[0]?.levelId) {
+    await enqueueBadgeJob({
+      scope: 'dirty',
+      dirt: { levels: [Number(pass[0].levelId)] },
+    });
+  }
   res.json({ review });
 });
 

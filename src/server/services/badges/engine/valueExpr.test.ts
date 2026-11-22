@@ -4,6 +4,8 @@ import { evaluateBadge, type ChartFact, type OwnerInput, type PassFact, type Wor
 import { emptyJudgements } from './judgement.js';
 import { normalizeDefinition } from './params.js';
 import { parseValueExpr } from './valueExpr.js';
+import { computeRollups, planValueSource, unionDemands } from './planExpr.js';
+import { prepareOwnerDifficultyCounts } from './difficultyCoverage.js';
 
 function pass(partial: Partial<PassFact> & Pick<PassFact, 'id' | 'levelId'>): PassFact {
   return {
@@ -282,5 +284,65 @@ test('reclear badges stay cheap with a thousand P-band clears', () => {
   const elapsed = Date.now() - started;
   assert.equal(farmer.credit, 7);
   assert.equal(gu.credit, 0);
+  assert.ok(elapsed < 500, `took ${elapsed}ms`);
+});
+
+const GU_NESTED = 'curve(max(clears.filter(clear => clear.familyAt == "G" || clear.familyAt == "U").map(x => count(clears.filter(clear => (clear.familyAt == "G" || clear.familyAt == "U") && clear.identity == x.identity)))), 100, 100000)';
+
+test('nested G/U identity count lowers to the same credit as maxCount', () => {
+  const nestedPlan = planValueSource(GU_NESTED);
+  const linearPlan = planValueSource(GU_X100);
+  assert.equal(nestedPlan?.pure, true);
+  assert.equal(linearPlan?.pure, true);
+  assert.equal(nestedPlan?.demands[0]?.kind, 'maxCount');
+  assert.equal(linearPlan?.demands[0]?.kind, 'maxCount');
+  assert.equal(nestedPlan?.demands[0]?.key, linearPlan?.demands[0]?.key);
+  const charts = [chart(1, 'G10'), chart(2, 'U1'), chart(3, 'P1')];
+  const passes = [
+    ...Array.from({ length: 12 }, (_, index) => pass({
+      id: index + 1,
+      levelId: 1,
+      difficultyAtName: 'G10',
+      difficultyNowName: 'P1',
+    })),
+    ...Array.from({ length: 8 }, (_, index) => pass({
+      id: 40 + index,
+      levelId: 3,
+      difficultyAtName: 'P1',
+      difficultyNowName: 'P1',
+    })),
+  ];
+  const input = owner({ charts, passes });
+  assert.equal(evaluateBadge(valueBadge(GU_NESTED), input).credit, 12);
+  assert.equal(evaluateBadge(valueBadge(GU_X100), input).credit, 12);
+});
+
+test('coverage badges share one rollup table and skip per-badge clears', () => {
+  const charts = [
+    ...Array.from({ length: 8 }, (_, index) => chart(index + 1, 'U6')),
+    ...Array.from({ length: 40 }, (_, index) => chart(100 + index, 'P1')),
+  ];
+  const passes = Array.from({ length: 1300 }, (_, index) => pass({
+    id: index + 1,
+    levelId: (index % 40) + 100,
+    difficultyAtName: 'P1',
+    difficultyNowName: 'P1',
+  }));
+  const expressions = Array.from({ length: 20 }, () => 'result(difficulty("U6").total >= 8 && difficulty("U6").ratio >= 0.75 ? 1 : 0, difficulty("U6").cleared, 0, difficulty("U6").total)');
+  const defs = expressions.map((expression, index) => ({ ...valueBadge(expression), id: index + 1 }));
+  const plans = defs.map((item) => planValueSource(item.params.expression || '', item.identity));
+  assert.ok(plans.every((plan) => plan?.pure && plan.needClears === false));
+  const difficultyCounts = prepareOwnerDifficultyCounts(charts, {}, passes, ['level']);
+  const rollups = computeRollups(
+    { passes, charts, links: {}, ownerId: 7, difficultyCounts },
+    unionDemands(plans),
+  );
+  const input = owner({ charts, passes, difficultyCounts, rollups });
+  const started = Date.now();
+  const results = defs.map((item) => evaluateBadge(item, input));
+  const elapsed = Date.now() - started;
+  assert.equal(results[0].tier, 0);
+  assert.equal(results[0].credit, 0);
+  assert.equal(results[0].barTo, 8);
   assert.ok(elapsed < 500, `took ${elapsed}ms`);
 });

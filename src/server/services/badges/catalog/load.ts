@@ -39,6 +39,7 @@ export type BadgeCatalog = {
 export async function loadBadgeCatalog(options: {
   playerIds?: number[];
   needWorld: boolean;
+  worldLevelIds?: number[];
 }): Promise<BadgeCatalog> {
   const [difficulties, charts, credits, curations, references, links, artists, history, packs, sets] = await Promise.all([
     rows<{ id: number; name: string }>('SELECT id, name FROM difficulties'),
@@ -141,7 +142,22 @@ export async function loadBadgeCatalog(options: {
     else chart.curationCounts = curationCounts.get(chart.id) === true;
   }
 
-  const playerFilter = !options.needWorld && options.playerIds?.length ? 'AND p.playerId IN (:playerIds)' : '';
+  const filterPlayerIds = options.playerIds?.filter((id) => Number.isInteger(id) && id > 0) ?? [];
+  const filterWorldLevelIds = options.worldLevelIds?.filter((id) => Number.isInteger(id) && id > 0) ?? [];
+  const replacements: Record<string, unknown> = {};
+  const passClauses: string[] = [];
+  if (filterPlayerIds.length && filterWorldLevelIds.length) {
+    passClauses.push('(p.playerId IN (:playerIds) OR p.levelId IN (:worldLevelIds))');
+    replacements.playerIds = filterPlayerIds;
+    replacements.worldLevelIds = filterWorldLevelIds;
+  } else if (filterPlayerIds.length && !options.needWorld) {
+    passClauses.push('p.playerId IN (:playerIds)');
+    replacements.playerIds = filterPlayerIds;
+  } else if (filterWorldLevelIds.length) {
+    passClauses.push('p.levelId IN (:worldLevelIds)');
+    replacements.worldLevelIds = filterWorldLevelIds;
+  }
+  const playerFilter = passClauses.length ? `AND ${passClauses.join(' AND ')}` : '';
   const passRows = await rows<{
     id: number; playerId: number; levelId: number; diffNowId: number; speed: number | null; keyCount: number | null;
     vidUploadTime: Date | null; createdAt: Date; accuracy: number | null; scoreV2: number | null;
@@ -163,7 +179,7 @@ export async function loadBadgeCatalog(options: {
     LEFT JOIN pass_badge_snapshots s ON s.passId = p.id
     WHERE IFNULL(p.isDeleted, 0) = 0 AND IFNULL(p.isHidden, 0) = 0
     ${playerFilter}
-  `, playerFilter ? { playerIds: options.playerIds } : undefined);
+  `, Object.keys(replacements).length ? replacements : undefined);
 
   const chartById = new Map(chartFacts.map((chart) => [chart.id, chart]));
   const passFacts: PassFact[] = passRows.map((row) => {
@@ -210,7 +226,12 @@ export async function loadBadgeCatalog(options: {
     };
   });
 
-  const world: WorldPass[] = (options.needWorld ? passFacts : []).map((pass) => ({
+  const worldSource = !options.needWorld
+    ? []
+    : filterWorldLevelIds.length
+      ? passFacts.filter((pass) => filterWorldLevelIds.includes(pass.levelId))
+      : passFacts;
+  const world: WorldPass[] = worldSource.map((pass) => ({
     passId: pass.id,
     playerId: pass.playerId,
     levelId: pass.levelId,

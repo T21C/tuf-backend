@@ -357,12 +357,13 @@ router.put(
       const ppAccuracyChanged = shouldRecalcJudgements || accuracy !== undefined;
 
       if (wfFieldsChanged) {
+        const ownerId = Number(playerId || pass.playerId) || undefined;
         if (levelId !== oldPass.levelId) {
-          await updateWorldsFirstFlags(oldPass.levelId, transaction);
+          await updateWorldsFirstFlags(oldPass.levelId, transaction, Number(oldPass.playerId) || ownerId);
         }
-        await updateWorldsFirstFlags(levelId, transaction);
+        await updateWorldsFirstFlags(levelId, transaction, ownerId);
       } else if (ppAccuracyChanged) {
-        await updateWorldsFirstPPStatus(levelId, transaction);
+        await updateWorldsFirstPPStatus(levelId, transaction, Number(playerId || pass.playerId) || undefined);
       }
 
       // Fetch the updated pass
@@ -527,7 +528,7 @@ router.delete(
         );
 
         // Update world's first / world's first PP status for this level
-        await updateWorldsFirstFlags(levelId, transaction);
+        await updateWorldsFirstFlags(levelId, transaction, Number(pass.playerId ?? playerId) || undefined);
 
         // Reload the pass to get updated data
         await pass.reload({
@@ -669,7 +670,7 @@ router.patch(
         );
 
         // Update world's first / world's first PP status for this level
-        await updateWorldsFirstFlags(levelId, transaction);
+        await updateWorldsFirstFlags(levelId, transaction, Number(pass.playerId ?? playerId) || undefined);
 
         await notifyPassLifecycle({
           type: NOTIFICATION_TYPES.PassRestored,
@@ -759,8 +760,11 @@ router.patch(
       );
 
       await transaction.commit();
-      const { signalBadgeJob } = await import('@/server/services/badges/index.js');
-      signalBadgeJob({ scope: 'chart', levelId: pass.levelId });
+      const { signalBadgeDirt } = await import('@/server/services/badges/index.js');
+      signalBadgeDirt({
+        players: pass.playerId ? [Number(pass.playerId)] : [],
+        levels: pass.levelId ? [Number(pass.levelId)] : [],
+      });
 
       // Reindex the pass in Elasticsearch; also reindex player because visibility affects stats
       await elasticsearchService.indexPass(pass.id);

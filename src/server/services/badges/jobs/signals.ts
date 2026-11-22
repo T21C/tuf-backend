@@ -2,9 +2,17 @@ import type { Transaction } from 'sequelize';
 import { QueryTypes } from 'sequelize';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import {
+  dirtIsEmpty,
+  mergeDirt,
+  parseDirt,
+  planDirtEnqueue,
+  type BadgeDirt,
+  type BadgeDirtPatch,
+} from './dirt.js';
 
 export type BadgeSignal = {
-  scope: 'definition' | 'player' | 'creator' | 'chart' | 'pack' | 'all';
+  scope: 'definition' | 'player' | 'creator' | 'chart' | 'pack' | 'all' | 'dirty';
   definitionId?: number | null;
   playerId?: number | null;
   creatorId?: number | null;
@@ -12,6 +20,7 @@ export type BadgeSignal = {
   packId?: number | null;
   replaceState?: boolean;
   startFrom?: number;
+  dirt?: BadgeDirtPatch;
 };
 
 function afterCommit(transaction: Transaction | null | undefined, run: () => void) {
@@ -23,10 +32,64 @@ function afterCommit(transaction: Transaction | null | undefined, run: () => voi
   run();
 }
 
+function signalToDirt(signal: BadgeSignal): BadgeDirtPatch {
+  if (signal.dirt) return signal.dirt;
+  return {
+    players: signal.playerId ? [Number(signal.playerId)] : [],
+    creators: signal.creatorId ? [Number(signal.creatorId)] : [],
+    levels: signal.levelId ? [Number(signal.levelId)] : [],
+    packs: signal.packId ? [Number(signal.packId)] : [],
+    catalog: false,
+  };
+}
+
+export async function enqueueBadgeDirt(patch: BadgeDirtPatch): Promise<void> {
+  const sequelize = getSequelizeForModelGroup('badges');
+  await sequelize.transaction(async (transaction) => {
+    const blocking = await sequelize.query<{ id: number }>(
+      `SELECT id FROM badge_jobs
+       WHERE scope = 'all' AND status IN ('pending', 'running')
+       LIMIT 1`,
+      { transaction, type: QueryTypes.SELECT },
+    );
+    const pending = await sequelize.query<{ id: number; dirt: unknown }>(
+      `SELECT id, dirt FROM badge_jobs
+       WHERE status = 'pending' AND scope = 'dirty' AND replaceState = 0
+       ORDER BY id ASC
+       LIMIT 1
+       FOR UPDATE`,
+      { transaction, type: QueryTypes.SELECT },
+    );
+    const action = planDirtEnqueue(blocking.length > 0, pending.length > 0);
+    if (action === 'drop') return;
+    const merged = mergeDirt(parseDirt(pending[0]?.dirt), patch);
+    if (dirtIsEmpty(merged)) return;
+    if (action === 'merge' && pending[0]) {
+      await sequelize.query(
+        `UPDATE badge_jobs SET dirt = CAST(:dirt AS JSON) WHERE id = :id AND status = 'pending'`,
+        {
+          transaction,
+          replacements: { id: pending[0].id, dirt: JSON.stringify(merged) },
+        },
+      );
+      return;
+    }
+    await sequelize.query(
+      `INSERT INTO badge_jobs
+        (scope, definitionId, playerId, creatorId, levelId, packId, replaceState, startFrom, status, dirt, createdAt)
+       VALUES ('dirty', NULL, NULL, NULL, NULL, NULL, 0, 0, 'pending', CAST(:dirt AS JSON), NOW())`,
+      { transaction, replacements: { dirt: JSON.stringify(merged) } },
+    );
+  });
+}
+
 export async function enqueueBadgeJob(signal: BadgeSignal): Promise<void> {
+  if (signal.scope === 'dirty' || signal.scope === 'chart' || signal.scope === 'player' || signal.scope === 'creator' || signal.scope === 'pack') {
+    await enqueueBadgeDirt(signalToDirt(signal));
+    return;
+  }
   const sequelize = getSequelizeForModelGroup('badges');
   const startFrom = Math.max(0, Math.floor(Number(signal.startFrom) || 0));
-  // Queue only. A running row is never rewritten; it finishes or is cancelled.
   const existing = await sequelize.query<{ id: number }>(
     `SELECT id FROM badge_jobs
      WHERE status = 'pending' AND scope = :scope
@@ -79,3 +142,33 @@ export function signalBadgeJob(signal: BadgeSignal, transaction?: Transaction | 
     });
   });
 }
+
+export function signalBadgeDirt(patch: BadgeDirtPatch, transaction?: Transaction | null): void {
+  afterCommit(transaction, () => {
+    void enqueueBadgeDirt(patch).catch((error) => {
+      logger.error('[badges] enqueue dirt failed', error);
+    });
+  });
+}
+
+export function signalLevelIdentityDirt(levelId: number, transaction?: Transaction | null): void {
+  afterCommit(transaction, () => {
+    void (async () => {
+      const sequelize = getSequelizeForModelGroup('badges');
+      const rows = await sequelize.query<{ playerId: number }>(
+        `SELECT DISTINCT playerId FROM passes
+         WHERE levelId = :levelId AND IFNULL(isDeleted, 0) = 0 AND IFNULL(isHidden, 0) = 0`,
+        { replacements: { levelId }, type: QueryTypes.SELECT },
+      );
+      await enqueueBadgeDirt({
+        catalog: true,
+        levels: [levelId],
+        players: rows.map((row) => Number(row.playerId)),
+      });
+    })().catch((error) => {
+      logger.error('[badges] enqueue identity dirt failed', error);
+    });
+  });
+}
+
+export type { BadgeDirt, BadgeDirtPatch };

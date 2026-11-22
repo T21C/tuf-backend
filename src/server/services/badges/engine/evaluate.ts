@@ -23,6 +23,13 @@ import {
 } from './judgement.js';
 import type { BadgeDraft, BadgeParams, PatternMatch, SequenceParams } from './params.js';
 import { evalValueExpr, fn, isFn, parseValueExpr, row, valueAsNumber, valueExprNames, type Value } from './valueExpr.js';
+import {
+  collectPlanSlotKeys,
+  computeRollups,
+  planValueExpr,
+  type PlanNode,
+  type RollupSlots,
+} from './planExpr.js';
 import { BadgeJobCancelled, throwIfBadgeCancelled } from '../jobs/cancelSignal.js';
 
 export type PassFact = {
@@ -91,6 +98,7 @@ export type OwnerInput = {
   frozenIds: number[] | null;
   since: string | null;
   difficultyCounts?: OwnerDifficultyCounts;
+  rollups?: RollupSlots;
 };
 
 export type EvalResult = {
@@ -1638,6 +1646,107 @@ function difficultyValue(
   return value;
 }
 
+function planTruth(value: Value): boolean {
+  if (value == null || value === false) return false;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') return value.length > 0;
+  return true;
+}
+
+function planBinary(op: string, left: Value, right: Value): Value {
+  if (op === '==' || op === '===') return left === right || String(left) === String(right);
+  if (op === '!=' || op === '!==') return !(left === right || String(left) === String(right));
+  if (op === '+' && (typeof left === 'string' || typeof right === 'string')) return `${left ?? ''}${right ?? ''}`;
+  const a = valueAsNumber(left);
+  const b = valueAsNumber(right);
+  if (a == null || b == null) return false;
+  if (op === '+') return a + b;
+  if (op === '-') return a - b;
+  if (op === '*') return a * b;
+  if (op === '/') return b === 0 ? null : a / b;
+  if (op === '%') return b === 0 ? null : a % b;
+  if (op === '>') return a > b;
+  if (op === '>=') return a >= b;
+  if (op === '<') return a < b;
+  if (op === '<=') return a <= b;
+  return null;
+}
+
+function evalPlanNode(node: PlanNode, slots: RollupSlots): Value {
+  switch (node.type) {
+    case 'lit':
+      return node.value;
+    case 'slot': {
+      const slot = slots.get(node.key);
+      if (node.as === 'coverage') {
+        const coverage = slot?.coverage;
+        return row({
+          total: coverage?.total ?? 0,
+          cleared: coverage?.cleared ?? 0,
+          ratio: coverage?.ratio ?? null,
+        });
+      }
+      return slot?.n ?? 0;
+    }
+    case 'member': {
+      const base = evalPlanNode(node.a, slots);
+      if (base && typeof base === 'object' && !Array.isArray(base) && base.kind === 'row') {
+        return base.fields[node.name] ?? null;
+      }
+      return null;
+    }
+    case 'un': {
+      const inner = evalPlanNode(node.a, slots);
+      if (node.op === '!') return !planTruth(inner);
+      const num = valueAsNumber(inner);
+      return num == null ? null : -num;
+    }
+    case 'bin':
+      return planBinary(node.op, evalPlanNode(node.a, slots), evalPlanNode(node.b, slots));
+    case 'and': {
+      const left = evalPlanNode(node.a, slots);
+      return planTruth(left) ? evalPlanNode(node.b, slots) : left;
+    }
+    case 'or': {
+      const left = evalPlanNode(node.a, slots);
+      return planTruth(left) ? left : evalPlanNode(node.b, slots);
+    }
+    case 'if':
+      return planTruth(evalPlanNode(node.c, slots)) ? evalPlanNode(node.a, slots) : evalPlanNode(node.b, slots);
+    case 'curve':
+      return curveResult(
+        evalPlanNode(node.credit, slots),
+        evalPlanNode(node.start, slots),
+        evalPlanNode(node.step, slots),
+        node.down ? 'down' : 'up',
+      );
+    case 'result':
+      return row({
+        tier: valueAsNumber(evalPlanNode(node.tier, slots)) ?? 0,
+        credit: valueAsNumber(evalPlanNode(node.credit, slots)) ?? 0,
+        from: valueAsNumber(evalPlanNode(node.from, slots)) ?? 0,
+        to: valueAsNumber(evalPlanNode(node.to, slots)) ?? 1,
+      });
+    default:
+      return null;
+  }
+}
+
+function finalizeValue(result: EvalResult, value: Value, provingPassIds: number[], captured: Set<number>, grant: BadgeDraft['grant']): EvalResult {
+  const snapshotIds = grant === 'persistSnapshot' && captured.size > 0 ? [...captured] : null;
+  if (value && typeof value === 'object' && !Array.isArray(value) && value.kind === 'row' && typeof value.fields.tier === 'number') {
+    const tier = Math.max(0, Math.floor(value.fields.tier));
+    const credit = typeof value.fields.credit === 'number' ? value.fields.credit : tier;
+    const from = typeof value.fields.from === 'number' ? value.fields.from : 0;
+    const to = typeof value.fields.to === 'number' ? value.fields.to : 1;
+    return { ...result, tier, credit, barFrom: from, barTo: to, barValue: credit, provingPassIds, snapshotIds };
+  }
+  const num = valueAsNumber(value);
+  if (num == null) return result;
+  const tier = num >= 1 ? Math.floor(num + 1e-9) : 0;
+  return { ...result, tier, credit: num, barFrom: 0, barTo: Math.max(1, tier + 1), barValue: num, provingPassIds, snapshotIds };
+}
+
 function evaluateValue(def: BadgeDraft, input: OwnerInput): EvalResult {
   const result = emptyResult();
   const matchedPasses = new Set<number>();
@@ -1645,22 +1754,31 @@ function evaluateValue(def: BadgeDraft, input: OwnerInput): EvalResult {
   try {
     const parsed = parseValueExpr(def.params.expression || '');
     if (!parsed.ok) return result;
+    const plan = planValueExpr(parsed.ast, { identityMode: def.identity, source: def.params.expression || '' });
+    const sharedOk = !input.frozenIds && def.grant !== 'manualLock' && def.backfill !== 'forward';
+    if (plan.pure && sharedOk) {
+      let slots = input.rollups;
+      if (!slots || plan.demands.some((demand) => !slots!.has(demand.key))) {
+        slots = computeRollups({
+          passes: scopedPasses(def, input),
+          charts: input.charts,
+          links: input.links,
+          ownerId: input.ownerId,
+          difficultyCounts: input.difficultyCounts,
+        }, plan.demands);
+      }
+      const value = evalPlanNode(plan.node, slots);
+      for (const key of collectPlanSlotKeys(plan.node)) {
+        const slot = slots.get(key);
+        for (const id of slot?.provingPassIds ?? []) matchedPasses.add(id);
+        for (const id of slot?.coverage?.levelIds ?? []) captured.add(id);
+      }
+      return finalizeValue(result, value, [...matchedPasses], captured, def.grant);
+    }
     const names = valueExprNames(parsed.ast);
     const difficultyMemo = new Map<string, Value>();
     const value = evalValueExpr(parsed.ast, valueScope(def, input, names, captured, matchedPasses, difficultyMemo));
-    const provingPassIds = [...matchedPasses];
-    const snapshotIds = def.grant === 'persistSnapshot' && captured.size > 0 ? [...captured] : null;
-    if (value && typeof value === 'object' && !Array.isArray(value) && value.kind === 'row' && typeof value.fields.tier === 'number') {
-      const tier = Math.max(0, Math.floor(value.fields.tier));
-      const credit = typeof value.fields.credit === 'number' ? value.fields.credit : tier;
-      const from = typeof value.fields.from === 'number' ? value.fields.from : 0;
-      const to = typeof value.fields.to === 'number' ? value.fields.to : 1;
-      return { ...result, tier, credit, barFrom: from, barTo: to, barValue: credit, provingPassIds, snapshotIds };
-    }
-    const num = valueAsNumber(value);
-    if (num == null) return result;
-    const tier = num >= 1 ? Math.floor(num + 1e-9) : 0;
-    return { ...result, tier, credit: num, barFrom: 0, barTo: Math.max(1, tier + 1), barValue: num, provingPassIds, snapshotIds };
+    return finalizeValue(result, value, [...matchedPasses], captured, def.grant);
   } catch (error) {
     if (error instanceof BadgeJobCancelled) throw error;
     return result;

@@ -7,7 +7,7 @@ export {
   type DifficultyCoverageTable,
   type OwnerDifficultyCounts,
 } from './engine/difficultyCoverage.js';
-export { enqueueBadgeJob, signalBadgeJob } from './jobs/signals.js';
+export { enqueueBadgeJob, enqueueBadgeDirt, signalBadgeJob, signalBadgeDirt } from './jobs/signals.js';
 export { registerBadgeHooks } from './jobs/hooks.js';
 export { startBadgeJobWorker, stopBadgeJobWorker } from './jobs/worker.js';
 export { logBadgeFailure, snapshotMissingPasses } from './catalog/snapshot.js';
