@@ -1117,12 +1117,27 @@ type ChartIndex = {
   identities: Map<IdentityMode, Map<number, string>>;
 };
 
-const chartIndexes = new WeakMap<ChartFact[], ChartIndex>();
-
-const worldIndexes = new WeakMap<WorldPass[], {
+type WorldIndex = {
   byLevel: Map<number, WorldPass[]>;
   rivals: Map<number, Set<number>>;
-}>();
+  worldsFirst: Map<number, Set<number>>;
+  leads: Map<string, Map<number, Set<number>>>;
+  nth: Map<IdentityMode, Map<string, number[]>>;
+  shared: Map<IdentityMode, Map<number, number>>;
+};
+
+type LevelTable = {
+  ownerId: number;
+  identity: IdentityMode;
+  frozenKey: string;
+  rows: Value[];
+};
+
+const chartIndexes = new WeakMap<ChartFact[], ChartIndex>();
+
+const worldIndexes = new WeakMap<WorldPass[], WorldIndex>();
+
+const levelTables = new WeakMap<ChartFact[], LevelTable>();
 
 function indexCharts(charts: ChartFact[], links: Record<number, LinkInfo>): ChartIndex {
   const cached = chartIndexes.get(charts);
@@ -1166,28 +1181,56 @@ function ownerClearedIdentities(def: BadgeDraft, input: OwnerInput, passes?: Pas
   return identitiesFromPasses(table, input.links, source);
 }
 
-function indexWorld(world: WorldPass[]) {
+function indexWorld(world: WorldPass[]): WorldIndex {
   const cached = worldIndexes.get(world);
   if (cached) return cached;
   const byLevel = new Map<number, WorldPass[]>();
   const rivals = new Map<number, Set<number>>();
+  const worldsFirst = new Map<number, Set<number>>();
   for (const pass of world) {
     throwIfBadgeCancelled();
     const list = byLevel.get(pass.levelId);
     if (list) list.push(pass);
     else byLevel.set(pass.levelId, [pass]);
+    if (pass.isWorldsFirst) {
+      const holders = worldsFirst.get(pass.levelId);
+      if (holders) holders.add(pass.playerId);
+      else worldsFirst.set(pass.levelId, new Set([pass.playerId]));
+    }
     if (pass.ancient) continue;
     const players = rivals.get(pass.levelId);
     if (players) players.add(pass.playerId);
     else rivals.set(pass.levelId, new Set([pass.playerId]));
   }
-  const built = { byLevel, rivals };
+  const built: WorldIndex = {
+    byLevel,
+    rivals,
+    worldsFirst,
+    leads: new Map(),
+    nth: new Map(),
+    shared: new Map(),
+  };
   worldIndexes.set(world, built);
   return built;
 }
 
-function worldOnLevel(world: WorldPass[], levelId: number): WorldPass[] {
-  return indexWorld(world).byLevel.get(levelId) ?? [];
+function levelsFor(def: BadgeDraft, input: OwnerInput, charts: ChartFact[]): Value[] {
+  const frozenKey = input.frozenIds ? input.frozenIds.join(',') : '';
+  const cached = levelTables.get(input.charts);
+  if (
+    cached
+    && cached.ownerId === input.ownerId
+    && cached.identity === def.identity
+    && cached.frozenKey === frozenKey
+  ) return cached.rows;
+  const rows = charts.map((chart) => levelRecord(def, input, chart));
+  levelTables.set(input.charts, {
+    ownerId: input.ownerId,
+    identity: def.identity,
+    frozenKey,
+    rows,
+  });
+  return rows;
 }
 
 function rivalsFor(world: WorldPass[], levelId: number): Set<number> | undefined {
@@ -1272,8 +1315,8 @@ function valueScope(
   matchedPasses?: Set<number>,
   difficultyMemo?: Map<string, Value>,
 ): Map<string, Value> {
-  const needClears = names.has('clears') || names.has('sequence') || names.has('consecutive') || names.has('gap') || names.has('prefix');
-  const needLevels = names.has('levels') || names.has('mine') || names.has('blocks') || names.has('lead') || names.has('complete');
+  const needClears = names.has('clears') || names.has('sequence') || names.has('consecutive') || names.has('gap') || names.has('prefix') || names.has('blocks');
+  const needLevels = names.has('levels') || names.has('mine') || names.has('lead') || names.has('complete');
   const needMine = names.has('mine') || names.has('complete');
   const needRatings = names.has('ratings');
   const needDifficulty = names.has('difficulty');
@@ -1285,8 +1328,9 @@ function valueScope(
   const clears = needClears ? passes.map((pass) => clearRecord(def, input, pass)) : [];
   if (needClears) markFirstClears(clears);
   const frozen = input.frozenIds ? new Set(input.frozenIds) : null;
-  const charts = !needLevels ? [] : frozen ? input.charts.filter((chart) => frozen.has(chart.id)) : input.charts;
-  const levels = charts.map((chart) => levelRecord(def, input, chart));
+  const catalogCharts = frozen ? input.charts.filter((chart) => frozen.has(chart.id)) : input.charts;
+  const charts = !needLevels ? [] : catalogCharts;
+  const levels = !needLevels ? [] : levelsFor(def, input, charts);
   const clearedLevelIds = needMine && def.audience !== 'creator'
     ? new Set(passes.map((pass) => pass.levelId))
     : null;
@@ -1347,7 +1391,7 @@ function valueScope(
     ['ceil', fn((args) => Math.ceil(valueAsNumber(args[0] ?? null) ?? 0))],
     ['sequence', fn((args) => matchSequence(clears, numberList(args[0] ?? null), false, args[1]))],
     ['consecutive', fn((args) => matchSequence(clears, numberList(args[0] ?? null), true, args[1]))],
-    ['blocks', fn((args) => blockCount(Number(args[0] ?? 0), args.slice(1).map((item) => String(item ?? '')), levels, clears))],
+    ['blocks', fn((args) => blockCount(Number(args[0] ?? 0), args.slice(1).map((item) => String(item ?? '')), catalogCharts, clears))],
     ['chase', fn((args) => {
       const frozen = input.frozenIds ? new Set(input.frozenIds) : null;
       const progress = chaseProgress(
@@ -1363,7 +1407,7 @@ function valueScope(
     ['first', fn((args) => {
       const levelId = rowNum(args[0] ?? null, 'levelId');
       if (levelId == null) return false;
-      return worldOnLevel(input.world, levelId).some((pass) => pass.playerId === input.ownerId && pass.isWorldsFirst);
+      return Boolean(indexWorld(input.world).worldsFirst.get(levelId)?.has(input.ownerId));
     })],
     ['shared', fn(() => sharedCount(def, input))],
     ['inSet', fn((args) => inSet(input, args[0] ?? null, String(args[1] ?? '')))],
@@ -1426,72 +1470,120 @@ function reduceNum(args: Value[], pick: (a: number, b: number) => number): numbe
   return best;
 }
 
-function blockCount(size: number, exclude: string[], levels: Value[], clears: Value[]): number {
+function blockCount(size: number, exclude: string[], charts: ChartFact[], clears: Value[]): number {
   if (!(size > 0)) return 0;
   const excluded = new Set(exclude.map((name) => name.toLowerCase()));
-  const have = new Set(clears.map((clear) => rowNum(clear, 'levelId')));
-  const byId = new Map(levels.map((level) => [rowNum(level, 'levelId'), level]));
-  const maxId = levels.reduce<number>((max, level) => Math.max(max, rowNum(level, 'levelId') ?? 0), 0);
+  const have = new Set<number>();
+  for (const clear of clears) {
+    const id = rowNum(clear, 'levelId');
+    if (id != null) have.add(id);
+  }
+  const eligible: number[] = [];
+  let maxId = 0;
+  for (const chart of charts) {
+    throwIfBadgeCancelled();
+    if (chart.id > maxId) maxId = chart.id;
+    if (excluded.has(chart.diffName.toLowerCase())) continue;
+    eligible.push(chart.id);
+  }
+  eligible.sort((left, right) => left - right);
   let completed = 0;
+  let cursor = 0;
   for (let start = 1; start <= maxId; start += size) {
+    throwIfBadgeCancelled();
+    const end = start + size;
     let required = 0;
-    let got = 0;
-    for (let id = start; id < start + size; id += 1) {
-      const level = byId.get(id);
-      if (!level) continue;
-      const name = String(rowVal(level, 'difficulty') ?? '');
-      if (excluded.has(name.toLowerCase())) continue;
+    let missing = false;
+    while (cursor < eligible.length && eligible[cursor] < start) cursor += 1;
+    while (cursor < eligible.length && eligible[cursor] < end) {
       required += 1;
-      if (have.has(id)) got += 1;
+      if (!have.has(eligible[cursor])) missing = true;
+      cursor += 1;
     }
-    if (required === 0 || got === required) completed += 1;
-    else break;
+    if (required > 0 && missing) break;
+    completed += 1;
   }
   return completed;
 }
 
-function nthCount(def: BadgeDraft, input: OwnerInput, n: number): number {
-  if (!Number.isInteger(n) || n < 1) return 0;
+function nthRankTable(def: BadgeDraft, input: OwnerInput): Map<string, number[]> {
+  const index = indexWorld(input.world);
+  const cached = index.nth.get(def.identity);
+  if (cached) return cached;
   const byKey = new Map<string, WorldPass[]>();
   for (const pass of input.world) {
     throwIfBadgeCancelled();
     if (!pass.uploadTimeKnown || !pass.vidUploadTime) continue;
     const key = keyFor(def, input, pass.levelId);
-    const list = byKey.get(key) ?? [];
-    list.push(pass);
-    byKey.set(key, list);
+    const list = byKey.get(key);
+    if (list) list.push(pass);
+    else byKey.set(key, [pass]);
   }
-  let credit = 0;
-  for (const list of byKey.values()) {
+  const table = new Map<string, number[]>();
+  for (const [key, list] of byKey) {
     list.sort((a, b) => Date.parse(a.vidUploadTime || '') - Date.parse(b.vidUploadTime || '') || a.passId - b.passId);
     const seen: number[] = [];
     for (const pass of list) {
       if (!seen.includes(pass.playerId)) seen.push(pass.playerId);
     }
+    table.set(key, seen);
+  }
+  index.nth.set(def.identity, table);
+  return table;
+}
+
+function nthCount(def: BadgeDraft, input: OwnerInput, n: number): number {
+  if (!Number.isInteger(n) || n < 1) return 0;
+  let credit = 0;
+  for (const seen of nthRankTable(def, input).values()) {
     if (seen[n - 1] === input.ownerId) credit += 1;
   }
   return credit;
 }
 
+function leadMetric(pass: WorldPass, metric: string): number {
+  if (metric === 'speed') return Number(pass.speed);
+  if (metric === 'score') return Number(pass.scoreV2);
+  return Number(pass.accuracy);
+}
+
+function leadHolders(world: WorldPass[], metric: string): Map<number, Set<number>> {
+  const index = indexWorld(world);
+  const cached = index.leads.get(metric);
+  if (cached) return cached;
+  const table = new Map<number, Set<number>>();
+  for (const [levelId, passes] of index.byLevel) {
+    throwIfBadgeCancelled();
+    let best = -Infinity;
+    const holders = new Set<number>();
+    for (const pass of passes) {
+      if (metric !== 'speed' && pass.ancient) continue;
+      const value = leadMetric(pass, metric);
+      if (!Number.isFinite(value)) continue;
+      if (value > best) {
+        best = value;
+        holders.clear();
+        holders.add(pass.playerId);
+      } else if (value === best) {
+        holders.add(pass.playerId);
+      }
+    }
+    if (holders.size) table.set(levelId, holders);
+  }
+  index.leads.set(metric, table);
+  return table;
+}
+
 function leadValue(input: OwnerInput, level: Value, metric: string): boolean {
   const levelId = rowNum(level, 'levelId');
   if (levelId == null) return false;
-  const passes = worldOnLevel(input.world, levelId).filter((pass) => metric === 'speed' || !pass.ancient);
-  const valueOf = (pass: WorldPass) => {
-    if (metric === 'speed') return Number(pass.speed);
-    if (metric === 'score') return Number(pass.scoreV2);
-    return Number(pass.accuracy);
-  };
-  let best = -Infinity;
-  for (const pass of passes) {
-    const value = valueOf(pass);
-    if (Number.isFinite(value) && value > best) best = value;
-  }
-  if (!Number.isFinite(best)) return false;
-  return passes.some((pass) => pass.playerId === input.ownerId && valueOf(pass) === best);
+  return Boolean(leadHolders(input.world, metric).get(levelId)?.has(input.ownerId));
 }
 
-function sharedCount(def: BadgeDraft, input: OwnerInput): number {
+function sharedCreditTable(def: BadgeDraft, input: OwnerInput): Map<number, number> {
+  const index = indexWorld(input.world);
+  const cached = index.shared.get(def.identity);
+  if (cached) return cached;
   const groups = new Map<string, WorldPass[]>();
   for (const pass of input.world) {
     throwIfBadgeCancelled();
@@ -1500,22 +1592,34 @@ function sharedCount(def: BadgeDraft, input: OwnerInput): number {
     const family = difficultyFamily(chart?.diffName);
     if (family !== 'G' && family !== 'U') continue;
     const rendered = formatAccuracyRatio(pass.accuracy);
-    const list = groups.get(rendered) ?? [];
-    list.push(pass);
-    groups.set(rendered, list);
+    const list = groups.get(rendered);
+    if (list) list.push(pass);
+    else groups.set(rendered, [pass]);
   }
-  const mine = new Set<number>();
+  const mine = new Map<number, Set<number>>();
   for (const list of groups.values()) {
     const players = new Set(list.map((pass) => pass.playerId));
     const identities = new Set(list.map((pass) => keyFor(def, input, pass.levelId)));
     if (players.size < 2 || identities.size < 2) continue;
     for (const pass of list) {
-      if (pass.playerId !== input.ownerId) continue;
-      const shared = list.some((other) => other.playerId !== pass.playerId && keyFor(def, input, other.levelId) !== keyFor(def, input, pass.levelId));
-      if (shared) mine.add(pass.levelId);
+      const shared = list.some((other) => (
+        other.playerId !== pass.playerId
+        && keyFor(def, input, other.levelId) !== keyFor(def, input, pass.levelId)
+      ));
+      if (!shared) continue;
+      const levels = mine.get(pass.playerId);
+      if (levels) levels.add(pass.levelId);
+      else mine.set(pass.playerId, new Set([pass.levelId]));
     }
   }
-  return mine.size;
+  const table = new Map<number, number>();
+  for (const [playerId, levels] of mine) table.set(playerId, levels.size);
+  index.shared.set(def.identity, table);
+  return table;
+}
+
+function sharedCount(def: BadgeDraft, input: OwnerInput): number {
+  return sharedCreditTable(def, input).get(input.ownerId) ?? 0;
 }
 
 function inSet(input: OwnerInput, item: Value, name: string): boolean {

@@ -628,7 +628,7 @@ export function normalizeDefinition(input: unknown): { ok: true; value: BadgeDra
   const reducer = readString(input, 'reducer', errors);
   const grant = readString(input, 'grant', errors);
   const identity = readString(input, 'identity', errors);
-  const backfill = readString(input, 'backfill', errors);
+  const backfill = readString(input, 'backfill', errors) || 'forward';
   const confirm = readString(input, 'confirm', errors) ?? 'none';
   if (audience !== 'player' && audience !== 'creator') errors.push('audience must be player or creator');
   if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || slug.length > 64) {

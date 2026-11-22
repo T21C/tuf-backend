@@ -230,6 +230,41 @@ test('nth and lead read the other clears of a chart', () => {
   });
   assert.equal(evaluateBadge(valueBadge('curve(nth(3), 1, 100000)'), input).tier, 1);
   assert.equal(evaluateBadge(valueBadge('count(levels.filter(level => lead(level, "accuracy")))'), input).credit, 1);
+  assert.equal(evaluateBadge(valueBadge('curve(nth(2), 1, 100000)'), owner({
+    ownerId: 101,
+    charts: [chart(4, 'G2')],
+    world,
+  })).tier, 1);
+  assert.equal(evaluateBadge(valueBadge('count(levels.filter(level => lead(level, "accuracy")))'), owner({
+    ownerId: 100,
+    charts: [chart(4, 'G2')],
+    world,
+  })).credit, 0);
+});
+
+test('count distinct identity arrows lower to the same rollup as a field name', () => {
+  const arrow = 'curve(count(distinct(clears.filter(clear => clear.worldsFirst == true), clear => clear.identity)), 1, 1)';
+  const field = 'curve(count(distinct(clears.filter(clear => clear.worldsFirst == true), "identity")), 1, 1)';
+  const arrowPlan = planValueSource(arrow);
+  const fieldPlan = planValueSource(field);
+  assert.equal(arrowPlan?.pure, true);
+  assert.equal(fieldPlan?.pure, true);
+  assert.equal(arrowPlan?.demands[0]?.key, fieldPlan?.demands[0]?.key);
+});
+
+test('blocks counts owner clears and treats empty id ranges as complete', () => {
+  const def = valueBadge('curve(blocks(10, "Impossible", "Censored"), 1, 1)');
+  const charts = [
+    ...Array.from({ length: 10 }, (_, index) => chart(index + 1, 'G1')),
+    chart(15, 'G1'),
+    chart(25, 'Censored'),
+    chart(26, 'G1'),
+  ];
+  const passes = charts
+    .filter((item) => item.diffName !== 'Censored' && item.id <= 15)
+    .map((item, index) => pass({ id: index + 1, levelId: item.id }));
+  const result = evaluateBadge(def, owner({ charts, passes }));
+  assert.equal(result.credit, 2);
 });
 
 test('expressions cannot reach object internals', () => {

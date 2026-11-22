@@ -96,6 +96,18 @@ function fieldOf(ast: Ast, param: string): string | null {
   return null;
 }
 
+function distinctFieldName(fieldArg: Ast | undefined): string | null {
+  if (!fieldArg) return null;
+  if (fieldArg.k === 'str') return fieldArg.v;
+  if (fieldArg.k === 'name') return fieldArg.name;
+  if (fieldArg.k === 'arrow' && fieldArg.params.length === 1) {
+    const body = fieldArg.body;
+    const param = fieldArg.params[0];
+    if (body.k === 'member' && body.a.k === 'name' && body.a.name === param) return body.name;
+  }
+  return null;
+}
+
 function flatten(kind: 'and' | 'or', pred: RowPred): RowPred[] {
   if (pred.k === kind) return pred.xs.flatMap((item) => flatten(kind, item));
   return [pred];
@@ -394,10 +406,10 @@ function lower(ast: Ast, identityMode: IdentityMode): Lowered {
       const distinctCall = callOf(call.args[0]);
       const recv = distinct?.recv ?? distinctCall?.args[0];
       const fieldArg = distinct?.args[0] ?? distinctCall?.args[1];
-      if (recv && fieldArg && (fieldArg.k === 'str' || fieldArg.k === 'name')) {
+      const field = distinctFieldName(fieldArg);
+      if (recv && field) {
         const clearsList = asClears(recv);
-        const field = fieldArg.k === 'str' ? fieldArg.v : fieldArg.name;
-        if (clearsList && field) {
+        if (clearsList) {
           const demand = countDemand(clearsList.pred, identityMode, field);
           return { node: { type: 'slot', key: demand.key, as: 'number' }, demands: [demand] };
         }

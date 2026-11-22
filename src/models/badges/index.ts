@@ -232,6 +232,9 @@ export class BadgeJob extends Model {
   declare definitionProgress: Record<string, number> | null;
   declare definitionTimings: { id: number; name: string; audience: string; runs: number; totalMs: number }[] | null;
   declare startFrom: number;
+  declare ownerFrom: number | null;
+  declare ownerTo: number | null;
+  declare ownerKind: 'player' | 'creator' | null;
   declare dirt: {
     players?: number[];
     creators?: number[];
@@ -278,6 +281,9 @@ BadgeJob.init(
     definitionProgress: { type: DataTypes.JSON, allowNull: true },
     definitionTimings: { type: DataTypes.JSON, allowNull: true },
     startFrom: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    ownerFrom: { type: DataTypes.INTEGER, allowNull: true },
+    ownerTo: { type: DataTypes.INTEGER, allowNull: true },
+    ownerKind: { type: DataTypes.STRING(16), allowNull: true },
     dirt: { type: DataTypes.JSON, allowNull: true },
     startedAt: { type: DataTypes.DATE, allowNull: true },
     finishedAt: { type: DataTypes.DATE, allowNull: true },
