@@ -10,6 +10,7 @@ import {
   type BadgeDirt,
   type BadgeDirtPatch,
 } from './dirt.js';
+import { ownerRangeFrom, parseOwnerKind, type OwnerKind } from './owners.js';
 
 export type BadgeSignal = {
   scope: 'definition' | 'player' | 'creator' | 'chart' | 'pack' | 'all' | 'dirty';
@@ -20,6 +21,9 @@ export type BadgeSignal = {
   packId?: number | null;
   replaceState?: boolean;
   startFrom?: number;
+  ownerFrom?: number | null;
+  ownerTo?: number | null;
+  ownerKind?: OwnerKind | null;
   dirt?: BadgeDirtPatch;
 };
 
@@ -89,7 +93,9 @@ export async function enqueueBadgeJob(signal: BadgeSignal): Promise<void> {
     return;
   }
   const sequelize = getSequelizeForModelGroup('badges');
-  const startFrom = Math.max(0, Math.floor(Number(signal.startFrom) || 0));
+  const { ownerFrom, ownerTo } = ownerRangeFrom(signal);
+  const startFrom = ownerFrom ?? 0;
+  const ownerKind = parseOwnerKind(signal.ownerKind);
   const existing = await sequelize.query<{ id: number }>(
     `SELECT id FROM badge_jobs
      WHERE status = 'pending' AND scope = :scope
@@ -100,6 +106,9 @@ export async function enqueueBadgeJob(signal: BadgeSignal): Promise<void> {
        AND IFNULL(packId, 0) = IFNULL(:packId, 0)
        AND replaceState = :replaceState
        AND IFNULL(startFrom, 0) = IFNULL(:startFrom, 0)
+       AND IFNULL(ownerFrom, 0) = IFNULL(:ownerFrom, 0)
+       AND IFNULL(ownerTo, 0) = IFNULL(:ownerTo, 0)
+       AND IFNULL(ownerKind, '') = IFNULL(:ownerKind, '')
      LIMIT 1`,
     {
       replacements: {
@@ -111,6 +120,9 @@ export async function enqueueBadgeJob(signal: BadgeSignal): Promise<void> {
         packId: signal.packId ?? null,
         replaceState: signal.replaceState ? 1 : 0,
         startFrom,
+        ownerFrom,
+        ownerTo,
+        ownerKind,
       },
       type: QueryTypes.SELECT,
     },
@@ -118,8 +130,8 @@ export async function enqueueBadgeJob(signal: BadgeSignal): Promise<void> {
   if (existing.length) return;
   await sequelize.query(
     `INSERT INTO badge_jobs
-      (scope, definitionId, playerId, creatorId, levelId, packId, replaceState, startFrom, status, createdAt)
-     VALUES (:scope, :definitionId, :playerId, :creatorId, :levelId, :packId, :replaceState, :startFrom, 'pending', NOW())`,
+      (scope, definitionId, playerId, creatorId, levelId, packId, replaceState, startFrom, ownerFrom, ownerTo, ownerKind, status, createdAt)
+     VALUES (:scope, :definitionId, :playerId, :creatorId, :levelId, :packId, :replaceState, :startFrom, :ownerFrom, :ownerTo, :ownerKind, 'pending', NOW())`,
     {
       replacements: {
         scope: signal.scope,
@@ -130,6 +142,9 @@ export async function enqueueBadgeJob(signal: BadgeSignal): Promise<void> {
         packId: signal.packId ?? null,
         replaceState: signal.replaceState ? 1 : 0,
         startFrom,
+        ownerFrom,
+        ownerTo,
+        ownerKind,
       },
     },
   );

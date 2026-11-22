@@ -10,10 +10,24 @@ import {
   BadgeReview,
   BadgeSet,
 } from '@/models/badges/index.js';
-import { enqueueBadgeJob, normalizeDefinition, type BadgeDraft } from '@/server/services/badges/index.js';
+import {
+  clampOwnerRange,
+  definitionExpression,
+  enqueueBadgeJob,
+  normalizeDefinition,
+  ownerRangeFrom,
+  parseOwnerBounds,
+  parseOwnerKind,
+  shouldEnqueueOnSave,
+  type BadgeDraft,
+} from '@/server/services/badges/index.js';
 import { parseValueExpr } from '@/server/services/badges/engine/valueExpr.js';
 import { planValueExpr, planSummary } from '@/server/services/badges/engine/planExpr.js';
-import { parseBadgeConfig, validateBadgeConfig } from '@/server/services/badges/engine/importConfig.js';
+import {
+  parseBadgeConfig,
+  validateBadgeConfig,
+  type ImportedDefinition,
+} from '@/server/services/badges/engine/importConfig.js';
 
 const router = Router();
 
@@ -75,6 +89,15 @@ function parsePositiveInt(value: unknown): number | null {
   const n = Number(value);
   if (!Number.isInteger(n) || n <= 0) return null;
   return n;
+}
+
+async function loadOwnerBounds(kind: 'player' | 'creator') {
+  const table = kind === 'creator' ? 'creators' : 'players';
+  const rows = await db().query<{ minId: number | null; maxId: number | null }>(
+    `SELECT MIN(id) AS minId, MAX(id) AS maxId FROM ${table}`,
+    { type: QueryTypes.SELECT },
+  );
+  return parseOwnerBounds(rows[0]);
 }
 
 function parseIdList(raw: unknown): number[] | null {
@@ -337,11 +360,17 @@ router.post('/definitions', async (req: Request, res: Response) => {
     ...rowFields(normalized.value),
     publishedAt: new Date(),
   });
-  await enqueueBadgeJob({
-    scope: 'definition',
-    definitionId: created.id,
-    replaceState: false,
-  });
+  if (shouldEnqueueOnSave({
+    previousExpression: null,
+    nextBackfill: normalized.value.backfill,
+    nextParams: normalized.value.params,
+  })) {
+    await enqueueBadgeJob({
+      scope: 'definition',
+      definitionId: created.id,
+      replaceState: false,
+    });
+  }
   res.status(201).json({ definition: created });
 });
 
@@ -356,12 +385,19 @@ router.put('/definitions/:id', async (req: Request, res: Response) => {
     res.status(400).json({ error: normalized.errors.join(' ') });
     return;
   }
+  const previousExpression = definitionExpression(row.params);
   await row.update(rowFields(normalized.value));
-  await enqueueBadgeJob({
-    scope: 'definition',
-    definitionId: row.id,
-    replaceState: req.body?.replace === true,
-  });
+  if (shouldEnqueueOnSave({
+    previousExpression,
+    nextBackfill: normalized.value.backfill,
+    nextParams: normalized.value.params,
+  })) {
+    await enqueueBadgeJob({
+      scope: 'definition',
+      definitionId: row.id,
+      replaceState: req.body?.replace === true,
+    });
+  }
   res.json({ definition: row });
 });
 
@@ -371,10 +407,15 @@ router.post('/definitions/:id/recompute', async (req: Request, res: Response) =>
     res.status(404).json({ error: 'Badge not found' });
     return;
   }
+  const ownerKind = parseOwnerKind(req.body?.ownerKind) ?? (row.audience === 'creator' ? 'creator' : 'player');
+  const range = clampOwnerRange(ownerRangeFrom(req.body ?? {}), await loadOwnerBounds(ownerKind));
   await enqueueBadgeJob({
     scope: 'definition',
     definitionId: row.id,
     replaceState: req.body?.replace === true,
+    ownerFrom: range.ownerFrom,
+    ownerTo: range.ownerTo,
+    ownerKind,
   });
   res.json({ ok: true });
 });
@@ -465,6 +506,14 @@ router.post('/reviews/:id/decision', async (req: Request, res: Response) => {
   res.json({ review });
 });
 
+router.get('/owner-bounds', async (_req: Request, res: Response) => {
+  const [player, creator] = await Promise.all([
+    loadOwnerBounds('player'),
+    loadOwnerBounds('creator'),
+  ]);
+  res.json({ player, creator });
+});
+
 router.get('/jobs', async (_req: Request, res: Response) => {
   const recent = await BadgeJob.findAll({ order: [['id', 'DESC']], limit: 30 });
   const running = await BadgeJob.findOne({ where: { status: 'running' }, order: [['id', 'ASC']] });
@@ -480,7 +529,8 @@ router.get('/jobs', async (_req: Request, res: Response) => {
 
 router.post('/backfill', async (req: Request, res: Response) => {
   const replace = req.body?.replace !== false;
-  const startFrom = Math.max(0, Math.floor(Number(req.body?.startFrom) || 0));
+  const ownerKind = parseOwnerKind(req.body?.ownerKind) ?? 'player';
+  const range = clampOwnerRange(ownerRangeFrom(req.body ?? {}), await loadOwnerBounds(ownerKind));
   const busy = await db().query<{ id: number }>(
     `SELECT id FROM badge_jobs
      WHERE status IN ('pending', 'running')
@@ -494,7 +544,13 @@ router.post('/backfill', async (req: Request, res: Response) => {
     });
     return;
   }
-  await enqueueBadgeJob({ scope: 'all', replaceState: replace, startFrom });
+  await enqueueBadgeJob({
+    scope: 'all',
+    replaceState: replace,
+    ownerFrom: range.ownerFrom,
+    ownerTo: range.ownerTo,
+    ownerKind,
+  });
   const created = await db().query<{ id: number }>(
     `SELECT id FROM badge_jobs
      WHERE scope = 'all' AND replaceState = :replace AND status = 'pending'
@@ -579,6 +635,29 @@ router.get('/jobs/:id/timings.csv', async (req: Request, res: Response) => {
   res.send(lines.join('\n'));
 });
 
+function importPlacement(
+  definition: ImportedDefinition,
+  groupMap: Map<number, number>,
+  knownGroupIds: Set<number>,
+) {
+  let groupId = definition.groupId;
+  if (groupId != null && groupMap.has(groupId)) groupId = groupMap.get(groupId) ?? null;
+  if (groupId != null && !knownGroupIds.has(groupId)) groupId = null;
+  return {
+    ...(groupId !== undefined ? { groupId } : {}),
+    ...(definition.sortOrder !== undefined ? { sortOrder: definition.sortOrder } : {}),
+  };
+}
+
+router.get('/export', async (_req: Request, res: Response) => {
+  const [groups, sets, definitions] = await Promise.all([
+    BadgeGroup.findAll({ order: [['sortOrder', 'ASC'], ['name', 'ASC']] }),
+    BadgeSet.findAll({ order: [['name', 'ASC']] }),
+    BadgeDefinition.findAll({ order: [['name', 'ASC']] }),
+  ]);
+  res.json({ groups, sets, definitions });
+});
+
 router.post('/import', async (req: Request, res: Response) => {
   const parsed = parseBadgeConfig(typeof req.body?.code === 'string' ? req.body.code : '');
   if (!parsed.ok) {
@@ -608,6 +687,21 @@ router.post('/import', async (req: Request, res: Response) => {
     return;
   }
   await db().transaction(async (transaction) => {
+    const groupMap = new Map<number, number>();
+    for (const group of prepared.groups) {
+      let existing = await BadgeGroup.findOne({ where: { name: group.name }, transaction });
+      if (existing) {
+        if (existing.sortOrder !== group.sortOrder) {
+          await existing.update({ sortOrder: group.sortOrder }, { transaction });
+        }
+      } else {
+        existing = await BadgeGroup.create({ name: group.name, sortOrder: group.sortOrder }, { transaction });
+      }
+      if (group.id != null) groupMap.set(group.id, existing.id);
+    }
+    const knownGroupIds = new Set(
+      (await BadgeGroup.findAll({ attributes: ['id'], transaction })).map((group) => group.id),
+    );
     for (const set of prepared.sets) {
       const existing = await BadgeSet.findOne({ where: { name: set.name }, transaction });
       if (existing) await existing.update({ kind: set.kind, values: set.values }, { transaction });
@@ -615,13 +709,22 @@ router.post('/import', async (req: Request, res: Response) => {
     }
     for (const definition of prepared.definitions) {
       const existing = await BadgeDefinition.findOne({ where: { slug: definition.slug }, transaction });
-      const fields = rowFields(definition);
+      const fields = {
+        ...rowFields(definition),
+        ...importPlacement(definition, groupMap, knownGroupIds),
+      };
       if (existing) await existing.update(fields, { transaction });
       else await BadgeDefinition.create({ ...fields, publishedAt: new Date() }, { transaction });
     }
   });
-  await enqueueBadgeJob({ scope: 'all', replaceState: req.body?.replace === true });
-  res.json({ definitions: prepared.definitions.length, sets: prepared.sets.length });
+  if (req.body?.replace === true) {
+    await enqueueBadgeJob({ scope: 'all', replaceState: true });
+  }
+  res.json({
+    definitions: prepared.definitions.length,
+    sets: prepared.sets.length,
+    groups: prepared.groups.length,
+  });
 });
 
 router.get('/packs', async (req: Request, res: Response) => {

@@ -29,6 +29,7 @@ import { computeRollups, planValueSource, unionDemands } from '../engine/planExp
 import type { BadgeDraft } from '../engine/params.js';
 import { definitionFromRow, type DefinitionRow } from './definitions.js';
 import { parseDirt, type BadgeDirt } from './dirt.js';
+import { compareOwners, inOwnerRange, ownerRangeFrom, parseOwnerKind } from './owners.js';
 
 type JobRow = {
   id: number;
@@ -40,6 +41,9 @@ type JobRow = {
   packId: number | null;
   replaceState: number;
   startFrom: number;
+  ownerFrom?: number | null;
+  ownerTo?: number | null;
+  ownerKind?: string | null;
   processed: number;
   dirt?: unknown;
 };
@@ -64,10 +68,12 @@ async function loadDefinitions(job: JobRow): Promise<BadgeDraft[]> {
     : 'SELECT * FROM badge_definitions WHERE enabled = 1';
   const rows = await select<DefinitionRow>(sql, { id: job.definitionId });
   const defs = rows.map(definitionFromRow).filter((row): row is BadgeDraft => row != null && row.enabled);
+  const kind = parseOwnerKind(job.ownerKind);
+  const scoped = kind ? defs.filter((def) => def.audience === kind) : defs;
   if (job.scope === 'pack') {
-    return defs.filter((def) => packDefMatches(def, job.packId == null ? null : Number(job.packId)));
+    return scoped.filter((def) => packDefMatches(def, job.packId == null ? null : Number(job.packId)));
   }
-  return defs;
+  return scoped;
 }
 
 async function playerIdsForLevel(levelId: number): Promise<number[]> {
@@ -234,6 +240,14 @@ async function loadEtaSamples(jobId: number): Promise<EtaSample[]> {
   return readEtaSamples(rows[0]?.etaSamples);
 }
 
+const OWNER_NAME_MAX = 80;
+
+function clipOwnerName(name: string | null | undefined): string | null {
+  if (name == null) return null;
+  const clipped = String(name).trim().slice(0, OWNER_NAME_MAX);
+  return clipped || null;
+}
+
 async function writeJobProgress(jobId: number, progress: {
   processed: number;
   total: number;
@@ -278,7 +292,7 @@ async function writeJobProgress(jobId: number, progress: {
         badgeTotal: progress.badgeTotal,
         currentDefinitionId: progress.currentDefinitionId,
         currentOwnerId: progress.currentOwnerId,
-        currentOwnerName: progress.currentOwnerName,
+        currentOwnerName: clipOwnerName(progress.currentOwnerName),
         etaMs: progress.etaMs,
         etaSamples: JSON.stringify(progress.etaSamples),
         definitionProgress: JSON.stringify(progress.definitionProgress),
@@ -377,22 +391,55 @@ async function flushReviewWrites(pending: { definitionId: number; passId: number
   }
 }
 
+function jobOwnerRange(job: JobRow): { ownerFrom: number | null; ownerTo: number | null } {
+  return ownerRangeFrom(job);
+}
+
+async function listedOwnerIds(
+  table: 'players' | 'creators',
+  from: number | null,
+  to: number | null,
+): Promise<number[]> {
+  const where: string[] = [];
+  const replacements: Record<string, unknown> = {};
+  if (from != null) {
+    where.push('id >= :from');
+    replacements.from = from;
+  }
+  if (to != null) {
+    where.push('id <= :to');
+    replacements.to = to;
+  }
+  const rows = await select<{ id: number }>(
+    `SELECT id FROM ${table}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY id ASC`,
+    replacements,
+  );
+  return rows.map((row) => Number(row.id)).filter((id) => Number.isInteger(id) && id > 0);
+}
+
+function sortOwners(owners: OwnerWork[]): OwnerWork[] {
+  return [...owners].sort(compareOwners);
+}
+
 async function ownersFor(job: JobRow, defs: BadgeDraft[], catalog: BadgeCatalog): Promise<OwnerWork[]> {
   const withDefs = (audience: 'player' | 'creator', id: number): OwnerWork => ({
     audience,
     id,
     defs: defs.filter((def) => def.audience === audience),
   });
+  const range = jobOwnerRange(job);
+  const inRange = (id: number) => inOwnerRange(id, range.ownerFrom, range.ownerTo);
+  const kind = parseOwnerKind(job.ownerKind);
   if (job.scope === 'player' && job.playerId) return [withDefs('player', Number(job.playerId))];
   if (job.scope === 'creator' && job.creatorId) return [withDefs('creator', Number(job.creatorId))];
   const out: OwnerWork[] = [];
-  const wantPlayer = defs.some((def) => def.audience === 'player');
-  const wantCreator = defs.some((def) => def.audience === 'creator');
+  const wantPlayer = kind !== 'creator' && defs.some((def) => def.audience === 'player');
+  const wantCreator = kind !== 'player' && defs.some((def) => def.audience === 'creator');
   if (job.scope === 'chart' && job.levelId) {
     if (wantPlayer) {
       const ids = new Set(catalog.passes.filter((pass) => pass.levelId === Number(job.levelId)).map((pass) => pass.playerId));
       for (const id of await playerIdsForLevel(Number(job.levelId))) ids.add(id);
-      for (const id of ids) out.push(withDefs('player', id));
+      for (const id of [...ids].filter(inRange).sort((left, right) => left - right)) out.push(withDefs('player', id));
     }
     if (wantCreator) {
       const ids = new Set<number>();
@@ -400,20 +447,19 @@ async function ownersFor(job: JobRow, defs: BadgeDraft[], catalog: BadgeCatalog)
       for (const id of chart?.charterIds ?? []) ids.add(id);
       for (const id of chart?.vfxerIds ?? []) ids.add(id);
       if (job.creatorId) ids.add(Number(job.creatorId));
-      for (const id of ids) out.push(withDefs('creator', id));
+      for (const id of [...ids].filter(inRange).sort((left, right) => left - right)) out.push(withDefs('creator', id));
     }
     return out;
   }
   if (wantPlayer) {
-    for (const id of new Set(catalog.passes.map((pass) => pass.playerId))) out.push(withDefs('player', id));
+    for (const id of await listedOwnerIds('players', range.ownerFrom, range.ownerTo)) {
+      out.push(withDefs('player', id));
+    }
   }
   if (wantCreator) {
-    const ids = new Set<number>();
-    for (const chart of catalog.charts) {
-      for (const id of chart.charterIds) ids.add(id);
-      for (const id of chart.vfxerIds) ids.add(id);
+    for (const id of await listedOwnerIds('creators', range.ownerFrom, range.ownerTo)) {
+      out.push(withDefs('creator', id));
     }
-    for (const id of ids) out.push(withDefs('creator', id));
   }
   return out;
 }
@@ -470,7 +516,7 @@ async function ownersForDirty(dirt: BadgeDirt, definitions: BadgeDraft[], catalo
       if (owner.defs.length) owners.push(owner);
     }
   }
-  return owners.filter((owner) => owner.defs.length > 0);
+  return sortOwners(owners.filter((owner) => owner.defs.length > 0));
 }
 
 async function ownerNames(): Promise<{ players: Map<number, string>; creators: Map<number, string> }> {
@@ -486,7 +532,7 @@ async function ownerNames(): Promise<{ players: Map<number, string>; creators: M
 
 export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips: { placeholder: number; unknownTime: number; missingDifficulty: number }; cancelled?: boolean; timings?: { id: number; name: string; audience: string; runs: number; totalMs: number }[] }> {
   await stopIfCancelled(Number(job.id));
-  const resumeAt = Math.max(0, Math.floor(Number(job.startFrom) || 0), Math.floor(Number(job.processed) || 0));
+  const resumeAt = Math.max(0, Math.floor(Number(job.processed) || 0));
   const etaSamples = await loadEtaSamples(Number(job.id));
   let etaMs: number | null = null;
   await writeJobProgress(Number(job.id), {
@@ -739,7 +785,7 @@ let lockConn: Connection | null = null;
 let haveLock = false;
 let lockWarned = false;
 
-const JOB_COLUMNS = 'id, scope, definitionId, playerId, creatorId, levelId, packId, replaceState, startFrom, processed, dirt';
+const JOB_COLUMNS = 'id, scope, definitionId, playerId, creatorId, levelId, packId, replaceState, startFrom, ownerFrom, ownerTo, ownerKind, processed, dirt';
 
 function workerLockName(): string {
   const database = (process.env.DB_DATABASE || 'tuf').replace(/[^A-Za-z0-9_]/g, '');
