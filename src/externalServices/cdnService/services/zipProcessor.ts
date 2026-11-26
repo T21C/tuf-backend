@@ -22,8 +22,10 @@ import {
     detectArchiveFormat,
     getArchiveExtension,
     getArchiveMimeType,
+    updateArchiveMembers as archiveUpdateArchiveMembers,
     type ArchiveEntry as ServiceArchiveEntry
 } from '../infra/archive/archiveService.js';
+import { stripNonDefaultPitchInLevelFile } from '../domain/level/levelPitchNormalize.js';
 import {
     rewriteZipFilenamesToUtf8,
     zipArchiveFilenamesAlreadyUtf8Clean
@@ -111,8 +113,8 @@ async function processArchiveFileInWorkspace(
     let bestBackupSize = -1;
 
     // Detect format up-front so we know which extension to preserve in storage and metadata.
-    const detectedFormat = detectArchiveFormat(originalFilename) || detectArchiveFormat(archiveFilePath) || 'zip';
-    const archiveContentType = getArchiveMimeType(detectedFormat);
+    let detectedFormat = detectArchiveFormat(originalFilename) || detectArchiveFormat(archiveFilePath) || 'zip';
+    let archiveContentType = getArchiveMimeType(detectedFormat);
 
     logger.debug('Starting archive file processing:', {
         archiveFilePath,
@@ -186,6 +188,7 @@ async function processArchiveFileInWorkspace(
             oversizedBasics?: OversizedLevelBasics;
         }> = [];
         const songFiles: { [key: string]: any } = {};
+        const pitchStrippedRelativePaths: string[] = [];
 
         logger.debug('Processing archive file in workspace:', {
             permanentDir,
@@ -198,16 +201,16 @@ async function processArchiveFileInWorkspace(
         // Chunked uploads normalise in UploadSessionService; URL/Workshop imports use
         // encodeLevelZipFilenameForCdn on the main API. Re-apply here so object keys never
         // contain CR/LF (breaks Spaces lookups vs metadata).
-        const finalArchiveName = normaliseOriginalName(originalFilename.normalize('NFC'));
+        let finalArchiveName = normaliseOriginalName(originalFilename.normalize('NFC'));
         logger.debug('Using original archive name:', {
             finalArchiveName,
             format: detectedFormat
         });
 
         // Store the original archive file with its original name
-        const originalArchiveDiskPath = path.join(permanentDir, finalArchiveName);
+        let originalArchiveDiskPath = path.join(permanentDir, finalArchiveName);
         await fs.promises.copyFile(ingestArchivePath, originalArchiveDiskPath);
-        const originalArchiveSize = (await fs.promises.stat(originalArchiveDiskPath)).size;
+        let originalArchiveSize = (await fs.promises.stat(originalArchiveDiskPath)).size;
         logger.debug('Stored original archive file:', {
             originalArchiveDiskPath,
             finalArchiveName,
@@ -244,11 +247,27 @@ async function processArchiveFileInWorkspace(
 
             try {
                 const levelFilename = path.basename(entry.relativePath);
+                const pitchResult = await stripNonDefaultPitchInLevelFile(tempPath);
+                if (pitchResult.status === 'stripped') {
+                    pitchStrippedRelativePaths.push(normalizedRelativePath);
+                    logger.info('Stripped non-default settings.pitch from level file', {
+                        archiveFileId,
+                        relativePath: normalizedRelativePath,
+                        removedValue: pitchResult.removedValue
+                    });
+                } else if (pitchResult.status === 'skipped') {
+                    logger.warn('Could not strip settings.pitch; leaving file unchanged', {
+                        archiveFileId,
+                        relativePath: normalizedRelativePath,
+                        reason: pitchResult.reason
+                    });
+                }
                 const { sourceLocalPath, sourceRelativePath } = await snapshotLevelSourceBytes(
                     tempPath,
                     extractRoot,
                     normalizedRelativePath
                 );
+                const levelSize = (await fs.promises.stat(tempPath)).size;
                 const tooLargeToParse = entry.size > MAX_LEVEL_FILE_SIZE_FOR_PARSE;
 
                 let levelFile: {
@@ -306,7 +325,7 @@ async function processArchiveFileInWorkspace(
                         path: tempPath,
                         sourceLocalPath,
                         sourceRelativePath,
-                        size: entry.size,
+                        size: levelSize,
                         hasYouTubeStream: chartRequiresYouTubeStream(scanned?.settings?.requiredMods),
                         songFilename: scanned?.settings?.songFilename as any,
                         songURL: chartSongUrl(scanned?.settings?.songURL),
@@ -318,13 +337,13 @@ async function processArchiveFileInWorkspace(
                     const levelDict = new LevelDict(tempPath);
                     const isBackup = levelFilename.toLowerCase() === 'backup.adofai';
                     if (isBackup) {
-                        if (entry.size > bestBackupSize) {
-                            bestBackupSize = entry.size;
+                        if (levelSize > bestBackupSize) {
+                            bestBackupSize = levelSize;
                             preloadedBackupLevelData = levelDict;
                         }
                     } else {
-                        if (entry.size > bestNonBackupSize) {
-                            bestNonBackupSize = entry.size;
+                        if (levelSize > bestNonBackupSize) {
+                            bestNonBackupSize = levelSize;
                             preloadedNonBackupLevelData = levelDict;
                         }
                     }
@@ -334,7 +353,7 @@ async function processArchiveFileInWorkspace(
                         path: tempPath, // Working copy; may be rewritten when canonical JSON is normalized
                         sourceLocalPath,
                         sourceRelativePath,
-                        size: entry.size,
+                        size: levelSize,
                         hasYouTubeStream: chartRequiresYouTubeStream(levelDict.getSetting('requiredMods')),
                         songFilename: levelDict.getSetting('songFilename'),
                         songURL: chartSongUrl(levelDict.getSetting('songURL')),
@@ -348,7 +367,7 @@ async function processArchiveFileInWorkspace(
 
                 levelFiles[entry.relativePath] = levelFile;
                 allLevelFiles.push(levelFile);
-                totalLevelSize += entry.size;
+                totalLevelSize += levelSize;
                 processedLevels++;
 
                 // Update progress: 15-40% for level processing
@@ -359,7 +378,7 @@ async function processArchiveFileInWorkspace(
 
                 logger.debug('Processed level file:', {
                     name: levelFilename,
-                    size: entry.size,
+                    size: levelSize,
                     path: tempPath,
                     hasYouTubeStream: levelFile.hasYouTubeStream,
                     skippedLevelDict: skipLevelDict
@@ -378,6 +397,31 @@ async function processArchiveFileInWorkspace(
                 'No usable .adofai files found after extraction (all missing or failed to parse). ' +
                     'The archive may be corrupt, use unsupported paths, or contain no valid levels.'
             );
+        }
+
+        if (pitchStrippedRelativePaths.length > 0) {
+            await sendProgress('processing', 38, 'Updating archive after pitch normalize');
+            const updatedArchive = await archiveUpdateArchiveMembers({
+                archivePath: originalArchiveDiskPath,
+                format: detectedFormat,
+                memberRoot: extractRoot,
+                relativePaths: pitchStrippedRelativePaths,
+                workDir: permanentDir,
+                archiveName: finalArchiveName,
+                signal: ws.signal
+            });
+            originalArchiveDiskPath = updatedArchive.archivePath;
+            originalArchiveSize = updatedArchive.size;
+            detectedFormat = updatedArchive.format;
+            archiveContentType = updatedArchive.contentType;
+            finalArchiveName = updatedArchive.name;
+            logger.info('Updated original archive after stripping non-default pitch', {
+                archiveFileId,
+                relativePaths: pitchStrippedRelativePaths,
+                rebuiltAsZip: updatedArchive.rebuiltAsZip,
+                format: detectedFormat,
+                size: originalArchiveSize
+            });
         }
 
         // Second pass: collect all song files

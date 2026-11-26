@@ -1234,6 +1234,163 @@ export async function createZip(
     }
 }
 
+const IN_PLACE_ARCHIVE_UPDATE_FORMATS = new Set<SupportedArchiveExt>(['zip', '7z']);
+
+export function archiveNameWithZipExtension(name: string): string {
+    const trimmed = name.trim();
+    const lower = trimmed.toLowerCase();
+    if (lower.endsWith('.zip') || lower.endsWith('.adozip')) {
+        return trimmed;
+    }
+    if (lower.endsWith('.tar.gz')) {
+        return `${trimmed.slice(0, -'.tar.gz'.length)}.zip`;
+    }
+    if (lower.endsWith('.tgz')) {
+        return `${trimmed.slice(0, -'.tgz'.length)}.zip`;
+    }
+    const ext = path.posix.extname(trimmed.replace(/\\/g, '/'));
+    if (!ext) {
+        return `${trimmed}.zip`;
+    }
+    return `${trimmed.slice(0, -ext.length)}.zip`;
+}
+
+export type UpdateArchiveMembersParams = {
+    archivePath: string;
+    format: SupportedArchiveExt | string;
+    /** Directory whose tree matches archive-relative paths (extract root). */
+    memberRoot: string;
+    relativePaths: string[];
+    /** 7-Zip `-w` directory on the CDN volume (never `/tmp`). */
+    workDir: string;
+    /** Display name used when rebuilding a non-updatable format as zip. */
+    archiveName?: string;
+    signal?: AbortSignal;
+};
+
+export type UpdateArchiveMembersResult = {
+    archivePath: string;
+    format: SupportedArchiveExt;
+    contentType: string;
+    extension: string;
+    size: number;
+    rebuiltAsZip: boolean;
+    name: string;
+};
+
+function posixArchiveRelative(relativePath: string): string {
+    const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!normalized) {
+        throw new Error('Empty archive relative path');
+    }
+    return normalized;
+}
+
+async function overlayArchiveMembers(
+    memberRoot: string,
+    destRoot: string,
+    relativePaths: string[]
+): Promise<void> {
+    for (const relativePath of relativePaths) {
+        const rel = posixArchiveRelative(relativePath);
+        const src = path.join(memberRoot, rel);
+        const dest = path.join(destRoot, rel);
+        await fs.promises.access(src);
+        await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+        await fs.promises.copyFile(src, dest);
+    }
+}
+
+/**
+ * Replace listed members inside an existing archive.
+ *
+ * `.zip` / `.7z`: `7z u` from `memberRoot` so only those entries change. Other members keep
+ * their original compressed payloads. `-w` is `workDir` (CDN workspace), not `/tmp`.
+ *
+ * `.rar` / `.tar` / `.gz` / `.tgz`: 7-Zip cannot update these; full-extract, overlay the
+ * patched files, and write a new `.zip`.
+ */
+export async function updateArchiveMembers(
+    params: UpdateArchiveMembersParams
+): Promise<UpdateArchiveMembersResult> {
+    const archivePath = path.resolve(params.archivePath);
+    const memberRoot = path.resolve(params.memberRoot);
+    const workDir = path.resolve(params.workDir);
+    const relativePaths = params.relativePaths.map(posixArchiveRelative);
+    const displayName = params.archiveName || path.basename(archivePath);
+    const format = (params.format || detectArchiveFormat(archivePath) || 'zip') as SupportedArchiveExt;
+
+    if (relativePaths.length === 0) {
+        const size = (await fs.promises.stat(archivePath)).size;
+        return {
+            archivePath,
+            format,
+            contentType: getArchiveMimeType(format),
+            extension: getArchiveExtension(format),
+            size,
+            rebuiltAsZip: false,
+            name: displayName
+        };
+    }
+
+    for (const rel of relativePaths) {
+        await fs.promises.access(path.join(memberRoot, rel));
+    }
+
+    await fs.promises.mkdir(workDir, { recursive: true });
+
+    if (IN_PLACE_ARCHIVE_UPDATE_FORMATS.has(format)) {
+        const encodingArgs = format === 'zip' ? utf8ZipNameArgsForCreate() : [];
+        const args = [
+            'u',
+            archivePath,
+            `-w${workDir}`,
+            '-y',
+            '-bd',
+            ...encodingArgs,
+            '--',
+            ...relativePaths
+        ];
+        const result = await runSevenZ(args, {cwd: memberRoot, signal: params.signal});
+        if (result.code !== 0 && result.code !== 1) {
+            throw buildSevenZError('updateArchiveMembers', args, result);
+        }
+        const size = (await fs.promises.stat(archivePath)).size;
+        return {
+            archivePath,
+            format,
+            contentType: getArchiveMimeType(format),
+            extension: getArchiveExtension(format),
+            size,
+            rebuiltAsZip: false,
+            name: displayName
+        };
+    }
+
+    const rebuildDir = path.join(workDir, `.archive-rebuild-${crypto.randomUUID()}`);
+    const zipName = archiveNameWithZipExtension(displayName);
+    const newZipPath = path.join(workDir, `.pitch-repack-${crypto.randomUUID()}.zip`);
+    await fs.promises.mkdir(rebuildDir, {recursive: true});
+    try {
+        await extractAll(archivePath, rebuildDir, params.signal);
+        await overlayArchiveMembers(memberRoot, rebuildDir, relativePaths);
+        await createZip(rebuildDir, newZipPath, {signal: params.signal});
+    } finally {
+        await fs.promises.rm(rebuildDir, {recursive: true, force: true}).catch(() => undefined);
+    }
+
+    const size = (await fs.promises.stat(newZipPath)).size;
+    return {
+        archivePath: newZipPath,
+        format: 'zip',
+        contentType: getArchiveMimeType('zip'),
+        extension: getArchiveExtension('zip'),
+        size,
+        rebuiltAsZip: true,
+        name: zipName
+    };
+}
+
 /**
  * Build a `.zip` from an explicit list of source files, each with the path it
  * should appear under inside the archive. Used by the level-repack flow that

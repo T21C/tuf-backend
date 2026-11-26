@@ -6,6 +6,7 @@ import {clientUrlEnv} from '@/config/app.config.js';
 import {curationTypeEmojiMarkup} from '@/misc/utils/data/curationTypeEmojis.js';
 import {getSongDisplayName} from '@/misc/utils/data/levelHelpers.js';
 import {isSilentCurationAnnouncementName} from '@/misc/utils/data/curationTypeFamilies.js';
+import {formatCreatorDisplay} from '@/misc/utils/Utility.js';
 import {toAbsoluteAssetUrl} from '@/server/services/notifications/pushArtwork.js';
 
 function asIdList(value: unknown): number[] {
@@ -65,6 +66,6 @@ export async function createCurationAnnouncementEmbed(input: {
     embed.setDescription(afterLine);
   }
 
-  embed.setFooter(`ID: ${level.id}`, '');
+  embed.setFooter(formatCreatorDisplay(level), '');
   return embed;
 }

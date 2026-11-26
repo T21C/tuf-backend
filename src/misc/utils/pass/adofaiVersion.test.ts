@@ -2,6 +2,7 @@ import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ADOFAI_VERSION,
+  ADOFAI_VERSION_SELECT_VALUES,
   canUseXPerfectMode,
   filterValueToAdofaiVersions,
   isLegacyAdofaiVersion,
@@ -19,21 +20,30 @@ describe('adofaiVersion', () => {
     assert.equal(parseAdofaiVersion(99), ADOFAI_VERSION.V3_4_0);
   });
 
-  it('shows stored <3.4.0 as 3.4.0 without rewriting it', () => {
-    assert.equal(visualAdofaiVersion(ADOFAI_VERSION.PRE_3_4_0), ADOFAI_VERSION.V3_4_0);
+  it('keeps ≤3.3.1 selectable and distinct from 3.4.0', () => {
+    assert.deepEqual(ADOFAI_VERSION_SELECT_VALUES, [
+      ADOFAI_VERSION.V3_4_0,
+      ADOFAI_VERSION.PRE_3_4_0,
+      ADOFAI_VERSION.V2,
+    ]);
+    assert.equal(visualAdofaiVersion(ADOFAI_VERSION.PRE_3_4_0), ADOFAI_VERSION.PRE_3_4_0);
     assert.equal(visualAdofaiVersion(ADOFAI_VERSION.V3_4_0), ADOFAI_VERSION.V3_4_0);
     assert.equal(visualAdofaiVersion(ADOFAI_VERSION.V2), ADOFAI_VERSION.V2);
     assert.equal(
+      keepStoredAdofaiVersion(ADOFAI_VERSION.PRE_3_4_0, ADOFAI_VERSION.V3_4_0),
+      ADOFAI_VERSION.PRE_3_4_0,
+    );
+    assert.equal(
       keepStoredAdofaiVersion(ADOFAI_VERSION.V3_4_0, ADOFAI_VERSION.PRE_3_4_0),
+      ADOFAI_VERSION.V3_4_0,
+    );
+    assert.equal(
+      keepStoredAdofaiVersion(ADOFAI_VERSION.PRE_3_4_0, ADOFAI_VERSION.PRE_3_4_0),
       ADOFAI_VERSION.PRE_3_4_0,
     );
     assert.equal(
       keepStoredAdofaiVersion(ADOFAI_VERSION.V2, ADOFAI_VERSION.PRE_3_4_0),
       ADOFAI_VERSION.V2,
-    );
-    assert.equal(
-      keepStoredAdofaiVersion(ADOFAI_VERSION.V3_4_0, ADOFAI_VERSION.V2),
-      ADOFAI_VERSION.V3_4_0,
     );
   });
 
@@ -42,7 +52,7 @@ describe('adofaiVersion', () => {
     assert.equal(isLegacyAdofaiVersion(ADOFAI_VERSION.PRE_3_4_0), true);
     assert.equal(isLegacyAdofaiVersion(ADOFAI_VERSION.V3_4_0), false);
     assert.equal(canUseXPerfectMode(ADOFAI_VERSION.V3_4_0), true);
-    assert.equal(canUseXPerfectMode(ADOFAI_VERSION.PRE_3_4_0), true);
+    assert.equal(canUseXPerfectMode(ADOFAI_VERSION.PRE_3_4_0), false);
     assert.equal(canUseXPerfectMode(ADOFAI_VERSION.V2), false);
   });
 

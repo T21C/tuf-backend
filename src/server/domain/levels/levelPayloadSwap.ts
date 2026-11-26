@@ -55,6 +55,7 @@ const LEVEL_ID_REMAP_TABLES = [
   'level_aliases',
   'level_tag_assignments',
   'level_tag_votes',
+  'level_community_tag_vote_blocks',
   'level_likes',
   '`references`',
   'curations',

@@ -4,6 +4,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
+import LevelCommunityTagVoteBlock from '@/models/levels/LevelCommunityTagVoteBlock.js';
 import { getCommunityTagConfig } from '@/config/app.config.js';
 import {
   isCommunityTagHiddenForDifficulty,
@@ -123,7 +124,7 @@ export async function loadSerializedAssignedTags(
   levelId: number,
   transaction?: Transaction,
 ): Promise<Record<string, unknown>[]> {
-  const [assignments, level] = await Promise.all([
+  const [assignments, level, voteBlocks] = await Promise.all([
     LevelTagAssignment.findAll({
       where: { levelId },
       include: [
@@ -146,10 +147,16 @@ export async function loadSerializedAssignedTags(
       }],
       transaction,
     }),
+    LevelCommunityTagVoteBlock.findAll({
+      where: { levelId },
+      attributes: ['tagId'],
+      transaction,
+    }),
   ]);
 
   const difficulty = (level as (Level & { difficulty?: Difficulty | null }) | null)?.difficulty ?? null;
   const env = getCommunityTagConfig();
+  const blockedTagIds = new Set(voteBlocks.map((row) => row.tagId));
 
   return assignments
     .map((assignment) => {
@@ -157,6 +164,7 @@ export async function loadSerializedAssignedTags(
       if (!tag) return null;
       const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
       if (isCommunityTagHiddenForDifficulty(tag, group, difficulty, env)) return null;
+      if (tag.isCommunity && blockedTagIds.has(tag.id) && !assignment.pinned) return null;
       return serializeAssignedLevelTag(tag, assignment);
     })
     .filter((row): row is Record<string, unknown> => row != null)
