@@ -1,3 +1,4 @@
+import type { Transaction } from 'sequelize';
 import LevelSubmissionEvidence from '@/models/submissions/LevelSubmissionEvidence.js';
 import ArtistEvidence from '@/models/artists/ArtistEvidence.js';
 import SongEvidence from '@/models/songs/SongEvidence.js';
@@ -83,11 +84,18 @@ class EvidenceService {
   }
 
   /**
-   * Delete all evidence for a submission (for declined submissions)
+   * Delete all evidence for a submission (for declined submissions).
+   * Pass the caller's transaction when that transaction already holds a lock
+   * on the submission row. The evidence FK has to touch that row, so a DELETE
+   * on another connection waits until the lock times out.
    */
-  public async deleteAllEvidenceForSubmission(submissionId: number): Promise<void> {
+  public async deleteAllEvidenceForSubmission(
+    submissionId: number,
+    transaction?: Transaction,
+  ): Promise<void> {
     const evidenceList = await LevelSubmissionEvidence.findAll({
-      where: { submissionId }
+      where: { submissionId },
+      transaction,
     });
 
     for (const evidence of evidenceList) {
@@ -98,9 +106,9 @@ class EvidenceService {
       }
     }
 
-    // Delete all evidence records
     await LevelSubmissionEvidence.destroy({
-      where: { submissionId }
+      where: { submissionId },
+      transaction,
     });
   }
 

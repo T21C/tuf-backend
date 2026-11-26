@@ -167,31 +167,60 @@ function rowToState(row: {
   };
 }
 
-async function loadStates(definitionIds: number[]): Promise<Map<string, StoredBadge>> {
-  const states = new Map<string, StoredBadge>();
-  if (!definitionIds.length) return states;
-  const rows = await select<{
-    ownerType: string;
-    ownerId: number;
-    definitionId: number;
-    tier: number;
-    credit: number;
-    barFrom: number;
-    barTo: number;
-    barValue: number;
-    provingPassIds: unknown;
-    earnedAt: Date | null;
-    tierLabel: string | null;
-    snapshotIds: unknown;
-  }>(
-    `SELECT ownerType, ownerId, definitionId, tier, credit, barFrom, barTo, barValue, provingPassIds, earnedAt, tierLabel, snapshotIds
-     FROM badge_states
-     WHERE definitionId IN (:ids)`,
-    { ids: definitionIds },
-  );
+type StateRow = {
+  ownerType: string;
+  ownerId: number;
+  definitionId: number;
+  tier: number;
+  credit: number;
+  barFrom: number;
+  barTo: number;
+  barValue: number;
+  provingPassIds: unknown;
+  earnedAt: Date | null;
+  tierLabel: string | null;
+  snapshotIds: unknown;
+};
+
+const STATE_ROW_SQL = `SELECT ownerType, ownerId, definitionId, tier, credit, barFrom, barTo, barValue, provingPassIds, earnedAt, tierLabel, snapshotIds
+     FROM badge_states`;
+
+function rememberStates(states: Map<string, StoredBadge>, rows: StateRow[]): void {
   for (const row of rows) {
     states.set(stateKey(row.ownerType, Number(row.ownerId), Number(row.definitionId)), rowToState(row));
   }
+}
+
+/**
+ * Previous states for one slice of owners. A full job is ~1M rows; reading
+ * them in one IN (definitionId) list retains the raw result and the map
+ * together and exhausts the worker heap.
+ */
+async function loadStatesForOwners(
+  definitionIds: number[],
+  owners: OwnerWork[],
+): Promise<Map<string, StoredBadge>> {
+  const states = new Map<string, StoredBadge>();
+  if (!definitionIds.length || !owners.length) return states;
+  const playerIds = [...new Set(owners.filter((owner) => owner.audience === 'player').map((owner) => owner.id))];
+  const creatorIds = [...new Set(owners.filter((owner) => owner.audience === 'creator').map((owner) => owner.id))];
+  const clauses: string[] = [];
+  const replacements: Record<string, unknown> = { ids: definitionIds };
+  if (playerIds.length) {
+    clauses.push('(ownerType = \'player\' AND ownerId IN (:playerIds))');
+    replacements.playerIds = playerIds;
+  }
+  if (creatorIds.length) {
+    clauses.push('(ownerType = \'creator\' AND ownerId IN (:creatorIds))');
+    replacements.creatorIds = creatorIds;
+  }
+  if (!clauses.length) return states;
+  const rows = await select<StateRow>(
+    `${STATE_ROW_SQL}
+     WHERE definitionId IN (:ids) AND (${clauses.join(' OR ')})`,
+    replacements,
+  );
+  rememberStates(states, rows);
   return states;
 }
 
@@ -332,6 +361,7 @@ function affectedCount(result: unknown): number {
 }
 
 const STATE_WRITE_BATCH = 50;
+const STATE_READ_OWNER_BATCH = 100;
 const REVIEW_WRITE_BATCH = 100;
 const PROGRESS_INTERVAL_MS = 1000;
 
@@ -594,7 +624,7 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
   const definitionIds = [...new Set(
     owners.flatMap((owner) => owner.defs.map((def) => def.id)).filter((id): id is number => Number.isInteger(id)),
   )];
-  const states = job.replaceState ? new Map<string, StoredBadge>() : await loadStates(definitionIds);
+  // Previous rows are read per owner window. replaceState has nothing to compare.
   const reviewKeys = new Set(catalog.reviews.map((review) => `${review.definitionId}:${review.passId}`));
   const pendingStates: PendingStateWrite[] = [];
   const pendingReviews: { definitionId: number; passId: number }[] = [];
@@ -661,11 +691,13 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
     lastProgressAt = at;
     await writeJobProgress(Number(job.id), progressPayload('running'));
   };
+  let states = new Map<string, StoredBadge>();
+  let statesLoadedThrough = job.replaceState ? owners.length : skip;
   const queueState = async (ownerType: string, ownerId: number, definitionId: number, stored: StoredBadge) => {
     const key = stateKey(ownerType, ownerId, definitionId);
     const previous = states.get(key) ?? null;
     if (sameState(previous, stored)) return;
-    states.set(key, stored);
+    if (!job.replaceState) states.set(key, stored);
     pendingStates.push({ ownerType, ownerId, definitionId, state: stored });
     writes += 1;
     if (pendingStates.length >= STATE_WRITE_BATCH) await flushStateWrites(pendingStates);
@@ -680,6 +712,11 @@ export async function runBadgeJob(job: JobRow): Promise<{ summary: string; skips
   };
   try {
     for (let ownerIndex = skip; ownerIndex < owners.length; ownerIndex += 1) {
+      if (!job.replaceState && ownerIndex >= statesLoadedThrough) {
+        const end = Math.min(owners.length, ownerIndex + STATE_READ_OWNER_BATCH);
+        states = await loadStatesForOwners(definitionIds, owners.slice(ownerIndex, end));
+        statesLoadedThrough = end;
+      }
       const owner = owners[ownerIndex];
       const audienceDefs = owner.defs.length ? owner.defs : definitions.filter((def) => def.audience === owner.audience);
       badgeTotal = audienceDefs.length;
