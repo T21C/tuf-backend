@@ -34,6 +34,7 @@ import LevelTag from './levels/LevelTag.js';
 import LevelTagGroup from './levels/LevelTagGroup.js';
 import LevelTagAssignment from './levels/LevelTagAssignment.js';
 import LevelTagVote from './levels/LevelTagVote.js';
+import LevelCommunityTagVoteBlock from './levels/LevelCommunityTagVoteBlock.js';
 import Team from './credits/Team.js';
 import TeamMember from './credits/TeamMember.js';
 import PlayerStats from './players/PlayerStats.js';
@@ -169,6 +170,7 @@ export const db = {
     LevelTagGroup,
     LevelTagAssignment,
     LevelTagVote,
+    LevelCommunityTagVoteBlock,
     Team,
     TeamMember,
     PlayerStats,

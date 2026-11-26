@@ -559,6 +559,18 @@ export async function runCurationAnnouncementJob(
               attributes: ['id', 'icon'],
               required: false,
             },
+            {
+              model: Team,
+              as: 'teamObject',
+              attributes: ['id', 'name'],
+              required: false,
+            },
+            {
+              model: LevelCredit,
+              as: 'levelCredits',
+              required: false,
+              include: [{model: Creator, as: 'creator', attributes: ['id', 'name']}],
+            },
           ],
         },
       ],

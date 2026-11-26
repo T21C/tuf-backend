@@ -21,6 +21,8 @@ import {
   rematerializeCommunityTagsForLevel,
   uniqueClearerUserIds,
   userHasClearerPass,
+  loadBlockedCommunityTagIds,
+  isCommunityTagVoteBlocked,
 } from '@/server/services/data/communityTagVoteService.js';
 import { getCommunityTagConfig } from '@/config/app.config.js';
 import { communityTagVoteWeight, wilsonLowerBound } from '@/misc/utils/data/communityTagScoring.js';
@@ -84,7 +86,7 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
     order: TAG_LIST_ORDER,
   });
 
-  const [assignments, votes, uniqueClears, pguDifficulties, level, clearerUserIds, isClearer, liveTopDiff] =
+  const [assignments, votes, uniqueClears, pguDifficulties, level, clearerUserIds, isClearer, liveTopDiff, blockedTagIds] =
     await Promise.all([
       LevelTagAssignment.findAll({
         where: { levelId },
@@ -100,7 +102,9 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
       uniqueClearerUserIds(levelId),
       user?.playerId != null ? userHasClearerPass(user.playerId, levelId) : Promise.resolve(false),
       user?.playerId != null ? loadPlayerTopPguDifficulty(user.playerId) : Promise.resolve(null),
+      loadBlockedCommunityTagIds(levelId),
     ]);
+  const blockedSet = new Set(blockedTagIds);
 
   const difficulty = level?.difficulty ?? null;
   const chartCleared = uniqueClears > 0;
@@ -128,6 +132,7 @@ async function loadCommunityTagVoteState(levelId: number, user: Request['user'])
 
   const tags = catalog
     .map((tag) => {
+      if (blockedSet.has(tag.id)) return null;
       const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
       const settings = resolveCommunityTagSettings(tag, group, envKnobs);
       const bandOk = tagAllowedForDifficulty(settings.allowedBands, difficulty);
@@ -284,6 +289,13 @@ router.put(
       if (!tag || !tag.isCommunity) {
         await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'Tag is not a community tag' });
+      }
+      if (await isCommunityTagVoteBlocked(levelId, tagId, transaction)) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({
+          error: 'This tag is not votable on this level',
+          reason: 'blocked',
+        });
       }
 
       const envKnobs = getCommunityTagConfig();

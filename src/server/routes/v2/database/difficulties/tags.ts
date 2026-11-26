@@ -31,6 +31,7 @@ import {
   applyStaffTagSelection,
   pinCommunityAssignmentsForTag,
   rematerializeCommunityTagsForTagIds,
+  loadBlockedCommunityTagIds,
 } from '@/server/services/data/communityTagVoteService.js';
 import { parseCommunityTagKnobFields } from '@/misc/utils/data/communityTagEligibility.js';
 import { isAutomaticLevelTagName } from '@/misc/utils/data/automaticLevelTags.js';
@@ -740,6 +741,34 @@ router.delete(
 );
 
 router.get(
+  '/levels/:levelId([0-9]{1,20})/community-tag-vote-blocks',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getLevelCommunityTagVoteBlocks',
+    summary: 'List community tags blocked from clear voting on a level',
+    description: 'Returns tagIds that cannot be voted onto this level. Super admin.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { levelId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Blocked community tag ids' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const levelId = parseInt(req.params.levelId, 10);
+      const level = await Level.findByPk(levelId, { attributes: ['id'] });
+      if (!level) {
+        return res.status(404).json({ error: 'Level not found' });
+      }
+      const tagIds = await loadBlockedCommunityTagIds(levelId);
+      return res.json({ tagIds });
+    } catch (error) {
+      logger.error('Error fetching community tag vote blocks:', error);
+      return res.status(500).json({ error: 'Failed to fetch community tag vote blocks' });
+    }
+  },
+);
+
+router.get(
   '/levels/:levelId([0-9]{1,20})/tags',
   ApiDoc({
     operationId: 'getLevelTags',
@@ -772,11 +801,22 @@ router.post(
   ApiDoc({
     operationId: 'postLevelTags',
     summary: 'Assign tags to level',
-    description: 'Replace tags assigned to a level. Body: tagIds[]. Super admin.',
+    description: 'Replace tags assigned to a level. Body: tagIds[], optional blockedCommunityTagIds[]. Super admin.',
     tags: ['Database', 'Difficulties'],
     security: ['bearerAuth'],
     params: { levelId: { schema: { type: 'string' } } },
-    requestBody: { description: 'tagIds', schema: { type: 'object', properties: { tagIds: { type: 'array', items: { type: 'number' } } }, required: ['tagIds'] }, required: true },
+    requestBody: {
+      description: 'tagIds and optional blockedCommunityTagIds',
+      schema: {
+        type: 'object',
+        properties: {
+          tagIds: { type: 'array', items: { type: 'number' } },
+          blockedCommunityTagIds: { type: 'array', items: { type: 'number' } },
+        },
+        required: ['tagIds'],
+      },
+      required: true,
+    },
     responses: { 200: { description: 'Tags assigned' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
@@ -784,11 +824,15 @@ router.post(
     try {
       transaction = await sequelize.transaction();
       const levelId = parseInt(req.params.levelId);
-      const { tagIds } = req.body;
+      const { tagIds, blockedCommunityTagIds } = req.body;
 
       if (!Array.isArray(tagIds)) {
         await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'tagIds must be an array' });
+      }
+      if (blockedCommunityTagIds !== undefined && !Array.isArray(blockedCommunityTagIds)) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'blockedCommunityTagIds must be an array' });
       }
 
       const level = await Level.findByPk(levelId, { transaction });
@@ -798,7 +842,11 @@ router.post(
       }
 
       try {
-        await applyStaffTagSelection(levelId, tagIds, transaction);
+        const selectionOptions =
+          blockedCommunityTagIds === undefined
+            ? undefined
+            : { blockedCommunityTagIds };
+        await applyStaffTagSelection(levelId, tagIds, transaction, selectionOptions);
       } catch (assignError) {
         await safeTransactionRollback(transaction);
         if (assignError instanceof Error && assignError.message === 'INVALID_TAG_IDS') {

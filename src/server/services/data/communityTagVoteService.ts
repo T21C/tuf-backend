@@ -6,6 +6,7 @@ import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import LevelTagGroup from '@/models/levels/LevelTagGroup.js';
 import LevelTagVote from '@/models/levels/LevelTagVote.js';
+import LevelCommunityTagVoteBlock from '@/models/levels/LevelCommunityTagVoteBlock.js';
 import Pass from '@/models/passes/Pass.js';
 import Player from '@/models/players/Player.js';
 import User from '@/models/auth/User.js';
@@ -178,6 +179,64 @@ async function loadLevelDifficulty(
   };
 }
 
+export async function loadBlockedCommunityTagIds(
+  levelId: number,
+  transaction?: Transaction,
+): Promise<number[]> {
+  const rows = await LevelCommunityTagVoteBlock.findAll({
+    where: { levelId },
+    attributes: ['tagId'],
+    transaction,
+  });
+  return rows.map((row) => asTagId(row.tagId)).filter((id) => Number.isFinite(id));
+}
+
+export async function isCommunityTagVoteBlocked(
+  levelId: number,
+  tagId: number,
+  transaction?: Transaction,
+): Promise<boolean> {
+  const row = await LevelCommunityTagVoteBlock.findOne({
+    where: { levelId, tagId },
+    attributes: ['id'],
+    transaction,
+  });
+  return row != null;
+}
+
+export async function replaceBlockedCommunityTagIds(
+  levelId: number,
+  tagIds: number[],
+  transaction: Transaction,
+): Promise<void> {
+  const uniqueIds = [...new Set(
+    tagIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0),
+  )];
+  const communityIds = uniqueIds.length
+    ? (
+        await LevelTag.findAll({
+          where: { id: { [Op.in]: uniqueIds }, isCommunity: true },
+          attributes: ['id'],
+          transaction,
+        })
+      ).map((tag) => tag.id)
+    : [];
+
+  await LevelCommunityTagVoteBlock.destroy({ where: { levelId }, transaction });
+  if (communityIds.length === 0) return;
+
+  const now = new Date();
+  await LevelCommunityTagVoteBlock.bulkCreate(
+    communityIds.map((tagId) => ({
+      levelId,
+      tagId,
+      createdAt: now,
+      updatedAt: now,
+    })),
+    { transaction },
+  );
+}
+
 export type RematerializeCommunityTagOptions = {
   preserveAssignments?: boolean;
 };
@@ -206,7 +265,7 @@ export async function rematerializeCommunityTagsForLevel(
   const difficulty = await loadLevelDifficulty(levelId, transaction);
   const clearerUserIds = await uniqueClearerUserIds(levelId, transaction);
 
-  const [votes, assignments] = await Promise.all([
+  const [votes, assignments, blockedTagIds] = await Promise.all([
     LevelTagVote.findAll({
       where: { levelId, tagId: { [Op.in]: ids } },
       attributes: ['tagId', 'userId', 'weight', 'direction'],
@@ -216,7 +275,9 @@ export async function rematerializeCommunityTagsForLevel(
       where: { levelId, tagId: { [Op.in]: ids } },
       transaction,
     }),
+    loadBlockedCommunityTagIds(levelId, transaction),
   ]);
+  const blockedSet = new Set(blockedTagIds);
 
   const votesByTag = new Map<number, LevelTagVote[]>();
   for (const vote of votes) {
@@ -234,11 +295,17 @@ export async function rematerializeCommunityTagsForLevel(
   }
 
   for (const tag of communityTags) {
-    const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
-    const settings = resolveCommunityTagSettings(tag, group, envKnobs);
     const assignment = assignmentByTag.get(asTagId(tag.id)) ?? null;
     const pinned = Boolean(assignment?.pinned);
     const assigned = assignment != null;
+    if (blockedSet.has(asTagId(tag.id))) {
+      if (!pinned && assignment) {
+        await assignment.destroy({ transaction });
+      }
+      continue;
+    }
+    const group = (tag as LevelTag & { tagGroup?: LevelTagGroup | null }).tagGroup ?? null;
+    const settings = resolveCommunityTagSettings(tag, group, envKnobs);
     const bandOk = tagAllowedForDifficulty(settings.allowedBands, difficulty);
     if (!bandOk) {
       if (
@@ -494,11 +561,24 @@ export async function syncClearerVoteWeightsForPairs(
   }
 }
 
+export type ApplyStaffTagSelectionOptions = {
+  blockedCommunityTagIds?: number[];
+};
+
 export async function applyStaffTagSelection(
   levelId: number,
   tagIds: number[],
   transaction: Transaction,
+  options?: ApplyStaffTagSelectionOptions,
 ): Promise<void> {
+  if (options && Object.prototype.hasOwnProperty.call(options, 'blockedCommunityTagIds')) {
+    await replaceBlockedCommunityTagIds(
+      levelId,
+      options.blockedCommunityTagIds ?? [],
+      transaction,
+    );
+  }
+
   const uniqueIds = [...new Set(tagIds.filter((id) => Number.isFinite(id)))];
   const postedTags = uniqueIds.length
     ? await LevelTag.findAll({
@@ -559,10 +639,18 @@ export async function applyStaffTagSelection(
     transaction,
   });
   const allCommunityIds = communityTags.map((t) => t.id);
+  const blockedSet = new Set(await loadBlockedCommunityTagIds(levelId, transaction));
 
   for (const tagId of allCommunityIds) {
     const current = existingByTag.get(tagId);
     const shouldPin = postedCommunityIds.has(tagId);
+    const blocked = blockedSet.has(tagId);
+    if (blocked) {
+      if (!shouldPin && current?.pinned) {
+        await current.update({ pinned: false }, { transaction });
+      }
+      continue;
+    }
     if (shouldPin) {
       if (current) {
         if (!current.pinned) {

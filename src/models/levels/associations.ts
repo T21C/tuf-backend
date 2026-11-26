@@ -17,6 +17,7 @@ import LevelTag from './LevelTag.js';
 import LevelTagGroup from './LevelTagGroup.js';
 import LevelTagAssignment from './LevelTagAssignment.js';
 import LevelTagVote from './LevelTagVote.js';
+import LevelCommunityTagVoteBlock from './LevelCommunityTagVoteBlock.js';
 import LevelAnnouncementQueue from './LevelAnnouncementQueue.js';
 import LevelLinkGroup from './LevelLinkGroup.js';
 import LevelLinkMember from './LevelLinkMember.js';
@@ -355,6 +356,34 @@ export function initializeLevelsAssociations() {
   LevelTag.hasMany(LevelTagVote, {
     foreignKey: 'tagId',
     as: 'votes',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelCommunityTagVoteBlock.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  Level.hasMany(LevelCommunityTagVoteBlock, {
+    foreignKey: 'levelId',
+    as: 'communityTagVoteBlocks',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelCommunityTagVoteBlock.belongsTo(LevelTag, {
+    foreignKey: 'tagId',
+    as: 'tag',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelTag.hasMany(LevelCommunityTagVoteBlock, {
+    foreignKey: 'tagId',
+    as: 'voteBlocks',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   });
