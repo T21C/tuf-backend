@@ -577,7 +577,7 @@ async function processLevelDecline(
     }
     const submissionWithEvidence = submission as LevelSubmission & { evidence?: LevelSubmissionEvidence[] };
     if (submissionWithEvidence.evidence && submissionWithEvidence.evidence.length > 0) {
-      await evidenceService.deleteAllEvidenceForSubmission(submissionId);
+      await evidenceService.deleteAllEvidenceForSubmission(submissionId, transaction);
     }
 
     await LevelSubmission.update({ status: 'declined' }, { where: { id: submissionId }, transaction });
